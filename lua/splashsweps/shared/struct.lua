@@ -1,0 +1,73 @@
+
+---@class ss
+local ss = SplashSWEPs
+if not ss then return end
+
+---Performs a deep copy for given table.
+---@generic T: table<any, any>
+---@param t T|table<any, any>?
+---@param lookup table<any, any>?
+---@return T?
+function ss.deepcopy(t, lookup)
+    if t == nil then return nil end
+
+    ---@type table<any, any>
+    local copy = setmetatable({}, ss.deepcopy(getmetatable(t)))
+    for k, v in pairs(t) do
+        if istable(v) then
+            lookup = lookup or {}
+            lookup[t] = copy
+            if lookup[v] then
+                copy[k] = lookup[v]
+            else
+                copy[k] = ss.deepcopy(v, lookup)
+            end
+        elseif isvector(v) then
+            copy[k] = Vector(v)
+        elseif isangle(v) then
+            copy[k] = Angle(v)
+        elseif ismatrix(v) then
+            copy[k] = Matrix(v)
+        else
+            copy[k] = v
+        end
+    end
+
+    return copy
+end
+
+---Binds a constructor for struct typename
+---@generic T
+---@param typename ss.`T`
+---@return fun(ctor: fun(this: T, ...))
+function ss.ctor(typename)
+    local meta = getmetatable(ss.StructDefinitions[typename]) or {}
+    ---Registers the constructor for struct typename
+    ---@generic T
+    ---@param ctor fun(this: T, ...)
+    return function(ctor)
+        meta.__call = function(this, ...)
+            ctor(this, ...)
+            return this
+        end
+        setmetatable(ss.StructDefinitions[typename], meta)
+    end
+end
+
+---Returns a new instance of struct typename.
+---@generic T
+---@param typename ss.`T`
+---@return T
+function ss.new(typename)
+    return ss.deepcopy(ss.StructDefinitions[typename])
+end
+
+---Defines structure template.
+---@generic T
+---@param typename ss.`T` The name of structure
+---@return fun(definition: T)
+function ss.struct(typename)
+    return function(definition)
+        ss.StructDefinitions[typename] = definition
+    end
+end
