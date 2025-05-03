@@ -3,7 +3,35 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local assert   = assert
+local ceil     = math.ceil
+local clamp    = math.Clamp
+local floor    = math.floor
+local pow      = math.pow
+local round    = math.Round
+local sqrt     = math.sqrt
+local band     = bit.band
+local bor      = bit.bor
+local bnot     = bit.bnot
+local lshift   = bit.lshift
+local rshift   = bit.rshift
+local byte     = string.byte
+local char     = string.char
+local gmatch   = string.gmatch
+local sub      = string.sub
+local tonumber = tonumber
+local utilcrc  = util.CRC
+
+local IDAT_SIZE_LIMIT = 8192
+local ZLIB_SIZE_LIMIT = 65535
+local NUM_CHANNELS = 4
+local BYTES_PER_CHANNEL = 2
+local BYTES_PER_PX = BYTES_PER_CHANNEL * NUM_CHANNELS
+local BIT_DEPTH   = BYTES_PER_CHANNEL == 1 and "\x08" or "\x10"
+local CHANNEL_MAX = BYTES_PER_CHANNEL == 1 and 255    or 65535
+local gammaInv, expConst = 1 / 2.2, -8 + (8 * BYTES_PER_CHANNEL - 1) * 2.2
 local marginInLuxels = 1
+
 ---@param faces BSP.Face[]
 ---@param surfaces ss.PrecachedData.Surface[]
 ---@return ss.Rectangle[]
@@ -24,12 +52,6 @@ local function GetLightmapBounds(faces, surfaces)
     return out
 end
 
-local ceil  = math.ceil
-local clamp = math.Clamp
-local floor = math.floor
-local pow   = math.pow
-local round = math.Round
-local sqrt  = math.sqrt
 ---@param x      integer
 ---@param y      integer
 ---@param w      integer
@@ -41,14 +63,6 @@ local function GetLightmapSampleIndex(x, y, w, h, offset)
     y = clamp(y, 1, h) - 1
     return (x + y * w) * 4 + (offset or 0) + 1
 end
-
-local IDAT_SIZE_LIMIT = 8192
-local ZLIB_SIZE_LIMIT = 65535
-local NUM_CHANNELS = 4
-local BYTES_PER_CHANNEL = 2
-local BYTES_PER_PX = BYTES_PER_CHANNEL * NUM_CHANNELS
-local BIT_DEPTH   = BYTES_PER_CHANNEL == 1 and "\x08" or "\x10"
-local CHANNEL_MAX = BYTES_PER_CHANNEL == 1 and 255    or 65535
 
 -- ColorRGBExp32 to sRGB
 -- According to Source SDK, conversion steps are as follows:
@@ -70,7 +84,6 @@ local CHANNEL_MAX = BYTES_PER_CHANNEL == 1 and 255    or 65535
 --    y' =  x ^ (1 / 2.2) * 2 ^ ((exp - 8) / 2.2) * 2^(-1) * 2^16
 --       =  x ^ (1 / 2.2) * 2 ^ ((exp - 8 + 15 * 2.2) / 2.2)
 --       = (x * 2 ^ (exp - 8 + 15 * 2.2)) ^ (1 / 2.2)
-local gammaInv, expConst = 1 / 2.2, -8 + (8 * BYTES_PER_CHANNEL - 1) * 2.2
 ---@param r   integer
 ---@param g   integer
 ---@param b   integer
@@ -84,6 +97,7 @@ local function GetRGB(r, g, b, exp)
            clamp(round(pow(g * pow(2, exp + expConst), gammaInv)), 0, CHANNEL_MAX),
            clamp(round(pow(b * pow(2, exp + expConst), gammaInv)), 0, CHANNEL_MAX)
 end
+
 ---@param bitmap  integer[]
 ---@param pngsize integer
 ---@param rect    ss.Rectangle
@@ -98,7 +112,10 @@ local function WriteLightmap(bitmap, pngsize, rect, rawFace, samples)
     for y = 1, rect.height do
         for x = 1, rect.width do
             local sx, sy = x - marginInLuxels, y - marginInLuxels
-            if rect.istall == (sw > sh) then sx, sy = sy --[[@as integer]], sx --[[@as integer]] end
+            if rect.istall == (sw > sh) then
+                ---@type number, number
+                sx, sy = sy, sx
+            end
             local sampleIndex = GetLightmapSampleIndex(sx, sy, sw, sh, sampleOffset)
             local r, g, b = GetRGB(samples:byte(sampleIndex, sampleIndex + 3))
             local bitmapIndex = (bitmapOffset + x - 1 + (y - 1) * pngsize) * NUM_CHANNELS
@@ -112,17 +129,6 @@ local function WriteLightmap(bitmap, pngsize, rect, rawFace, samples)
     end
 end
 
-local band     = bit.band
-local bor      = bit.bor
-local bnot     = bit.bnot
-local lshift   = bit.lshift
-local rshift   = bit.rshift
-local byte     = string.byte
-local char     = string.char
-local gmatch   = string.gmatch
-local sub      = string.sub
-local tonumber = tonumber
-local utilcrc  = util.CRC
 ---@param width  integer
 ---@param height integer
 ---@param data   integer[]
@@ -191,6 +197,7 @@ local function encode(width, height, data)
     local deflateWritten = 0
     local deflateSize = numDeflateBlocks == 1 and rawPixelDataSize or ZLIB_SIZE_LIMIT
     local deflateBuffer = "\x78\x01" .. deflateHeader(deflateSize, numDeflateBlocks == 1)
+
     ---@param buf string
     ---@return string
     local function addDeflateBuffer(buf)
@@ -198,6 +205,7 @@ local function encode(width, height, data)
         idats = idats .. makeIDAT(sub(buf, 1, IDAT_SIZE_LIMIT))
         return sub(buf, IDAT_SIZE_LIMIT + 1)
     end
+
     ---@param buf string
     local function addPixelData(buf)
         if deflateWritten + #buf > deflateSize then
@@ -324,7 +332,6 @@ local function FindLightEnvironment(bsp)
                             nlightColorHDR[i] = nlightColor[i]
                         end
                     end
-                    print ""
                     print(string.format("    light_environment found:\n"
                         .. "        lightColor    = [%s %s %s %s]\n"
                         .. "        lightColorHDR = [%s %s %s %s]\n"
@@ -357,14 +364,15 @@ function ss.BuildLightmapCache(bsp, cachehdr, cacheldr)
     print "Packing lightmap..."
     local rectsldr = GetLightmapBounds(bsp.FACES, cacheldr)
     local rectshdr = GetLightmapBounds(bsp.FACES_HDR, cachehdr)
-    local elapsed = math.Round((SysTime() - t0) * 1000, 2)
+    local elapsed = round((SysTime() - t0) * 1000, 2)
     print("    Collected surfaces in " .. elapsed .. " ms.")
     if #rectsldr > 0 then
         t0 = SysTime()
         local packer = ss.MakeRectanglePacker(rectsldr):packall()
         cache.PNGLDR = GeneratePNG(bsp, packer, false) or ""
         WriteLightmapUV(bsp, packer, false)
-        elapsed = math.Round((SysTime() - t0) * 1000, 2)
+        collectgarbage "collect"
+        elapsed = round((SysTime() - t0) * 1000, 2)
         print("    Packed LDR lightmap in " .. elapsed .. " ms.")
     end
     if #rectshdr > 0 then
@@ -372,7 +380,8 @@ function ss.BuildLightmapCache(bsp, cachehdr, cacheldr)
         local packer = ss.MakeRectanglePacker(rectshdr):packall()
         cache.PNGHDR = GeneratePNG(bsp, packer, true) or ""
         WriteLightmapUV(bsp, packer, true)
-        elapsed = math.Round((SysTime() - t0) * 1000, 2)
+        collectgarbage "collect"
+        elapsed = round((SysTime() - t0) * 1000, 2)
         print("    Packed HDR lightmap in " .. elapsed .. " ms.")
     end
 

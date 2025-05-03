@@ -21,10 +21,14 @@ ss.struct "PrecachedData.Lightmap" {
 ---Structure of UV coordinates.
 ---@class ss.PrecachedData.UVInfo
 ---@field Transform   VMatrix  Transforms world coordinates into UV space.
+---Since GMOD can't read/write VMatrix from/to JSON I need a serialized table.
+---https://github.com/Facepunch/garrysmod-issues/issues/5150
+---@field TransformSerialized number[]
 ---@field Width       number   The width of this surface in UV space.
 ---@field Height      number   The height of this surface in UV space.
 ss.struct "PrecachedData.UVInfo" {
     Transform = Matrix(),
+    TransformSerialized = {},
     Width = 0,
     Height = 0,
 }
@@ -34,6 +38,9 @@ ss.struct "PrecachedData.UVInfo" {
 ---@field AABBMax            Vector Maximum component of all vertices in world coordinates.
 ---@field AABBMin            Vector Minimum component of all vertices in world coordinates.
 ---@field TransformPaintGrid VMatrix Transforms world coordinates into the serverside paint grid coordinates.
+---Since GMOD can't read/write VMatrix from/to JSON I need a serialized table.
+---https://github.com/Facepunch/garrysmod-issues/issues/5150
+---@field TransformPaintGridSerialized number[]
 ---@field LightmapHeight     number  The height of this surface in lightmap texture in luxels.
 ---@field LightmapWidth      number  The width of this surface in lightmap texture in luxels.
 ---@field PaintGridHeight    integer The height of this surface in the serverside paint grid.
@@ -56,16 +63,21 @@ ss.struct "PrecachedData.UVInfo" {
 ---[ u1 v1 u2 | v2 ]
 ---```
 ---@field Vertices VMatrix[]
+---Since GMOD can't read/write VMatrix from/to JSON I need a serialized table.
+---https://github.com/Facepunch/garrysmod-issues/issues/5150
+---@field VerticesSerialized number[][]
 ss.struct "PrecachedData.Surface" {
     AABBMax = ss.vector_one * -math.huge,
     AABBMin = ss.vector_one * math.huge,
     TransformPaintGrid = Matrix(),
+    TransformPaintGridSerialized = {},
     LightmapHeight = 0,
     LightmapWidth = 0,
     PaintGridHeight = 0,
     PaintGridWidth = 0,
     UVInfo = {},
     Vertices = {},
+    VerticesSerialized = {},
 }
 
 ---Defines playable area in the map.

@@ -3,9 +3,11 @@
 local ss = SplashSWEPs
 if not ss then return end
 
-local InkGridSize, NumRenderTargetOptions = 1, 5 -- TODO: Make them global
-
 local abs = math.abs
+local sort = table.sort
+local tableCopy = table.Copy
+local Vector = Vector
+local Matrix = Matrix
 local ModelMeshCache = {} ---@type table<string, Structure.MeshVertex[]>
 local MaterialCache = {} ---@type table<string, IMaterial>
 local TextureFilterBits = bit.bor(
@@ -41,16 +43,21 @@ local function GetModelMeshes(name)
     return ModelMeshCache[name]
 end
 
+---Compares two vertices used by table.sort
+---@param a Vector
+---@param b Vector
+---@return boolean
+local function VerticesComparer(a, b)
+    return Either(a.x == b.x, a.y < b.y, a.x < b.x)
+end
+
 -- Generates a convex hull by monotone chain method
 ---@param source Vector[]
 ---@return Vector[]
 local function GetConvex(source)
-    local vertices2D = table.Copy(source)
-    table.sort(vertices2D, function(a, b)
-        return Either(a.x == b.x, a.y < b.y, a.x < b.x)
-    end)
-
     local convex = {} ---@type Vector[]
+    local vertices2D = tableCopy(source)
+    sort(vertices2D, VerticesComparer)
     for i = 1, #vertices2D do
         if i > 2 then
             local p = convex[#convex]
@@ -103,12 +110,12 @@ local function FindMBR(vertices, angle, center)
     local mbrSize = Vector()
     local mbrRotation = Matrix()
     local convex = GetConvex(vertices2D)
+    local rotation = Matrix() -- to represent the angle of the MBR
     for i = 1, #convex do
         local p0, p1 = convex[i], convex[i % #convex + 1]
         local dp = p1 - p0
         if dp:LengthSqr() > 0 then
             local dir  = dp:GetNormalized()
-            local rotation = Matrix() -- to represent the angle of the MBR
             local maxs = ss.vector_one * -math.huge
             local mins = ss.vector_one * math.huge
             rotation:SetForward(dir)
@@ -152,13 +159,13 @@ end
 ---@param worldToMBR VMatrix
 ---@param mbrSize Vector
 local function SetTransformRelatedValues(surf, worldToMBR, mbrSize)
-    surf.PaintGridWidth  = math.ceil(mbrSize.x / InkGridSize)
-    surf.PaintGridHeight = math.ceil(mbrSize.y / InkGridSize)
+    surf.PaintGridWidth  = math.ceil(mbrSize.x / ss.InkGridSize)
+    surf.PaintGridHeight = math.ceil(mbrSize.y / ss.InkGridSize)
     surf.TransformPaintGrid = Matrix(worldToMBR)
     surf.TransformPaintGrid:Scale(Vector(
         surf.PaintGridWidth  / mbrSize.x,
         surf.PaintGridHeight / mbrSize.y, 1))
-    for i = 1, NumRenderTargetOptions do
+    for i = 1, #ss.RenderTargetSize do
         surf.UVInfo[i] = ss.new "PrecachedData.UVInfo"
         surf.UVInfo[i].Transform = Matrix(worldToMBR)
         surf.UVInfo[i].Transform:Scale(Vector(1 / mbrSize.x, 1 / mbrSize.y, 1))
@@ -602,6 +609,7 @@ function ss.BuildSurfaceCache(bsp, ishdr, water)
     end
     print("    Generated " .. #lump .. " surfaces for " .. (ishdr and "HDR" or "LDR"))
 
+    collectgarbage "collect"
     local elapsed = math.Round((SysTime() - t0) * 1000, 2)
     print("Elapsed time: " .. elapsed .. " ms.")
 

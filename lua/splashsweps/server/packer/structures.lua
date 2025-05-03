@@ -4,6 +4,16 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local deepcopy = ss.deepcopy
+local floor = math.floor
+local ipairs = ipairs
+local isnumber = isnumber
+local istable = istable
+local max = math.max
+local min = math.min
+local rawset = rawset
+local Vector = Vector
+
 ---@param a ss.LinkedListCell
 ---@return string
 local function CellTs(a)    return tostring(a.value)  end
@@ -162,9 +172,9 @@ function ss.LinkedList(values)
         t:append(values)
     elseif istable(values) then
         if values.__type == "SplashSWEPsLinkedList" then ---@cast values ss.LinkedList
-            for _, v in values() do t:append(ss.deepcopy(v.value)) end
+            for _, v in values() do t:append(deepcopy(v.value)) end
         else ---@cast values table[]
-            for _, v in ipairs(values) do t:append(ss.deepcopy(v)) end
+            for _, v in ipairs(values) do t:append(deepcopy(v)) end
         end
     end
 
@@ -217,7 +227,7 @@ function ss.MakeAVL()
             if self.left then  textleft,  wleft,  hleft,  centerleft  = self.left:display() end
             if self.right then textright, wright, hright, centerright = self.right:display() end
             if not self.right and not self.left then
-                return { textroot }, widthroot, 1, math.floor(widthroot / 2)
+                return { textroot }, widthroot, 1, floor(widthroot / 2)
             end
             if 0 < hleft and hleft < hright then
                 local spaces = string.rep(" ", wleft)
@@ -229,9 +239,9 @@ function ss.MakeAVL()
             end
             local lines = { "", "" }
             local totalwidth = widthroot
-            local totalheight = math.max(hleft, hright) + 2
-            local mergedcenter = wleft + math.floor(widthroot / 2)
-            for i = 1, math.max(#textleft, #textright) do
+            local totalheight = max(hleft, hright) + 2
+            local mergedcenter = wleft + floor(widthroot / 2)
+            for i = 1, max(#textleft, #textright) do
                 local L = textleft[i] or ""
                 local R = textright[i] or ""
                 table.insert(lines, L .. string.rep(" ", widthroot) .. R)
@@ -289,8 +299,8 @@ function ss.MakeAVL()
         else
             parent.right = child
         end
-        node.bias  = node.bias  + 1 - math.min(0, child.bias)
-        child.bias = child.bias + 1 + math.max(0, node.bias)
+        node.bias  = node.bias  + 1 - min(0, child.bias)
+        child.bias = child.bias + 1 + max(0, node.bias)
     end
 
     ---@param node ss.AVLNode
@@ -308,8 +318,8 @@ function ss.MakeAVL()
         else
             parent.left = child
         end
-        node.bias  = node.bias  - (1 + math.max(0, child.bias))
-        child.bias = child.bias - (1 - math.min(0, node.bias))
+        node.bias  = node.bias  - (1 + max(0, child.bias))
+        child.bias = child.bias - (1 - min(0, node.bias))
     end
 
     ---@param node ss.AVLNode
@@ -481,6 +491,8 @@ end
 ---@param tag any
 ---@return ss.Rectangle
 function ss.MakeRectangle(width, height, x, y, tag)
+    assert(width >= 0 and height >= 0, string.format(
+        "Attempt to make a rectangle with invalid size: (%f, %f)", width, height))
     ---@class ss.Rectangle
     ---@field left       number
     ---@field bottom     number

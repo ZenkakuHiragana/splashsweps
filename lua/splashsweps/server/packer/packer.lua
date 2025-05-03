@@ -3,13 +3,17 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local abs = math.abs
+local assert = assert
+local ipairs = ipairs
+local max = math.max
 local TOLERANCE = 1e-9 -- Relative tolerance
+
 ---@param a number
 ---@param b number
 ---@return boolean
-function ss.isclose(a, b)
-    return math.abs(a - b) <= math.max(
-        TOLERANCE * math.max(math.abs(a), math.abs(b)), 0)
+local function isclose(a, b)
+    return abs(a - b) <= max(TOLERANCE * max(abs(a), abs(b)), 0)
 end
 
 ---An implementation of "A New Placement Heuristic
@@ -117,15 +121,15 @@ function ss.MakeRectanglePacker(rectangles)
     local function __index(self, key)
         local sum = 0
         if key == "width" then
-            for _, v in self.xbase() do sum = math.max(sum, v.value.height) end
+            for _, v in self.xbase() do sum = max(sum, v.value.height) end
             return sum
         elseif key == "height" then
-            for _, v in self.ybase() do sum = math.max(sum, v.value.height) end
+            for _, v in self.ybase() do sum = max(sum, v.value.height) end
             return sum
         elseif key == "framesize" then
             return { self.width, self.height }
         elseif key == "maxsize" then
-            return math.max(self.width, self.height)
+            return max(self.width, self.height)
         else
             return rawget(self, key)
         end
@@ -143,8 +147,8 @@ function ss.MakeRectanglePacker(rectangles)
     local function pickLowest(a, b)
         if not a then return b --[[@as ss.LinkedListCell]] end
         if not b then return a --[[@as ss.LinkedListCell]] end
-        local A = math.max(a.value.offset, a.value.height)
-        local B = math.max(b.value.offset, b.value.height)
+        local A = max(a.value.offset, a.value.height)
+        local B = max(b.value.offset, b.value.height)
         return A < B and a or b
     end
 
@@ -179,8 +183,8 @@ function ss.MakeRectanglePacker(rectangles)
         for _, v in self.ybase() do ymin = pickLowest(ymin, v) end
 
         -- Calculated in a constant time
-        local xdist = math.max(xmin.value.offset, xmin.value.height)
-        local ydist = math.max(ymin.value.offset, ymin.value.height)
+        local xdist = max(xmin.value.offset, xmin.value.height)
+        local ydist = max(ymin.value.offset, ymin.value.height)
         if xdist == ydist then
             return prefer_y and ymin or xmin, prefer_y, true
         elseif xdist > ydist then
@@ -249,7 +253,9 @@ function ss.MakeRectanglePacker(rectangles)
         -- +-------+        +----------
         --         |        |
         --         +--------+
-        if hafter and hbefore and ss.isclose(hafter, hbefore) then --[[@cast before -?]] ---@cast after -?
+        if hafter and hbefore and isclose(hafter, hbefore) then
+            ---@cast before -?
+            ---@cast after -?
             before.value.length = before.value.length + after.value.length
             before.value.height = hbefore
             after:remove()
@@ -306,6 +312,19 @@ function ss.MakeRectanglePacker(rectangles)
         end
     end
 
+    function t:printbaseline()
+        for _, x in self.xbase() do
+            local e = x.before and (x.before.value.offset + x.before.value.length - x.value.offset) or 0
+            print(string.format("%f,%f,  ,  ,%f\n%f,%f,  ,  ,%f",
+                x.value.offset, x.value.height, e, x.value.offset + x.value.length, x.value.height, e))
+        end
+        for _, x in self.ybase() do
+            local e = x.before and (x.before.value.offset + x.before.value.length - x.value.offset) or 0
+            print(string.format("%f,  ,%f,  ,%f\n%f,  ,%f,  ,%f",
+                x.value.height, x.value.offset, e, x.value.height, x.value.offset + x.value.length, e))
+        end
+    end
+
     ---Place given rectangle and apply changes to baselines
     ---```log
     ---    <-----rw---->     n
@@ -334,77 +353,94 @@ function ss.MakeRectanglePacker(rectangles)
         local hx = xline.value.height
         local xend, hxend = x + rw, hx + rh
         local xbefore, xafter = xline.before, xline.after
-        local xmax = math.max(1, x, Lx, hx, xend, hxend)
+        local xmax = max(1, x, Lx, hx, xend, hxend)
 
         for _, yline in n() do
             local y = yline.value.offset
             local Ly = yline.value.length
             local hy = yline.value.height
             local yend = y + Ly
-            local ybefore = yline.before
-            local eps = TOLERANCE * math.max(xmax, y, Ly, hy, yend)
+            local ybefore, yafter = yline.before, yline.after
+            local eps = TOLERANCE * max(xmax, y, Ly, hy, yend)
 
-            -- Ensure the baseline are not completely inside the following area
-            -- ///////////////////////XXXX
-            -- ///////////////////////XXXX
-            --      +<------rw------>+\\\\
-            --      ^                |\\\\
-            --     rh                |\\\\
-            --      v                |\\\\
-            --      @<=(x, hx)-------+\\\\
-            -- ///////////////////////XXXX
-            -- ///////////////////////XXXX
+            -- Ensure the baseline is not completely inside the following area
+            -- ///////////////////////XXXX             XXXX\\\\\\\\\\\\XXXX
+            -- ///////////////////////XXXX             XXXX\\\\\\\\\\\\XXXX
+            --      +<------rw------>+\\\\             ////+----------+////
+            --      ^                |\\\\             ////^          |////
+            --     rh                |\\\\             ////|          |////
+            --      v                |\\\\             ////rw         |////
+            --      @<=(x, hx)-------+\\\\             ////|          |////
+            -- ///////////////////////XXXX             ////v          |////
+            -- ///////////////////////XXXX    ---(hx, x)-->@<---rh--->+////
+            --                                         ////            ////
+            --                                         ////            ////
             if not (yend <= hx - eps or hy >= xend + eps or y >= hxend + eps) then
                 -- In case both end points are within the rectangle
-                --      +<------rw------>+
-                --      ^                |
-                --     rh           || <-+-- yline
-                --      v                |
-                --      @<=(x, hx)-------+
-                if hx <= y + eps and y + eps < yend - eps and yend - eps <= hxend then
+                --      +<------rw------>+                     yline
+                --      ^                |                       |
+                --     rh           || <-+-- yline         +-----+----+
+                --      v                |                 ^     v    |
+                --      @<=(x, hx)-------+                 |    ===   |
+                --                                         rw         |
+                --                                         |          |
+                --                                         v          |
+                --                            ---(hx, x)-->@<---rh--->+
+                if hx <= y + eps and yend - eps <= hxend then
                     yline.value.rectangle = ri
                     yline.value.offset    = y
                     yline.value.height    = xend
-                    if not yline.after then
+                    if not yafter then
                         yline.value.length = hxend - y
                     else
                         yline.value.length = Ly
                     end
                 -- In case the starting point is out of the bottom of the rectangle
-                --      +<------rw------>+
-                --      ^                |
-                --     rh           || <-+-- yline
-                --      v           ||   |
-                --      @<=(x, hx)--++---+
-                --                  ||
-                elseif y - eps < hx and hx < yend - eps and yend - eps <= hxend then
-                    if not ss.isclose(hx, y) then
+                --      +<------rw------>+                     yline
+                --      ^                |                       |
+                --     rh           || <-+-- yline         +-----+----+
+                --      v           ||   |                 ^     v    |
+                --      @<=(x, hx)--++---+             ====+=======   |
+                --                  ||                     rw         |
+                --                                         |          |
+                --                                         v          |
+                --                            ---(hx, x)-->@<---rh--->+
+                elseif y - eps < hx and yend - eps <= hxend then
+                    if not isclose(hx, y) then
                         n:insert(Baseline(y, hx - y, hy), yline)
                     end
                     yline.value.offset    = hx
                     yline.value.height    = xend
                     yline.value.rectangle = ri
-                    if not yline.after then
+                    if not yafter then
                         yline.value.length = rh
-                    elseif ss.isclose(yend, hx) then
+                    elseif isclose(yend, hx) then
                         yline:remove()
+                        yafter.value.offset = hx
                     else
                         yline.value.length = yend - hx
                     end
                 -- In case the end point is out of the top of the rectangle
                 --                  ||
-                --      +<------rw--++-->+
-                --      ^           ||   |
-                --     rh           || <-+-- yline
-                --      v                |
-                --      @<=(x, hx)-------+
-                elseif hx <= y + eps and y + eps < hxend and hxend < yend + eps then
-                    if not ss.isclose(hxend, y) then
+                --      +<------rw--++-->+                     yline
+                --      ^           ||   |                       |
+                --     rh           || <-+-- yline         +-----+----+
+                --      v                |                 ^     v    |
+                --      @<=(x, hx)-------+                 |    ======+====
+                --                                         rw         |
+                --                                         |          |
+                --                                         v          |
+                --                            ---(hx, x)-->@<---rh--->+
+                elseif hx <= y + eps and hxend < yend + eps then
+                    if not isclose(hxend, y) then
                         n:insert(Baseline(y, hxend - y, xend, ri), yline)
                     end
 
-                    if ss.isclose(yend, hxend) then
+                    if isclose(yend, hxend) then
                         yline:remove()
+                        if yafter then
+                            yafter.value.offset = hxend
+                        end
                     else
                         yline.value.offset = hxend
                         yline.value.length = yend - hxend
@@ -414,19 +450,21 @@ function ss.MakeRectanglePacker(rectangles)
 
                 -- Merge the current baseline with the previous one
                 -- if their height are the same
-                --                  ||
-                --      +<------rw------>||
-                --      ^                ||
-                --     rh                || <- yline
-                --      v                // <- ybefore
-                --      @<=(x, hx)-------//
-                --                 //
-                --                 //
-                if ybefore and ss.isclose(ybefore.value.height, ybefore.after.value.height) then
+                --                  ||               ybefore.after ----+
+                --      +<------rw------>||          ybefore -----+    |
+                --      ^                ||                       v    v
+                --     rh                || <- ybefore.after    /////====+
+                --      v                // <- ybefore          ^        |
+                --      @<=(x, hx)-------//                /////|        +===
+                --                 //                           rw       |
+                --                 //                           |        |
+                --                                              v        |
+                --                                 ---(hx, x)-->@<--rh-->+
+                if ybefore and isclose(ybefore.value.height, ybefore.after.value.height) then
                     ybefore.after.value.offset = ybefore.value.offset
                     ybefore.after.value.length = ybefore.value.length + ybefore.after.value.length
                     ybefore.after.value.height = ybefore.value.height
-                    ybefore.after.value.rectangle = nil
+                    ybefore.after.value.rectangle = ybefore.value.rectangle
                     ybefore:remove()
                 end
             end
@@ -434,24 +472,28 @@ function ss.MakeRectanglePacker(rectangles)
 
         -- Extend the prependicular baseline
         -- if the last edge ends within the following area:
-        --     +<------rw------>+
-        --     ^                |
-        --    rh                |
-        --     v                |
-        --     @<=(x, hx)-------+
-        -- //////////////////////////
-        -- //////////////////////////
+        --
+        --     +<------rw------>+        /////////////+----------+
+        --     ^                |        /////////////^          |
+        --    rh                |        /////////////|          |
+        --     v                |        /////////////rw         |
+        --     @<=(x, hx)-------+        /////////////|          |
+        -- //////////////////////////    /////////////v          |
+        -- //////////////////////////    /////////////@<---rh--->+
+        -- //////////////////////////                 ^
+        -- //////////////////////////                 |
+        -- //////////////////////////    ---(hx, x)---+
         local lastoffset = n.last.value.offset
         local lastlength = n.last.value.length
         local lastheight = n.last.value.height
         local lastend = lastoffset + lastlength
-        if not ss.isclose(lastend, hx) and lastend <= hx then
-            local diff = hx - lastend
-            if ss.isclose(lastheight, xend) then
+        local eps = TOLERANCE * max(xmax, lastoffset, lastlength, lastheight, lastend)
+        if lastend - eps <= hx then
+            if isclose(lastheight, xend) then
                 n.last.value.length = hxend - lastoffset
                 n.last.value.rectangle = ri
             else
-                n.last.value.length = n.last.value.length + diff
+                n.last.value.length = hx - n.last.value.offset
                 n:append(Baseline(hx, rh, xend, ri))
             end
         -- Extension is also applied in this case,
@@ -461,9 +503,8 @@ function ss.MakeRectanglePacker(rectangles)
         --     rh                |//////
         --      v                |//////
         --      @<=(x, hx)-------+//////
-        elseif ss.isclose(lastheight, xend) then
-            local diff = hxend - lastend
-            n.last.value.length = n.last.value.length + diff
+        elseif isclose(lastheight, xend) then
+            n.last.value.length = hxend - n.last.value.offset
             n.last.value.rectangle = ri
         elseif lastheight > xend then
             local diff = hxend - lastend
@@ -481,14 +522,16 @@ function ss.MakeRectanglePacker(rectangles)
         --    hx -> +----------+----+
         --          <----rw---->
         --          <------Lx------->
-        local xlineadd = Baseline(x, rw, hxend, ri)
-        if ss.isclose(Lx, rw) then
-            xline.value.offset = xlineadd.offset
-            xline.value.length = xlineadd.length
-            xline.value.height = xlineadd.height
-            xline.value.rectangle = xlineadd.rectangle
+        if isclose(Lx, rw) then
+            xline.value.offset = x
+            xline.value.length = rw
+            xline.value.height = hxend
+            xline.value.rectangle = ri
+            if xafter then
+                xafter.value.offset = xend
+            end
         else
-            xline.parent:insert(xlineadd, xline)
+            xline.parent:insert(Baseline(x, rw, hxend, ri), xline)
             xline.value.offset = xend
             xline.value.length = Lx - rw
             xline.value.height = hx
@@ -503,12 +546,12 @@ function ss.MakeRectanglePacker(rectangles)
         --            | rectangle |
         --            |           |
         --            +-----------+---------+ <- hx
-        if xbefore and ss.isclose(xbefore.value.height, xbefore.after.value.height) then
+        if xbefore and isclose(xbefore.value.height, xbefore.after.value.height) then
             xbefore.value.length = xbefore.value.length + rw
             xbefore.value.rectangle = nil
             xbefore.after:remove()
         end
-        if xafter and ss.isclose(xafter.value.height, xafter.before.value.height) then
+        if xafter and isclose(xafter.value.height, xafter.before.value.height) then
             xafter.value.offset = xafter.before.value.offset
             xafter.value.length = xafter.value.length + xafter.before.value.length
             xafter.value.height = xafter.before.value.height
@@ -527,7 +570,7 @@ function ss.MakeRectanglePacker(rectangles)
         while true do
             local x, is_y, alt = self:getlowest(prefer_y)
             local Lx = x.value.length
-            if Lx >= math.max(rect.width, rect.height) then
+            if Lx >= max(rect.width, rect.height) then
                 return x, is_y
             elseif alt and not prefer_y then
                 prefer_y = true
@@ -606,7 +649,10 @@ function ss.MakeRectanglePacker(rectangles)
             if istall then r:rotate() end
             local offset = lowest.value.offset
             local height = lowest.value.height
-            if is_y then offset, height = height --[[@as number]], offset --[[@as number]] end
+            if is_y then
+                ---@type number, number
+                offset, height = height, offset
+            end
             r:place(offset, height)
             self.results[#self.results + 1] = best
             self:placebox(best, lowest, is_y)

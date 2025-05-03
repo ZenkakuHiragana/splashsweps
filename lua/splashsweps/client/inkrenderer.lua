@@ -30,4 +30,4 @@ local function DrawMeshes(bDrawingDepth, bDrawingSkybox)
     render.DepthRange(0, 1)
 end
 
--- hook.Add("PreDrawTranslucentRenderables", "SplashSWEPs: Draw ink", DrawMeshes)
+hook.Add("PostDrawTranslucentRenderables", "SplashSWEPs: Draw ink", DrawMeshes)

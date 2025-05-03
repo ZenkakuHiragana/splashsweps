@@ -29,13 +29,11 @@ end
 
 include "splashsweps/shared/autorun.lua"
 include "splashsweps/client/inkmaterial.lua"
+include "splashsweps/client/inkrenderer.lua"
 include "splashsweps/client/surfacebuilder.lua"
 
 ---@class ss
 local ss = SplashSWEPs
-local txtPath = string.format("splashsweps/%s.txt", game.GetMap())
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
-    ---@type ss.PrecachedData?
-    -- local cache = util.JSONToTable(util.Decompress(file.Read(txtPath) or "") or "", true)
-    -- assert(cache)
+    -- ss.PrepareInkSurface()
 end)

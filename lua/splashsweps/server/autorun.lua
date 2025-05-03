@@ -17,7 +17,20 @@ if not SplashSWEPs then
         ---Definition of ink type (color and functionality)
         ---@type table<string, ss.InkType>
         InkTypes = {},
+
+        RT_MARGIN_PIXELS = 4,
+        InkGridSize = 1,
+        NumRenderTargetOptions = -1,
+        RenderTargetSize = {
+            2048,
+            4096,
+            5792,
+            8192,
+            11586,
+            16384,
+        },
     }
+    SplashSWEPs.NumRenderTargetOptions = #SplashSWEPs.RenderTargetSize
 end
 
 include "splashsweps/shared/autorun.lua"
@@ -36,6 +49,8 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     local cache = util.JSONToTable(util.Decompress(file.Read(txtPath) or "") or "", true)
     if not cache then
         cache = ss.BuildMapCache() or {}
-        file.Write(txtPath, util.Compress(util.TableToJSON(cache)))
+        local json = util.TableToJSON(cache)
+        local data = util.Compress(json)
+        file.Write(txtPath, data)
     end
 end)

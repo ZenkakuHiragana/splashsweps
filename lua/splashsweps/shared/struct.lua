@@ -3,16 +3,27 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local getmetatable = getmetatable
+local isangle = isangle
+local ismatrix = ismatrix
+local istable = istable
+local isvector = isvector
+local pairs = pairs
+local setmetatable = setmetatable
+local Vector = Vector
+local Angle = Angle
+local Matrix = Matrix
+
 ---Performs a deep copy for given table.
 ---@generic T: table<any, any>
 ---@param t T|table<any, any>?
 ---@param lookup table<any, any>?
 ---@return T?
-function ss.deepcopy(t, lookup)
+local function deepcopy(t, lookup)
     if t == nil then return nil end
 
     ---@type table<any, any>
-    local copy = setmetatable({}, ss.deepcopy(getmetatable(t)))
+    local copy = setmetatable({}, deepcopy(getmetatable(t)))
     for k, v in pairs(t) do
         if istable(v) then
             lookup = lookup or {}
@@ -20,7 +31,7 @@ function ss.deepcopy(t, lookup)
             if lookup[v] then
                 copy[k] = lookup[v]
             else
-                copy[k] = ss.deepcopy(v, lookup)
+                copy[k] = deepcopy(v, lookup)
             end
         elseif isvector(v) then
             copy[k] = Vector(v)
@@ -35,6 +46,8 @@ function ss.deepcopy(t, lookup)
 
     return copy
 end
+
+ss.deepcopy = deepcopy
 
 ---Binds a constructor for struct typename
 ---@generic T
@@ -59,7 +72,7 @@ end
 ---@param typename ss.`T`
 ---@return T
 function ss.new(typename)
-    return ss.deepcopy(ss.StructDefinitions[typename])
+    return deepcopy(ss.StructDefinitions[typename])
 end
 
 ---Defines structure template.

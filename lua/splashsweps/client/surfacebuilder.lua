@@ -72,9 +72,35 @@ local function BuildInkMesh(cache, ishdr)
     mesh.End()
 end
 
----@param cache ss.PrecachedData
-function ss.PrepareInkSurface(cache)
+---Since GMOD can't read VMatrix from JSON I have to deserialize them manually.
+---https://github.com/Facepunch/garrysmod-issues/issues/5150
+---@param surfaces ss.PrecachedData.Surface[]
+local function DeserializeMatrices(surfaces)
+    for _, surf in ipairs(surfaces) do
+        assert(surf.TransformPaintGridSerialized and #surf.TransformPaintGridSerialized > 0)
+        surf.TransformPaintGrid = Matrix()
+        ---@diagnostic disable-next-line: missing-parameter
+        surf.TransformPaintGrid:SetUnpacked(unpack(surf.TransformPaintGridSerialized))
+        for i, v in ipairs(surf.VerticesSerialized) do
+            surf.Vertices[i] = Matrix()
+            ---@diagnostic disable-next-line: missing-parameter
+            surf.Vertices[i]:SetUnpacked(unpack(v))
+        end
+        for _, info in ipairs(surf.UVInfo) do
+            info.Transform = Matrix()
+            ---@diagnostic disable-next-line: missing-parameter
+            info.Transform:SetUnpacked(unpack(info.TransformSerialized))
+        end
+    end
+end
+
+local cachePath = string.format("splashsweps/%s.txt", game.GetMap())
+function ss.PrepareInkSurface()
     util.TimerCycle()
+
+    ---@type ss.PrecachedData?
+    local cache = util.JSONToTable(util.Decompress(file.Read(cachePath) or "") or "", true)
+    if not cache then return end
 
     local minimapBounds = cache.MinimapBounds
     local pngldr = cache.Lightmap.PNGLDR
@@ -91,6 +117,8 @@ function ss.PrepareInkSurface(cache)
     local surfaces = isusinghdr and hdr or ldr
     local water    = cache.SurfacesWater
     ss.SURFACE_ID_BITS = select(2, math.frexp(#surfaces))
+    DeserializeMatrices(surfaces)
+    DeserializeMatrices(water)
 
     local lightmap = isusinghdr and pnghdr or pngldr or ""
     local lightpng = "splashsweps/" .. game.GetMap() .. ".png"

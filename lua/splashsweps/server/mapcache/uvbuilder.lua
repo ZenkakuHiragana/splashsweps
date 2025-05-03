@@ -3,14 +3,11 @@
 local ss = SplashSWEPs
 if not ss then return end
 
----TODO: Make this global
-local RenderTargetSize = { 2048, 4096, 5792, 8192, 11586, 16384, }
-local RT_MARGIN_PIXELS = 4
-
 ---Sets up UV coordinates for precached surface data.
 ---@param surfaces ss.PrecachedData.Surface[]
 ---@return integer
 function ss.BuildUVCache(surfaces)
+    print "Calculation UV coordinates..."
     local numMeshTriangles = 0
     local totalArea = 0
     for _, surf in ipairs(surfaces) do
@@ -18,11 +15,12 @@ function ss.BuildUVCache(surfaces)
         totalArea = totalArea + info.Width * info.Height
         numMeshTriangles = numMeshTriangles + #surf.Vertices / 3
     end
-    local estimatedRectangleSize = math.sqrt(totalArea)
 
-    for rtIndex, rtSize in ipairs(RenderTargetSize) do
+    local t0 = SysTime()
+    local estimatedRectangleSize = math.sqrt(totalArea)
+    for rtIndex, rtSize in ipairs(ss.RenderTargetSize) do
         local rects = {} ---@type ss.Rectangle[]
-        local margin = estimatedRectangleSize / rtSize * RT_MARGIN_PIXELS
+        local margin = estimatedRectangleSize / rtSize * ss.RT_MARGIN_PIXELS
         for i, surf in ipairs(surfaces) do
             local info = surf.UVInfo[rtIndex]
             rects[i] = ss.MakeRectangle(info.Width + margin, info.Height + margin, 0, 0, surf)
@@ -47,6 +45,11 @@ function ss.BuildUVCache(surfaces)
             info.Transform:Translate(-offset)
             info.Transform:Invert()
         end
+
+        collectgarbage "collect"
+        local elapsed = math.Round((SysTime() - t0) * 1000, 2)
+        print("    Render Target size: " .. rtSize .. " (" .. elapsed .. " ms)")
+        t0 = SysTime()
     end
 
     return numMeshTriangles
