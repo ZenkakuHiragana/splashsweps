@@ -49,8 +49,6 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     local cache = util.JSONToTable(util.Decompress(file.Read(txtPath) or "") or "", true)
     if not cache then
         cache = ss.BuildMapCache() or {}
-        local json = util.TableToJSON(cache)
-        local data = util.Compress(json)
-        file.Write(txtPath, data)
+        file.Write(txtPath, util.Compress(util.TableToJSON(cache)))
     end
 end)

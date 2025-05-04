@@ -931,7 +931,7 @@ function ss.LoadBSP()
     for i = 1, #LUMP do
         local lumpname = LUMP[i]
         if StructureDefinitions[lumpname] then
-            print("        LUMP #" .. i .. "\t" .. lumpname)
+            print(string.format("        LUMP #%02d\t%s", i, lumpname))
             t[lumpname] = ReadLump(bsp, t.header.lumps, lumpname)
         end
     end

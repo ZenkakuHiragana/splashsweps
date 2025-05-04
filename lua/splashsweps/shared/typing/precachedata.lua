@@ -3,32 +3,46 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+---@class ss.PrecachedData.MatrixVertex
+---@field Translation Vector
+---@field Angle Angle
+---@field TextureUV Vector()
+---@field LightmapUV Vector()
+ss.struct "PrecachedData.MatrixVertex" {
+    Angle = Angle(),
+    LightmapUV = Vector(),
+    TextureUV = Vector(),
+    Translation = Vector(),
+}
+
+---@class ss.PrecachedData.MatrixTransform
+---@field Translation Vector
+---@field Angle Angle
+---@field Scale Vector
+ss.struct "PrecachedData.MatrixTransform" {
+    Translation = Vector(),
+    Angle = Angle(),
+    Scale = Vector(1, 1, 1),
+}
+
 ---Table of lightmap info stored in external JSON file.
 ---@class ss.PrecachedData.Lightmap
 ---@field DirectionalLightColor Color
 ---@field DirectionalLightColorHDR Color
 ---@field DirectionalLightScaleHDR number
----@field PNGHDR string
----@field PNGLDR string
 ss.struct "PrecachedData.Lightmap" {
     DirectionalLightColor = Color(0, 0, 0),
     DirectionalLightColorHDR = Color(0, 0, 0),
     DirectionalLightScaleHDR = 0,
-    PNGHDR = "",
-    PNGLDR = "",
 }
 
 ---Structure of UV coordinates.
 ---@class ss.PrecachedData.UVInfo
----@field Transform   VMatrix  Transforms world coordinates into UV space.
----Since GMOD can't read/write VMatrix from/to JSON I need a serialized table.
----https://github.com/Facepunch/garrysmod-issues/issues/5150
----@field TransformSerialized number[]
----@field Width       number   The width of this surface in UV space.
----@field Height      number   The height of this surface in UV space.
+---@field Transform ss.PrecachedData.MatrixTransform Transforms world coordinates into UV space.
+---@field Width     number The width of this surface in UV space.
+---@field Height    number The height of this surface in UV space.
 ss.struct "PrecachedData.UVInfo" {
-    Transform = Matrix(),
-    TransformSerialized = {},
+    Transform = ss.new "PrecachedData.MatrixTransform",
     Width = 0,
     Height = 0,
 }
@@ -37,10 +51,7 @@ ss.struct "PrecachedData.UVInfo" {
 ---@class ss.PrecachedData.Surface
 ---@field AABBMax            Vector Maximum component of all vertices in world coordinates.
 ---@field AABBMin            Vector Minimum component of all vertices in world coordinates.
----@field TransformPaintGrid VMatrix Transforms world coordinates into the serverside paint grid coordinates.
----Since GMOD can't read/write VMatrix from/to JSON I need a serialized table.
----https://github.com/Facepunch/garrysmod-issues/issues/5150
----@field TransformPaintGridSerialized number[]
+---@field TransformPaintGrid ss.PrecachedData.MatrixTransform Transforms world coordinates into the serverside paint grid coordinates.
 ---@field LightmapHeight     number  The height of this surface in lightmap texture in luxels.
 ---@field LightmapWidth      number  The width of this surface in lightmap texture in luxels.
 ---@field PaintGridHeight    integer The height of this surface in the serverside paint grid.
@@ -62,22 +73,17 @@ ss.struct "PrecachedData.UVInfo" {
 ---[ ---------+--- ]
 ---[ u1 v1 u2 | v2 ]
 ---```
----@field Vertices VMatrix[]
----Since GMOD can't read/write VMatrix from/to JSON I need a serialized table.
----https://github.com/Facepunch/garrysmod-issues/issues/5150
----@field VerticesSerialized number[][]
+---@field Vertices ss.PrecachedData.MatrixVertex[]
 ss.struct "PrecachedData.Surface" {
     AABBMax = ss.vector_one * -math.huge,
     AABBMin = ss.vector_one * math.huge,
-    TransformPaintGrid = Matrix(),
-    TransformPaintGridSerialized = {},
+    TransformPaintGrid = ss.new "PrecachedData.MatrixTransform",
     LightmapHeight = 0,
     LightmapWidth = 0,
     PaintGridHeight = 0,
     PaintGridWidth = 0,
     UVInfo = {},
     Vertices = {},
-    VerticesSerialized = {},
 }
 
 ---Defines playable area in the map.
@@ -95,9 +101,8 @@ ss.struct "MinimapAreaBounds" {
 ---@field MapCRC          string
 ---@field MinimapBounds   ss.MinimapAreaBounds[]
 ---@field Lightmap        ss.PrecachedData.Lightmap
----@field SurfacesHDR     ss.PrecachedData.Surface[]
----@field SurfacesLDR     ss.PrecachedData.Surface[]
----@field SurfacesWater   ss.PrecachedData.Surface[]
+---@field SurfacesWaterHDR ss.PrecachedData.Surface[]
+---@field SurfacesWaterLDR ss.PrecachedData.Surface[]
 ---@field NumTrianglesHDR integer
 ---@field NumTrianglesLDR integer
 ss.struct "PrecachedData" {
@@ -107,7 +112,6 @@ ss.struct "PrecachedData" {
     Lightmap = ss.new "PrecachedData.Lightmap",
     NumTrianglesHDR = 0,
     NumTrianglesLDR = 0,
-    SurfacesHDR = {},
-    SurfacesLDR = {},
-    SurfacesWater = {},
+    SurfacesWaterHDR = {},
+    SurfacesWaterLDR = {},
 }

@@ -278,17 +278,14 @@ local function WriteLightmapUV(bsp, packer, ishdr)
         surf.LightmapWidth = sw / pngsize
         surf.LightmapHeight = sh / pngsize
         if rawFace.dispInfo >= 0 then
-            local sideLength = sqrt(#surf.Vertices)
-            local divisor = sideLength - 1
             for _, v in ipairs(surf.Vertices) do
-                local i = v:GetField(4, 4)
-                local s =       i % sideLength  / divisor * sw
-                local t = floor(i / sideLength) / divisor * sh
+                local s = v.TextureUV.x * sw
+                local t = v.TextureUV.y * sh
                 if rect.istall == (sw > sh) then
                     s, t = t, s ---@type number, number
                 end
-                v:SetField(4, 3, (s + s0 + 1) / pngsize) -- u2
-                v:SetField(4, 4, (t + t0 + 1) / pngsize) -- v2
+                v.LightmapUV.x = (s + s0) / pngsize
+                v.LightmapUV.y = (t + t0) / pngsize
             end
         else
             local texInfo = rawTexInfo[rawFace.texInfo + 1]
@@ -299,13 +296,13 @@ local function WriteLightmapUV(bsp, packer, ishdr)
             local minsInLuxelsS = rawFace.lightmapTextureMinsInLuxels[1]
             local minsInLuxelsT = rawFace.lightmapTextureMinsInLuxels[2]
             for _, v in ipairs(surf.Vertices) do
-                local s = basisS:Dot(v:GetTranslation()) + offsetS - minsInLuxelsS
-                local t = basisT:Dot(v:GetTranslation()) + offsetT - minsInLuxelsT
+                local s = basisS:Dot(v.Translation) + offsetS - minsInLuxelsS
+                local t = basisT:Dot(v.Translation) + offsetT - minsInLuxelsT
                 if rect.istall == (sw > sh) then
                     s, t = t, s ---@type number, number
                 end
-                v:SetField(4, 3, (s + s0 + 1) / pngsize) -- u2
-                v:SetField(4, 4, (t + t0 + 1) / pngsize) -- v2
+                v.LightmapUV.x = (s + s0) / pngsize
+                v.LightmapUV.y = (t + t0) / pngsize
             end
         end
     end
@@ -314,7 +311,7 @@ end
 ---Finds light_environment entity in the ENTITIES lump and fetches directional light info.
 ---@param bsp ss.RawBSPResults
 ---@return Color ldr, Color hdr, number scale
-local function FindLightEnvironment(bsp)
+function ss.FindLightEnvironment(bsp)
     for _, entities in ipairs(bsp.ENTITIES) do
         for k in entities:gmatch "{[^}]+}" do
             if k:find "light_environment" then
@@ -352,38 +349,24 @@ end
 
 ---Sets up lightmap info for the cache.
 ---@param bsp ss.RawBSPResults
----@param cachehdr ss.PrecachedData.Surface[]
----@param cacheldr ss.PrecachedData.Surface[]
----@return ss.PrecachedData.Lightmap
-function ss.BuildLightmapCache(bsp, cachehdr, cacheldr)
+---@param surfaces ss.PrecachedData.Surface[]
+---@param ishdr boolean
+---@return string
+function ss.BuildLightmapCache(bsp, surfaces, ishdr)
     local t0 = SysTime()
-    local cache = ss.new "PrecachedData.Lightmap"
-    cache.DirectionalLightColor,
-    cache.DirectionalLightColorHDR,
-    cache.DirectionalLightScaleHDR = FindLightEnvironment(bsp)
     print "Packing lightmap..."
-    local rectsldr = GetLightmapBounds(bsp.FACES, cacheldr)
-    local rectshdr = GetLightmapBounds(bsp.FACES_HDR, cachehdr)
+    local rects = GetLightmapBounds(ishdr and bsp.FACES_HDR or bsp.FACES, surfaces)
     local elapsed = round((SysTime() - t0) * 1000, 2)
     print("    Collected surfaces in " .. elapsed .. " ms.")
-    if #rectsldr > 0 then
+    if #rects > 0 then
         t0 = SysTime()
-        local packer = ss.MakeRectanglePacker(rectsldr):packall()
-        cache.PNGLDR = GeneratePNG(bsp, packer, false) or ""
-        WriteLightmapUV(bsp, packer, false)
-        collectgarbage "collect"
+        local packer = ss.MakeRectanglePacker(rects):packall()
+        local png = GeneratePNG(bsp, packer, ishdr) or ""
+        WriteLightmapUV(bsp, packer, ishdr)
         elapsed = round((SysTime() - t0) * 1000, 2)
-        print("    Packed LDR lightmap in " .. elapsed .. " ms.")
-    end
-    if #rectshdr > 0 then
-        t0 = SysTime()
-        local packer = ss.MakeRectanglePacker(rectshdr):packall()
-        cache.PNGHDR = GeneratePNG(bsp, packer, true) or ""
-        WriteLightmapUV(bsp, packer, true)
-        collectgarbage "collect"
-        elapsed = round((SysTime() - t0) * 1000, 2)
-        print("    Packed HDR lightmap in " .. elapsed .. " ms.")
+        print("    Packed " .. (ishdr and "HDR" or "LDR") .. " lightmap in " .. elapsed .. " ms.")
+        return png
     end
 
-    return cache
+    return ""
 end

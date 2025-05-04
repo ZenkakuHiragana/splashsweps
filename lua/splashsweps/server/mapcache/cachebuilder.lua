@@ -3,15 +3,12 @@
 local ss = SplashSWEPs
 if not ss then return end
 
-local assert = assert
 local band = bit.band
 local huge = math.huge
 local huge_negative = -huge
 local ipairs = ipairs
 local mapCRC = util.CRC(file.Read("maps/" .. game.GetMap(), "GAME") or "")
 local vector_one = ss.vector_one
-
-local MatrixUnpack = Matrix().Unpack
 local MaxVector = ss.MaxVector
 local MinVector = ss.MinVector
 
@@ -38,87 +35,6 @@ local function BuildMinimapBounds(bsp)
     return bounds
 end
 
----Since GMOD can't write VMatrix to JSON I have to serialize them manually.
----https://github.com/Facepunch/garrysmod-issues/issues/5150
----@param surfaces ss.PrecachedData.Surface[]
-local function SerializeMatrices(surfaces)
-    for _, surf in ipairs(surfaces) do
-        local e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, eA, eB, eC, eD, eE, eF = MatrixUnpack(surf.TransformPaintGrid)
-        assert(e0, "e0")
-        assert(e1, "e1")
-        assert(e2, "e2")
-        assert(e3, "e3")
-        assert(e4, "e4")
-        assert(e5, "e5")
-        assert(e6, "e6")
-        assert(e7, "e7")
-        assert(e8, "e8")
-        assert(e9, "e9")
-        assert(eA, "eA")
-        assert(eB, "eB")
-        assert(eC, "eC")
-        assert(eD, "eD")
-        assert(eE, "eE")
-        assert(eF, "eF")
-        surf.TransformPaintGridSerialized = {
-            e0, e1, e2, e3,
-            e4, e5, e6, e7,
-            e8, e9, eA, eB,
-            eC, eD, eE, eF,
-        }
-        for i, v in ipairs(surf.Vertices) do
-            e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, eA, eB, eC, eD, eE, eF = MatrixUnpack(v)
-            assert(e0, "e0")
-            assert(e1, "e1")
-            assert(e2, "e2")
-            assert(e3, "e3")
-            assert(e4, "e4")
-            assert(e5, "e5")
-            assert(e6, "e6")
-            assert(e7, "e7")
-            assert(e8, "e8")
-            assert(e9, "e9")
-            assert(eA, "eA")
-            assert(eB, "eB")
-            assert(eC, "eC")
-            assert(eD, "eD")
-            assert(eE, "eE")
-            assert(eF, "eF")
-            surf.VerticesSerialized[i] = {
-                e0, e1, e2, e3,
-                e4, e5, e6, e7,
-                e8, e9, eA, eB,
-                eC, eD, eE, eF,
-            }
-        end
-        for _, info in ipairs(surf.UVInfo) do
-            e0, e1, e2, e3, e4, e5, e6, e7, e8, e9, eA, eB, eC, eD, eE, eF = MatrixUnpack(info.Transform)
-            assert(e0, "e0")
-            assert(e1, "e1")
-            assert(e2, "e2")
-            assert(e3, "e3")
-            assert(e4, "e4")
-            assert(e5, "e5")
-            assert(e6, "e6")
-            assert(e7, "e7")
-            assert(e8, "e8")
-            assert(e9, "e9")
-            assert(eA, "eA")
-            assert(eB, "eB")
-            assert(eC, "eC")
-            assert(eD, "eD")
-            assert(eE, "eE")
-            assert(eF, "eF")
-            info.TransformSerialized = {
-                e0, e1, e2, e3,
-                e4, e5, e6, e7,
-                e8, e9, eA, eB,
-                eC, eD, eE, eF,
-            }
-        end
-    end
-end
-
 ---Parses the BSP, collect valid brush surfaces,
 ---and prepare paintable surfaces.
 ---@return ss.PrecachedData?
@@ -129,19 +45,39 @@ function ss.BuildMapCache()
     cache.CacheVersion  = 1 -- TODO: Better versioning
     cache.MapCRC        = mapCRC
     cache.MinimapBounds = BuildMinimapBounds(bsp)
-    cache.SurfacesHDR   = ss.BuildSurfaceCache(bsp, true, cache.SurfacesWater)
-    cache.SurfacesLDR   = ss.BuildSurfaceCache(bsp, false, cache.SurfacesWater)
-    cache.Lightmap      = ss.BuildLightmapCache(bsp, cache.SurfacesHDR, cache.SurfacesLDR)
+    cache.Lightmap.DirectionalLightColor,
+    cache.Lightmap.DirectionalLightColorHDR,
+    cache.Lightmap.DirectionalLightScaleHDR = ss.FindLightEnvironment(bsp)
+    -- local surfaceDetails = ss.BuildFuncLODCache(bsp)
 
-    local surfaceProps  = ss.BuildStaticPropCache(bsp)
-    local surfacePropsHDR = ss.deepcopy(surfaceProps) or {}
-    table.Add(cache.SurfacesHDR, surfacePropsHDR)
-    table.Add(cache.SurfacesLDR, surfaceProps)
-    cache.NumTrianglesHDR = ss.BuildUVCache(cache.SurfacesHDR)
-    cache.NumTrianglesLDR = ss.BuildUVCache(cache.SurfacesLDR)
-    SerializeMatrices(cache.SurfacesHDR)
-    SerializeMatrices(cache.SurfacesLDR)
-    SerializeMatrices(cache.SurfacesWater)
+    do
+        collectgarbage "collect"
+        local hdr, whdr = ss.BuildSurfaceCache(bsp, true)
+        -- table.Add(hdr, surfaceDetails)
+        for _, s in ipairs(hdr) do
+            cache.NumTrianglesHDR = cache.NumTrianglesHDR + #s.Vertices / 3
+        end
+        cache.SurfacesWaterHDR = whdr
+        file.Write(string.format("splashsweps/%s_hdr.png", game.GetMap()), ss.BuildLightmapCache(bsp, hdr, true))
+        file.Write(string.format("splashsweps/%s_hdr.txt", game.GetMap()), util.Compress(util.TableToJSON(hdr)))
+        collectgarbage "collect"
+        ss.BuildUVCache(hdr)
+    end
+
+    do
+        collectgarbage "collect"
+        local ldr, wldr = ss.BuildSurfaceCache(bsp, false)
+        -- table.Add(ldr, surfaceDetails)
+        for _, s in ipairs(ldr) do
+            cache.NumTrianglesLDR = cache.NumTrianglesLDR + #s.Vertices / 3
+        end
+        cache.SurfacesWaterLDR = wldr
+        file.Write(string.format("splashsweps/%s_ldr.png", game.GetMap()), ss.BuildLightmapCache(bsp, ldr, true))
+        file.Write(string.format("splashsweps/%s_ldr.txt", game.GetMap()), util.Compress(util.TableToJSON(ldr)))
+        collectgarbage "collect"
+        ss.BuildUVCache(ldr)
+    end
+
     collectgarbage "collect"
     return cache
 end

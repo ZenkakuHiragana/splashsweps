@@ -138,8 +138,10 @@ function ss.MakeRectanglePacker(rectangles)
     local rrects = generateRotatedIndices(t.rects)
     for i, r in ipairs(t.rects) do t.queue:insert(-r.width, i) end
     for _, i in ipairs(rrects) do t.queueRotated:insert(-t.rects[i].height, i) end
-    t.xbase:append(Baseline(0, t.rects[1].width, 0))
-    t.ybase:append(Baseline(0, t.rects[1].height, 0))
+    if #rectangles > 0 then
+        t.xbase:append(Baseline(0, t.rects[1].width, 0))
+        t.ybase:append(Baseline(0, t.rects[1].height, 0))
+    end
 
     ---@param a ss.LinkedListCell?
     ---@param b ss.LinkedListCell?
@@ -598,7 +600,7 @@ function ss.MakeRectanglePacker(rectangles)
             if line.value.height < v.value.height then line = v end
         end
 
-        local i = line.value.rectangle
+        local i = line and line.value and line.value.rectangle
         if not i or self.optimized[i] then return false end
         self.optimized[i] = true
 

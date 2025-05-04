@@ -5,15 +5,12 @@ if not ss then return end
 
 ---Sets up UV coordinates for precached surface data.
 ---@param surfaces ss.PrecachedData.Surface[]
----@return integer
 function ss.BuildUVCache(surfaces)
     print "Calculation UV coordinates..."
-    local numMeshTriangles = 0
     local totalArea = 0
     for _, surf in ipairs(surfaces) do
         local info = surf.UVInfo[1]
         totalArea = totalArea + info.Width * info.Height
-        numMeshTriangles = numMeshTriangles + #surf.Vertices / 3
     end
 
     local t0 = SysTime()
@@ -36,21 +33,18 @@ function ss.BuildUVCache(surfaces)
             local scale = Vector(rect.width, rect.height, 1)
             if rect.istall then
                 scale.x, scale.y = scale.y, scale.x
-                info.Transform:Rotate(Angle(0, 90, 0))
-                info.Transform:Translate(Vector(0, -scale.y, 0))
+                info.Transform.Angle:RotateAroundAxis(info.Transform.Angle:Up(), 90)
+                info.Transform.Translation:Sub(Vector(0, scale.y, 0))
             end
             info.Width = scale.x / rectangleSizeHU
             info.Height = scale.y / rectangleSizeHU
-            info.Transform:Scale(scale)
-            info.Transform:Translate(-offset)
-            info.Transform:Invert()
+            info.Transform.Scale.x = info.Transform.Scale.x * scale.x
+            info.Transform.Scale.y = info.Transform.Scale.y * scale.y
+            info.Transform.Translation:Sub(offset)
         end
 
-        collectgarbage "collect"
         local elapsed = math.Round((SysTime() - t0) * 1000, 2)
         print("    Render Target size: " .. rtSize .. " (" .. elapsed .. " ms)")
         t0 = SysTime()
     end
-
-    return numMeshTriangles
 end

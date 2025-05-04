@@ -8,16 +8,15 @@ local MAX_TRIANGLES = math.floor(32768 / 3) -- mesh library limitation
 
 ---Construct IMesh
 ---@param cache ss.PrecachedData
+---@param surfaces ss.PrecachedData.Surface[]
 ---@param ishdr boolean
-local function BuildInkMesh(cache, ishdr)
-    local rects = {} ---@type ss.Rectangle[]
-    local surfaces = ishdr and cache.SurfacesHDR or cache.SurfacesLDR
+local function BuildInkMesh(cache, surfaces, ishdr)
     local NumMeshTriangles = ishdr and cache.NumTrianglesHDR or cache.NumTrianglesLDR
     print("SplashSWEPs: Total mesh triangles = ", NumMeshTriangles)
 
     local meshindex = 1
     for _ = 1, math.ceil(NumMeshTriangles / MAX_TRIANGLES) do
-        ss.IMesh[#ss.IMesh + 1] = Mesh()
+        ss.IMesh[#ss.IMesh + 1] = Mesh(ss.InkMeshMaterial)
     end
 
     -- Building MeshVertex
@@ -31,20 +30,24 @@ local function BuildInkMesh(cache, ishdr)
         meshindex = meshindex + 1
     end
 
+    local worldToUV = Matrix()
     for _, surf in ipairs(surfaces) do
         local info = surf.UVInfo[#surf.UVInfo]
-        local worldToUV = info.Transform
+        local uvOrigin = info.Transform.Translation
+        worldToUV:SetTranslation(uvOrigin)
+        worldToUV:SetAngles(info.Transform.Angle)
+        worldToUV:SetScale(info.Transform.Scale)
+        worldToUV:Invert()
         for i, v in ipairs(surf.Vertices) do
-            local position = v:GetTranslation()
-            local normal = v:GetUp()
-            local tangent = v:GetForward()
-            local binormal = -v:GetRight()
-            local u0, v0 = v:GetField(4, 1), v:GetField(4, 2) -- For displacement
-            local s,  t  = v:GetField(4, 3), v:GetField(4, 4) -- Lightmap UV
+            local position = v.Translation
+            local normal = v.Angle:Up()
+            local tangent = v.Angle:Forward()
+            local binormal = -v.Angle:Right()
+            local u0, v0 = v.TextureUV.x, v.TextureUV.y -- For displacement
+            local s,  t  = v.LightmapUV.x, v.LightmapUV.y -- Lightmap UV
             local uv = worldToUV * position
             if u0 > 0 or v0 > 0 then
-                uv = worldToUV * -worldToUV:GetTranslation()
-                   + Vector(u0 * info.Width, v0 * info.Height, 0)
+                uv = worldToUV * uvOrigin + Vector(u0 * info.Width, v0 * info.Height, 0)
             end
             mesh.Normal(normal)
             mesh.UserData(tangent.x, tangent.y, tangent.z, 1)
@@ -72,28 +75,6 @@ local function BuildInkMesh(cache, ishdr)
     mesh.End()
 end
 
----Since GMOD can't read VMatrix from JSON I have to deserialize them manually.
----https://github.com/Facepunch/garrysmod-issues/issues/5150
----@param surfaces ss.PrecachedData.Surface[]
-local function DeserializeMatrices(surfaces)
-    for _, surf in ipairs(surfaces) do
-        assert(surf.TransformPaintGridSerialized and #surf.TransformPaintGridSerialized > 0)
-        surf.TransformPaintGrid = Matrix()
-        ---@diagnostic disable-next-line: missing-parameter
-        surf.TransformPaintGrid:SetUnpacked(unpack(surf.TransformPaintGridSerialized))
-        for i, v in ipairs(surf.VerticesSerialized) do
-            surf.Vertices[i] = Matrix()
-            ---@diagnostic disable-next-line: missing-parameter
-            surf.Vertices[i]:SetUnpacked(unpack(v))
-        end
-        for _, info in ipairs(surf.UVInfo) do
-            info.Transform = Matrix()
-            ---@diagnostic disable-next-line: missing-parameter
-            info.Transform:SetUnpacked(unpack(info.TransformSerialized))
-        end
-    end
-end
-
 local cachePath = string.format("splashsweps/%s.txt", game.GetMap())
 function ss.PrepareInkSurface()
     util.TimerCycle()
@@ -103,48 +84,47 @@ function ss.PrepareInkSurface()
     if not cache then return end
 
     local minimapBounds = cache.MinimapBounds
-    local pngldr = cache.Lightmap.PNGLDR
-    local pnghdr = cache.Lightmap.PNGHDR
-    local ldr = cache.SurfacesLDR
-    local hdr = cache.SurfacesHDR
+    local pngldrPath = string.format("splashsweps/%s_ldr.png", game.GetMap())
+    local pnghdrPath = string.format("splashsweps/%s_hdr.png", game.GetMap())
+    local ldrPath = string.format("splashsweps/%s_ldr.txt", game.GetMap())
+    local hdrPath = string.format("splashsweps/%s_hdr.txt", game.GetMap())
+    local pngldrExists = file.Exists(pngldrPath, "DATA")
+    local pnghdrExists = file.Exists(pnghdrPath, "DATA")
+    local ldrExists = file.Exists(ldrPath, "DATA")
+    local hdrExists = file.Exists(hdrPath, "DATA")
     local isusinghdr = false
     if render.GetHDREnabled() then
-        isusinghdr = #hdr > 0 and pnghdr and #pnghdr > 0 or false
+        isusinghdr = hdrExists and pnghdrExists
     else
-        isusinghdr = not (#ldr > 0 and pngldr and #pngldr > 0)
+        isusinghdr = not (ldrExists and pngldrExists)
     end
 
-    local surfaces = isusinghdr and hdr or ldr
-    local water    = cache.SurfacesWater
+    local surfacePath = isusinghdr and hdrPath or ldrPath
+    local surfaces = util.JSONToTable(util.Decompress(file.Read(surfacePath) or "") or "", true) or {}
+    local water    = isusinghdr and cache.SurfacesWaterHDR or cache.SurfacesWaterLDR
     ss.SURFACE_ID_BITS = select(2, math.frexp(#surfaces))
-    DeserializeMatrices(surfaces)
-    DeserializeMatrices(water)
-
-    local lightmap = isusinghdr and pnghdr or pngldr or ""
-    local lightpng = "splashsweps/" .. game.GetMap() .. ".png"
-    file.Write(lightpng, lightmap)
 
     -- if not lightmapmat:IsError() then
     --     rt.Lightmap = lightmapmat:GetTexture "$basetexture"
     --     rt.Lightmap:Download()
     -- end
 
-    -- if rt.Lightmap and isusinghdr then -- If HDR lighting computation has been done
-    --     local intensity = 128
-    --     if cache.Lightmap.DirectionalLightColor then -- If there is light_environment
-    --         local lightIntensity = Vector(unpack(cache.Lightmap.DirectionalLightColor)):Dot(ss.GrayScaleFactor) / 255
-    --         local brightness = cache.Lightmap.DirectionalLightColor.a
-    --         local scale = cache.Lightmap.DirectionalLightScaleHDR
-    --         intensity = intensity + lightIntensity * brightness * scale
-    --     end
-    --     local value = ss.vector_one * intensity / 4096
-    --     rt.Material:SetVector("$color", value)
-    --     rt.Material:SetVector("$envmaptint", value / 16)
-    -- end
+    if isusinghdr then -- If HDR lighting computation has been done
+        local intensity = 128
+        if cache.Lightmap.DirectionalLightColor then -- If there is light_environment
+            local lightIntensity = Vector(unpack(cache.Lightmap.DirectionalLightColor)):Dot(ss.GrayScaleFactor) / 255
+            local brightness = cache.Lightmap.DirectionalLightColor.a
+            local scale = cache.Lightmap.DirectionalLightScaleHDR
+            intensity = intensity + lightIntensity * brightness * scale
+        end
+        local value = ss.vector_one * intensity / 4096
+        ss.InkMeshMaterial:SetVector("$color", value)
+        ss.InkMeshMaterial:SetVector("$envmaptint", value / 16)
+    end
 
     -- ss.PrecachePaintTextures()
     -- ss.GenerateHashTable()
-    BuildInkMesh(cache, isusinghdr)
+    BuildInkMesh(cache, surfaces, isusinghdr)
     -- ss.BuildWaterMesh()
     -- ss.ClearAllInk()
     -- ss.InitializeMoveEmulation(LocalPlayer())

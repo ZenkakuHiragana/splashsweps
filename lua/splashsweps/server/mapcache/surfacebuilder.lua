@@ -161,14 +161,16 @@ end
 local function SetTransformRelatedValues(surf, worldToMBR, mbrSize)
     surf.PaintGridWidth  = math.ceil(mbrSize.x / ss.InkGridSize)
     surf.PaintGridHeight = math.ceil(mbrSize.y / ss.InkGridSize)
-    surf.TransformPaintGrid = Matrix(worldToMBR)
-    surf.TransformPaintGrid:Scale(Vector(
-        surf.PaintGridWidth  / mbrSize.x,
-        surf.PaintGridHeight / mbrSize.y, 1))
+    surf.TransformPaintGrid.Translation = worldToMBR:GetTranslation()
+    surf.TransformPaintGrid.Angle = worldToMBR:GetAngles()
+    surf.TransformPaintGrid.Scale.x = surf.PaintGridWidth  / mbrSize.x
+    surf.TransformPaintGrid.Scale.y = surf.PaintGridHeight / mbrSize.y
     for i = 1, #ss.RenderTargetSize do
         surf.UVInfo[i] = ss.new "PrecachedData.UVInfo"
-        surf.UVInfo[i].Transform = Matrix(worldToMBR)
-        surf.UVInfo[i].Transform:Scale(Vector(1 / mbrSize.x, 1 / mbrSize.y, 1))
+        surf.UVInfo[i].Transform.Translation = worldToMBR:GetTranslation()
+        surf.UVInfo[i].Transform.Angle = worldToMBR:GetAngles()
+        surf.UVInfo[i].Transform.Scale.x = 1 / mbrSize.x
+        surf.UVInfo[i].Transform.Scale.y = 1 / mbrSize.y
         surf.UVInfo[i].Width = mbrSize.x
         surf.UVInfo[i].Height = mbrSize.y
     end
@@ -263,7 +265,11 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
     end
 
     for i, t in ipairs(triangles) do
-        surf.Vertices[i] = dispVertices[t]
+        surf.Vertices[i] = ss.new "PrecachedData.MatrixVertex"
+        surf.Vertices[i].Angle       = dispVertices[t]:GetAngles()
+        surf.Vertices[i].Translation = dispVertices[t]:GetTranslation()
+        surf.Vertices[i].TextureUV.x = dispVertices[t]:GetField(4, 1)
+        surf.Vertices[i].TextureUV.y = dispVertices[t]:GetField(4, 2)
     end
 
     return surf
@@ -319,11 +325,11 @@ local function BuildFromBrushFace(bsp, rawFace)
     -- Check if it's valid to add to polygon list
     if #filteredVertices < 3 then return end
     local center = vertexSum / #filteredVertices
-    local contents = util.PointContents(center - normal * ss.eps)
+    local contents = util.PointContents(center - normal * 0.1)
     local isDisplacement = rawFace.dispInfo >= 0
     local isSolid = bit.band(contents, MASK_SOLID) > 0
     local isWater = texName:find "water"
-    if not (isDisplacement or isSolid or isWater) then return end
+    -- if not (isDisplacement or isWater) then return end
 
     local surf = nil ---@type ss.PrecachedData.Surface?
     local angle = normal:Angle()
@@ -334,12 +340,21 @@ local function BuildFromBrushFace(bsp, rawFace)
         surf = BuildFromDisplacement(bsp, rawFace, filteredVertices)
     else
         surf = ss.new "PrecachedData.Surface"
-        for i, v in ipairs(filteredVertices) do
-            surf.Vertices[i] = Matrix()
-            surf.Vertices[i]:SetTranslation(v)
-            surf.Vertices[i]:SetAngles(angle)
+        local triangles = {} ---@type integer[]
+        for i = 2, #filteredVertices - 1 do
+            triangles[#triangles + 1] = 1
+            triangles[#triangles + 1] = i
+            triangles[#triangles + 1] = i + 1
+        end
+        for _, v in ipairs(filteredVertices) do
             surf.AABBMax = ss.MaxVector(surf.AABBMax, v)
             surf.AABBMin = ss.MinVector(surf.AABBMin, v)
+        end
+        for i, t in ipairs(triangles) do
+            local v = filteredVertices[t]
+            surf.Vertices[i] = ss.new "PrecachedData.MatrixVertex"
+            surf.Vertices[i].Translation = v
+            surf.Vertices[i].Angle = angle
         end
     end
 
@@ -438,15 +453,15 @@ local function ProcessStaticPropConvex(origin, angle, triangles)
         vertices[#vertices + 1] = v3
 
         local surf = surfaces[plane_index]
-        surf.Vertices[#surf.Vertices + 1] = Matrix()
-        surf.Vertices[#surf.Vertices]:SetAngles(n:Angle())
-        surf.Vertices[#surf.Vertices]:SetTranslation(v1)
-        surf.Vertices[#surf.Vertices + 1] = Matrix()
-        surf.Vertices[#surf.Vertices]:SetAngles(n:Angle())
-        surf.Vertices[#surf.Vertices]:SetTranslation(v2)
-        surf.Vertices[#surf.Vertices + 1] = Matrix()
-        surf.Vertices[#surf.Vertices]:SetAngles(n:Angle())
-        surf.Vertices[#surf.Vertices]:SetTranslation(v3)
+        surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+        surf.Vertices[#surf.Vertices].Angle = n:Angle()
+        surf.Vertices[#surf.Vertices].Translation = v1
+        surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+        surf.Vertices[#surf.Vertices].Angle = n:Angle()
+        surf.Vertices[#surf.Vertices].Translation = v2
+        surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+        surf.Vertices[#surf.Vertices].Angle = n:Angle()
+        surf.Vertices[#surf.Vertices].Translation = v3
     end
 
     for k, ang in pairs(PROJECTION_ANGLES) do
@@ -531,18 +546,15 @@ local function BuildStaticPropSurface(ph, name, origin, angle, mins, maxs)
             vertices[#vertices + 1] = v1
             vertices[#vertices + 1] = v2
             vertices[#vertices + 1] = v1
-            surf.Vertices[#surf.Vertices + 1] = Matrix()
-            surf.Vertices[#surf.Vertices]:SetTranslation(v1)
-            surf.Vertices[#surf.Vertices]:SetAngles(angle)
-            surf.Vertices[#surf.Vertices]:SetField(4, 4, -1) -- (u2, v2) = (0, -1)
-            surf.Vertices[#surf.Vertices + 1] = Matrix()
-            surf.Vertices[#surf.Vertices]:SetTranslation(v2)
-            surf.Vertices[#surf.Vertices]:SetAngles(angle)
-            surf.Vertices[#surf.Vertices]:SetField(4, 4, -1) -- (u2, v2) = (0, -1)
-            surf.Vertices[#surf.Vertices + 1] = Matrix()
-            surf.Vertices[#surf.Vertices]:SetTranslation(v3)
-            surf.Vertices[#surf.Vertices]:SetAngles(angle)
-            surf.Vertices[#surf.Vertices]:SetField(4, 4, -1) -- (u2, v2) = (0, -1)
+            surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+            surf.Vertices[#surf.Vertices].Angle = angle
+            surf.Vertices[#surf.Vertices].Translation = v1
+            surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+            surf.Vertices[#surf.Vertices].Angle = angle
+            surf.Vertices[#surf.Vertices].Translation = v2
+            surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+            surf.Vertices[#surf.Vertices].Angle = angle
+            surf.Vertices[#surf.Vertices].Translation = v3
         end
     end
 
@@ -585,11 +597,11 @@ end
 ---Extract surfaces from parsed BSP structures.
 ---@param bsp ss.RawBSPResults
 ---@param ishdr boolean
----@param water ss.PrecachedData.Surface[]
----@return ss.PrecachedData.Surface[]
-function ss.BuildSurfaceCache(bsp, ishdr, water)
+---@return ss.PrecachedData.Surface[] surf, ss.PrecachedData.Surface[] water
+function ss.BuildSurfaceCache(bsp, ishdr)
     local t0 = SysTime()
     local surf = {} ---@type ss.PrecachedData.Surface[]
+    local water = {} ---@type ss.PrecachedData.Surface[]
     local lump = ishdr and bsp.FACES_HDR or bsp.FACES or {}
     print("Generating inkable surfaces for " .. (ishdr and "HDR" or "LDR") .. "...")
     for i, face in ipairs(lump) do
@@ -609,14 +621,13 @@ function ss.BuildSurfaceCache(bsp, ishdr, water)
     end
     print("    Generated " .. #lump .. " surfaces for " .. (ishdr and "HDR" or "LDR"))
 
-    collectgarbage "collect"
     local elapsed = math.Round((SysTime() - t0) * 1000, 2)
     print("Elapsed time: " .. elapsed .. " ms.")
 
-    return surf
+    return surf, water
 end
 
----Extracts surfaces from static props and func_lods.
+---Extracts surfaces from static props.
 ---@param bsp ss.RawBSPResults
 ---@return ss.PrecachedData.Surface[]
 function ss.BuildStaticPropCache(bsp)
@@ -639,8 +650,15 @@ function ss.BuildStaticPropCache(bsp)
     print("    Generated surfaces for "
     .. numLargeProps .. " standard static props and "
     .. numSmallProps .. " small static props.")
+    return results
+end
 
+---Extracts surfaces from func_lods.
+---@param bsp ss.RawBSPResults
+---@return ss.PrecachedData.Surface[]
+function ss.BuildFuncLODCache(bsp)
     print "Generating surfaces for func_lods..."
+    local results = {} ---@type ss.PrecachedData.Surface[]
     local funclod = ents.FindByClass "func_lod"
     for _, prop in ipairs(funclod) do
         local ph = prop:GetPhysicsObject()

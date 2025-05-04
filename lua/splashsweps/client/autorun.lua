@@ -24,6 +24,30 @@ if not SplashSWEPs then
         ---List of IMeshes to render the painted ink.
         ---@type IMesh[]
         IMesh = {},
+        ---@type IMaterial
+        InkMeshMaterial = CreateMaterial(
+            "splashsweps_inkmesh",
+            "LightmappedGeneric", {
+                ["$basetexture"]                 = "color/white",
+                ["$bumpmap"]                     = "null-bumpmap",
+                ["$vertexcolor"]                 = "1",
+                ["$nolod"]                       = "1",
+                -- ["$alpha"]                       = "0.99609375", -- = 255 / 256,
+                -- ["$alphatest"]                   = "1",
+                -- ["$alphatestreference"]          = "0.0625",
+                -- ["$phong"]                       = "1",
+                -- ["$phongexponent"]               = "128",
+                -- ["$phongamount"]                 = "[1 1 1 1]",
+                -- ["$phongmaskcontrastbrightness"] = "[2 .7]",
+                -- ["$envmap"]                      = "shadertest/shadertest_env",
+                -- ["$envmaptint"]                  = "[1 1 1]",
+                -- ["$color"]                       = "[1 1 1]",
+                -- ["$detail"]                      = rt.BaseTexture,
+                -- ["$detailscale"]                 = 1,
+                -- ["$detailblendmode"]             = 5,
+                -- ["$detailblendfactor"]           = 1, -- Increase this for bright ink in night maps
+            }
+        ),
     }
 end
 
@@ -35,5 +59,5 @@ include "splashsweps/client/surfacebuilder.lua"
 ---@class ss
 local ss = SplashSWEPs
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
-    -- ss.PrepareInkSurface()
+    ss.PrepareInkSurface()
 end)
