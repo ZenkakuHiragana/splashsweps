@@ -43,12 +43,12 @@ include "splashsweps/server/packer/packer.lua"
 include "splashsweps/server/packer/structures.lua"
 
 local ss = SplashSWEPs
-local txtPath = string.format("splashsweps/%s.txt", game.GetMap())
+local txtPath = string.format("splashsweps/%s.json", game.GetMap())
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     ---@type ss.PrecachedData?
-    local cache = util.JSONToTable(util.Decompress(file.Read(txtPath) or "") or "", true)
+    local cache = util.JSONToTable(file.Read(txtPath) or "", true)
     if not cache then
         cache = ss.BuildMapCache() or {}
-        file.Write(txtPath, util.Compress(util.TableToJSON(cache)))
+        file.Write(txtPath, util.TableToJSON(cache))
     end
 end)

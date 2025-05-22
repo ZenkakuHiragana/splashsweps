@@ -49,31 +49,29 @@ function ss.BuildMapCache()
     cache.Lightmap.DirectionalLightColorHDR,
     cache.Lightmap.DirectionalLightScaleHDR = ss.FindLightEnvironment(bsp)
     -- local surfaceDetails = ss.BuildFuncLODCache(bsp)
+    for i = 1, #bsp.MODELS do
+        cache.ModelsHDR[i] = ss.new "PrecachedData.ModelInfo"
+        cache.ModelsLDR[i] = ss.new "PrecachedData.ModelInfo"
+    end
 
     do
         collectgarbage "collect"
-        local hdr, whdr = ss.BuildSurfaceCache(bsp, true)
+        local hdr, whdr = ss.BuildSurfaceCache(bsp, cache.ModelsHDR, true)
         -- table.Add(hdr, surfaceDetails)
-        for _, s in ipairs(hdr) do
-            cache.NumTrianglesHDR = cache.NumTrianglesHDR + #s.Vertices / 3
-        end
         cache.SurfacesWaterHDR = whdr
         file.Write(string.format("splashsweps/%s_hdr.png", game.GetMap()), ss.BuildLightmapCache(bsp, hdr, true))
-        file.Write(string.format("splashsweps/%s_hdr.txt", game.GetMap()), util.Compress(util.TableToJSON(hdr)))
+        file.Write(string.format("splashsweps/%s_hdr.json", game.GetMap()), util.TableToJSON(hdr))
         collectgarbage "collect"
         ss.BuildUVCache(hdr)
     end
 
     do
         collectgarbage "collect"
-        local ldr, wldr = ss.BuildSurfaceCache(bsp, false)
+        local ldr, wldr = ss.BuildSurfaceCache(bsp, cache.ModelsLDR, false)
         -- table.Add(ldr, surfaceDetails)
-        for _, s in ipairs(ldr) do
-            cache.NumTrianglesLDR = cache.NumTrianglesLDR + #s.Vertices / 3
-        end
         cache.SurfacesWaterLDR = wldr
         file.Write(string.format("splashsweps/%s_ldr.png", game.GetMap()), ss.BuildLightmapCache(bsp, ldr, true))
-        file.Write(string.format("splashsweps/%s_ldr.txt", game.GetMap()), util.Compress(util.TableToJSON(ldr)))
+        file.Write(string.format("splashsweps/%s_ldr.json", game.GetMap()), util.TableToJSON(ldr))
         collectgarbage "collect"
         ss.BuildUVCache(ldr)
     end

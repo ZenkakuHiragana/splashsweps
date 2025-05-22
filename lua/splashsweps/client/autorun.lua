@@ -22,7 +22,7 @@ if not SplashSWEPs then
         ---@type table<string, IMaterial>
         InkMaterials = {},
         ---List of IMeshes to render the painted ink.
-        ---@type IMesh[]
+        ---@type { BrushEntity: Entity?, [integer]: IMesh }[]
         IMesh = {},
         ---@type IMaterial
         InkMeshMaterial = CreateMaterial(

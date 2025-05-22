@@ -3,11 +3,12 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+---Precached information of a vertex stored in a local file.
 ---@class ss.PrecachedData.MatrixVertex
----@field Translation Vector
----@field Angle Angle
----@field TextureUV Vector()
----@field LightmapUV Vector()
+---@field Translation Vector The position.
+---@field Angle Angle Normal, tangent, and bitangent vector.
+---@field TextureUV Vector() Relative RenderTarget UV values (actual uv = offset + (u1 * width, v1 * height)).
+---@field LightmapUV Vector() Absolute Lightmap UV values.
 ss.struct "PrecachedData.MatrixVertex" {
     Angle = Angle(),
     LightmapUV = Vector(),
@@ -15,6 +16,8 @@ ss.struct "PrecachedData.MatrixVertex" {
     Translation = Vector(),
 }
 
+---Precached transformation matrix stored in a local file.
+---util.TableToJSON doesn't convert VMatrix so I use this one instead.
 ---@class ss.PrecachedData.MatrixTransform
 ---@field Translation Vector
 ---@field Angle Angle
@@ -34,6 +37,14 @@ ss.struct "PrecachedData.Lightmap" {
     DirectionalLightColor = Color(0, 0, 0),
     DirectionalLightColorHDR = Color(0, 0, 0),
     DirectionalLightScaleHDR = 0,
+}
+
+---@class ss.PrecachedData.ModelInfo
+---@field FaceIndices integer[]
+---@field NumTriangles integer
+ss.struct "PrecachedData.ModelInfo" {
+    FaceIndices = {},
+    NumTriangles = 0,
 }
 
 ---Structure of UV coordinates.
@@ -60,19 +71,6 @@ ss.struct "PrecachedData.UVInfo" {
 ---One of them will be selected on mesh construction depending on the resolution of RenderTarget.
 ---@field UVInfo ss.PrecachedData.UVInfo[]
 ---Vertices in world coordinates (x0, y0, z0) which are directly fed into mesh triangles.
----This array includes normal (nx, ny, nz), tangent (tx, ty, tz), and bitangent (bx, by, bz) of the vertices.
----
----The forth row is used to store UV coordinates of the vertex.  
----The first two column is for RenderTarget UV (u1, v1), the rest is lightmap UV (u2, v2).  
----The RenderTarget UV values are relative (actual uv = offset + (u1 * width, v1 * height)).  
----The Lightmap UV values are absolute (no such calculation like u1v1 is performed).
----```
----[ tx bx nx | x0 ]
----[ ty by ny | y0 ]
----[ tz bz nz | z0 ]
----[ ---------+--- ]
----[ u1 v1 u2 | v2 ]
----```
 ---@field Vertices ss.PrecachedData.MatrixVertex[]
 ss.struct "PrecachedData.Surface" {
     AABBMax = ss.vector_one * -math.huge,
@@ -101,17 +99,21 @@ ss.struct "MinimapAreaBounds" {
 ---@field MapCRC          string
 ---@field MinimapBounds   ss.MinimapAreaBounds[]
 ---@field Lightmap        ss.PrecachedData.Lightmap
+---@field ModelsHDR       ss.PrecachedData.ModelInfo[]
+---@field ModelsLDR       ss.PrecachedData.ModelInfo[]
 ---@field SurfacesWaterHDR ss.PrecachedData.Surface[]
 ---@field SurfacesWaterLDR ss.PrecachedData.Surface[]
----@field NumTrianglesHDR integer
----@field NumTrianglesLDR integer
+---@field NumTrianglesHDR integer[]
+---@field NumTrianglesLDR integer[]
 ss.struct "PrecachedData" {
     CacheVersion = -1,
     MapCRC = "",
     MinimapBounds = {},
     Lightmap = ss.new "PrecachedData.Lightmap",
-    NumTrianglesHDR = 0,
-    NumTrianglesLDR = 0,
+    ModelsHDR = {},
+    ModelsLDR = {},
+    NumTrianglesHDR = {},
+    NumTrianglesLDR = {},
     SurfacesWaterHDR = {},
     SurfacesWaterLDR = {},
 }

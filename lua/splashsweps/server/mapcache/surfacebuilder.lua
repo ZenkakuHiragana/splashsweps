@@ -596,10 +596,18 @@ end
 
 ---Extract surfaces from parsed BSP structures.
 ---@param bsp ss.RawBSPResults
+---@param modelCache ss.PrecachedData.ModelInfo[]
 ---@param ishdr boolean
 ---@return ss.PrecachedData.Surface[] surf, ss.PrecachedData.Surface[] water
-function ss.BuildSurfaceCache(bsp, ishdr)
+function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
     local t0 = SysTime()
+    local modelIndices = {} ---@type integer[]
+    for modelIndex, lump in ipairs(bsp.MODELS) do
+        for i = 1, lump.numFaces do
+            modelIndices[lump.firstFace + i] = modelIndex
+        end
+    end
+
     local surf = {} ---@type ss.PrecachedData.Surface[]
     local water = {} ---@type ss.PrecachedData.Surface[]
     local lump = ishdr and bsp.FACES_HDR or bsp.FACES or {}
@@ -616,6 +624,10 @@ function ss.BuildSurfaceCache(bsp, ishdr)
                 -- just for this
                 s.LightmapWidth = i
                 surf[#surf + 1] = s
+
+                local modelInfo = modelCache[modelIndices[i]]
+                modelInfo.FaceIndices[#modelInfo.FaceIndices + 1] = #surf
+                modelInfo.NumTriangles = modelInfo.NumTriangles + #s.Vertices / 3
             end
         end
     end
