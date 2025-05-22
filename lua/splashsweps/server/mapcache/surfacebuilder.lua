@@ -282,19 +282,24 @@ end
 local function BuildFromBrushFace(bsp, rawFace)
     -- Collect texture information and see if it's valid
     local rawTexInfo   = bsp.TEXINFO
+    local texInfo      = rawTexInfo[rawFace.texInfo + 1]
+    if bit.band(texInfo.flags, TextureFilterBits) ~= 0 then return end
+
     local rawTexData   = bsp.TEXDATA
     local rawTexDict   = bsp.TEXDATA_STRING_TABLE
     local rawTexIndex  = bsp.TexDataStringTableToIndex
     local rawTexString = bsp.TEXDATA_STRING_DATA
-    local texInfo      = rawTexInfo[rawFace.texInfo + 1]
     local texData      = rawTexData[texInfo.texData + 1]
     local texOffset    = rawTexDict[texData.nameStringTableID + 1]
     local texIndex     = rawTexIndex[texOffset]
     local texName      = rawTexString[texIndex]:lower()
-    local texMaterial  = GetMaterial(texName)
-    if bit.band(texInfo.flags, TextureFilterBits) ~= 0 then return end
-    if texMaterial:GetString "$surfaceprop" == "metalgrate" then return end
     if texName:find "tools/" then return end
+
+    local texMaterial  = GetMaterial(texName)
+    local surfaceProp = texMaterial:GetString "$surfaceprop" or ""
+    local surfaceIndex = util.GetSurfaceIndex(surfaceProp)
+    local surfaceData = util.GetSurfaceData(surfaceIndex) or {}
+    if surfaceData.material == MAT_GRATE then return end
 
     -- Collect geometrical information
     local rawPlanes = bsp.PLANES

@@ -145,8 +145,10 @@ function ss.PrepareInkSurface()
         end
     end)
     for i, info in ipairs(modelInfo) do
-        ss.IMesh[i] = { BrushEntity = entities[i - 1] }
-        BuildInkMesh(surfaces, info, i)
+        if info.NumTriangles > 0 then
+            ss.IMesh[i] = { BrushEntity = entities[i - 1] }
+            BuildInkMesh(surfaces, info, i)
+        end
     end
 
     -- ss.BuildWaterMesh()
