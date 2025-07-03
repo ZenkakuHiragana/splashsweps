@@ -47,7 +47,8 @@ local txtPath = string.format("splashsweps/%s.json", game.GetMap())
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     ---@type ss.PrecachedData?
     local cache = util.JSONToTable(file.Read(txtPath) or "", true)
-    if not cache then
+    local mapCRC = util.CRC(file.Read("maps/" .. game.GetMap() .. ".bsp", "GAME") or "")
+    if not cache or cache.MapCRC ~= mapCRC then
         cache = ss.BuildMapCache() or {}
         file.Write(txtPath, util.TableToJSON(cache))
     end

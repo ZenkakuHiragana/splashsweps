@@ -98,8 +98,9 @@ end
 ---Calculates minimum bounding rectangle (MBR) of given vertices.
 ---@param vertices Vector[]
 ---@param angle Angle
----@param center Vector
----@return VMatrix origin, Vector size
+---@param center Vector The center of vertices = 1/N ∑ vi
+---@return VMatrix origin Represents the origin and angle of the MBR in the world coordinate system.
+---@return Vector size The size of the MBR in Hammer units.
 local function FindMBR(vertices, angle, center)
     local vertices2D = {} ---@type Vector[]
     for i, v in ipairs(vertices) do
@@ -144,33 +145,28 @@ local function FindMBR(vertices, angle, center)
         mins = ss.MinVector(mins, mbrRotation * v)
     end
 
-    -- Represents the origin and angle of the MBR
-    -- in the world coordinate system.
-    local worldToMBR = Matrix()
-    worldToMBR:SetAngles(angle)
-    worldToMBR:SetTranslation(center)
-    worldToMBR:Mul(mbrRotation)
-    worldToMBR:Translate(mins)
-    return worldToMBR, mbrSize
+    local localToWorld = Matrix()
+    localToWorld:SetAngles(angle)
+    localToWorld:SetTranslation(center)
+    localToWorld:Mul(mbrRotation)
+    localToWorld:Translate(mins)
+    return localToWorld, mbrSize
 end
 
 ---Set placeholder values to VMatrix transform and 2D size fields
 ---@param surf ss.PrecachedData.Surface
----@param worldToMBR VMatrix
+---@param mbrLocalToWorld VMatrix
 ---@param mbrSize Vector
-local function SetTransformRelatedValues(surf, worldToMBR, mbrSize)
+local function SetTransformRelatedValues(surf, mbrLocalToWorld, mbrSize)
+    local paintGridMatrix = mbrLocalToWorld:GetInverseTR()
+    surf.TransformPaintGrid.Translation = paintGridMatrix:GetTranslation()
+    surf.TransformPaintGrid.Angle       = paintGridMatrix:GetAngles()
     surf.PaintGridWidth  = math.ceil(mbrSize.x / ss.InkGridSize)
     surf.PaintGridHeight = math.ceil(mbrSize.y / ss.InkGridSize)
-    surf.TransformPaintGrid.Translation = worldToMBR:GetTranslation()
-    surf.TransformPaintGrid.Angle = worldToMBR:GetAngles()
-    surf.TransformPaintGrid.Scale.x = surf.PaintGridWidth  / mbrSize.x
-    surf.TransformPaintGrid.Scale.y = surf.PaintGridHeight / mbrSize.y
     for i = 1, #ss.RenderTargetSize do
         surf.UVInfo[i] = ss.new "PrecachedData.UVInfo"
-        surf.UVInfo[i].Transform.Translation = worldToMBR:GetTranslation()
-        surf.UVInfo[i].Transform.Angle = worldToMBR:GetAngles()
-        surf.UVInfo[i].Transform.Scale.x = 1 / mbrSize.x
-        surf.UVInfo[i].Transform.Scale.y = 1 / mbrSize.y
+        surf.UVInfo[i].Angle = mbrLocalToWorld:GetAngles()
+        surf.UVInfo[i].Translation = mbrLocalToWorld:GetTranslation()
         surf.UVInfo[i].Width = mbrSize.x
         surf.UVInfo[i].Height = mbrSize.y
     end
@@ -265,7 +261,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
     end
 
     for i, t in ipairs(triangles) do
-        surf.Vertices[i] = ss.new "PrecachedData.MatrixVertex"
+        surf.Vertices[i] = ss.new "PrecachedData.Vertex"
         surf.Vertices[i].Angle       = dispVertices[t]:GetAngles()
         surf.Vertices[i].Translation = dispVertices[t]:GetTranslation()
         surf.Vertices[i].TextureUV.x = dispVertices[t]:GetField(4, 1)
@@ -357,15 +353,14 @@ local function BuildFromBrushFace(bsp, rawFace)
         end
         for i, t in ipairs(triangles) do
             local v = filteredVertices[t]
-            surf.Vertices[i] = ss.new "PrecachedData.MatrixVertex"
+            surf.Vertices[i] = ss.new "PrecachedData.Vertex"
             surf.Vertices[i].Translation = v
             surf.Vertices[i].Angle = angle
         end
     end
 
     if not isWater then
-        SetTransformRelatedValues(
-            surf, FindMBR(filteredVertices, angle, center))
+        SetTransformRelatedValues(surf, FindMBR(filteredVertices, angle, center))
     end
 
     return surf, tobool(isWater)
@@ -458,13 +453,13 @@ local function ProcessStaticPropConvex(origin, angle, triangles)
         vertices[#vertices + 1] = v3
 
         local surf = surfaces[plane_index]
-        surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+        surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.Vertex"
         surf.Vertices[#surf.Vertices].Angle = n:Angle()
         surf.Vertices[#surf.Vertices].Translation = v1
-        surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+        surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.Vertex"
         surf.Vertices[#surf.Vertices].Angle = n:Angle()
         surf.Vertices[#surf.Vertices].Translation = v2
-        surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+        surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.Vertex"
         surf.Vertices[#surf.Vertices].Angle = n:Angle()
         surf.Vertices[#surf.Vertices].Translation = v3
     end
@@ -486,7 +481,7 @@ end
 ---@param name string?
 ---@param org Vector?
 ---@param ang Angle?
----@return ss.PrecachedData.Surface[]?
+---@return ss.PrecachedData.SurfaceInfo?
 local function BuildFacesFromPropMesh(ph, name, org, ang)
     if not IsValid(ph) then return end
     local mat = ph:GetMaterial()
@@ -495,7 +490,7 @@ local function BuildFacesFromPropMesh(ph, name, org, ang)
     local meshes = name and GetModelMeshes(name) or ph:GetMeshConvexes()
     if not meshes or #meshes == 0 then return end
 
-    local surfaces = {} ---@type ss.PrecachedData.Surface[]
+    local surfaces = ss.new "PrecachedData.SurfaceInfo"
     org, ang = org or ph:GetPos(), ang or ph:GetAngles()
     for _, t in ipairs(meshes) do
         if t.material then
@@ -522,7 +517,7 @@ end
 ---@param angle Angle
 ---@param mins Vector
 ---@param maxs Vector
----@return ss.PrecachedData.Surface[]?
+---@return ss.PrecachedData.SurfaceInfo?
 local function BuildStaticPropSurface(ph, name, origin, angle, mins, maxs)
     if IsValid(ph) then
        local mat = ph:GetMaterial()
@@ -551,13 +546,13 @@ local function BuildStaticPropSurface(ph, name, origin, angle, mins, maxs)
             vertices[#vertices + 1] = v1
             vertices[#vertices + 1] = v2
             vertices[#vertices + 1] = v1
-            surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+            surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.Vertex"
             surf.Vertices[#surf.Vertices].Angle = angle
             surf.Vertices[#surf.Vertices].Translation = v1
-            surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+            surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.Vertex"
             surf.Vertices[#surf.Vertices].Angle = angle
             surf.Vertices[#surf.Vertices].Translation = v2
-            surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.MatrixVertex"
+            surf.Vertices[#surf.Vertices + 1] = ss.new "PrecachedData.Vertex"
             surf.Vertices[#surf.Vertices].Angle = angle
             surf.Vertices[#surf.Vertices].Translation = v3
         end
@@ -565,12 +560,12 @@ local function BuildStaticPropSurface(ph, name, origin, angle, mins, maxs)
 
     if #surf.Vertices < 3 then return end
     SetTransformRelatedValues(surf, FindMBR(vertices, angle, origin))
-    return { surf }
+    return { surf, UVScales = {} }
 end
 
 ---@param bsp ss.RawBSPResults
 ---@param prop BSP.StaticProp
----@return ss.PrecachedData.Surface[]?
+---@return ss.PrecachedData.SurfaceInfo?
 ---@return boolean?
 local function BuildStaticProp(bsp, prop)
     local name = bsp.sprp.name[prop.propType + 1]
@@ -603,7 +598,7 @@ end
 ---@param bsp ss.RawBSPResults
 ---@param modelCache ss.PrecachedData.ModelInfo[]
 ---@param ishdr boolean
----@return ss.PrecachedData.Surface[] surf, ss.PrecachedData.Surface[] water
+---@return ss.PrecachedData.SurfaceInfo surf, ss.PrecachedData.SurfaceInfo water
 function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
     local t0 = SysTime()
     local modelIndices = {} ---@type integer[]
@@ -613,8 +608,8 @@ function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
         end
     end
 
-    local surf = {} ---@type ss.PrecachedData.Surface[]
-    local water = {} ---@type ss.PrecachedData.Surface[]
+    local surf = ss.new "PrecachedData.SurfaceInfo"
+    local water = ss.new "PrecachedData.SurfaceInfo"
     local lump = ishdr and bsp.FACES_HDR or bsp.FACES or {}
     print("Generating inkable surfaces for " .. (ishdr and "HDR" or "LDR") .. "...")
     for i, face in ipairs(lump) do
@@ -646,43 +641,38 @@ end
 
 ---Extracts surfaces from static props.
 ---@param bsp ss.RawBSPResults
----@return ss.PrecachedData.Surface[]
+---@return ss.PrecachedData.StaticProp[]
+---@return ss.PrecachedData.StaticProp.UVInfo[][]
+---@return ss.PrecachedData.StaticProp.UVInfo[][]
 function ss.BuildStaticPropCache(bsp)
     print "Generating static prop surfaces..."
-    local numLargeProps = 0
-    local numSmallProps = 0
-    local results = {} ---@type ss.PrecachedData.Surface[]
+    local results = {} ---@type ss.PrecachedData.StaticProp[]
+    local uvinfo = {} ---@type ss.PrecachedData.StaticProp.UVInfo[][]
     for _, prop in ipairs(bsp.sprp.prop or {}) do
-        local surfaces, issmall = BuildStaticProp(bsp, prop)
-        if issmall then
-            numSmallProps = numSmallProps + 1
-        else
-            numLargeProps = numLargeProps + 1
-        end
-
-        for _, surf in ipairs(surfaces or {}) do
-            results[#results + 1] = surf
-        end
-    end
-    print("    Generated surfaces for "
-    .. numLargeProps .. " standard static props and "
-    .. numSmallProps .. " small static props.")
-    return results
-end
-
----Extracts surfaces from func_lods.
----@param bsp ss.RawBSPResults
----@return ss.PrecachedData.Surface[]
-function ss.BuildFuncLODCache(bsp)
-    print "Generating surfaces for func_lods..."
-    local results = {} ---@type ss.PrecachedData.Surface[]
-    local funclod = ents.FindByClass "func_lod"
-    for _, prop in ipairs(funclod) do
-        local ph = prop:GetPhysicsObject()
-        for _, surf in ipairs(BuildFacesFromPropMesh(ph) or {}) do
-            results[#results + 1] = surf
+        if prop.solid > 0 then
+            local name = bsp.sprp.name[prop.propType + 1] or ""
+            local info = util.GetModelInfo(name)
+            local index = util.GetSurfaceIndex(info and info.SurfacePropName or "")
+            local surf = util.GetSurfaceData(index)
+            if info and surf and surf.material ~= MAT_GRATE then
+                local scale = prop.uniformScale or 1
+                results[#results + 1] = {
+                    Angles = prop.angle,
+                    BoundsMax = info.HullMax * scale,
+                    BoundsMin = info.HullMin * scale,
+                    FadeMax = prop.fadeMaxDist,
+                    FadeMin = prop.fadeMinDist,
+                    ModelName = name,
+                    Position = prop.origin,
+                    Scale = scale,
+                }
+                uvinfo[#uvinfo + 1] = {}
+                for i = 1, #ss.RenderTargetSize do
+                    uvinfo[#uvinfo][i] = ss.new "PrecachedData.StaticProp.UVInfo"
+                end
+            end
         end
     end
-    print("    Generated surfaces for " .. #funclod .. " func_lods.")
-    return results
+    print("    Collected info for " .. #results .. " static props.")
+    return results, uvinfo, ss.deepcopy(uvinfo) or {}
 end

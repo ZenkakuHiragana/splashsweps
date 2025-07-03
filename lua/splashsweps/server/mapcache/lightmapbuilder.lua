@@ -33,7 +33,7 @@ local gammaInv, expConst = 1 / 2.2, -8 + (8 * BYTES_PER_CHANNEL - 1) * 2.2
 local marginInLuxels = 1
 
 ---@param faces BSP.Face[]
----@param surfaces ss.PrecachedData.Surface[]
+---@param surfaces ss.PrecachedData.SurfaceInfo
 ---@return ss.Rectangle[]
 local function GetLightmapBounds(faces, surfaces)
     local out = {} ---@type ss.Rectangle[]
@@ -349,7 +349,7 @@ end
 
 ---Sets up lightmap info for the cache.
 ---@param bsp ss.RawBSPResults
----@param surfaces ss.PrecachedData.Surface[]
+---@param surfaces ss.PrecachedData.SurfaceInfo
 ---@param ishdr boolean
 ---@return string
 function ss.BuildLightmapCache(bsp, surfaces, ishdr)

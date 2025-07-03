@@ -28,7 +28,7 @@ if not SplashSWEPs then
         InkMeshMaterial = CreateMaterial(
             "splashsweps_inkmesh",
             "LightmappedGeneric", {
-                ["$basetexture"]                 = "color/white",
+                ["$basetexture"]                 = "uvchecker",
                 ["$bumpmap"]                     = "null-bumpmap",
                 ["$vertexcolor"]                 = "1",
                 ["$nolod"]                       = "1",

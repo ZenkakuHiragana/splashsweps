@@ -4,12 +4,12 @@ local ss = SplashSWEPs
 if not ss then return end
 
 ---Precached information of a vertex stored in a local file.
----@class ss.PrecachedData.MatrixVertex
+---@class ss.PrecachedData.Vertex
 ---@field Translation Vector The position.
 ---@field Angle Angle Normal, tangent, and bitangent vector.
 ---@field TextureUV Vector() Relative RenderTarget UV values (actual uv = offset + (u1 * width, v1 * height)).
 ---@field LightmapUV Vector() Absolute Lightmap UV values.
-ss.struct "PrecachedData.MatrixVertex" {
+ss.struct "PrecachedData.Vertex" {
     Angle = Angle(),
     LightmapUV = Vector(),
     TextureUV = Vector(),
@@ -21,22 +21,20 @@ ss.struct "PrecachedData.MatrixVertex" {
 ---@class ss.PrecachedData.MatrixTransform
 ---@field Translation Vector
 ---@field Angle Angle
----@field Scale Vector
 ss.struct "PrecachedData.MatrixTransform" {
     Translation = Vector(),
     Angle = Angle(),
-    Scale = Vector(1, 1, 1),
 }
 
 ---Table of lightmap info stored in external JSON file.
----@class ss.PrecachedData.Lightmap
----@field DirectionalLightColor Color
----@field DirectionalLightColorHDR Color
----@field DirectionalLightScaleHDR number
-ss.struct "PrecachedData.Lightmap" {
-    DirectionalLightColor = Color(0, 0, 0),
-    DirectionalLightColorHDR = Color(0, 0, 0),
-    DirectionalLightScaleHDR = 0,
+---@class ss.PrecachedData.DirectionalLight
+---@field Color Color
+---@field ColorHDR Color
+---@field ScaleHDR number
+ss.struct "PrecachedData.DirectionalLight" {
+    Color = Color(0, 0, 0),
+    ColorHDR = Color(0, 0, 0),
+    ScaleHDR = 0,
 }
 
 ---@class ss.PrecachedData.ModelInfo
@@ -47,15 +45,48 @@ ss.struct "PrecachedData.ModelInfo" {
     NumTriangles = 0,
 }
 
----Structure of UV coordinates.
----@class ss.PrecachedData.UVInfo
----@field Transform ss.PrecachedData.MatrixTransform Transforms world coordinates into UV space.
----@field Width     number The width of this surface in UV space.
----@field Height    number The height of this surface in UV space.
-ss.struct "PrecachedData.UVInfo" {
-    Transform = ss.new "PrecachedData.MatrixTransform",
+---Structure of UV coordinates for static props.
+---@class ss.PrecachedData.StaticProp.UVInfo
+---@field Offset Vector()
+---@field Width number
+---@field Height number
+ss.struct "PrecachedData.StaticProp.UVInfo" {
+    Offset = Vector(),
     Width = 0,
     Height = 0,
+}
+
+---Structure of UV coordinates.
+---@class ss.PrecachedData.UVInfo
+---@field Angle       Angle  Transforms world coordinates into UV space.
+---@field Translation Vector Transforms world coordinates into UV space.
+---@field Width       number The width of this surface in UV space.
+---@field Height      number The height of this surface in UV space.
+ss.struct "PrecachedData.UVInfo" {
+    Angle = Angle(),
+    Translation = Vector(),
+    Width = 0,
+    Height = 0,
+}
+
+---@class ss.PrecachedData.StaticProp
+---@field Angles    Angle
+---@field BoundsMax Vector
+---@field BoundsMin Vector
+---@field FadeMax   number
+---@field FadeMin   number
+---@field ModelName string
+---@field Position  Vector
+---@field Scale     number The model scale of this prop.
+ss.struct "PrecachedData.StaticProp" {
+    Angles = Angle(),
+    BoundsMax = Vector(),
+    BoundsMin = Vector(),
+    FadeMax = 0,
+    FadeMin = -1,
+    ModelName = "",
+    Position = Vector(),
+    Scale = 1,
 }
 
 ---Per-surface precached data to construct paintable surface.
@@ -71,7 +102,7 @@ ss.struct "PrecachedData.UVInfo" {
 ---One of them will be selected on mesh construction depending on the resolution of RenderTarget.
 ---@field UVInfo ss.PrecachedData.UVInfo[]
 ---Vertices in world coordinates (x0, y0, z0) which are directly fed into mesh triangles.
----@field Vertices ss.PrecachedData.MatrixVertex[]
+---@field Vertices ss.PrecachedData.Vertex[]
 ss.struct "PrecachedData.Surface" {
     AABBMax = ss.vector_one * -math.huge,
     AABBMin = ss.vector_one * math.huge,
@@ -93,27 +124,36 @@ ss.struct "MinimapAreaBounds" {
     mins = Vector(),
 }
 
+---@class ss.PrecachedData.SurfaceInfo
+---@field [integer] ss.PrecachedData.Surface
+---@field UVScales number[] Render target size index -> Hammer units to UV multiplier
+ss.struct "PrecachedData.SurfaceInfo" {
+    UVScales = {},
+}
+
 ---Precached results of the BSP which are directly saved to/loaded from external JSON file.
 ---@class ss.PrecachedData
----@field CacheVersion    number
----@field MapCRC          string
----@field MinimapBounds   ss.MinimapAreaBounds[]
----@field Lightmap        ss.PrecachedData.Lightmap
----@field ModelsHDR       ss.PrecachedData.ModelInfo[]
----@field ModelsLDR       ss.PrecachedData.ModelInfo[]
+---@field CacheVersion     number
+---@field MapCRC           string
+---@field MinimapBounds    ss.MinimapAreaBounds[]
+---@field DirectionalLight ss.PrecachedData.DirectionalLight
+---@field ModelsHDR        ss.PrecachedData.ModelInfo[]
+---@field ModelsLDR        ss.PrecachedData.ModelInfo[]
+---@field StaticProps      ss.PrecachedData.StaticProp[]
+---@field StaticPropHDR    ss.PrecachedData.StaticProp.UVInfo[][]
+---@field StaticPropLDR    ss.PrecachedData.StaticProp.UVInfo[][]
 ---@field SurfacesWaterHDR ss.PrecachedData.Surface[]
 ---@field SurfacesWaterLDR ss.PrecachedData.Surface[]
----@field NumTrianglesHDR integer[]
----@field NumTrianglesLDR integer[]
 ss.struct "PrecachedData" {
     CacheVersion = -1,
     MapCRC = "",
     MinimapBounds = {},
-    Lightmap = ss.new "PrecachedData.Lightmap",
+    DirectionalLight = ss.new "PrecachedData.DirectionalLight",
     ModelsHDR = {},
     ModelsLDR = {},
-    NumTrianglesHDR = {},
-    NumTrianglesLDR = {},
+    StaticProps = {},
+    StaticPropHDR = {},
+    StaticPropLDR = {},
     SurfacesWaterHDR = {},
     SurfacesWaterLDR = {},
 }

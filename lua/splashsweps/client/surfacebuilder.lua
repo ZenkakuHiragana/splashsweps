@@ -7,7 +7,7 @@ if not ss then return end
 local MAX_TRIANGLES = math.floor(32768 / 3) -- mesh library limitation
 
 ---Construct IMesh
----@param surfaces ss.PrecachedData.Surface[]
+---@param surfaces ss.PrecachedData.SurfaceInfo
 ---@param modelInfo ss.PrecachedData.ModelInfo
 ---@param modelIndex integer
 local function BuildInkMesh(surfaces, modelInfo, modelIndex)
@@ -31,15 +31,16 @@ local function BuildInkMesh(surfaces, modelInfo, modelIndex)
         meshindex = meshindex + 1
     end
 
+    local rtIndex = #surfaces.UVScales
+    local scale = surfaces.UVScales[rtIndex]
     local worldToUV = Matrix()
+    worldToUV:SetScale(ss.vector_one * scale)
     for _, faceIndex in ipairs(modelInfo.FaceIndices) do
         local surf = surfaces[faceIndex]
-        local info = surf.UVInfo[#surf.UVInfo]
-        local uvOrigin = info.Transform.Translation
+        local info = surf.UVInfo[rtIndex]
+        local uvOrigin = info.Translation * scale
+        worldToUV:SetAngles(info.Angle)
         worldToUV:SetTranslation(uvOrigin)
-        worldToUV:SetAngles(info.Transform.Angle)
-        worldToUV:SetScale(info.Transform.Scale)
-        worldToUV:Invert()
         for i, v in ipairs(surf.Vertices) do
             local position = v.Translation
             local normal = v.Angle:Up()
@@ -48,16 +49,16 @@ local function BuildInkMesh(surfaces, modelInfo, modelIndex)
             local u0, v0 = v.TextureUV.x, v.TextureUV.y -- For displacement
             local s,  t  = v.LightmapUV.x, v.LightmapUV.y -- Lightmap UV
             local uv = worldToUV * position
-            local w = normal:Cross(tangent):Dot(binormal) > 0 and 1 or -1
+            local w = normal:Cross(tangent):Dot(binormal) >= 0 and 1 or -1
             if u0 > 0 or v0 > 0 then
-                uv = worldToUV * uvOrigin + Vector(u0 * info.Width, v0 * info.Height, 0)
+                uv = worldToUV * -uvOrigin + Vector(u0 * info.Width, v0 * info.Height, 0)
             end
             mesh.Normal(normal)
             mesh.UserData(tangent.x, tangent.y, tangent.z, w)
             mesh.TangentS(tangent * w)  -- These functions actually DO something
             mesh.TangentT(binormal) -- in terms of bumpmap for LightmappedGeneric
             mesh.Position(position)
-            mesh.TexCoord(0, uv.x, uv.y)
+            mesh.TexCoord(0, uv.y, uv.x)
             if t < 1 then
                 mesh.TexCoord(1, s, t)
                 mesh.Color(255, 255, 255, 255)
@@ -114,11 +115,11 @@ function ss.PrepareInkSurface()
 
     if ishdr then -- If HDR lighting computation has been done
         local intensity = 128
-        local color = cache.Lightmap.DirectionalLightColor
+        local color = cache.DirectionalLight.Color
         if color then -- If there is light_environment
             local lightIntensity = Vector(color.r, color.g, color.b):Dot(ss.GrayScaleFactor) / 255
             local brightness = color.a
-            local scale = cache.Lightmap.DirectionalLightScaleHDR
+            local scale = cache.DirectionalLight.ScaleHDR
             intensity = intensity + lightIntensity * brightness * scale
         end
         local value = ss.vector_one * intensity / 4096
@@ -145,10 +146,29 @@ function ss.PrepareInkSurface()
         end
     end)
     for i, info in ipairs(modelInfo) do
-        if info.NumTriangles > 0 then
-            ss.IMesh[i] = { BrushEntity = entities[i - 1] }
-            BuildInkMesh(surfaces, info, i)
-        end
+        ss.IMesh[i] = { BrushEntity = entities[i - 1] }
+        BuildInkMesh(surfaces, info, i)
+    end
+
+    local copy = Material "pp/copy"
+    local function RenderOverride(self, flags)
+        if LocalPlayer():KeyDown(IN_RELOAD) then return end
+        copy:SetTexture("$basetexture", "uvchecker2")
+        render.MaterialOverride(copy)
+        render.DepthRange(0, 65534 / 65535)
+        self:DrawModel(flags)
+        render.DepthRange(0, 1)
+        render.MaterialOverride()
+    end
+    
+    for _, prop in ipairs(cache.StaticProps or {}) do
+        local mdl = ClientsideModel(prop.ModelName)
+        mdl:SetPos(prop.Position or Vector())
+        mdl:SetAngles(prop.Angles or Angle())
+        mdl:SetKeyValue("fademindist", prop.FadeMin or -1)
+        mdl:SetKeyValue("fademaxdist", prop.FadeMax or 0)
+        mdl:SetModelScale(prop.Scale or 1)
+        mdl.RenderOverride = RenderOverride
     end
 
     -- ss.BuildWaterMesh()
