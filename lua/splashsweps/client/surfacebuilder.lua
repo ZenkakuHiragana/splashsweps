@@ -153,7 +153,7 @@ function ss.PrepareInkSurface()
     local copy = Material "pp/copy"
     local function RenderOverride(self, flags)
         if LocalPlayer():KeyDown(IN_RELOAD) then return end
-        copy:SetTexture("$basetexture", "uvchecker2")
+        copy:SetTexture("$basetexture", "uvchecker")
         render.MaterialOverride(copy)
         render.DepthRange(0, 65534 / 65535)
         self:DrawModel(flags)

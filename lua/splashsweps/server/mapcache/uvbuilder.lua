@@ -47,11 +47,15 @@ function ss.BuildUVCache(surfaces, staticPropInfo, staticPropRectangles)
                 local offset = Vector(rect.left, rect.bottom, 0)
                 local width = rect.width - margin
                 local height = rect.height - margin
-                if rect.istall then
-                    width, height = height, width ---@type number, number
+
+                -- If the face is rotated in the UV coord.
+                if rect.istall ~= (info.Width < info.Height) then
                     info.Angle:RotateAroundAxis(info.Angle:Up(), 90)
-                    offset:Add(Vector(0, width, 0))
+                    offset:Add(Vector(0, height, 0))
                 end
+
+                info.OffsetU = rect.left / rectangleSizeHU
+                info.OffsetV = rect.bottom / rectangleSizeHU
                 info.Width  = width / rectangleSizeHU
                 info.Height = height / rectangleSizeHU
                 workMatrix:Identity()

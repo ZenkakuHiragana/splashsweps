@@ -96,60 +96,71 @@ local function GetConvex(source)
 end
 
 ---Calculates minimum bounding rectangle (MBR) of given vertices.
----@param vertices Vector[]
----@param angle Angle
----@param center Vector The center of vertices = 1/N ∑ vi
+---@param vertices Vector[] Vertices respresenting the face in the world coordinate system.
+---@param angle    Angle    The angle of the face in the world coordinate system.
+---@param center   Vector   The center of vertices = 1/N ∑ vi
 ---@return VMatrix origin Represents the origin and angle of the MBR in the world coordinate system.
----@return Vector size The size of the MBR in Hammer units.
+---@return Vector  size   The size of the MBR in Hammer units.
 local function FindMBR(vertices, angle, center)
+    -- Convert each vertex to 2D coordinate system.
+    -- ```
+    --   ________
+    --  /        \
+    -- |   +--> x |
+    -- |   v      |
+    -- |   y      |
+    -- +----------+
+    -- ```
     local vertices2D = {} ---@type Vector[]
     for i, v in ipairs(vertices) do
         vertices2D[i] = WorldToLocal(v, angle_zero, center, angle)
     end
 
-    local minarea = math.huge
+    local mbrMins = ss.vector_one * math.huge
+    local minArea = math.huge
     local mbrSize = Vector()
     local mbrRotation = Matrix()
     local convex = GetConvex(vertices2D)
-    local rotation = Matrix() -- to represent the angle of the MBR
     for i = 1, #convex do
         local p0, p1 = convex[i], convex[i % #convex + 1]
         local dp = p1 - p0
         if dp:LengthSqr() > 0 then
             local dir  = dp:GetNormalized()
-            local maxs = ss.vector_one * -math.huge
-            local mins = ss.vector_one * math.huge
+            local rotation = Matrix() -- to represent the angle of the MBR
             rotation:SetForward(dir)
             rotation:SetRight(Vector(dir.y, -dir.x))
+            rotation:SetUp(vector_up)
+
+            local maxs = ss.vector_one * -math.huge
+            local mins = ss.vector_one * math.huge
+            local rotationInv = rotation:GetInverseTR()
             for _, v in ipairs(convex) do
-                maxs = ss.MaxVector(maxs, rotation * v)
-                mins = ss.MinVector(mins, rotation * v)
+                maxs = ss.MaxVector(maxs, rotationInv * v)
+                mins = ss.MinVector(mins, rotationInv * v)
             end
 
             local size = maxs - mins
-            if minarea > size.x * size.y then
-                minarea = size.x * size.y
+            if minArea > size.x * size.y then
+                minArea = size.x * size.y
+                mbrMins = mins
                 mbrSize = size
                 mbrRotation = rotation
-                if size.x < size.y then
-                    -- X axis of the MBR should be wide
-                    mbrRotation:Rotate(Angle(0, 0, 90))
-                    mbrSize.x, mbrSize.y = mbrSize.y, mbrSize.x
-                end
             end
         end
     end
 
-    local mins = ss.vector_one * math.huge
-    for _, v in ipairs(vertices2D) do
-        mins = ss.MinVector(mins, mbrRotation * v)
-    end
+    mbrRotation:SetTranslation(mbrRotation * mbrMins)
 
     local localToWorld = Matrix()
     localToWorld:SetAngles(angle)
     localToWorld:SetTranslation(center)
     localToWorld:Mul(mbrRotation)
-    localToWorld:Translate(mins)
+
+    ss.Debug.mbr = ss.Debug.mbr or {}
+    table.insert(ss.Debug.mbr, {
+        localToWorld = localToWorld,
+        size = mbrSize,
+    })
     return localToWorld, mbrSize
 end
 

@@ -57,14 +57,29 @@ ss.struct "PrecachedData.StaticProp.UVInfo" {
 }
 
 ---Structure of UV coordinates.
+---```
+---+------------------> v
+---|
+---|     (OffsetU, OffsetV)
+---|   /^^^^^^^^^^^^^^^^^^^
+---|  +---------+
+---|  |         | Height
+---|  +---------+
+---v     Width
+---u
+---```
 ---@class ss.PrecachedData.UVInfo
 ---@field Angle       Angle  Transforms world coordinates into UV space.
 ---@field Translation Vector Transforms world coordinates into UV space.
+---@field OffsetU     number
+---@field OffsetV     number
 ---@field Width       number The width of this surface in UV space.
 ---@field Height      number The height of this surface in UV space.
 ss.struct "PrecachedData.UVInfo" {
     Angle = Angle(),
     Translation = Vector(),
+    OffsetU = 0,
+    OffsetV = 0,
     Width = 0,
     Height = 0,
 }

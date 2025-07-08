@@ -18,6 +18,9 @@ if not SplashSWEPs then
         ---@type table<string, ss.InkType>
         InkTypes = {},
 
+        ---Various debug data goes here
+        Debug = {},
+
         RT_MARGIN_PIXELS = 4,
         InkGridSize = 1,
         NumRenderTargetOptions = -1,
