@@ -524,7 +524,13 @@ function ss.MakeRectangle(width, height, x, y, tag)
         self.topright   = Vector(px + self.width, py + self.height)
     end
 
-    x, y = x or 0, y or 0
+    -- This seems required for consistent texture packing
+    local DECIMAL_PLACES = 12
+    x = math.Round(x or 0, DECIMAL_PLACES)
+    y = math.Round(y or 0, DECIMAL_PLACES)
+    width = math.Round(width, DECIMAL_PLACES)
+    height = math.Round(height, DECIMAL_PLACES)
+
     t.left       = x
     t.bottom     = y
     t.bottomleft = Vector(x, y)

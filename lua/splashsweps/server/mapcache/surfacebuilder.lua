@@ -176,10 +176,10 @@ local function SetTransformRelatedValues(surf, mbrLocalToWorld, mbrSize)
     surf.PaintGridHeight = math.ceil(mbrSize.y / ss.InkGridSize)
     for i = 1, #ss.RenderTargetSize do
         surf.UVInfo[i] = ss.new "PrecachedData.UVInfo"
-        surf.UVInfo[i].Angle = mbrLocalToWorld:GetAngles()
+        surf.UVInfo[i].Angle       = mbrLocalToWorld:GetAngles()
         surf.UVInfo[i].Translation = mbrLocalToWorld:GetTranslation()
-        surf.UVInfo[i].Width = mbrSize.x
-        surf.UVInfo[i].Height = mbrSize.y
+        surf.UVInfo[i].Width       = mbrSize.x
+        surf.UVInfo[i].Height      = mbrSize.y
     end
 end
 
@@ -337,12 +337,8 @@ local function BuildFromBrushFace(bsp, rawFace)
     -- Check if it's valid to add to polygon list
     if #filteredVertices < 3 then return end
     local center = vertexSum / #filteredVertices
-    local contents = util.PointContents(center - normal * 0.1)
     local isDisplacement = rawFace.dispInfo >= 0
-    local isSolid = bit.band(contents, MASK_SOLID) > 0
     local isWater = texName:find "water"
-    -- if not (isDisplacement or isWater) then return end
-
     local surf = nil ---@type ss.PrecachedData.Surface?
     local angle = normal:Angle()
     angle:RotateAroundAxis(angle:Right(), -90) -- Make sure the up vector is the normal
