@@ -38,9 +38,9 @@ local function BuildInkMesh(surfaces, modelInfo, modelIndex)
     for _, faceIndex in ipairs(modelInfo.FaceIndices) do
         local surf = surfaces[faceIndex]
         local info = surf.UVInfo[rtIndex]
-        local uvOrigin = info.Translation * scale
+        local uvOrigin = Vector(info.OffsetU, info.OffsetV)
         worldToUV:SetAngles(info.Angle)
-        worldToUV:SetTranslation(uvOrigin)
+        worldToUV:SetTranslation(info.Translation * scale)
         for i, v in ipairs(surf.Vertices) do
             local position = v.Translation
             local normal = v.Angle:Up()
@@ -50,8 +50,8 @@ local function BuildInkMesh(surfaces, modelInfo, modelIndex)
             local s,  t  = v.LightmapUV.x, v.LightmapUV.y -- Lightmap UV
             local uv = worldToUV * position
             local w = normal:Cross(tangent):Dot(binormal) >= 0 and 1 or -1
-            if u0 > 0 or v0 > 0 then
-                uv = worldToUV * -uvOrigin + Vector(u0 * info.Width, v0 * info.Height, 0)
+            if u0 >= 0 or v0 >= 0 then
+                uv = uvOrigin + Vector(u0 * info.Width, v0 * info.Height, 0)
             end
             mesh.Normal(normal)
             mesh.UserData(tangent.x, tangent.y, tangent.z, w)

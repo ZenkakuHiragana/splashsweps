@@ -12,7 +12,7 @@ if not ss then return end
 ss.struct "PrecachedData.Vertex" {
     Angle = Angle(),
     LightmapUV = Vector(),
-    TextureUV = Vector(),
+    TextureUV = Vector(-1, -1),
     Translation = Vector(),
 }
 
