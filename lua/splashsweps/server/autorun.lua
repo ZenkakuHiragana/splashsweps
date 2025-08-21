@@ -29,7 +29,7 @@ if not SplashSWEPs then
         Debug = {},
 
         RT_MARGIN_PIXELS = 4,
-        InkGridSize = 12,
+        InkGridSize = 8,
         NumRenderTargetOptions = -1,
         RenderTargetSize = {
             2048,

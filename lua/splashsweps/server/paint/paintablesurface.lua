@@ -169,23 +169,16 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
     local indexMaxY = min( ceil(y_max / inkGridSize), surfaceGridHeight - 1)
 
     -- Caches
-    local shapeGridWidth     = shape.Grid.Width
-    local shapeGridHeight    = shape.Grid.Height
-    local shapeIntegralImage = shape.Grid.IntegralImage
-    local shapeScaleWidth    = shapeGridWidth  / (radius_x * 2)
-    local shapeScaleHeight   = shapeGridHeight / (radius_y * 2)
-    local inkGridSizeHalf    = inkGridSize / 2
+    local shapeGridWidth         = shape.Grid.Width
+    local shapeGridHeight        = shape.Grid.Height
+    local oneOverShapeCellWidth  = shapeGridWidth  / (radius_x * 2)
+    local oneOverShapeCellHeight = shapeGridHeight / (radius_y * 2)
+    local inkGridSizeHalf        = inkGridSize / 2
 
+    -- These values are originally defined inside the loop (indexMinX, indexMinY --> ix, iy)
+    -- I took them out for optimization.
     local xInSurfaceSystem = indexMinX * inkGridSize + inkGridSizeHalf
     local yInSurfaceSystem = indexMinY * inkGridSize + inkGridSizeHalf
-    local xInInkSystemStep = surfaceAxisXInInkSystemX * inkGridSize
-    local yInInkSystemStep = surfaceAxisXInInkSystemY * inkGridSize
-    local xInInkSystemRewind
-        = surfaceAxisYInInkSystemX * inkGridSize
-        - xInInkSystemStep * (indexMaxX - indexMinX + 1)
-    local yInInkSystemRewind
-        = surfaceAxisYInInkSystemY * inkGridSize
-        - yInInkSystemStep * (indexMaxX - indexMinX + 1)
     local xInInkSystem
         = surfaceAxisXInInkSystemX * xInSurfaceSystem
         + surfaceAxisYInInkSystemX * yInSurfaceSystem
@@ -194,60 +187,109 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
         = surfaceAxisXInInkSystemY * xInSurfaceSystem
         + surfaceAxisYInInkSystemY * yInSurfaceSystem
         + surfaceOriginInInkSystemY
-    for iy = indexMinY, indexMaxY do
-        for ix = indexMinX, indexMaxX do
-            x_min, x_max, y_min, y_max = CalculateBounds(
-                xInInkSystem, yInInkSystem,
-                surfaceAxisXInInkSystem, surfaceAxisYInInkSystem,
-                inkGridSizeHalf, inkGridSizeHalf)
-            local shapeIndexMinX = floor((x_min + radius_x) * shapeScaleWidth) - 1
-            local shapeIndexMaxX =  ceil((x_max + radius_x) * shapeScaleWidth) + 1
-            local shapeIndexMinY = floor((y_min + radius_y) * shapeScaleHeight) - 1
-            local shapeIndexMaxY =  ceil((y_max + radius_y) * shapeScaleHeight) + 1
 
-            -- Check if the index range for the shape grid at least partially overlaps
-            if shapeIndexMaxX >= 0
-            and shapeIndexMaxY >= 0
-            and shapeIndexMinX < shapeGridWidth
-            and shapeIndexMinY < shapeGridHeight then
-                local totalCells
-                    = (shapeIndexMaxX - shapeIndexMinX + 1)
-                    * (shapeIndexMaxY - shapeIndexMinY + 1)
+    -- Instead of calculating above values every time inside the loop,
+    -- knowing the differences between each iteration here
+    -- effectively removes multiplication inside the loop.
+    --
+    -- Difference between each inner iteration (ix).
+    local xInInkSystemStep = surfaceAxisXInInkSystemX * inkGridSize
+    local yInInkSystemStep = surfaceAxisXInInkSystemY * inkGridSize
+    -- Difference between each outer iteration (iy).
+    local xInInkSystemRewind
+        = surfaceAxisYInInkSystemX * inkGridSize
+        - xInInkSystemStep * (indexMaxX - indexMinX + 1)
+    local yInInkSystemRewind
+        = surfaceAxisYInInkSystemY * inkGridSize
+        - yInInkSystemStep * (indexMaxX - indexMinX + 1)
 
-                -- Then clamp them to avoid out-of-range access
-                shapeIndexMinX = max(shapeIndexMinX, 0)
-                shapeIndexMaxX = min(shapeIndexMaxX, shapeGridWidth  - 1)
-                shapeIndexMinY = max(shapeIndexMinY, 0)
-                shapeIndexMaxY = min(shapeIndexMaxY, shapeGridHeight - 1)
+    -- If the size of the ink is small enough then look up multiple cells of the shape grid
+    if inkGridSize * inkGridSize * oneOverShapeCellWidth * oneOverShapeCellHeight > 1 then
+        local shapeIntegralImage = shape.Grid.IntegralImage
+        for iy = indexMinY, indexMaxY do
+            for ix = indexMinX, indexMaxX do
+                x_min, x_max, y_min, y_max = CalculateBounds(
+                    xInInkSystem, yInInkSystem,
+                    surfaceAxisXInInkSystem, surfaceAxisYInInkSystem,
+                    inkGridSizeHalf, inkGridSizeHalf)
+                local shapeIndexMinX = floor((x_min + radius_x) * oneOverShapeCellWidth - 0.5)
+                local shapeIndexMaxX =  ceil((x_max + radius_x) * oneOverShapeCellWidth + 0.5)
+                local shapeIndexMinY = floor((y_min + radius_y) * oneOverShapeCellHeight - 0.5)
+                local shapeIndexMaxY =  ceil((y_max + radius_y) * oneOverShapeCellHeight + 0.5)
 
-                local paintedCells
-                    = shapeIntegralImage[shapeIndexMaxY * shapeGridWidth + shapeIndexMaxX + 1]
-                    - shapeIntegralImage[shapeIndexMaxY * shapeGridWidth + shapeIndexMinX + 1]
-                    - shapeIntegralImage[shapeIndexMinY * shapeGridWidth + shapeIndexMaxX + 1]
-                    + shapeIntegralImage[shapeIndexMinY * shapeGridWidth + shapeIndexMinX + 1]
+                -- Check if the index range for the shape grid at least partially overlaps
+                if shapeIndexMaxX >= 0
+                and shapeIndexMaxY >= 0
+                and shapeIndexMinX < shapeGridWidth
+                and shapeIndexMinY < shapeGridHeight then
+                    -- Total number of cells we have to look up into the shape grid.
+                    local totalCells
+                        = (shapeIndexMaxX - shapeIndexMinX + 1)
+                        * (shapeIndexMaxY - shapeIndexMinY + 1)
 
-                -- -- Lookup range for the mask
-                -- debugoverlay.BoxAngles(worldpos,
-                --     Vector(x_min, y_min, -1),
-                --     Vector(x_max, y_max,  1),
-                --     angle, 3, Color(0, 255, 255, 8))
-                if paintedCells >= totalCells * 0.5 then -- At least 50% of the cells should be filled.
+                    -- Then clamp them to avoid out-of-range access
+                    shapeIndexMinX = max(shapeIndexMinX, 0)
+                    shapeIndexMaxX = min(shapeIndexMaxX, shapeGridWidth  - 1)
+                    shapeIndexMinY = max(shapeIndexMinY, 0)
+                    shapeIndexMaxY = min(shapeIndexMaxY, shapeGridHeight - 1)
+
+                    local paintedCells
+                        = shapeIntegralImage[shapeIndexMaxY * shapeGridWidth + shapeIndexMaxX + 1]
+                        - shapeIntegralImage[shapeIndexMaxY * shapeGridWidth + shapeIndexMinX + 1]
+                        - shapeIntegralImage[shapeIndexMinY * shapeGridWidth + shapeIndexMaxX + 1]
+                        + shapeIntegralImage[shapeIndexMinY * shapeGridWidth + shapeIndexMinX + 1]
+
+                    -- -- Lookup range for the mask
+                    -- debugoverlay.BoxAngles(worldpos,
+                    --     Vector(x_min, y_min, -1),
+                    --     Vector(x_max, y_max,  1),
+                    --     angle, 3, Color(0, 255, 255, 8))
+                    if paintedCells >= totalCells * 0.5 then -- At least 50% of the cells should be filled.
+                        surfaceGrid[iy * surfaceGridWidth + ix + 1] = inktype
+                        numPaintedCells = numPaintedCells + 1
+
+                        -- -- Painted cells
+                        -- debugoverlay.BoxAngles(
+                        --     self.LocalToWorldGridMatrix * Vector(
+                        --         ix * inkGridSize + inkGridSizeHalf,
+                        --         iy * inkGridSize + inkGridSizeHalf),
+                        --     -Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
+                        --     Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
+                        --     self.LocalToWorldGridMatrix:GetAngles(), 3, Color(255, 128, 255, 16))
+                    end
+                end
+                xInInkSystem = xInInkSystem + xInInkSystemStep
+                yInInkSystem = yInInkSystem + yInInkSystemStep
+            end
+            xInInkSystem = xInInkSystem + xInInkSystemRewind
+            yInInkSystem = yInInkSystem + yInInkSystemRewind
+        end
+    else -- Otherwise, look up the nearest one
+        local shapeGrid = shape.Grid
+        for iy = indexMinY, indexMaxY do
+            for ix = indexMinX, indexMaxX do
+                local shapeIndexX = floor((xInInkSystem + radius_x) * oneOverShapeCellWidth + 0.5)
+                local shapeIndexY = floor((yInInkSystem + radius_y) * oneOverShapeCellHeight + 0.5)
+                if  0 <= shapeIndexX and shapeIndexX < shapeGridWidth
+                and 0 <= shapeIndexY and shapeIndexY < shapeGridHeight
+                and shapeGrid[shapeIndexY * shapeGridWidth + shapeIndexX + 1] then
                     surfaceGrid[iy * surfaceGridWidth + ix + 1] = inktype
-                    numPaintedCells = numPaintedCells + 1
 
-                    -- Painted cells
+                    -- -- Painted cells
                     -- debugoverlay.BoxAngles(
-                    --     self.LocalToWorldGridMatrix * Vector(xInSurfaceSystem, yInSurfaceSystem),
+                    --     self.LocalToWorldGridMatrix * Vector(
+                    --         ix * inkGridSize + inkGridSizeHalf,
+                    --         iy * inkGridSize + inkGridSizeHalf),
                     --     -Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
                     --     Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
-                    --     self.LocalToWorldGridMatrix:GetAngles(), 3, Color(255, 128, 255, 16))
+                    --     self.LocalToWorldGridMatrix:GetAngles(), 3, Color(128, 128, 255, 16))
                 end
+                xInInkSystem = xInInkSystem + xInInkSystemStep
+                yInInkSystem = yInInkSystem + yInInkSystemStep
             end
-            xInInkSystem = xInInkSystem + xInInkSystemStep
-            yInInkSystem = yInInkSystem + yInInkSystemStep
+            xInInkSystem = xInInkSystem + xInInkSystemRewind
+            yInInkSystem = yInInkSystem + yInInkSystemRewind
         end
-        xInInkSystem = xInInkSystem + xInInkSystemRewind
-        yInInkSystem = yInInkSystem + yInInkSystemRewind
     end
 
     return numPaintedCells
