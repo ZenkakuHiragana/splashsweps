@@ -76,7 +76,7 @@ function SWEP:SecondaryAttack()
                 local pixel = surf.Grid[y * surf.Grid.Width + x + 1] or 0
                 local xy = Vector(x + 0.5, y + 0.5, 0.1) * ss.InkGridSize
                 local color = pixel > 0 and Color(128, 255, 128) or Color(255, 255, 255)
-                debugoverlay.Cross(surf.LocalToWorldGridMatrix * xy, ss.InkGridSize / 2, 5, color)
+                debugoverlay.Cross(surf.WorldToLocalGridMatrix:GetInverseTR() * xy, ss.InkGridSize / 2, 5, color)
             end
         end
     end

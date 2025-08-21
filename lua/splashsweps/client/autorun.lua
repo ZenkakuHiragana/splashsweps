@@ -5,6 +5,13 @@ if not SplashSWEPs then
         ---Struct templates are stored here
         ---@type table<string, table>
         StructDefinitions = {},
+        ---A hash table to represent grid separation of paintable surfaces
+        --- `= { [hash] = { i1, i2, i3, ... }, ... }` where `i` is index of `ss.SurfaceArray`
+        ---@type table<integer, integer[]>
+        SurfaceHash = {},
+        ---Array of paintable surfaces.
+        ---@type ss.PaintableSurface[]
+        SurfaceArray = {},
         ---A set of event handlers with interactions to painted ink.
         ---@type table<string, ss.IInkFeature>
         InkFeatures = {},
@@ -15,8 +22,11 @@ if not SplashSWEPs then
         ---@type table<string, ss.InkShape>
         InkShapes = {},
         ---Definition of ink type (color and functionality)
-        ---@type table<string, ss.InkType>
+        ---@type ss.InkType[]
         InkTypes = {},
+        ---Conversion table from identifier string to internal index for ink type.
+        ---@type table<string, integer>
+        InkTypeIdentifierToIndex = {},
 
         ---A set of drawing materials of the ink for the combination of ink type and ink shape.
         ---@type table<string, IMaterial>
@@ -54,10 +64,17 @@ end
 include "splashsweps/shared/autorun.lua"
 include "splashsweps/client/inkmaterial.lua"
 include "splashsweps/client/inkrenderer.lua"
+include "splashsweps/client/paintablesurface.lua"
 include "splashsweps/client/surfacebuilder.lua"
 
 ---@class ss
 local ss = SplashSWEPs
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     ss.PrepareInkSurface()
+    ss.SetupSurfaces()
+    ss.GenerateHashTable()
+    ss.LoadInkFeatures()
+    ss.LoadInkShapes()
+    ss.LoadInkTypes()
+    ss.LoadInkMaterials()
 end)

@@ -9,6 +9,9 @@ if not SplashSWEPs then
         --- `= { [hash] = { i1, i2, i3, ... }, ... }` where `i` is index of `ss.SurfaceArray`
         ---@type table<integer, integer[]>
         SurfaceHash = {},
+        ---Array of paintable surfaces.
+        ---@type ss.PaintableSurface[]
+        SurfaceArray = {},
         ---A set of event handlers with interactions to painted ink.
         ---@type table<string, ss.IInkFeature>
         InkFeatures = {},

@@ -80,11 +80,10 @@ function ss.CollectSurfaces(mins, maxs, normal)
         for h in hashpairs(mins - vector_tenth, maxs + vector_tenth) do
             for _, i in ipairs(ss.SurfaceHash[h] or {}) do
                 local s = ss.SurfaceArray[i]
-                local up = s.LocalToWorldGridMatrix:GetUp()
                 if util.IsOBBIntersectingOBB(
                     vector_origin, angle_zero, s.AABBMin, s.AABBMax,
                     vector_origin, angle_zero, mins, maxs, ss.eps)
-                    and (not normal or dot(up, normal) > MAX_COS_DIFF) then
+                    and (not normal or dot(s.Normal, normal) > MAX_COS_DIFF) then
                     yield(s)
                 end
             end

@@ -5,7 +5,6 @@ if not ss then return end
 
 local Matrix = Matrix
 local Vector = Vector
-local Clamp = math.Clamp
 local ceil  = math.ceil
 local floor = math.floor
 local min   = math.min
@@ -36,16 +35,15 @@ ss.struct "PaintableGrid" {
 ---@field AABBMax                Vector  AABB maximum of this surface in world coordinates.
 ---@field AABBMin                Vector  AABB minimum of this surface in world coordinates.
 ---@field WorldToLocalGridMatrix VMatrix The transformation matrix to convert world coordinates into local coordinates. This does not modify scales.
----@field LocalToWorldGridMatrix VMatrix The inverse matrix of WorldToLocalGridMatrix that contains origin and angle of this surface.
+---@field Normal                 Vector  Normal vector of this surface.
 ---@field Grid          ss.PaintableGrid
 local PaintableSurfaceTemplate = {
     AABBMax = Vector(),
     AABBMin = Vector(),
     WorldToLocalGridMatrix = Matrix(),
-    LocalToWorldGridMatrix = Matrix(),
+    Normal = Vector(),
     Grid = ss.new "PaintableGrid",
 }
-
 
 ---Calculates minimum bounding box from inclined rectangle.
 ---
@@ -141,8 +139,8 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
     ---Bounding box around the ink in paintable surface's coordinate system.
     ---
     ---```text
-    --- self.LocalToWorldGridMatrix:GetTranslation()
-    ---   +---> x = self.LocalToWorldGridMatrix:GetForward()
+    --- self.WorldToLocalGridMatrix^-1:GetTranslation()
+    ---   +---> x = self.WorldToLocalGridMatrix^-1:GetForward()
     ---   |
     ---   v      x_min
     ---   y  y_min +-------+-==---------------+
@@ -250,12 +248,12 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
 
                         -- -- Painted cells
                         -- debugoverlay.BoxAngles(
-                        --     self.LocalToWorldGridMatrix * Vector(
+                        --     self.WorldToLocalGridMatrix:GetInverseTR() * Vector(
                         --         ix * inkGridSize + inkGridSizeHalf,
                         --         iy * inkGridSize + inkGridSizeHalf),
                         --     -Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
                         --     Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
-                        --     self.LocalToWorldGridMatrix:GetAngles(), 3, Color(255, 128, 255, 16))
+                        --     self.WorldToLocalGridMatrix:GetInverseTR():GetAngles(), 3, Color(255, 128, 255, 16))
                     end
                 end
                 xInInkSystem = xInInkSystem + xInInkSystemStep
@@ -277,12 +275,12 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
 
                     -- -- Painted cells
                     -- debugoverlay.BoxAngles(
-                    --     self.LocalToWorldGridMatrix * Vector(
+                    --     self.WorldToLocalGridMatrix:GetInverseTR() * Vector(
                     --         ix * inkGridSize + inkGridSizeHalf,
                     --         iy * inkGridSize + inkGridSizeHalf),
                     --     -Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
                     --     Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
-                    --     self.LocalToWorldGridMatrix:GetAngles(), 3, Color(128, 128, 255, 16))
+                    --     self.WorldToLocalGridMatrix:GetInverseTR():GetAngles(), 3, Color(128, 128, 255, 16))
                 end
                 xInInkSystem = xInInkSystem + xInInkSystemStep
                 yInInkSystem = yInInkSystem + yInInkSystemStep
@@ -326,19 +324,14 @@ ss.struct "PaintableSurface" (PaintableSurfaceTemplate)
 function ss.SetupSurfaces()
     local surfacesPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
     local surfaces = util.JSONToTable(file.Read(surfacesPath) or "", true) ---@type ss.PrecachedData.SurfaceInfo?
-    if not surfaces then
-        return
-    end
-
-    ---@type ss.PaintableSurface[]
-    ss.SurfaceArray = {}
+    if not surfaces then return end
     for i, surf in ipairs(surfaces) do
         local ps = ss.new "PaintableSurface"
         ps.AABBMax = surf.AABBMax
         ps.AABBMin = surf.AABBMin
         ps.WorldToLocalGridMatrix:SetAngles(surf.TransformPaintGrid.Angle)
         ps.WorldToLocalGridMatrix:SetTranslation(surf.TransformPaintGrid.Translation)
-        ps.LocalToWorldGridMatrix = ps.WorldToLocalGridMatrix:GetInverseTR()
+        ps.Normal = ps.WorldToLocalGridMatrix:GetInverseTR():GetUp()
         ps.Grid.Width = surf.PaintGridWidth
         ps.Grid.Height = surf.PaintGridHeight
         ss.SurfaceArray[i] = ps

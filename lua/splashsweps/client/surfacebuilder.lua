@@ -127,8 +127,6 @@ function ss.PrepareInkSurface()
         ss.InkMeshMaterial:SetVector("$envmaptint", value / 16)
     end
 
-    -- ss.PrecachePaintTextures()
-    -- ss.GenerateHashTable()
     local modelInfo = ishdr and cache.ModelsHDR or cache.ModelsLDR
     local entities = {} ---@type Entity[]
     for _, e in ipairs(ents.GetAll()) do

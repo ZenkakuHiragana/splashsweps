@@ -8,7 +8,7 @@ if not ss then return end
 ---@param shape ss.InkShape
 ---@return string
 local function GetInkMaterialKey(inktype, shape)
-    return shape.Identifier + ":" + inktype.Identifier
+    return shape.Identifier .. ":" .. inktype.Identifier
 end
 
 ---Retrieves corresponding drawing material from ss.InkType and ss.InkShape
