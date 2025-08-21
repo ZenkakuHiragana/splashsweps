@@ -29,6 +29,7 @@ end
 ---@param pattern? string Optional wildcard pattern.
 ---@return fun(): string
 function ss.IterateFilesRecursive(root, path, pattern)
+    pattern = pattern and pattern:gsub("%*", ".*")
     return coroutine.wrap(function()
         ---The iterator.
         ---@param name string Current path to search for.
@@ -36,13 +37,13 @@ function ss.IterateFilesRecursive(root, path, pattern)
             if not name:EndsWith("/") then name = name .. "/" end
             local files, directories = file.Find(name .. "*", path)
             for _, fileName in ipairs(files or {}) do
-                if not pattern or fileName:find(pattern) then
-                    coroutine.yield(name .. "/" .. fileName)
+                if not pattern or fileName:match(pattern) then
+                    coroutine.yield(name .. fileName)
                 end
             end
 
             for _, dirName in ipairs(directories or {}) do
-                iterate(name .. "/" .. dirName)
+                iterate(name .. dirName)
             end
         end
 

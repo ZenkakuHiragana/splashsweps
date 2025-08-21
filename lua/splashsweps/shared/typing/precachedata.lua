@@ -19,8 +19,8 @@ ss.struct "PrecachedData.Vertex" {
 ---Precached transformation matrix stored in a local file.
 ---util.TableToJSON doesn't convert VMatrix so I use this one instead.
 ---@class ss.PrecachedData.MatrixTransform
----@field Translation Vector
----@field Angle Angle
+---@field Translation Vector The translation vector corresponding to VMatrix:GetTranslation()
+---@field Angle       Angle  The orientation corresponding to VMatrix:GetAngles9)
 ss.struct "PrecachedData.MatrixTransform" {
     Translation = Vector(),
     Angle = Angle(),
@@ -28,9 +28,9 @@ ss.struct "PrecachedData.MatrixTransform" {
 
 ---Table of lightmap info stored in external JSON file.
 ---@class ss.PrecachedData.DirectionalLight
----@field Color Color
----@field ColorHDR Color
----@field ScaleHDR number
+---@field Color    Color  The LDR color of the directional light.
+---@field ColorHDR Color  The HDR color of the directional light. -1 means the same as LDR.
+---@field ScaleHDR number HDR scale.
 ss.struct "PrecachedData.DirectionalLight" {
     Color = Color(0, 0, 0),
     ColorHDR = Color(0, 0, 0),
@@ -38,18 +38,29 @@ ss.struct "PrecachedData.DirectionalLight" {
 }
 
 ---@class ss.PrecachedData.ModelInfo
----@field FaceIndices integer[]
----@field NumTriangles integer
+---@field FaceIndices integer[] Indices to the LUMP_FACE array that this model contains.
+---@field NumTriangles integer  Total number of triangles to construct Mesh of this model.
 ss.struct "PrecachedData.ModelInfo" {
     FaceIndices = {},
     NumTriangles = 0,
 }
 
 ---Structure of UV coordinates for static props.
+---```
+---+------------------> v
+---|
+---|     (OffsetU, OffsetV)
+---|   /^^^^^^^^^^^^^^^^^^^
+---|  +---------+
+---|  |         | Height
+---|  +---------+
+---v     Width
+---u
+---```
 ---@class ss.PrecachedData.StaticProp.UVInfo
----@field Offset Vector()
----@field Width number
----@field Height number
+---@field Offset Vector() Offset (left and top position) in the UV space.
+---@field Width  number   Width in the UV space.
+---@field Height number   Height in the UV space.
 ss.struct "PrecachedData.StaticProp.UVInfo" {
     Offset = Vector(),
     Width = 0,
@@ -71,8 +82,8 @@ ss.struct "PrecachedData.StaticProp.UVInfo" {
 ---@class ss.PrecachedData.UVInfo
 ---@field Angle       Angle  Transforms world coordinates into UV space.
 ---@field Translation Vector Transforms world coordinates into UV space.
----@field OffsetU     number
----@field OffsetV     number
+---@field OffsetU     number Left position in UV space.
+---@field OffsetV     number Top position in UV space.
 ---@field Width       number The width of this surface in UV space.
 ---@field Height      number The height of this surface in UV space.
 ss.struct "PrecachedData.UVInfo" {
@@ -84,14 +95,15 @@ ss.struct "PrecachedData.UVInfo" {
     Height = 0,
 }
 
+---Fetched static prop information from the Game lump.
 ---@class ss.PrecachedData.StaticProp
 ---@field Angles    Angle
 ---@field BoundsMax Vector
 ---@field BoundsMin Vector
----@field FadeMax   number
----@field FadeMin   number
----@field ModelName string
----@field Position  Vector
+---@field FadeMax   number Fade-out distance which completely hides this model.
+---@field FadeMin   number Fade-out distance which starts fading.
+---@field ModelName string Path to mdl. "*N" (N is an integer) means this is a brush model.
+---@field Position  Vector The origin.
 ---@field Scale     number The model scale of this prop.
 ss.struct "PrecachedData.StaticProp" {
     Angles = Angle(),

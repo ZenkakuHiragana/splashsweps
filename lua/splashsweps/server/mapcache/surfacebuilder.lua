@@ -380,7 +380,7 @@ end
 ---@return ss.PrecachedData.SurfaceInfo surf, ss.PrecachedData.SurfaceInfo water
 function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
     local t0 = SysTime()
-    local modelIndices = {} ---@type integer[]
+    local modelIndices = {} ---@type integer[] Face index --> model index
     for modelIndex, lump in ipairs(bsp.MODELS) do
         for i = 1, lump.numFaces do
             modelIndices[lump.firstFace + i] = modelIndex
@@ -404,7 +404,8 @@ function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
                 s.LightmapWidth = i
                 surf[#surf + 1] = s
 
-                local modelInfo = modelCache[modelIndices[i]]
+                local modelIndex = modelIndices[i]
+                local modelInfo = modelCache[modelIndex]
                 modelInfo.FaceIndices[#modelInfo.FaceIndices + 1] = #surf
                 modelInfo.NumTriangles = modelInfo.NumTriangles + #s.Vertices / 3
             end

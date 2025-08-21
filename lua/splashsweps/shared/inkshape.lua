@@ -4,66 +4,70 @@ local ss = SplashSWEPs
 if not ss then return end
 
 ---Mask array used to draw on PaintableSurface grid.  
----Access the mask value using `InkShape.GridBrush[x][y]`: boolean.
----@class ss.InkShape.GridBrush
----@field [integer] boolean[]
----@field Width integer
----@field Weight integer
----@overload fun(width?: integer, height?: integer): ss.InkShape.GridBrush
-ss.struct "InkShape.GridBrush" {
+---Access the mask value using `InkShape.Grid[y * InkShape.Width + x]`: boolean.
+---@class ss.InkShape.Grid
+---@field [integer]     boolean   True for filled pixel, index = y * Width + x
+---@field Width         integer   The width of the grid.
+---@field Height        integer   The height of the grid.
+---@field IntegralImage integer[] Integral image for faster filtering, index = y * Width + x
+---@overload fun(width?: integer, height?: integer): ss.InkShape.Grid
+ss.struct "InkShape.Grid" {
     Width = 0,
-    Weight = 0,
+    Height = 0,
+    IntegralImage = {},
 }
 
----Constructor for InkShape.GridBrush.
----@param this ss.InkShape.GridBrush
----@param width? integer
----@param height? integer
-ss.ctor "InkShape.GridBrush" (function (this, width, height)
-    if not (width and height) then return end
+---Constructor for InkShape.Grid.
+---@param this   ss.InkShape.Grid
+---@param width  integer
+---@param height integer
+ss.ctor "InkShape.Grid" (function (this, width, height)
     this.Width = width
-    this.Weight = height
-    for i = 1, width do
-        this[i] = {}
-        for j = 1, height do
-            this[i][j] = false
-        end
-    end
+    this.Height = height
 end)
 
 ---Defines the shape of painted ink.
 ---@class ss.InkShape
----@field Identifier string The identifier of this ink shape as the key of ss.InkShapes.
----@field MaskTexture string Only used clientside; mask texture to create drawing materials.
----@field GridBrush ss.InkShape.GridBrush Mask for drawing on PaintableSurface grid.  
+---@field Index       integer The internal index used in networking.
+---@field Identifier  string  The identifier of this ink shape as the key of ss.InkShapes.
+---@field MaskTexture string  Only used clientside; mask texture to create drawing materials.
+---@field Grid        ss.InkShape.Grid Only used serverside; mask for drawing on PaintableSurface grid.  
 ss.struct "InkShape" {
+    Index = 0,
     Identifier = "",
     MaskTexture = "",
-    GridBrush = ss.new "InkShape.GridBrush"
+    Grid = ss.new "InkShape.Grid"
 }
 
 ---Read pixels from givem texture and stores them to the mask.
 ---@param vmt IMaterial definition of the ink shape.
----@return ss.InkShape # the mask to be stored to.
+---@return ss.InkShape? # the mask to be stored to.
 local function ReadPixelsFromVTF(vmt)
     ---Uncompressed texture to define the mask.
-    local vtf = vmt:GetTexture "$basetexture"
+    local pngpath = vmt:GetString "$splashsweps_mask"
+    if not pngpath then return end
+    local mat = Material(pngpath)
+    local vtf = mat:GetTexture "$basetexture"
     ss.assert(not vtf:IsErrorTexture(), "Shape mask has invalid texture.")
 
     local path = vtf:GetName()
     local width = vtf:GetMappingWidth()
     local height = vtf:GetMappingHeight()
     local shape = ss.new "InkShape"
-    local grid = ss.new "InkShape.GridBrush" (width, height)
-    shape.GridBrush = grid
+    shape.Grid = ss.new "InkShape.Grid" (width, height)
     shape.MaskTexture = path
 
+    local grid = shape.Grid
     local threshold = vmt:GetFloat "$splashsweps_maskthreshold" or 0.5
     if threshold < 1 then threshold = threshold * 255 end
-    for i = 1, width do
-        grid[i] = {}
-        for j = 1, height do
-            grid[i][j] = vtf:GetColor(i - 1, j - 1).a > threshold
+    for y = 0, height - 1 do
+        for x = 0, width - 1 do
+            local index = y * width + x + 1
+            local above =  y > 0            and grid.IntegralImage[(y - 1) * width + x + 1] or 0
+            local left  =  x > 0            and grid.IntegralImage[ y      * width + x    ] or 0
+            local diag  = (x > 0 and y > 0) and grid.IntegralImage[(y - 1) * width + x    ] or 0
+            grid[index] = vtf:GetColor(x, y).a > threshold
+            grid.IntegralImage[index] = (grid[index] and 1 or 0) + left + above - diag
         end
     end
 
@@ -72,19 +76,30 @@ end
 
 ---Reads all vmt files and defines all ink shapes used in this addon.
 function ss.LoadInkShapes()
+    local shapeCount = 0
     for f in ss.IterateFilesRecursive("materials/splashsweps/paints", "GAME", "*.vmt") do
-        local vmt = Material(f:gsub("^materials/", ""))
+        local vmt = Material(f:gsub("^materials/", ""), nil)
         if not vmt:IsError() then
-            local param = vmt:GetString "$splashsweps_tag"
-            local tag = param:match "^[a-z0-9]+$"
+            local param = vmt:GetString "$splashsweps_tag" or ""
+            local tag = param:match "^[a-z0-9_]+$"
             if tag then
                 local shape = ReadPixelsFromVTF(vmt)
-                shape.Identifier = f:gsub("^materials/splashsweps/paints/", "")
-                ss.InkShapeLists[tag] = table.ForceInsert(ss.InkShapeLists[tag], shape.Identifier)
-                ss.InkShapes[shape.Identifier] = shape
+                if shape then
+                    shape.Index = shapeCount
+                    shape.Identifier = f:gsub("^materials/splashsweps/paints/", "")
+                    ss.InkShapeLists[tag] = table.ForceInsert(ss.InkShapeLists[tag], shape.Identifier)
+                    ss.InkShapes[shape.Identifier] = shape
+                    shapeCount = shapeCount + 1
+                end
             end
         end
     end
+
+    ---Total number of defined ink shapes.
+    ss.NumInkShapes = shapeCount
+
+    ---Required bits to transfer ink shape type as an unsigned integer.
+    ss.MAX_INKSHAPE_BITS = select(2, math.frexp(shapeCount - 1))
 end
 
 ---Picks up random ink shape within the category of "tag" using given random seed.
