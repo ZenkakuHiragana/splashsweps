@@ -63,9 +63,9 @@ function ss.Paint(pos, angle, scale_x, scale_y, shape, inktype)
         maxs = ss.MaxVector(maxs, v)
     end
 
-    -- Bounding box for finding surfaces
+    -- -- Bounding box for finding surfaces
     -- debugoverlay.Box(vector_origin, mins, maxs, 3, Color(255, 255, 0, 8))
-    -- The shape we are painting
+    -- -- The shape we are painting
     -- for y = 0, shape.Grid.Height - 1 do
     --     for x = 0, shape.Grid.Width - 1 do
     --         debugoverlay.BoxAngles(
