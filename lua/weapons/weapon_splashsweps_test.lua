@@ -111,5 +111,7 @@ function SWEP:Think()
             end
             break
         end
+    else
+        self.LoopSound:Stop()
     end
 end
