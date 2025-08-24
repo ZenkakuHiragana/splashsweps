@@ -5,14 +5,16 @@ if not ss then return end
 
 ---Precached information of a vertex stored in a local file.
 ---@class ss.PrecachedData.Vertex
----@field Translation Vector The position.
----@field Angle Angle Normal, tangent, and bitangent vector.
----@field TextureUV Vector() Relative RenderTarget UV values (actual uv = offset + (u1 * width, v1 * height)).
----@field LightmapUV Vector() Absolute Lightmap UV values.
+---@field Translation         Vector  The position.
+---@field Angle               Angle   Normal, tangent, and bitangent vector.
+---@field DisplacementOrigin  Vector? The point that this displacement point was made from.
+---@field LightmapSamplePoint Vector? Relative X-Y coordinates to calculate lightmap UV.
+---@field LightmapUV          Vector  Absolute Lightmap UV values.
 ss.struct "PrecachedData.Vertex" {
     Angle = Angle(),
     LightmapUV = Vector(),
-    TextureUV = Vector(-1, -1),
+    DisplacementOrigin = nil,
+    LightmapSamplePoint = nil,
     Translation = Vector(),
 }
 

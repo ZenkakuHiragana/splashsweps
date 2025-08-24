@@ -4,7 +4,6 @@ local ss = SplashSWEPs
 if not ss then return end
 
 local Matrix = Matrix
-local Vector = Vector
 local ceil  = math.ceil
 local floor = math.floor
 local min   = math.min
@@ -18,31 +17,6 @@ local max   = math.max
 ss.struct "PaintableGrid" {
     Width = 0,
     Height = 0,
-}
-
----This class holds information around serverside paintings.
----```text
----World origin
----  +--> x
----  |
----  v   WorldToLocalGridMatrix:GetInverseTR():GetTranslation()
----  y      +--> X
----         |
----         v   * (Xi, Yi) = WorldToLocalGridMatrix * (xi, yi)
----         Y
----```
----@class ss.PaintableSurface
----@field AABBMax                Vector  AABB maximum of this surface in world coordinates.
----@field AABBMin                Vector  AABB minimum of this surface in world coordinates.
----@field WorldToLocalGridMatrix VMatrix The transformation matrix to convert world coordinates into local coordinates. This does not modify scales.
----@field Normal                 Vector  Normal vector of this surface.
----@field Grid          ss.PaintableGrid
-local PaintableSurfaceTemplate = {
-    AABBMax = Vector(),
-    AABBMin = Vector(),
-    WorldToLocalGridMatrix = Matrix(),
-    Normal = Vector(),
-    Grid = ss.new "PaintableGrid",
 }
 
 ---Calculates minimum bounding box from inclined rectangle.
@@ -96,16 +70,16 @@ end
 
 ---Paint this surface with specified ink type and shape at given position, angle, and size.
 ---@param self     ss.PaintableSurface
----@param worldpos Vector      The origin of the ink in world coordinate system.
----@param angle    Angle       The normal and rotation of the ink in world coordinate system.
----@param radius_x number      Scale along the forward vector (angle:Forward()), distance between the center and horizontal tip.
----@param radius_y number      Scale along the right vector (angle:Right()), distance between the center and vertical tip.
----@param inktype  integer     The internal index of ink type.
----@param shape    ss.InkShape The shape.
+---@param worldpos Vector  The origin of the ink in world coordinate system.
+---@param angle    Angle   The normal and rotation of the ink in world coordinate system.
+---@param radius_x number  Scale along the forward vector (angle:Forward()), distance between the center and horizontal tip.
+---@param radius_y number  Scale along the right vector (angle:Right()), distance between the center and vertical tip.
+---@param inktype  integer The internal index of ink type.
+---@param shape    integer The internal index of shape.
 ---@return integer # Number of painted cells.
 function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
     -- Caches
-    local inkGridSize = ss.InkGridSize
+    local inkGridCellSize = ss.InkGridCellSize
     local surfaceGrid = self.Grid
     local surfaceGridWidth = surfaceGrid.Width
     local surfaceGridHeight = surfaceGrid.Height
@@ -161,22 +135,23 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
         inkSystemInSurfaceSystem:GetForward(),
        -inkSystemInSurfaceSystem:GetRight(),
         radius_x, radius_y)
-    local indexMinX = max(floor(x_min / inkGridSize), 0)
-    local indexMaxX = min( ceil(x_max / inkGridSize), surfaceGridWidth - 1)
-    local indexMinY = max(floor(y_min / inkGridSize), 0)
-    local indexMaxY = min( ceil(y_max / inkGridSize), surfaceGridHeight - 1)
+    local indexMinX = max(floor(x_min / inkGridCellSize), 0)
+    local indexMaxX = min( ceil(x_max / inkGridCellSize), surfaceGridWidth - 1)
+    local indexMinY = max(floor(y_min / inkGridCellSize), 0)
+    local indexMaxY = min( ceil(y_max / inkGridCellSize), surfaceGridHeight - 1)
 
     -- Caches
-    local shapeGridWidth         = shape.Grid.Width
-    local shapeGridHeight        = shape.Grid.Height
+    local shapeGrid              = ss.InkShapes[shape].Grid
+    local shapeGridWidth         = shapeGrid.Width
+    local shapeGridHeight        = shapeGrid.Height
     local oneOverShapeCellWidth  = shapeGridWidth  / (radius_x * 2)
     local oneOverShapeCellHeight = shapeGridHeight / (radius_y * 2)
-    local inkGridSizeHalf        = inkGridSize / 2
+    local inkGridCellSizeHalf    = inkGridCellSize / 2
 
     -- These values are originally defined inside the loop (indexMinX, indexMinY --> ix, iy)
     -- I took them out for optimization.
-    local xInSurfaceSystem = indexMinX * inkGridSize + inkGridSizeHalf
-    local yInSurfaceSystem = indexMinY * inkGridSize + inkGridSizeHalf
+    local xInSurfaceSystem = indexMinX * inkGridCellSize + inkGridCellSizeHalf
+    local yInSurfaceSystem = indexMinY * inkGridCellSize + inkGridCellSizeHalf
     local xInInkSystem
         = surfaceAxisXInInkSystemX * xInSurfaceSystem
         + surfaceAxisYInInkSystemX * yInSurfaceSystem
@@ -191,25 +166,25 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
     -- effectively removes multiplication inside the loop.
     --
     -- Difference between each inner iteration (ix).
-    local xInInkSystemStep = surfaceAxisXInInkSystemX * inkGridSize
-    local yInInkSystemStep = surfaceAxisXInInkSystemY * inkGridSize
+    local xInInkSystemStep = surfaceAxisXInInkSystemX * inkGridCellSize
+    local yInInkSystemStep = surfaceAxisXInInkSystemY * inkGridCellSize
     -- Difference between each outer iteration (iy).
     local xInInkSystemRewind
-        = surfaceAxisYInInkSystemX * inkGridSize
+        = surfaceAxisYInInkSystemX * inkGridCellSize
         - xInInkSystemStep * (indexMaxX - indexMinX + 1)
     local yInInkSystemRewind
-        = surfaceAxisYInInkSystemY * inkGridSize
+        = surfaceAxisYInInkSystemY * inkGridCellSize
         - yInInkSystemStep * (indexMaxX - indexMinX + 1)
 
     -- If the size of the ink is small enough then look up multiple cells of the shape grid
-    if inkGridSize * inkGridSize * oneOverShapeCellWidth * oneOverShapeCellHeight > 1 then
-        local shapeIntegralImage = shape.Grid.IntegralImage
+    if inkGridCellSize * inkGridCellSize * oneOverShapeCellWidth * oneOverShapeCellHeight > 1 then
+        local shapeIntegralImage = shapeGrid.IntegralImage
         for iy = indexMinY, indexMaxY do
             for ix = indexMinX, indexMaxX do
                 x_min, x_max, y_min, y_max = CalculateBounds(
                     xInInkSystem, yInInkSystem,
                     surfaceAxisXInInkSystem, surfaceAxisYInInkSystem,
-                    inkGridSizeHalf, inkGridSizeHalf)
+                    inkGridCellSizeHalf, inkGridCellSizeHalf)
                 local shapeIndexMinX = floor((x_min + radius_x) * oneOverShapeCellWidth - 0.5)
                 local shapeIndexMaxX =  ceil((x_max + radius_x) * oneOverShapeCellWidth + 0.5)
                 local shapeIndexMinY = floor((y_min + radius_y) * oneOverShapeCellHeight - 0.5)
@@ -249,21 +224,20 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
                         -- -- Painted cells
                         -- debugoverlay.BoxAngles(
                         --     self.WorldToLocalGridMatrix:GetInverseTR() * Vector(
-                        --         ix * inkGridSize + inkGridSizeHalf,
-                        --         iy * inkGridSize + inkGridSizeHalf),
-                        --     -Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
-                        --     Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
+                        --         ix * inkGridCellSize + inkGridCellSizeHalf,
+                        --         iy * inkGridCellSize + inkGridCellSizeHalf),
+                        --     -Vector(inkGridCellSizeHalf, inkGridCellSizeHalf, 3),
+                        --     Vector(inkGridCellSizeHalf, inkGridCellSizeHalf, 3),
                         --     self.WorldToLocalGridMatrix:GetInverseTR():GetAngles(), 3, Color(255, 128, 255, 16))
                     end
                 end
                 xInInkSystem = xInInkSystem + xInInkSystemStep
                 yInInkSystem = yInInkSystem + yInInkSystemStep
             end
-            xInInkSystem = xInInkSystem + xInInkSystemRewind
-            yInInkSystem = yInInkSystem + yInInkSystemRewind
+            xInInkSystem = xInInkSystem + xInInkSystemRewind ---@type number Remove this annotation
+            yInInkSystem = yInInkSystem + yInInkSystemRewind ---@type number after LuaLS fixed the issue
         end
     else -- Otherwise, look up the nearest one
-        local shapeGrid = shape.Grid
         for iy = indexMinY, indexMaxY do
             for ix = indexMinX, indexMaxX do
                 local shapeIndexX = floor((xInInkSystem + radius_x) * oneOverShapeCellWidth + 0.5)
@@ -276,10 +250,10 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
                     -- -- Painted cells
                     -- debugoverlay.BoxAngles(
                     --     self.WorldToLocalGridMatrix:GetInverseTR() * Vector(
-                    --         ix * inkGridSize + inkGridSizeHalf,
-                    --         iy * inkGridSize + inkGridSizeHalf),
-                    --     -Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
-                    --     Vector(inkGridSizeHalf, inkGridSizeHalf, 3),
+                    --         ix * inkGridCellSize + inkGridCellSizeHalf,
+                    --         iy * inkGridCellSize + inkGridCellSizeHalf),
+                    --     -Vector(inkGridCellSizeHalf, inkGridCellSizeHalf, 3),
+                    --     Vector(inkGridCellSizeHalf, inkGridCellSizeHalf, 3),
                     --     self.WorldToLocalGridMatrix:GetInverseTR():GetAngles(), 3, Color(128, 128, 255, 16))
                 end
                 xInInkSystem = xInInkSystem + xInInkSystemStep
@@ -293,47 +267,24 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
     return numPaintedCells
 end
 
----Paint this surface with specified ink type and shape at given position, angle, and size.
----@param worldpos Vector      The origin.
----@param angle    Angle       The normal and rotation.
----@param radius_x number      Scale along the forward vector (angle:Forward()).
----@param radius_y number      Scale along the right vector (angle:Right()).
----@param inktype  integer     The internal index of ink type.
----@param shape    ss.InkShape The shape.
----@return integer # Number of painted cells.
-function PaintableSurfaceTemplate:WriteGrid(worldpos, angle, radius_x, radius_y, inktype, shape)
-    return ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
-end
-
 ---Reads a pixel from the grid using given position in world coordinates.
+---@param self ss.PaintableSurface
 ---@param query Vector Query point in world coordinates.
 ---@return ss.InkType? # The ink type painted at corresponding pixel.  nil if no ink was there.
-function PaintableSurfaceTemplate:ReadGrid(query)
+function ss.ReadGrid(self, query)
     local query2d = self.WorldToLocalGridMatrix * query
-    local x = floor(query2d.x / ss.InkGridSize)
-    local y = floor(query2d.y / ss.InkGridSize)
+    local x = floor(query2d.x / ss.InkGridCellSize)
+    local y = floor(query2d.y / ss.InkGridCellSize)
     local pixel = self.Grid[y * self.Grid.Width + x + 1]
     if pixel and 0 <= x and x < self.Grid.Width and 0 <= y and y < self.Grid.Height then
         return ss.InkTypes[pixel]
     end
 end
 
-ss.struct "PaintableSurface" (PaintableSurfaceTemplate)
-
----Reads a surface list from a file and stores them for later use.
-function ss.SetupSurfaces()
-    local surfacesPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
-    local surfaces = util.JSONToTable(file.Read(surfacesPath) or "", true) ---@type ss.PrecachedData.SurfaceInfo?
-    if not surfaces then return end
-    for i, surf in ipairs(surfaces) do
-        local ps = ss.new "PaintableSurface"
-        ps.AABBMax = surf.AABBMax
-        ps.AABBMin = surf.AABBMin
-        ps.WorldToLocalGridMatrix:SetAngles(surf.TransformPaintGrid.Angle)
-        ps.WorldToLocalGridMatrix:SetTranslation(surf.TransformPaintGrid.Translation)
-        ps.Normal = ps.WorldToLocalGridMatrix:GetInverseTR():GetUp()
-        ps.Grid.Width = surf.PaintGridWidth
-        ps.Grid.Height = surf.PaintGridHeight
-        ss.SurfaceArray[i] = ps
+---Clears all painted data in the grid.
+---@param self ss.PaintableSurface
+function ss.ClearGrid(self)
+    for i = 1, self.Grid.Width * self.Grid.Height do
+        self.Grid[i] = nil
     end
 end

@@ -59,7 +59,9 @@ function SWEP:PrimaryAttack()
     local right = normal:Cross(pos - tr.StartPos):GetNormalized()
     local ang = right:Cross(normal):AngleEx(normal)
     debugoverlay.Axis(pos, ang, 20, 5, false)
-    ss.Paint(pos, ang, 120, 120, ss.SelectRandomShape("builtin_drop"), "ColorRed")
+    ss.Paint(pos, ang, 120, 120,
+        ss.SelectRandomShape("builtin_drop").Index,
+        ss.FindInkTypeID "ColorRed" or -1)
     self:SetNextPrimaryFire(CurTime() + self.Primary.Delay)
 end
 
@@ -74,9 +76,9 @@ function SWEP:SecondaryAttack()
         for y = 0, surf.Grid.Height - 1 do
             for x = 0, surf.Grid.Width - 1 do
                 local pixel = surf.Grid[y * surf.Grid.Width + x + 1] or 0
-                local xy = Vector(x + 0.5, y + 0.5, 0.1) * ss.InkGridSize
+                local xy = Vector(x + 0.5, y + 0.5, 0.1) * ss.InkGridCellSize
                 local color = pixel > 0 and Color(128, 255, 128) or Color(255, 255, 255)
-                debugoverlay.Cross(surf.WorldToLocalGridMatrix:GetInverseTR() * xy, ss.InkGridSize / 2, 5, color)
+                debugoverlay.Cross(surf.WorldToLocalGridMatrix:GetInverseTR() * xy, ss.InkGridCellSize / 2, 5, color)
             end
         end
     end
@@ -89,7 +91,7 @@ function SWEP:Think()
         local tr = util.QuickTrace(Owner:GetPos(), -vector_up * 16, Owner)
         if tr.HitWorld then
             for surf in ss.CollectSurfaces(tr.HitPos - ss.vector_one, tr.HitPos + ss.vector_one, tr.HitNormal) do
-                local color = surf:ReadGrid(tr.HitPos)
+                local color = ss.ReadGrid(surf, tr.HitPos)
                 debugoverlay.Box(
                     tr.HitPos, -ss.vector_one, ss.vector_one + vector_up * 72, FrameTime() * 2,
                     color and Color(0, 255, 128, 16) or Color(255, 255, 255, 16))

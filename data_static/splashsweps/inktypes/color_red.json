@@ -1,6 +1,6 @@
 {
     "name": "ColorRed",
-    "basetexture": "debug/debugempty",
+    "basetexture": "color/white",
     "bumpmap": "null-bumpmap",
     "features": []
 }

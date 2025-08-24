@@ -3,45 +3,57 @@
 local ss = SplashSWEPs
 if not ss then return end
 
----This class holds information around paintable surfaces to lookup UV coordinates.
----@class ss.PaintableSurface
----@field AABBMax  Vector AABB maximum of this surface in world coordinates.
----@field AABBMin  Vector AABB minimum of this surface in world coordinates.
----@field WorldToUVMatrix VMatrix The transformation matrix to convert world coordinates into UV coordinates. This does not modify scales.
----@field Normal   Vector Normal vector of this surface.
----@field OffsetU  number The u-coordinate of left-top corner of this surface in UV space.
----@field OffsetV  number The v-coordinate of left-top corner of this surface in UV space.
----@field UVWidth  number The width of this surface in UV space.
----@field UVHeight number The height of this surface in UV space.
-ss.struct "PaintableSurface" {
-    AABBMax = Vector(),
-    AABBMin = Vector(),
-    WorldToUVMatrix = Matrix(),
-    Normal = Vector(),
-    OffsetU = 0,
-    OffsetV = 0,
-    UVWidth = 0,
-    UVHeight = 0,
-}
+net.Receive("SplashSWEPs: Paint", function()
+    local inktype    = net.ReadUInt(ss.MAX_INKTYPE_BITS) + 1 -- Ink type
+    local shapeIndex = net.ReadUInt(ss.MAX_INKSHAPE_BITS) + 1 -- Ink shape
+    local pitch      = net.ReadInt(8) -- Pitch
+    local yaw        = net.ReadInt(8) -- Yaw
+    local roll       = net.ReadInt(8) -- Roll
+    local x          = net.ReadInt(15) * 2 -- X
+    local y          = net.ReadInt(15) * 2 -- Y
+    local z          = net.ReadInt(15) * 2 -- Z
+    local scale_x    = net.ReadUInt(8) * 2 -- Scale X
+    local scale_y    = net.ReadUInt(8) * 2 -- Scale Y
+    local pos = Vector(x, y, z)
+    local angle = Angle(
+        math.Remap(pitch, -128, 127, -180, 180),
+        math.Remap(yaw,   -128, 127, -180, 180),
+        math.Remap(roll,  -128, 127, -180, 180))
+    ss.Paint(pos, angle, scale_x, scale_y, shapeIndex, inktype)
+    ss.PaintRenderTarget(pos, angle, scale_x, scale_y, shapeIndex, inktype)
+end)
 
----Reads a surface list from a file and stores them for later use.
-function ss.SetupSurfaces()
-    local dynamicRange = render.GetHDREnabled() and "hdr" or "ldr"
-    local surfacesPath = string.format("splashsweps/%s_%s.json", game.GetMap(), dynamicRange)
-    local surfaces = util.JSONToTable(file.Read(surfacesPath) or "", true) ---@type ss.PrecachedData.SurfaceInfo?
-    if not surfaces then return end
-    for i, surf in ipairs(surfaces) do
-        local uvInfo = surf.UVInfo[#surf.UVInfo]
-        local ps = ss.new "PaintableSurface"
-        ps.AABBMax = surf.AABBMax
-        ps.AABBMin = surf.AABBMin
-        ps.WorldToUVMatrix:SetAngles(uvInfo.Angle)
-        ps.WorldToUVMatrix:SetTranslation(uvInfo.Translation)
-        ps.Normal  = ps.WorldToUVMatrix:GetInverseTR():GetUp()
-        ps.OffsetU = uvInfo.OffsetU
-        ps.OffsetV = uvInfo.OffsetV
-        ps.UVWidth = uvInfo.Width
-        ps.UVHeight = uvInfo.Height
-        ss.SurfaceArray[i] = ps
+---Paints an ink to the render target with given information.
+---@param pos     Vector  The origin.
+---@param angle   Angle   The normal and rotation.
+---@param scale_x number  Scale along the forward vector.
+---@param scale_y number  Scale along the right vector.
+---@param shape   integer The internal index of shape to paint.
+---@param inktype integer The internal index of ink type.
+function ss.PaintRenderTarget(pos, angle, scale_x, scale_y, shape, inktype)
+    local rt = ss.RenderTarget
+    local albedo = rt.StaticTextures.Albedo
+    local normal = rt.StaticTextures.Normal
+    local hammerUnitsToPixels = rt.HammerUnitsToPixels
+
+    local mins, maxs = ss.GetPaintBoundingBox(pos, angle, scale_x, scale_y)
+    local width = scale_x * hammerUnitsToPixels
+    local height = scale_y * hammerUnitsToPixels
+    local rotationMatrix = Matrix()
+    rotationMatrix:SetAngles(angle)
+
+    surface.SetDrawColor(128, 128, 255, 255)
+    surface.SetMaterial(ss.GetInkMaterial(ss.InkTypes[inktype], ss.InkShapes[shape]))
+    for surf in ss.CollectSurfaces(mins - ss.vector_one, maxs + ss.vector_one, angle:Up()) do
+        local uv = surf.WorldToUVMatrix * pos * hammerUnitsToPixels
+        local localRotation = surf.WorldToUVMatrix * rotationMatrix
+        local localAngles = localRotation:GetAngles()
+        render.PushRenderTarget(albedo, surf.OffsetV, surf.OffsetU, surf.UVHeight, surf.UVWidth)
+        render.SetRenderTargetEx(1, normal)
+        cam.Start2D()
+        surface.DrawTexturedRectRotated(uv.y, uv.x, height, width, localAngles.yaw)
+        cam.End2D()
+        render.SetRenderTargetEx(1, nil)
+        render.PopRenderTarget()
     end
 end

@@ -22,7 +22,7 @@ function ss.BuildUVCache(surfaces, staticPropInfo, staticPropRectangles)
     local t0 = SysTime()
     local estimatedRectangleSize = math.sqrt(totalArea)
     local workMatrix = Matrix() -- Work area to invert matrix.
-    for rtIndex, rtSize in ipairs(ss.RenderTargetSize) do
+    for rtIndex, rtSize in ipairs(ss.RenderTarget.Resolutions) do
         local rects = {} ---@type ss.Rectangle[]
         local margin = estimatedRectangleSize * ss.RT_MARGIN_PIXELS / rtSize
         for i, surf in ipairs(surfaces) do
@@ -44,23 +44,21 @@ function ss.BuildUVCache(surfaces, staticPropInfo, staticPropRectangles)
             local tag = rect.tag ---@cast tag ss.PrecachedData.Surface
             if tag.UVInfo then
                 local info = tag.UVInfo[rtIndex]
-                local offset = Vector(rect.left, rect.bottom, 0)
                 local width = rect.width - margin
                 local height = rect.height - margin
 
                 -- If the face is rotated in the UV coord.
                 if rect.istall ~= (info.Width < info.Height) then
                     info.Angle:RotateAroundAxis(info.Angle:Up(), 90)
-                    offset:Add(Vector(0, height, 0))
+                    workMatrix:Identity()
+                    workMatrix:SetAngles(info.Angle)
+                    info.Translation:Sub(workMatrix * Vector(0, height, 0))
                 end
 
-                info.OffsetU = rect.left / rectangleSizeHU
+                info.OffsetU = rect.left   / rectangleSizeHU
                 info.OffsetV = rect.bottom / rectangleSizeHU
-                info.Width  = width / rectangleSizeHU
-                info.Height = height / rectangleSizeHU
-                workMatrix:Identity()
-                workMatrix:SetAngles(info.Angle)
-                info.Translation:Sub(workMatrix * offset)
+                info.Width   = width       / rectangleSizeHU
+                info.Height  = height      / rectangleSizeHU
 
                 workMatrix:SetTranslation(info.Translation)
                 workMatrix:SetAngles(info.Angle)

@@ -85,11 +85,11 @@ function ss.LoadInkShapes()
             if tag then
                 local shape = ReadPixelsFromVTF(vmt)
                 if shape then
+                    shapeCount = shapeCount + 1
                     shape.Index = shapeCount
                     shape.Identifier = f:gsub("^materials/splashsweps/paints/", "")
-                    ss.InkShapeLists[tag] = table.ForceInsert(ss.InkShapeLists[tag], shape.Identifier)
-                    ss.InkShapes[shape.Identifier] = shape
-                    shapeCount = shapeCount + 1
+                    ss.InkShapeLists[tag] = table.ForceInsert(ss.InkShapeLists[tag], shape.Index)
+                    ss.InkShapes[shape.Index] = shape
                 end
             end
         end
@@ -99,7 +99,7 @@ function ss.LoadInkShapes()
     ss.NumInkShapes = shapeCount
 
     ---Required bits to transfer ink shape type as an unsigned integer.
-    ss.MAX_INKSHAPE_BITS = select(2, math.frexp(shapeCount - 1))
+    ss.MAX_INKSHAPE_BITS = math.max(select(2, math.frexp(shapeCount - 1)), 1)
 end
 
 ---Picks up random ink shape within the category of "tag" using given random seed.
@@ -107,7 +107,7 @@ end
 ---@param seed? number optional random seed such as `CurTime()`.
 ---@return ss.InkShape # Randomly chosen ink shape.
 function ss.SelectRandomShape(tag, seed)
-    local keys = ss.InkShapeLists[tag]
+    local indices = ss.InkShapeLists[tag]
     local name = "SplashSWEPs: Select random shape"
-    return ss.InkShapes[keys[util.SharedRandom(name, 1, #keys, seed)]]
+    return ss.InkShapes[indices[util.SharedRandom(name, 1, #indices, seed)]]
 end

@@ -172,9 +172,9 @@ local function SetTransformRelatedValues(surf, mbrLocalToWorld, mbrSize)
     local paintGridMatrix = mbrLocalToWorld:GetInverseTR()
     surf.TransformPaintGrid.Translation = paintGridMatrix:GetTranslation()
     surf.TransformPaintGrid.Angle       = paintGridMatrix:GetAngles()
-    surf.PaintGridWidth  = math.ceil(mbrSize.x / ss.InkGridSize)
-    surf.PaintGridHeight = math.ceil(mbrSize.y / ss.InkGridSize)
-    for i = 1, #ss.RenderTargetSize do
+    surf.PaintGridWidth  = math.ceil(mbrSize.x / ss.InkGridCellSize)
+    surf.PaintGridHeight = math.ceil(mbrSize.y / ss.InkGridCellSize)
+    for i = 1, #ss.RenderTarget.Resolutions do
         surf.UVInfo[i] = ss.new "PrecachedData.UVInfo"
         surf.UVInfo[i].Angle       = mbrLocalToWorld:GetAngles()
         surf.UVInfo[i].Translation = mbrLocalToWorld:GetTranslation()
@@ -231,7 +231,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
     local v1 = vertices[2] - vertices[1]
     local v2 = vertices[3] - vertices[4]
     local triangles    = {} ---@type integer[] Indices of triangle mesh
-    local dispVertices = {} ---@type VMatrix[]  List of vertices
+    local dispVertices = {} ---@type { pos: Vector, ang: Angle, org: Vector, lightmapSamplePoint: Vector }[]  List of vertices
     for i = 1, numMeshVertices do
         -- Calculate x-y offset
         local dispVert = rawDispVerts[dispInfo.dispVertStart + i]
@@ -243,15 +243,12 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
         local displacement = dispVert.vec * dispVert.dist
         local localPos = origin + displacement
         local worldPos = dispInfo.startPosition + localPos
-        local m = Matrix()
-        m:SetTranslation(worldPos)
-        m:SetAngles(dispVert.vec:Angle())
-
-        -- Relative UV coordinates
-        m:SetField(4, 1, x) -- u1
-        m:SetField(4, 2, y) -- v1
-
-        dispVertices[#dispVertices + 1] = m
+        dispVertices[#dispVertices + 1] = {
+            pos = worldPos,
+            ang = dispVert.vec:Angle(),
+            org = dispInfo.startPosition + origin,
+            lightmapSamplePoint = Vector(x, y),
+        }
 
         -- Modifies indices a bit to invert triangle orientation
         local invert = Either(i % 2 == 1, 1, 0)
@@ -273,10 +270,10 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
 
     for i, t in ipairs(triangles) do
         surf.Vertices[i] = ss.new "PrecachedData.Vertex"
-        surf.Vertices[i].Angle       = dispVertices[t]:GetAngles()
-        surf.Vertices[i].Translation = dispVertices[t]:GetTranslation()
-        surf.Vertices[i].TextureUV.x = dispVertices[t]:GetField(4, 1)
-        surf.Vertices[i].TextureUV.y = dispVertices[t]:GetField(4, 2)
+        surf.Vertices[i].Angle       = dispVertices[t].ang
+        surf.Vertices[i].Translation = dispVertices[t].pos
+        surf.Vertices[i].DisplacementOrigin = dispVertices[t].org
+        surf.Vertices[i].LightmapSamplePoint = dispVertices[t].lightmapSamplePoint
     end
 
     return surf
@@ -447,7 +444,7 @@ function ss.BuildStaticPropCache(bsp)
                     Scale = scale,
                 }
                 uvinfo[#uvinfo + 1] = {}
-                for i = 1, #ss.RenderTargetSize do
+                for i = 1, #ss.RenderTarget.Resolutions do
                     uvinfo[#uvinfo][i] = ss.new "PrecachedData.StaticProp.UVInfo"
                 end
             end

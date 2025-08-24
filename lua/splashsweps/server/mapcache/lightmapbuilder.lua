@@ -29,7 +29,8 @@ local BYTES_PER_CHANNEL = 2
 local BYTES_PER_PX = BYTES_PER_CHANNEL * NUM_CHANNELS
 local BIT_DEPTH   = BYTES_PER_CHANNEL == 1 and "\x08" or "\x10"
 local CHANNEL_MAX = BYTES_PER_CHANNEL == 1 and 255    or 65535
-local gammaInv, expConst = 1 / 2.2, -8 + (8 * BYTES_PER_CHANNEL - 1) * 2.2
+local gammaInv = 1 / 2.2
+local expConst = -8 + (8 * BYTES_PER_CHANNEL - 1) * 2.2
 local marginInLuxels = 1
 
 ---@param faces BSP.Face[]
@@ -279,8 +280,8 @@ local function WriteLightmapUV(bsp, packer, ishdr)
         surf.LightmapHeight = sh / pngsize
         if rawFace.dispInfo >= 0 then
             for _, v in ipairs(surf.Vertices) do
-                local s = v.TextureUV.x * sw
-                local t = v.TextureUV.y * sh
+                local s = v.LightmapSamplePoint.x * sw
+                local t = v.LightmapSamplePoint.y * sh
                 if rect.istall == (sw > sh) then
                     s, t = t, s ---@type number, number
                 end

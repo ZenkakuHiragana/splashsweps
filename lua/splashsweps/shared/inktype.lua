@@ -64,5 +64,5 @@ function ss.LoadInkTypes()
     ss.NumInkTypes = inktypeCount
 
     ---Required bits to transfer ink type as an unsigned integer.
-    ss.MAX_INKTYPE_BITS = select(2, math.frexp(inktypeCount - 1))
+    ss.MAX_INKTYPE_BITS = math.max(select(2, math.frexp(inktypeCount - 1)), 1)
 end
