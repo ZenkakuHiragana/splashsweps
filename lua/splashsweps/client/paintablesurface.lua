@@ -36,9 +36,10 @@ function ss.PaintRenderTarget(pos, angle, scale_x, scale_y, shape, inktype)
     local normal = rt.StaticTextures.Normal
     local hammerUnitsToPixels = rt.HammerUnitsToPixels
 
+    local gap = ss.RT_MARGIN_PIXELS / 2
     local mins, maxs = ss.GetPaintBoundingBox(pos, angle, scale_x, scale_y)
-    local width = scale_x * hammerUnitsToPixels
-    local height = scale_y * hammerUnitsToPixels
+    local width = scale_x * 2 * hammerUnitsToPixels
+    local height = scale_y * 2 * hammerUnitsToPixels
     local rotationMatrix = Matrix()
     rotationMatrix:SetAngles(angle)
 
@@ -51,9 +52,8 @@ function ss.PaintRenderTarget(pos, angle, scale_x, scale_y, shape, inktype)
         render.PushRenderTarget(albedo, surf.OffsetV, surf.OffsetU, surf.UVHeight, surf.UVWidth)
         render.SetRenderTargetEx(1, normal)
         cam.Start2D()
-        surface.DrawTexturedRectRotated(uv.y, uv.x, height, width, localAngles.yaw)
+        surface.DrawTexturedRectRotated(uv.y + gap, uv.x + gap, height, width, localAngles.yaw)
         cam.End2D()
-        render.SetRenderTargetEx(1, nil)
         render.PopRenderTarget()
     end
 end

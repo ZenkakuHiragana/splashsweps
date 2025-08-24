@@ -29,6 +29,8 @@ if not SplashSWEPs then
         InkTypeIdentifierToIndex = {},
         ---Resolution of serverside canvas to maintain collision detection.
         InkGridCellSize = 8,
+        ---Gap between surfaces in UV coordinates in pixels.
+        RT_MARGIN_PIXELS = 4,
 
         ---A set of drawing materials of the ink for the combination of ink type and ink shape.
         ---@type table<string, IMaterial>

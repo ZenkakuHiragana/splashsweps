@@ -79,10 +79,10 @@ function ss.SetupSurfaces()
             local uvInfo = surf.UVInfo[rtIndex]
             ps.WorldToUVMatrix:SetAngles(uvInfo.Angle)
             ps.WorldToUVMatrix:SetTranslation(uvInfo.Translation)
-            ps.OffsetU = uvInfo.OffsetU * rtSize
-            ps.OffsetV = uvInfo.OffsetV * rtSize
-            ps.UVWidth = uvInfo.Width * rtSize
-            ps.UVHeight = uvInfo.Height * rtSize
+            ps.OffsetU = math.max(uvInfo.OffsetU * rtSize - ss.RT_MARGIN_PIXELS / 2, 0)
+            ps.OffsetV = math.max(uvInfo.OffsetV * rtSize - ss.RT_MARGIN_PIXELS / 2, 0)
+            ps.UVWidth = uvInfo.Width * rtSize + ss.RT_MARGIN_PIXELS
+            ps.UVHeight = uvInfo.Height * rtSize + ss.RT_MARGIN_PIXELS
         end
         ss.SurfaceArray[i] = ps
     end

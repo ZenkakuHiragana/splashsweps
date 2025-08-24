@@ -49,6 +49,16 @@ SWEP.Secondary.Ammo = "Ink"
 SWEP.Primary.Automatic = true
 SWEP.Primary.Delay = 1 / 30
 
+function SWEP:Initialize()
+    self.LoopSound = CreateSound(self, "items/suitcharge1.wav")
+end
+
+function SWEP:OnRemove()
+    if self.LoopSound:IsPlaying() then
+        self.LoopSound:Stop()
+    end
+end
+
 function SWEP:PrimaryAttack()
     local Owner = self:GetOwner()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
@@ -85,18 +95,21 @@ function SWEP:SecondaryAttack()
 end
 
 function SWEP:Think()
-    if SERVER then
-        local Owner = self:GetOwner()
-        if not Owner:IsPlayer() then return end ---@cast Owner Player
-        local tr = util.QuickTrace(Owner:GetPos(), -vector_up * 16, Owner)
-        if tr.HitWorld then
-            for surf in ss.CollectSurfaces(tr.HitPos - ss.vector_one, tr.HitPos + ss.vector_one, tr.HitNormal) do
-                local color = ss.ReadGrid(surf, tr.HitPos)
-                debugoverlay.Box(
-                    tr.HitPos, -ss.vector_one, ss.vector_one + vector_up * 72, FrameTime() * 2,
-                    color and Color(0, 255, 128, 16) or Color(255, 255, 255, 16))
-                break
+    local Owner = self:GetOwner()
+    if not Owner:IsPlayer() then return end ---@cast Owner Player
+    local tr = util.QuickTrace(Owner:GetPos(), -vector_up * 16, Owner)
+    if tr.HitWorld then
+        for surf in ss.CollectSurfaces(tr.HitPos - ss.vector_one, tr.HitPos + ss.vector_one, tr.HitNormal) do
+            local color = ss.ReadGrid(surf, tr.HitPos)
+            debugoverlay.Box(
+                tr.HitPos, -ss.vector_one, ss.vector_one + vector_up * 72, FrameTime() * 2,
+                color and Color(0, 255, 128, 16) or Color(255, 255, 255, 16))
+            if color then
+                self.LoopSound:Play()
+            else
+                self.LoopSound:Stop()
             end
+            break
         end
     end
 end

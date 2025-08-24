@@ -27,13 +27,13 @@ if not SplashSWEPs then
         ---Conversion table from identifier string to internal index for ink type.
         ---@type table<string, integer>
         InkTypeIdentifierToIndex = {},
+        ---Resolution of serverside canvas to maintain collision detection.
+        InkGridCellSize = 8,
+        ---Gap between surfaces in UV coordinates in pixels.
+        RT_MARGIN_PIXELS = 4,
 
         ---Various debug data goes here
         Debug = {},
-        ---Gap between surfaces in UV coordinates in pixels.
-        RT_MARGIN_PIXELS = 4,
-        ---Resolution of serverside canvas to maintain collision detection.
-        InkGridCellSize = 8,
         ---Contains information around render targets clientside.
         RenderTarget = {
             Resolutions = {
