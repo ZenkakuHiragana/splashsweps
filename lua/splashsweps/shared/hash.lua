@@ -10,6 +10,7 @@ local floor = math.floor
 local ipairs = ipairs
 local wrap = coroutine.wrap
 local yield = coroutine.yield
+local IsOBBIntersectingOBB = util.IsOBBIntersectingOBB
 local angle_zero = angle_zero
 local vector_origin = vector_origin
 local vector_one = ss.vector_one
@@ -77,13 +78,15 @@ end
 ---@return fun(): ss.PaintableSurface
 function ss.CollectSurfaces(mins, maxs, normal)
     return wrap(function()
+        local hasSeenThisSurface = {} ---@type table<ss.PaintableSurface, true>
         for h in hashpairs(mins - vector_tenth, maxs + vector_tenth) do
             for _, i in ipairs(ss.SurfaceHash[h] or {}) do
                 local s = ss.SurfaceArray[i]
-                if util.IsOBBIntersectingOBB(
+                if not hasSeenThisSurface[s] and IsOBBIntersectingOBB(
                     vector_origin, angle_zero, s.AABBMin, s.AABBMax,
                     vector_origin, angle_zero, mins, maxs, ss.eps)
                     and (not normal or dot(s.Normal, normal) > MAX_COS_DIFF) then
+                    hasSeenThisSurface[s] = true
                     yield(s)
                 end
             end

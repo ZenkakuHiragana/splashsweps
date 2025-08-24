@@ -15,6 +15,9 @@ local net_WriteInt = net.WriteInt
 ---@diagnostic disable-next-line: undefined-field
 local net_Broadcast = net.Broadcast ---@type fun()
 
+---Maximum paint scale of a single drop to be networked
+local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS) - 1
+
 ---Gets AABB of incoming paint.
 ---@param pos     Vector The origin.
 ---@param angle   Angle  The normal and rotation.
@@ -53,8 +56,8 @@ function ss.Paint(pos, angle, scale_x, scale_y, shape, inktype)
         local x     = Round(pos.x / 2)
         local y     = Round(pos.y / 2) -- -16384 to 16384, 2 step
         local z     = Round(pos.z / 2)
-        local sx    = min(Round(scale_x / 2), 255) -- 0 to 510, 2 step, integer
-        local sy    = min(Round(scale_y / 2), 255) -- 0 to 510, 2 step, integer
+        local sx    = Round(min(scale_x, MAX_RADIUS) / 2) -- 0 to MAX_RADIUS, 2 step, integer
+        local sy    = Round(min(scale_y, MAX_RADIUS) / 2) -- 0 to MAX_RADIUS, 2 step, integer
         local pitch = Clamp(Round(NormalizeAngle(angle.pitch) / 180 * 128), -128, 127)
         local yaw   = Clamp(Round(NormalizeAngle(angle.yaw)   / 180 * 128), -128, 127)
         local roll  = Clamp(Round(NormalizeAngle(angle.roll)  / 180 * 128), -128, 127)
@@ -68,8 +71,8 @@ function ss.Paint(pos, angle, scale_x, scale_y, shape, inktype)
         net_WriteInt(x, 15) -- X
         net_WriteInt(y, 15) -- Y
         net_WriteInt(z, 15) -- Z
-        net_WriteUInt(sx, 8) -- Scale X
-        net_WriteUInt(sy, 8) -- Scale Y
+        net_WriteUInt(sx, ss.MAX_INK_RADIUS_BITS) -- Scale X
+        net_WriteUInt(sy, ss.MAX_INK_RADIUS_BITS) -- Scale Y
         net_Broadcast()
 
         pos:SetUnpacked(x * 2, y * 2, z * 2)

@@ -12,8 +12,8 @@ net.Receive("SplashSWEPs: Paint", function()
     local x          = net.ReadInt(15) * 2 -- X
     local y          = net.ReadInt(15) * 2 -- Y
     local z          = net.ReadInt(15) * 2 -- Z
-    local scale_x    = net.ReadUInt(8) * 2 -- Scale X
-    local scale_y    = net.ReadUInt(8) * 2 -- Scale Y
+    local scale_x    = net.ReadUInt(ss.MAX_INK_RADIUS_BITS) * 2 -- Scale X
+    local scale_y    = net.ReadUInt(ss.MAX_INK_RADIUS_BITS) * 2 -- Scale Y
     local pos = Vector(x, y, z)
     local angle = Angle(
         math.Remap(pitch, -128, 127, -180, 180),

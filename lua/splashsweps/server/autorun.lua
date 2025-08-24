@@ -28,9 +28,11 @@ if not SplashSWEPs then
         ---@type table<string, integer>
         InkTypeIdentifierToIndex = {},
         ---Resolution of serverside canvas to maintain collision detection.
-        InkGridCellSize = 8,
+        InkGridCellSize = 12,
         ---Gap between surfaces in UV coordinates in pixels.
         RT_MARGIN_PIXELS = 4,
+        ---Number of bits to transfer ink drop radius.
+        MAX_INK_RADIUS_BITS = 8,
 
         ---Various debug data goes here
         Debug = {},
