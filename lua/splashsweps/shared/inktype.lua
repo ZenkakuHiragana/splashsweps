@@ -2,6 +2,14 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+local locals = ss.Locals ---@class ss.Locals
+if not locals.InkTypeIdentifierToIndex then
+    locals.InkTypeIdentifierToIndex = {}
+end
+
+---Conversion table from identifier string to internal index for ink type.
+---@type table<string, integer>
+local InkTypeIdentifierToIndex = locals.InkTypeIdentifierToIndex
 
 ---Ink type definition for the appearance and interactions.
 ---@class ss.InkType
@@ -29,7 +37,7 @@ ss.struct "InkType" {
 ---@param identifier string
 ---@return integer?
 function ss.FindInkTypeID(identifier)
-    return ss.InkTypeIdentifierToIndex[identifier]
+    return InkTypeIdentifierToIndex[identifier]
 end
 
 ---Reads all JSON files and defines all ink types used in this addon.
@@ -52,7 +60,7 @@ function ss.LoadInkTypes()
                 inktype.BaseTexture = json.basetexture or "debug/debugempty"
                 inktype.Bumpmap = json.bumpmap or "null-bumpmap"
                 ss.InkTypes[inktypeCount] = inktype
-                ss.InkTypeIdentifierToIndex[name] = inktypeCount
+                InkTypeIdentifierToIndex[name] = inktypeCount
             end
         end
     end

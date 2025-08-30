@@ -2,8 +2,16 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+local locals = ss.Locals ---@class ss.Locals
+if not locals.InkMaterials then
+    locals.InkMaterials = {}
+end
 
----Returns the key of ss.InkMaterials from ss.InkType and ss.InkShape.
+---A set of drawing materials of the ink for the combination of ink type and ink shape.
+---@type table<string, IMaterial>
+local InkMaterials = locals.InkMaterials
+
+---Returns the key of InkMaterials from ss.InkType and ss.InkShape.
 ---@param inktype ss.InkType
 ---@param shape ss.InkShape
 ---@return string
@@ -16,7 +24,7 @@ end
 ---@param shape ss.InkShape
 ---@return IMaterial
 function ss.GetInkMaterial(inktype, shape)
-    return ss.InkMaterials[GetInkMaterialKey(inktype, shape)]
+    return InkMaterials[GetInkMaterialKey(inktype, shape)]
 end
 
 ---Constructs drawing materials using ss.InkTypes and ss.InkShapes
@@ -24,7 +32,7 @@ function ss.LoadInkMaterials()
     for _, shape in pairs(ss.InkShapes) do
         for _, inktype in pairs(ss.InkTypes) do
             local materialId = GetInkMaterialKey(inktype, shape)
-            ss.InkMaterials[materialId] = CreateMaterial(
+            InkMaterials[materialId] = CreateMaterial(
                 materialId,
                 "Screenspace_General", {
                     ["$pixshader"] = "splashsweps/drawink_ps30",

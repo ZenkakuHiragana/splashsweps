@@ -1,10 +1,19 @@
 
+-- Spatial hashing for better query performance of surfaces
+
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+local locals = ss.Locals ---@class ss.Locals
+if not locals.SurfaceHash then
+    locals.SurfaceHash = {}
+end
 
--- Spatial hashing for better query performance of surfaces
-
+---A hash table to represent grid separation of paintable surfaces  
+--- `= { [hash] = { i1, i2, i3, ... }, ... }`  
+---where `i` is index of `ss.SurfaceArray`
+---@type table<integer, integer[]>
+local SurfaceHash = locals.SurfaceHash
 local dot = Vector().Dot
 local floor = math.floor
 local ipairs = ipairs
@@ -65,8 +74,8 @@ end
 function ss.GenerateHashTable()
     for i, s in ipairs(ss.SurfaceArray) do
         for h in hashpairs(s.AABBMin, s.AABBMax) do
-            ss.SurfaceHash[h] = ss.SurfaceHash[h] or {}
-            ss.SurfaceHash[h][#ss.SurfaceHash[h] + 1] = i
+            SurfaceHash[h] = SurfaceHash[h] or {}
+            SurfaceHash[h][#SurfaceHash[h] + 1] = i
         end
     end
 end
@@ -80,7 +89,7 @@ function ss.CollectSurfaces(mins, maxs, normal)
     return wrap(function()
         local hasSeenThisSurface = {} ---@type table<ss.PaintableSurface, true>
         for h in hashpairs(mins - vector_tenth, maxs + vector_tenth) do
-            for _, i in ipairs(ss.SurfaceHash[h] or {}) do
+            for _, i in ipairs(SurfaceHash[h] or {}) do
                 local s = ss.SurfaceArray[i]
                 if not hasSeenThisSurface[s] and IsOBBIntersectingOBB(
                     vector_origin, angle_zero, s.AABBMin, s.AABBMax,

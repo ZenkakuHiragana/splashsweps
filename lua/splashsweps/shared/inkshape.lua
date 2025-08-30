@@ -2,6 +2,14 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+local locals = ss.Locals ---@class ss.Locals
+if not locals.InkShapeLists then
+    locals.InkShapeLists = {}
+end
+
+---Map of ink shape category --> list of indices to actual definition
+---@type table<string, integer[]>
+local InkShapeLists = locals.InkShapeLists
 
 ---Mask array used to draw on PaintableSurface grid.  
 ---Access the mask value using `InkShape.Grid[y * InkShape.Width + x]`: boolean.
@@ -88,7 +96,7 @@ function ss.LoadInkShapes()
                     shapeCount = shapeCount + 1
                     shape.Index = shapeCount
                     shape.Identifier = f:gsub("^materials/splashsweps/paints/", "")
-                    ss.InkShapeLists[tag] = table.ForceInsert(ss.InkShapeLists[tag], shape.Index)
+                    InkShapeLists[tag] = table.ForceInsert(InkShapeLists[tag], shape.Index)
                     ss.InkShapes[shape.Index] = shape
                 end
             end
@@ -107,7 +115,7 @@ end
 ---@param seed? number optional random seed such as `CurTime()`.
 ---@return ss.InkShape # Randomly chosen ink shape.
 function ss.SelectRandomShape(tag, seed)
-    local indices = ss.InkShapeLists[tag]
+    local indices = InkShapeLists[tag]
     local name = "SplashSWEPs: Select random shape"
     return ss.InkShapes[indices[util.SharedRandom(name, 1, #indices, seed)]]
 end

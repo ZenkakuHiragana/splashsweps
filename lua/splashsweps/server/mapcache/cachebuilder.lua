@@ -162,7 +162,6 @@ function ss.BuildMapCache()
     do
         collectgarbage "collect"
         local hdr, whdr = ss.BuildSurfaceCache(bsp, cache.ModelsHDR, true)
-        -- table.Add(hdr, surfaceDetails)
         cache.SurfacesWaterHDR = whdr
         ss.BuildUVCache(hdr, cache.StaticPropHDR, staticPropRectangles)
         file.Write(string.format("splashsweps/%s_hdr.png", game.GetMap()), ss.BuildLightmapCache(bsp, hdr, true))
@@ -173,7 +172,6 @@ function ss.BuildMapCache()
     do
         collectgarbage "collect"
         local ldr, wldr = ss.BuildSurfaceCache(bsp, cache.ModelsLDR, false)
-        -- table.Add(ldr, surfaceDetails)
         cache.SurfacesWaterLDR = wldr
         ss.BuildUVCache(ldr, cache.StaticPropLDR, staticPropRectangles)
         file.Write(string.format("splashsweps/%s_ldr.png", game.GetMap()), ss.BuildLightmapCache(bsp, ldr, true))

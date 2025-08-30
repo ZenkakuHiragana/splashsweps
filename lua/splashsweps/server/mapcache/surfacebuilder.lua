@@ -8,7 +8,6 @@ local sort = table.sort
 local tableCopy = table.Copy
 local Vector = Vector
 local Matrix = Matrix
-local ModelMeshCache = {} ---@type table<string, Structure.MeshVertex[]>
 local MaterialCache = {} ---@type table<string, IMaterial>
 local TextureFilterBits = bit.bor(
     SURF_SKY, SURF_NOPORTAL, SURF_TRIGGER,
@@ -32,15 +31,6 @@ local function GetMaterial(name)
         MaterialCache[name] = Material(name)
     end
     return MaterialCache[name]
-end
-
----@param name string
----@return { material: string, triangles: Structure.MeshVertexWithWeights[], vertices: Structure.MeshVertexWithWeights[] }[]
-local function GetModelMeshes(name)
-    if not ModelMeshCache[name] then
-        ModelMeshCache[name] = util.GetModelMeshes(name)
-    end
-    return ModelMeshCache[name]
 end
 
 ---Compares two vertices used by table.sort

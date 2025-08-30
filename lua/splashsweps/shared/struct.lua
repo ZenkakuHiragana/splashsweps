@@ -2,7 +2,14 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+local locals = ss.Locals ---@class ss.Locals
+if not locals.StructDefinitions then
+    locals.StructDefinitions = {}
+end
 
+---Struct templates are stored here
+---@type table<string, table>
+local StructDefinitions = locals.StructDefinitions
 local getmetatable = getmetatable
 local isangle = isangle
 local ismatrix = ismatrix
@@ -54,7 +61,7 @@ ss.deepcopy = deepcopy
 ---@param typename ss.`T`
 ---@return fun(ctor: fun(this: T, ...))
 function ss.ctor(typename)
-    local meta = getmetatable(ss.StructDefinitions[typename]) or {}
+    local meta = getmetatable(StructDefinitions[typename]) or {}
     ---Registers the constructor for struct typename
     ---@generic T
     ---@param ctor fun(this: T, ...)
@@ -63,7 +70,7 @@ function ss.ctor(typename)
             ctor(this, ...)
             return this
         end
-        setmetatable(ss.StructDefinitions[typename], meta)
+        setmetatable(StructDefinitions[typename], meta)
     end
 end
 
@@ -72,7 +79,7 @@ end
 ---@param typename ss.`T`
 ---@return T
 function ss.new(typename)
-    return deepcopy(ss.StructDefinitions[typename])
+    return deepcopy(StructDefinitions[typename])
 end
 
 ---Defines structure template.
@@ -81,6 +88,6 @@ end
 ---@return fun(definition: T)
 function ss.struct(typename)
     return function(definition)
-        ss.StructDefinitions[typename] = definition
+        StructDefinitions[typename] = definition
     end
 end

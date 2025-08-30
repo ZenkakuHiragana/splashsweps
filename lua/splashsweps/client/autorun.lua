@@ -2,41 +2,29 @@
 if not SplashSWEPs then
     ---@class ss
     SplashSWEPs = {
-        ---Struct templates are stored here
-        ---@type table<string, table>
-        StructDefinitions = {},
-        ---A hash table to represent grid separation of paintable surfaces
-        --- `= { [hash] = { i1, i2, i3, ... }, ... }` where `i` is index of `ss.SurfaceArray`
-        ---@type table<integer, integer[]>
-        SurfaceHash = {},
-        ---Array of paintable surfaces.
-        ---@type ss.PaintableSurface[]
-        SurfaceArray = {},
+        ---Various temporary tables used in limited files.
+        ---@class ss.Locals
+        Locals = {},
         ---A set of event handlers with interactions to painted ink.
         ---@type table<string, ss.IInkFeature>
         InkFeatures = {},
-        ---Map of ink shape category --> list of indices to actual definition
-        ---@type table<string, integer[]>
-        InkShapeLists = {},
         ---Internal shape index --> ss.InkShape object
         ---@type ss.InkShape[]
         InkShapes = {},
         ---Definition of ink type (color and functionality)
         ---@type ss.InkType[]
         InkTypes = {},
-        ---Conversion table from identifier string to internal index for ink type.
-        ---@type table<string, integer>
-        InkTypeIdentifierToIndex = {},
+        ---Array of paintable surfaces.
+        ---@type ss.PaintableSurface[]
+        SurfaceArray = {},
+
         ---Resolution of serverside canvas to maintain collision detection.
         InkGridCellSize = 12,
-        ---Gap between surfaces in UV coordinates in pixels.
-        RT_MARGIN_PIXELS = 4,
         ---Number of bits to transfer ink drop radius.
         MAX_INK_RADIUS_BITS = 8,
+        ---Gap between surfaces in UV coordinates in pixels.
+        RT_MARGIN_PIXELS = 4,
 
-        ---A set of drawing materials of the ink for the combination of ink type and ink shape.
-        ---@type table<string, IMaterial>
-        InkMaterials = {},
         ---List of IMeshes to render the painted ink.
         ---@type { BrushEntity: Entity?, [integer]: IMesh }[]
         IMesh = {},
