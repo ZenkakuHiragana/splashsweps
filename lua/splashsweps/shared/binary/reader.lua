@@ -97,13 +97,13 @@ function ss.ReadStructureFromFile(binary, arg, ...)
         elseif arg:StartsWith "String" then
             local str = ""
             local chr = ss.ReadStructureFromFile(binary, 1)
-            local minlen = tonumber(arg:sub(#"String" + 1)) or 0
-            local MAX_STRING_LENGTH = 1024
-            while chr and chr ~= "\x00" and #str < MAX_STRING_LENGTH do
+            local fixedLength = tonumber(arg:sub(#"String" + 1))
+            local MAX_STRING_LENGTH = fixedLength or 1024
+            while chr and chr ~= "\x00" and #str < MAX_STRING_LENGTH + 1 do
                 str = str .. chr
                 chr = ss.ReadStructureFromFile(binary, 1)
             end
-            for _ = 1, minlen - (#str + 1) do
+            for _ = 1, (fixedLength or 0) - (#str + 1) do
                 ss.ReadStructureFromFile(binary, 1)
             end
             return str

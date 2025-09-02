@@ -56,7 +56,7 @@ local function ReadPixelsFromVTF(vmt)
     if not pngpath then return end
     local mat = Material(pngpath)
     local vtf = mat:GetTexture "$basetexture"
-    ss.assert(not vtf:IsErrorTexture(), "Shape mask has invalid texture.")
+    ss.assert(vtf and not vtf:IsErrorTexture(), "Shape mask has invalid texture (" .. pngpath .. ")")
 
     local path = vtf:GetName()
     local width = vtf:GetMappingWidth()
