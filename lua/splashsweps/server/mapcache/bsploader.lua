@@ -71,6 +71,7 @@ local LUMP = {
     [63] = "PHYSLEVEL",
     [64] = "DISP_MULTIBLEND",
 }
+
 ---Used for calculating the size of lump structures
 local BuiltinTypeSizes = {
     Angle       = 12,
@@ -86,512 +87,648 @@ local BuiltinTypeSizes = {
     UShort      = 2,
     Vector      = 12,
 }
----Definition of Lumps.
-local StructureDefinitions = {
-    BSPHeader = {
-        "Long       identifier",
-        "Long       version",
-        "LumpHeader lumps 64",
-        "Long       mapRevision",
-        ---@class ss.BSP.Header
-        ---@field identifier  integer
-        ---@field version     integer
-        ---@field lumps       BSP.LumpHeader[]
-        ---@field mapRevision integer
 
-        ---@class BSP.LumpHeader
-        ---@field fileOffset integer
-        ---@field fileLength integer
-        ---@field version    integer
-        ---@field fourCC     integer
-    },
-    CDispSubNeighbor = {
-        "UShort neighbor",            -- Index into DISPINFO, 0xFFFF for no neighbor
-        "Byte   neighborOrientation", -- (CCW) rotation of the neighbor with reference to this displacement
-        "Byte   span",                -- Where the neighbor fits onto this side of our displacement
-        "Byte   neighborSpan",        -- Where we fit onto our neighbor
-        "Byte   padding",
-        ---@class CDispSubNeighbor
-        ---@field neighbor            integer
-        ---@field neighborOrientation integer
-        ---@field span                integer
-        ---@field neighborSpan        integer
-        ---@field padding             integer
-    },
-    CDispNeighbor = {
-        "CDispSubNeighbor subneighbors 2",
-        ---@class CDispNeighbor
-        ---@field subneighbors CDispSubNeighbor[]
-    },
-    CDispCornerNeighbors = {
-        "UShort neighbors 4", -- Indices of neighbors
-        "Byte   numNeighbors",
-        "Byte   padding",
-        ---@class CDispCornerNeighbor
-        ---@field neighbors    integer[]
-        ---@field numNeighbors integer
-        ---@field padding      integer
-    },
-    dgamelump_t = {
-        "Long   id",
-        "UShort flags",
-        "UShort version",
-        "Long   fileOffset",
-        "Long   fileLength",
-        ---@class dgamelunp_t
-        ---@field id         integer
-        ---@field flags      integer
-        ---@field version    integer
-        ---@field fileOffset integer
-        ---@field fileLength integer
-    },
-    StaticProp4 = { -- version == 4
-        size = 56,
-        "Vector origin",
-        "Angle  angle",
-        "UShort propType",
-        "UShort firstLeaf",
-        "UShort leafCount",
-        "Byte   solid",
-        "Byte   flags", -- every version except v7*
-        "Long   skin",
-        "Float  fadeMinDist",
-        "Float  fadeMaxDist",
-        "Vector lightingOrigin",
-    },
-    StaticProp5 = { -- version == 5
-        size = 60,
-        "Vector origin",
-        "Angle  angle",
-        "UShort propType",
-        "UShort firstLeaf",
-        "UShort leafCount",
-        "Byte   solid",
-        "Byte   flags", -- every version except v7*
-        "Long   skin",
-        "Float  fadeMinDist",
-        "Float  fadeMaxDist",
-        "Vector lightingOrigin",
-        "Float  forcedFadeScale", -- since v5
-    },
-    StaticProp6 = { -- version == 6
-        size = 64,
-        "Vector origin",
-        "Angle  angle",
-        "UShort propType",
-        "UShort firstLeaf",
-        "UShort leafCount",
-        "Byte   solid",
-        "Byte   flags", -- every version except v7*
-        "Long   skin",
-        "Float  fadeMinDist",
-        "Float  fadeMaxDist",
-        "Vector lightingOrigin",
-        "Float  forcedFadeScale", -- since v5
-        "UShort minDXLevel",      -- v6, v7, v7*
-        "UShort maxDXLevel",      -- v6, v7, v7*
-    },
-    StaticProp7Star = { -- version == 7 or version == 10 and size matches
-        size = 72,
-        "Vector origin",
-        "Angle  angle",
-        "UShort propType",
-        "UShort firstLeaf",
-        "UShort leafCount",
-        "Byte   solid",
-        "Byte   padding", -- flags, every version except v7*
-        "Long   skin",
-        "Float  fadeMinDist",
-        "Float  fadeMaxDist",
-        "Vector lightingOrigin",
-        "Float  forcedFadeScale", -- since v5
-        "UShort minDXLevel",      -- v6, v7, v7*
-        "UShort maxDXLevel",      -- v6, v7, v7*
-        "ULong  flags",           -- v7* only
-        "UShort lightmapResX",    -- v7* only
-        "UShort lightmapResY",    -- v7* only
-    },
-    StaticProp7 = { -- version == 7
-        size = 68,
-        "Vector origin",
-        "Angle  angle",
-        "UShort propType",
-        "UShort firstLeaf",
-        "UShort leafCount",
-        "Byte   solid",
-        "Byte   flags", -- every version except v7*
-        "Long   skin",
-        "Float  fadeMinDist",
-        "Float  fadeMaxDist",
-        "Vector lightingOrigin",
-        "Float  forcedFadeScale",     -- since v5
-        "UShort minDXLevel",          -- v6, v7, v7*
-        "UShort maxDXLevel",          -- v6, v7, v7*
-        "Byte   diffuseModulation 4", -- since v7
-    },
-    StaticProp8 = { -- version == 8
-        size = 68,
-        "Vector origin",
-        "Angle  angle",
-        "UShort propType",
-        "UShort firstLeaf",
-        "UShort leafCount",
-        "Byte   solid",
-        "Byte   flags", -- every version except v7*
-        "Long   skin",
-        "Float  fadeMinDist",
-        "Float  fadeMaxDist",
-        "Vector lightingOrigin",
-        "Float  forcedFadeScale",     -- since v5
-        -- "UShort minDXLevel",          -- v6, v7, v7*
-        -- "UShort maxDXLevel",          -- v6, v7, v7*
-        "Byte   cpugpuLevels 4",      -- since v8
-        "Byte   diffuseModulation 4", -- since v7
-    },
-    StaticProp9 = { -- version == 9
-        size = 72,
-        "Vector origin",
-        "Angle  angle",
-        "UShort propType",
-        "UShort firstLeaf",
-        "UShort leafCount",
-        "Byte   solid",
-        "Byte   flags", -- every version except v7*
-        "Long   skin",
-        "Float  fadeMinDist",
-        "Float  fadeMaxDist",
-        "Vector lightingOrigin",
-        "Float  forcedFadeScale",     -- since v5
-        -- "UShort minDXLevel",          -- v6, v7, v7*
-        -- "UShort maxDXLevel",          -- v6, v7, v7*
-        "Byte   cpugpuLevels 4",      -- since v8
-        "Byte   diffuseModulation 4", -- since v7
-        "Long   disableX360",         -- v9, v10
-    },
-    StaticProp10 = { -- version == 10
-        size = 76,
-        "Vector origin",
-        "Angle  angle",
-        "UShort propType",
-        "UShort firstLeaf",
-        "UShort leafCount",
-        "Byte   solid",
-        "Byte   flags", -- every version except v7*
-        "Long   skin",
-        "Float  fadeMinDist",
-        "Float  fadeMaxDist",
-        "Vector lightingOrigin",
-        "Float  forcedFadeScale",     -- since v5
-        -- "UShort minDXLevel",          -- v6, v7, v7*
-        -- "UShort maxDXLevel",          -- v6, v7, v7*
-        "Byte   cpugpuLevels 4",      -- since v8
-        "Byte   diffuseModulation 4", -- since v7
-        "Long   disableX360",         -- v9, v10
-        "ULong  flagsEx",             -- since v10
-    },
-    StaticProp11 = { -- version == 11
-        size = 76,
-        "Vector origin",
-        "Angle  angle",
-        "UShort propType",
-        "UShort firstLeaf",
-        "UShort leafCount",
-        "Byte   solid",
-        "Byte   flags", -- every version except v7*
-        "Long   skin",
-        "Float  fadeMinDist",
-        "Float  fadeMaxDist",
-        "Vector lightingOrigin",
-        "Float  forcedFadeScale",     -- since v5
-        -- "UShort minDXLevel",          -- v6, v7, v7*
-        -- "UShort maxDXLevel",          -- v6, v7, v7*
-        "Byte   cpugpuLevels 4",      -- since v8
-        "Byte   diffuseModulation 4", -- since v7
-        -- "Bool   disableX360",         -- v9, v10
-        "ULong  flagsEx",             -- since v10
-        "Float uniformScale",         -- since v11
-        ---@class BSP.StaticProp
-        ---@field origin             Vector
-        ---@field angle              Angle
-        ---@field propType           integer
-        ---@field firstLeaf          integer
-        ---@field leafCount          integer
-        ---@field solid              integer
-        ---@field flags              integer    every version except v7*
-        ---@field padding            integer?   v7*
-        ---@field skin               integer
-        ---@field fadeMinDist        number
-        ---@field fadeMaxDist        number
-        ---@field lightingOrigin     Vector
-        ---@field forcedFadeScale    number?    since v5
-        ---@field minDXLevel         integer?   v6, v7, and v7*
-        ---@field maxDXLevel         integer?   v6, v7, and v7*
-        ---@field cpugpuLevels       integer[]? since v8
-        ---@field diffuseModulation  integer[]? since v7
-        ---@field disableX360        boolean?   v9 and v10
-        ---@field flagsEx            integer?   since v10
-        ---@field uniformScale       number?    since v11
-    },
-    ENTITIES = "String",
-    PLANES = {
-        size = 12 + 4 + 4,
-        "Vector normal",
-        "Float  dist",
-        "Long   axisType"
-        ---@class BSP.Plane
-        ---@field normal   Vector
-        ---@field dist     number
-        ---@field axisType integer
-    },
-    VERTEXES  = "Vector",
-    EDGES     = { size = 2 + 2, "UShort", "UShort" },
-    SURFEDGES = "Long",
-    FACES = {
-        size = 56,
-        "UShort planeNum",
-        "Byte   side",
-        "Bool   onNode",
-        "Long   firstEdge",
-        "Short  numEdges",
-        "Short  texInfo",
-        "Short  dispInfo",
-        "Short  surfaceFogVolumeID",
-        "Byte   styles 4",
-        "Long   lightOffset",
-        "Float  area",
-        "Long   lightmapTextureMinsInLuxels 2",
-        "Long   lightmapTextureSizeInLuxels 2",
-        "Long   originalFace",
-        "UShort numPrimitives",
-        "UShort firstPrimitiveID",
-        "ULong  smoothingGroups",
-        ---@class BSP.Face
-        ---@field planeNum                    integer
-        ---@field side                        integer
-        ---@field onNode                      integer
-        ---@field firstEdge                   integer
-        ---@field numEdges                    integer
-        ---@field texInfo                     integer
-        ---@field dispInfo                    integer
-        ---@field surfaceFogVolumeID          integer
-        ---@field styles                      integer[]
-        ---@field lightOffset                 integer
-        ---@field area                        number
-        ---@field lightmapTextureMinsInLuxels integer[]
-        ---@field lightmapTextureSizeInLuxels integer[]
-        ---@field originalFace                integer
-        ---@field numPrimitives               integer
-        ---@field firstPrimitiveID            integer
-        ---@field smoothingGroups             integer
-    },
-    FACES_HDR = "FACES",
-    -- Completely unused in this addon so skip parsing them by commenting out.
-    -- ORIGINALFACES = "FACES",
-    -- BRUSHES = {
-    --     size = 4 + 4 + 4,
-    --     "Long firstSide",
-    --     "Long numSides",
-    --     "Long contents",
-    -- },
-    -- BRUSHSIDES = {
-    --     size = 2 + 2 + 2 + 2,
-    --     "UShort planeNum",
-    --     "Short  texInfo",
-    --     "Short  dispInfo",
-    --     "Short  bevel",
-    -- },
-    -- NODES = {
-    --     size = 32,
-    --     "Long        planeNum",
-    --     "Long        children 2",
-    --     "ShortVector mins",
-    --     "ShortVector maxs",
-    --     "UShort      firstFace",
-    --     "UShort      numFaces",
-    --     "Short       area",
-    --     "Short       padding",
-    -- },
-    LEAFS = {
-        size = 32,
-        "Long        contents",
-        "Short       cluster",
-        "Short       areaAndFlags", -- area: lower 9 bits, flags: upper 7 bits
-        "ShortVector mins",
-        "ShortVector maxs",
-        "UShort      firstLeafFace",
-        "UShort      numLeafFaces",
-        "UShort      firstLeafBrush",
-        "UShort      numLeafBrushes",
-        "Short       leafWaterDataID",
-        -- Also need the following when version <= 19
-        -- "CompressedLightCube ambientLighting", -- 24 bytes
-        "Short       padding",
-        ---@class BSP.Leaf
-        ---@field contents         integer
-        ---@field cluster          integer
-        ---@field areaAndFlags     integer
-        ---@field mins             Vector
-        ---@field maxs             Vector
-        ---@field firstLeafFace    integer
-        ---@field numLeafFaces     integer
-        ---@field firstLeafBrush   integer
-        ---@field numLeafBrush     integer
-        ---@field leafWaterDataID  integer
-        ---@field padding          integer
-    },
-    -- LEAFFACES = "UShort",
-    -- LEAFBRUSHES = "UShort",
-    TEXINFO = {
-        size = 72,
-        "Vector textureVecS",
-        "Float  textureOffsetS",
-        "Vector textureVecT",
-        "Float  textureOffsetT",
-        "Vector lightmapVecS",
-        "Float  lightmapOffsetS",
-        "Vector lightmapVecT",
-        "Float  lightmapOffsetT",
-        "Long   flags",
-        "Long   texData",
-        ---@class BSP.TexInfo
-        ---@field textureVecS     Vector
-        ---@field textureOffsetS  number
-        ---@field textureVecT     Vector
-        ---@field textureOffsetT  number
-        ---@field lightmapVecS    Vector
-        ---@field lightmapOffsetS number
-        ---@field lightmapVecT    Vector
-        ---@field lightmapOffsetT number
-        ---@field flags           integer
-        ---@field texData         integer
-    },
-    TEXDATA = {
-        size = 4 * 3 + 4 + 4 + 4 + 4 + 4,
-        "Vector reflectivity",
-        "Long   nameStringTableID",
-        "Long   width",
-        "Long   height",
-        "Long   viewWidth",
-        "Long   viewHeight",
-        ---@class BSP.TexData
-        ---@field reflectivity      Vector
-        ---@field nameStringTableID integer
-        ---@field width             integer
-        ---@field height            integer
-        ---@field viewWidth         integer
-        ---@field viewHeight        integer
-    },
-    TEXDATA_STRING_TABLE = "Long",
-    TEXDATA_STRING_DATA = "String",
-    MODELS = {
-        size = 48,
-        "Vector mins",
-        "Vector maxs",
-        "Vector origin",
-        "Long   headNode",
-        "Long   firstFace",
-        "Long   numFaces",
-        ---@class BSP.Model
-        ---@field mins      Vector
-        ---@field maxs      Vector
-        ---@field origin    Vector
-        ---@field headNode  integer
-        ---@field firstFace integer
-        ---@field numFaces  integer
-    },
-    DISPINFO = {
-        size = 176,
-        "Vector               startPosition",
-        "Long                 dispVertStart",
-        "Long                 dispTriStart",
-        "Long                 power",
-        "Long                 minTesselation",
-        "Float                smoothingAngle",
-        "Long                 contents",
-        "UShort               mapFace",
-        "UShort               padding",
-        "Long                 lightmapAlphaTest",
-        "Long                 lightmapSamplesPositionStart",
-        "CDispNeighbor        edgeNeighbors   4", -- Probably these are
-        "CDispCornerNeighbors cornerNeighbors 4", -- not correctly parsed
-        "ULong                allowedVerts    10",
-        ---@class BSP.DispInfo
-        ---@field startPosition               Vector
-        ---@field dispVertStart               integer
-        ---@field dispTriStart                integer
-        ---@field power                       integer
-        ---@field minTesselation              integer
-        ---@field smoothingAngle              number
-        ---@field contents                    integer
-        ---@field mapFace                     integer
-        ---@field padding                     integer
-        ---@field lightmapAlphaTest           integer
-        ---@field lightmapSamplePositionStart integer
-        ---@field edgeNeighbors               CDispNeighbor[]
-        ---@field cornerNeighbors             CDispCornerNeighbor[]
-        ---@field allowedVerts                integer[]
-    },
-    DISP_VERTS = {
-        size = 20,
-        "Vector vec",
-        "Float  dist",
-        "Float  alpha",
-        ---@class BSP.DispVerts
-        ---@field vec   Vector
-        ---@field dist  number
-        ---@field alpha number
-    },
-    DISP_TRIS = "UShort",
-    LIGHTING = "Raw",
-    LIGHTING_HDR = "Raw",
-    -- CUBEMAPS = {
-    --     size = 16,
-    --     "LongVector origin",
-    --     "Long       size",
-    -- },
-    GAME_LUMP = {
-        size = -1, -- Negative size means this is a single lump
-        "Long        lumpCount",
-        "dgamelump_t nil lumpCount",
-        ---@class ss.BSP.GameLump
-        ---@field lumpCount integer
-        ---@field [integer] dgamelunp_t
-    }
+---@class ss.Binary.BSP.Header
+---@field identifier  integer
+---@field version     integer
+---@field lumps       ss.Binary.BSP.LumpHeader[]
+---@field mapRevision integer
+ss.bstruct "BSP.Header" {
+    "Long           identifier",
+    "Long           version",
+    "BSP.LumpHeader lumps 64",
+    "Long           mapRevision",
 }
-local GameLumpContents = {
-    sprp = { -- Static Props
-        "Long            dictEntries",
-        "String128  name dictEntries",
-        "Long            leafEntries",
-        "UShort     leaf leafEntries",
-        "Long            propEntries",
-        "StaticProp prop propEntries", -- Size depends on game lump version
-        ---@class BSP.sprp
-        ---@field dictEntries integer
-        ---@field name        string[]
-        ---@field leafEntries integer
-        ---@field leaf        integer[]
-        ---@field propEntries integer
-        ---@field prop        BSP.StaticProp[]
-    },
+
+---@class ss.Binary.BSP.LumpHeader
+---@field fileOffset integer
+---@field fileLength integer
+---@field version    integer
+---@field fourCC     integer
+ss.bstruct "BSP.LumpHeader" {
+    ---@param self ss.BinaryStructureDefinition
+    ---@param bsp File
+    ---@return ss.Binary.BSP.LumpHeader
+    Read = function(self, bsp)
+        local fileOffset = bsp:ReadLong()
+        local fileLength = bsp:ReadLong()
+        local version = bsp:ReadLong()
+        local fourCC = bsp:ReadLong()
+        if fileOffset < bsp:Tell() or version >= 0x100 then
+            -- Left 4 Dead 2 maps have different order
+            -- but I don't know how to detemine if this is Left 4 Dead 2 map
+            return {
+                fileOffset = fileLength,
+                fileLength = version,
+                version = fileOffset,
+                fourCC = fourCC,
+            }
+        else
+            return {
+                fileOffset = fileOffset,
+                fileLength = fileLength,
+                version = version,
+                fourCC = fourCC,
+            }
+        end
+    end
+}
+
+---@class ss.Binary.BSP.CDispSubNeighbor
+---@field neighbor            integer Index into DISPINFO, 0xFFFF for no neighbor
+---@field neighborOrientation integer (CCW) rotation of the neighbor with reference to this displacement
+---@field span                integer Where the neighbor fits onto this side of our displacement
+---@field neighborSpan        integer Where we fit onto our neighbor
+---@field padding             integer
+ss.bstruct "BSP.CDispSubNeighbor" {
+    "UShort neighbor",
+    "Byte   neighborOrientation",
+    "Byte   span",
+    "Byte   neighborSpan",
+    "Byte   padding",
+}
+
+---@class ss.Binary.BSP.CDispNeighbor
+---@field subneighbors ss.Binary.BSP.CDispSubNeighbor[]
+ss.bstruct "BSP.CDispNeighbor" {
+    "BSP.CDispSubNeighbor subneighbors 2",
+}
+
+---@class ss.Binary.BSP.CDispCornerNeighbors
+---@field neighbors    integer[] Indices of neighbors
+---@field numNeighbors integer
+---@field padding      integer
+ss.bstruct "BSP.CDispCornerNeighbors" {
+    "UShort neighbors 4",
+    "Byte   numNeighbors",
+    "Byte   padding",
+}
+
+---@class ss.Binary.BSP.dgamelunp_t
+---@field id         integer
+---@field flags      integer
+---@field version    integer
+---@field fileOffset integer
+---@field fileLength integer
+ss.bstruct "BSP.dgamelump_t" {
+    "Long   id",
+    "UShort flags",
+    "UShort version",
+    "Long   fileOffset",
+    "Long   fileLength",
+}
+
+---@alias ss.Binary.BSP.StaticProp.4  ss.Binary.BSP.StaticProp
+---@alias ss.Binary.BSP.StaticProp.5  ss.Binary.BSP.StaticProp
+---@alias ss.Binary.BSP.StaticProp.6  ss.Binary.BSP.StaticProp
+---@alias ss.Binary.BSP.StaticProp.7  ss.Binary.BSP.StaticProp
+---@alias ss.Binary.BSP.StaticProp.7* ss.Binary.BSP.StaticProp
+---@alias ss.Binary.BSP.StaticProp.8  ss.Binary.BSP.StaticProp
+---@alias ss.Binary.BSP.StaticProp.9  ss.Binary.BSP.StaticProp
+---@alias ss.Binary.BSP.StaticProp.10 ss.Binary.BSP.StaticProp
+---@alias ss.Binary.BSP.StaticProp.11 ss.Binary.BSP.StaticProp
+---@class ss.Binary.BSP.StaticProp
+---@field origin             Vector
+---@field angle              Angle
+---@field propType           integer
+---@field firstLeaf          integer
+---@field leafCount          integer
+---@field solid              integer
+---@field flags              integer    every version except v7*
+---@field padding            integer?   v7*
+---@field skin               integer
+---@field fadeMinDist        number
+---@field fadeMaxDist        number
+---@field lightingOrigin     Vector
+---@field forcedFadeScale    number?    since v5
+---@field minDXLevel         integer?   v6, v7, and v7*
+---@field maxDXLevel         integer?   v6, v7, and v7*
+---@field cpugpuLevels       integer[]? since v8
+---@field diffuseModulation  integer[]? since v7
+---@field disableX360        boolean?   v9 and v10
+---@field flagsEx            integer?   since v10
+---@field uniformScale       number?    since v11
+
+ss.bstruct "BSP.StaticProp.4" { -- version == 4
+    Size = 56,
+    "Vector origin",
+    "Angle  angle",
+    "UShort propType",
+    "UShort firstLeaf",
+    "UShort leafCount",
+    "Byte   solid",
+    "Byte   flags", -- every version except v7*
+    "Long   skin",
+    "Float  fadeMinDist",
+    "Float  fadeMaxDist",
+    "Vector lightingOrigin",
+}
+
+ss.bstruct "BSP.StaticProp.5" { -- version == 5
+    Size = 60,
+    "Vector origin",
+    "Angle  angle",
+    "UShort propType",
+    "UShort firstLeaf",
+    "UShort leafCount",
+    "Byte   solid",
+    "Byte   flags", -- every version except v7*
+    "Long   skin",
+    "Float  fadeMinDist",
+    "Float  fadeMaxDist",
+    "Vector lightingOrigin",
+    "Float  forcedFadeScale", -- since v5
+}
+
+ss.bstruct "BSP.StaticProp.6" { -- version == 6
+    Size = 64,
+    "Vector origin",
+    "Angle  angle",
+    "UShort propType",
+    "UShort firstLeaf",
+    "UShort leafCount",
+    "Byte   solid",
+    "Byte   flags", -- every version except v7*
+    "Long   skin",
+    "Float  fadeMinDist",
+    "Float  fadeMaxDist",
+    "Vector lightingOrigin",
+    "Float  forcedFadeScale", -- since v5
+    "UShort minDXLevel",      -- v6, v7, v7*
+    "UShort maxDXLevel",      -- v6, v7, v7*
+}
+
+ss.bstruct "BSP.StaticProp.7*" { -- version == 7 or version == 10 and size matches
+    Size = 72,
+    "Vector origin",
+    "Angle  angle",
+    "UShort propType",
+    "UShort firstLeaf",
+    "UShort leafCount",
+    "Byte   solid",
+    "Byte   padding", -- flags, every version except v7*
+    "Long   skin",
+    "Float  fadeMinDist",
+    "Float  fadeMaxDist",
+    "Vector lightingOrigin",
+    "Float  forcedFadeScale", -- since v5
+    "UShort minDXLevel",      -- v6, v7, v7*
+    "UShort maxDXLevel",      -- v6, v7, v7*
+    "ULong  flags",           -- v7* only
+    "UShort lightmapResX",    -- v7* only
+    "UShort lightmapResY",    -- v7* only
+}
+
+ss.bstruct "BSP.StaticProp.7" { -- version == 7
+    Size = 68,
+    "Vector origin",
+    "Angle  angle",
+    "UShort propType",
+    "UShort firstLeaf",
+    "UShort leafCount",
+    "Byte   solid",
+    "Byte   flags", -- every version except v7*
+    "Long   skin",
+    "Float  fadeMinDist",
+    "Float  fadeMaxDist",
+    "Vector lightingOrigin",
+    "Float  forcedFadeScale",     -- since v5
+    "UShort minDXLevel",          -- v6, v7, v7*
+    "UShort maxDXLevel",          -- v6, v7, v7*
+    "Byte   diffuseModulation 4", -- since v7
+}
+
+ss.bstruct "BSP.StaticProp.8" { -- version == 8
+    Size = 68,
+    "Vector origin",
+    "Angle  angle",
+    "UShort propType",
+    "UShort firstLeaf",
+    "UShort leafCount",
+    "Byte   solid",
+    "Byte   flags", -- every version except v7*
+    "Long   skin",
+    "Float  fadeMinDist",
+    "Float  fadeMaxDist",
+    "Vector lightingOrigin",
+    "Float  forcedFadeScale",     -- since v5
+    -- "UShort minDXLevel",          -- v6, v7, v7*
+    -- "UShort maxDXLevel",          -- v6, v7, v7*
+    "Byte   cpugpuLevels 4",      -- since v8
+    "Byte   diffuseModulation 4", -- since v7
+}
+
+ss.bstruct "BSP.StaticProp.9" { -- version == 9
+    Size = 72,
+    "Vector origin",
+    "Angle  angle",
+    "UShort propType",
+    "UShort firstLeaf",
+    "UShort leafCount",
+    "Byte   solid",
+    "Byte   flags", -- every version except v7*
+    "Long   skin",
+    "Float  fadeMinDist",
+    "Float  fadeMaxDist",
+    "Vector lightingOrigin",
+    "Float  forcedFadeScale",     -- since v5
+    -- "UShort minDXLevel",          -- v6, v7, v7*
+    -- "UShort maxDXLevel",          -- v6, v7, v7*
+    "Byte   cpugpuLevels 4",      -- since v8
+    "Byte   diffuseModulation 4", -- since v7
+    "Long   disableX360",         -- v9, v10
+}
+
+ss.bstruct "BSP.StaticProp.10" { -- version == 10
+    Size = 76,
+    "Vector origin",
+    "Angle  angle",
+    "UShort propType",
+    "UShort firstLeaf",
+    "UShort leafCount",
+    "Byte   solid",
+    "Byte   flags", -- every version except v7*
+    "Long   skin",
+    "Float  fadeMinDist",
+    "Float  fadeMaxDist",
+    "Vector lightingOrigin",
+    "Float  forcedFadeScale",     -- since v5
+    -- "UShort minDXLevel",          -- v6, v7, v7*
+    -- "UShort maxDXLevel",          -- v6, v7, v7*
+    "Byte   cpugpuLevels 4",      -- since v8
+    "Byte   diffuseModulation 4", -- since v7
+    "Long   disableX360",         -- v9, v10
+    "ULong  flagsEx",             -- since v10
+}
+
+ss.bstruct "BSP.StaticProp.11" { -- version == 11
+    Size = 76,
+    "Vector origin",
+    "Angle  angle",
+    "UShort propType",
+    "UShort firstLeaf",
+    "UShort leafCount",
+    "Byte   solid",
+    "Byte   flags", -- every version except v7*
+    "Long   skin",
+    "Float  fadeMinDist",
+    "Float  fadeMaxDist",
+    "Vector lightingOrigin",
+    "Float  forcedFadeScale",     -- since v5
+    -- "UShort minDXLevel",          -- v6, v7, v7*
+    -- "UShort maxDXLevel",          -- v6, v7, v7*
+    "Byte   cpugpuLevels 4",      -- since v8
+    "Byte   diffuseModulation 4", -- since v7
+    -- "Bool   disableX360",         -- v9, v10
+    "ULong  flagsEx",             -- since v10
+    "Float uniformScale",         -- since v11
+}
+
+---@class ss.Binary.BSP.PLANES
+---@field normal   Vector
+---@field dist     number
+---@field axisType integer
+ss.bstruct "BSP.PLANES" {
+    Size = 12 + 4 + 4,
+    "Vector normal",
+    "Float  dist",
+    "Long   axisType"
+}
+
+---@alias ss.Binary.BSP.EDGES integer[]
+ss.bstruct "BSP.EDGES" {
+    Size = 2 + 2,
+    "UShort",
+    "UShort"
+}
+
+---@alias ss.Binary.BSP.FACES_HDR ss.Binary.BSP.FACES
+---@class ss.Binary.BSP.FACES
+---@field planeNum                    integer
+---@field side                        integer
+---@field onNode                      integer
+---@field firstEdge                   integer
+---@field numEdges                    integer
+---@field texInfo                     integer
+---@field dispInfo                    integer
+---@field surfaceFogVolumeID          integer
+---@field styles                      integer[]
+---@field lightOffset                 integer
+---@field area                        number
+---@field lightmapTextureMinsInLuxels integer[]
+---@field lightmapTextureSizeInLuxels integer[]
+---@field originalFace                integer
+---@field numPrimitives               integer
+---@field firstPrimitiveID            integer
+---@field smoothingGroups             integer
+ss.bstruct "BSP.FACES" {
+    Size = 56,
+    "UShort planeNum",
+    "Byte   side",
+    "Bool   onNode",
+    "Long   firstEdge",
+    "Short  numEdges",
+    "Short  texInfo",
+    "Short  dispInfo",
+    "Short  surfaceFogVolumeID",
+    "Byte   styles 4",
+    "Long   lightOffset",
+    "Float  area",
+    "Long   lightmapTextureMinsInLuxels 2",
+    "Long   lightmapTextureSizeInLuxels 2",
+    "Long   originalFace",
+    "UShort numPrimitives",
+    "UShort firstPrimitiveID",
+    "ULong  smoothingGroups",
+}
+
+---@class ss.Binary.BSP.BRUSHES
+---@field firstSide integer
+---@field numSides  integer
+---@field contents  integer
+ss.bstruct "BSP.BRUSHES" {
+    Size = 4 + 4 + 4,
+    "Long firstSide",
+    "Long numSides",
+    "Long contents",
+}
+
+---@class ss.Binary.BSP.BRUSHSIDES
+---@field planeNum integer
+---@field texInfo  integer
+---@field dispInfo integer
+---@field bevel    integer
+ss.bstruct "BSP.BRUSHSIDES" {
+    Size = 2 + 2 + 2 + 2,
+    "UShort planeNum",
+    "Short  texInfo",
+    "Short  dispInfo",
+    "Short  bevel",
+}
+
+---@class ss.Binary.BSP.NODES
+---@field planeNum  integer
+---@field children  integer[]
+---@field mins      Vector
+---@field maxs      Vector
+---@field firstFace integer
+---@field numFaces  integer
+---@field area      integer
+---@field padding   integer
+ss.bstruct "BSP.NODES" {
+    Size = 32,
+    "Long        planeNum",
+    "Long        children 2",
+    "ShortVector mins",
+    "ShortVector maxs",
+    "UShort      firstFace",
+    "UShort      numFaces",
+    "Short       area",
+    "Short       padding",
+}
+
+---@class ss.Binary.BSP.LEAFS
+---@field contents         integer
+---@field cluster          integer
+---@field areaAndFlags     integer
+---@field mins             Vector
+---@field maxs             Vector
+---@field firstLeafFace    integer
+---@field numLeafFaces     integer
+---@field firstLeafBrush   integer
+---@field numLeafBrush     integer
+---@field leafWaterDataID  integer
+---@field padding          integer
+ss.bstruct "BSP.LEAFS" {
+    Size = 32,
+    "Long        contents",
+    "Short       cluster",
+    "Short       areaAndFlags", -- area: lower 9 bits, flags: upper 7 bits
+    "ShortVector mins",
+    "ShortVector maxs",
+    "UShort      firstLeafFace",
+    "UShort      numLeafFaces",
+    "UShort      firstLeafBrush",
+    "UShort      numLeafBrushes",
+    "Short       leafWaterDataID",
+    -- Also need the following when version <= 19
+    -- "CompressedLightCube ambientLighting", -- 24 bytes
+    "Short       padding",
+}
+
+---@class ss.Binary.BSP.TEXINFO
+---@field textureVecS     Vector
+---@field textureOffsetS  number
+---@field textureVecT     Vector
+---@field textureOffsetT  number
+---@field lightmapVecS    Vector
+---@field lightmapOffsetS number
+---@field lightmapVecT    Vector
+---@field lightmapOffsetT number
+---@field flags           integer
+---@field texData         integer
+ss.bstruct "BSP.TEXINFO" {
+    Size = 72,
+    "Vector textureVecS",
+    "Float  textureOffsetS",
+    "Vector textureVecT",
+    "Float  textureOffsetT",
+    "Vector lightmapVecS",
+    "Float  lightmapOffsetS",
+    "Vector lightmapVecT",
+    "Float  lightmapOffsetT",
+    "Long   flags",
+    "Long   texData",
+}
+
+---@class ss.Binary.BSP.TEXDATA
+---@field reflectivity      Vector
+---@field nameStringTableID integer
+---@field width             integer
+---@field height            integer
+---@field viewWidth         integer
+---@field viewHeight        integer
+ss.bstruct "BSP.TEXDATA" {
+    Size = 4 * 3 + 4 + 4 + 4 + 4 + 4,
+    "Vector reflectivity",
+    "Long   nameStringTableID",
+    "Long   width",
+    "Long   height",
+    "Long   viewWidth",
+    "Long   viewHeight",
+}
+
+---@class ss.Binary.BSP.MODELS
+---@field mins      Vector
+---@field maxs      Vector
+---@field origin    Vector
+---@field headNode  integer
+---@field firstFace integer
+---@field numFaces  integer
+ss.bstruct "BSP.MODELS" {
+    Size = 48,
+    "Vector mins",
+    "Vector maxs",
+    "Vector origin",
+    "Long   headNode",
+    "Long   firstFace",
+    "Long   numFaces",
+}
+
+---@class ss.Binary.BSP.DISPINFO
+---@field startPosition               Vector
+---@field dispVertStart               integer
+---@field dispTriStart                integer
+---@field power                       integer
+---@field minTesselation              integer
+---@field smoothingAngle              number
+---@field contents                    integer
+---@field mapFace                     integer
+---@field padding                     integer
+---@field lightmapAlphaTest           integer
+---@field lightmapSamplePositionStart integer
+---@field edgeNeighbors               ss.Binary.BSP.CDispNeighbor[]
+---@field cornerNeighbors             ss.Binary.BSP.CDispCornerNeighbors[]
+---@field allowedVerts                integer[]
+ss.bstruct "BSP.DISPINFO" {
+    Size = 176,
+    "Vector                   startPosition",
+    "Long                     dispVertStart",
+    "Long                     dispTriStart",
+    "Long                     power",
+    "Long                     minTesselation",
+    "Float                    smoothingAngle",
+    "Long                     contents",
+    "UShort                   mapFace",
+    "UShort                   padding",
+    "Long                     lightmapAlphaTest",
+    "Long                     lightmapSamplesPositionStart",
+    "BSP.CDispNeighbor        edgeNeighbors   4", -- Probably these are
+    "BSP.CDispCornerNeighbors cornerNeighbors 4", -- not correctly parsed
+    "ULong                    allowedVerts    10",
+}
+
+---@class ss.Binary.BSP.DISP_VERTS
+---@field vec   Vector
+---@field dist  number
+---@field alpha number
+ss.bstruct "BSP.DISP_VERTS" {
+    Size = 20,
+    "Vector vec",
+    "Float  dist",
+    "Float  alpha",
+}
+
+---@class ss.Binary.BSP.CUBEMAPS
+---@field origin Vector
+---@field size   integer
+ss.bstruct "BSP.CUBEMAPS" {
+    Size = 16,
+    "LongVector origin",
+    "Long       size",
+}
+
+---@class ss.Binary.BSP.GAME_LUMP
+---@field lumpCount integer
+---@field [integer] ss.Binary.BSP.dgamelunp_t
+ss.bstruct "BSP.GAME_LUMP" {
+    "Long                lumpCount",
+    "BSP.dgamelump_t nil lumpCount",
+}
+
+---@class ss.Binary.BSP.StaticPropDict
+---@field dictEntries integer
+---@field name        string[]
+ss.bstruct "BSP.StaticPropDict" {
+    "Long           dictEntries",
+    "String128 name dictEntries",
+}
+
+---@class ss.Binary.BSP.StaticPropLeaf
+---@field leafEntries integer
+---@field leaf        integer[]
+ss.bstruct "BSP.StaticPropLeaf" {
+    "Long        leafEntries",
+    "UShort leaf leafEntries",
+}
+
+---@class ss.Binary.BSP.GAME_LUMP.sprp
+---@field dictEntries integer
+---@field name        string[]
+---@field leafEntries integer
+---@field leaf        integer[]
+---@field propEntries integer
+---@field prop        ss.Binary.BSP.StaticProp[]
+ss.bstruct "BSP.GAME_LUMP.sprp" { -- Static Props
+    ---@param self ss.BinaryStructureDefinition
+    ---@param binary File
+    ---@param header ss.Binary.BSP.dgamelunp_t
+    ---@return ss.Binary.BSP.GAME_LUMP.sprp
+    Read = function(self, binary, header)
+        local names = ss.ReadStructureFromFile(binary, "BSP.StaticPropDict")
+        local leafs = ss.ReadStructureFromFile(binary, "BSP.StaticPropLeaf")
+        local propEntries = ss.ReadStructureFromFile(binary, "Long")
+
+        local offset = names.dictEntries * 128 + leafs.leafEntries * 2 + 4 * 3
+        local nextlump = header.fileOffset + header.fileLength
+        local staticPropOffset = header.fileOffset + offset
+        local sizeofStaticPropLump = (nextlump - staticPropOffset) / propEntries
+
+        local version = header.version
+        local structType = "BSP.StaticProp." .. tostring(version) -- Size depends on game lump version
+        if version == 7 or version == 10 and sizeofStaticPropLump == ss.bstruct "BSP.StaticProp.7*".Size then
+            structType = "BSP.StaticProp.7*"
+        end
+
+        local props = {} ---@type ss.Binary.BSP.StaticProp[]
+        if #ss.bstruct(structType) > 0 then
+            ---Prevent spamming error messages about the size of static prop lump.
+            local sprpInvalidSize = false
+            for i = 1, propEntries do
+                props[i] = ss.ReadStructureFromFile(binary, structType)
+                if sizeofStaticPropLump ~= ss.bstruct(structType).Size then
+                    binary:Skip(sizeofStaticPropLump - ss.bstruct(structType).Size)
+                    if not sprpInvalidSize then
+                        sprpInvalidSize = true
+                        ErrorNoHalt(string.format(
+                            "SplashSWEPs/BSPLoader: StaticPropLump_t has unknown format.\n"
+                            .. "    Map: %s\n"
+                            .. "    Calculated size of StaticPropLump_t: %d\n"
+                            .. "    StaticPropLump_t version: %d\n"
+                            .. "    Suggested size of StaticPropLump_t: %d\n",
+                            game.GetMap(), sizeofStaticPropLump, version, ss.bstruct(structType).Size))
+                    end
+                end
+            end
+        end
+
+        return {
+            dictEntries = names.dictEntries,
+            name        = names.name,
+            leafEntries = leafs.leafEntries,
+            leaf        = leafs.leaf,
+            propEntries = propEntries,
+            prop        = props,
+        }
+    end,
 }
 
 ---@alias BSP.DefinedStructures
----| BSP.DispInfo
----| BSP.DispVerts
----| BSP.Face
----| ss.BSP.GameLump
----| ss.BSP.Header
----| BSP.Leaf
----| BSP.Model
----| BSP.Plane
----| BSP.sprp
----| BSP.StaticProp
----| BSP.TexData
----| BSP.TexInfo
----| CDispNeighbor
----| CDispCornerNeighbor
----| dgamelunp_t
+---| ss.Binary.BSP.DISPINFO
+---| ss.Binary.BSP.DISP_VERTS
+---| ss.Binary.BSP.FACES
+---| ss.Binary.BSP.GAME_LUMP
+---| ss.Binary.BSP.Header
+---| ss.Binary.BSP.LEAFS
+---| ss.Binary.BSP.MODELS
+---| ss.Binary.BSP.PLANES
+---| ss.Binary.BSP.GAME_LUMP.sprp
+---| ss.Binary.BSP.StaticProp
+---| ss.Binary.BSP.TEXDATA
+---| ss.Binary.BSP.TEXINFO
+---| ss.Binary.BSP.CDispNeighbor
+---| ss.Binary.BSP.CDispCornerNeighbors
+---| ss.Binary.BSP.dgamelunp_t
 ---| Angle
 ---| boolean
 ---| number
@@ -600,30 +737,30 @@ local GameLumpContents = {
 
 ---Stores all the Lumps parsed from the BSP.
 ---@class ss.RawBSPResults
----@field header                    ss.BSP.Header
+---@field header                    ss.Binary.BSP.Header
 ---@field ENTITIES                  string[]
----@field PLANES                    BSP.Plane[]
+---@field PLANES                    ss.Binary.BSP.PLANES[]
 ---@field VERTEXES                  Vector[]
 ---@field EDGES                     integer[][]
 ---@field SURFEDGES                 integer[]
----@field FACES                     BSP.Face[]
----@field FACES_HDR                 BSP.Face[]
----@field LEAFS                     BSP.Leaf[]
----@field TEXINFO                   BSP.TexInfo[]
----@field TEXDATA                   BSP.TexData[]
+---@field FACES                     ss.Binary.BSP.FACES[]
+---@field FACES_HDR                 ss.Binary.BSP.FACES_HDR[]
+---@field LEAFS                     ss.Binary.BSP.LEAFS[]
+---@field TEXINFO                   ss.Binary.BSP.TEXINFO[]
+---@field TEXDATA                   ss.Binary.BSP.TEXDATA[]
 ---@field TEXDATA_STRING_TABLE      integer[]
 ---@field TEXDATA_STRING_DATA       string[]
----@field MODELS                    BSP.Model[]
----@field DISPINFO                  BSP.DispInfo[]
----@field DISP_VERTS                BSP.DispVerts[]
+---@field MODELS                    ss.Binary.BSP.MODELS[]
+---@field DISPINFO                  ss.Binary.BSP.DISPINFO[]
+---@field DISP_VERTS                ss.Binary.BSP.DISP_VERTS[]
 ---@field DISP_TRIS                 integer[]
 ---@field LIGHTING                  string
 ---@field LIGHTING_HDR              string
----@field GAME_LUMP                 ss.BSP.GameLump
+---@field GAME_LUMP                 ss.Binary.BSP.GAME_LUMP
 ---@field TexDataStringTableToIndex integer[]
 ---@field [string]                  BSP.DefinedStructures
 ss.struct "RawBSPResults" {
-    header = ss.new "BSP.Header",
+    header = ss.new "Binary.BSP.Header",
     ENTITIES = {},
     PLANES = {},
     VERTEXES = {},
@@ -642,180 +779,43 @@ ss.struct "RawBSPResults" {
     DISP_TRIS = {},
     LIGHTING = "",
     LIGHTING_HDR = "",
-    GAME_LUMP = ss.new "BSP.GameLump",
+    GAME_LUMP = ss.new "Binary.BSP.GAME_LUMP",
     TexDataStringTableToIndex = {},
 }
 
----Read a value or structure from bsp file.
----The offset should correctly be set before call.
----arg should be one of the following:
----  - String for one of these:
----    - a call of `File:Read%s()`, e.g. `Long`, `Float`
----    - Additional built-in types: `Vector`, `ShortVector`, `LongVector`, `Angle`, or `SByte` (signed byte)
----    - `String` for null-terminated string
----    - `String%d` for a null-terminated string but padded to `%d` bytes.
----    - Structure name defined at StructureDefinitions
----  - Table representing a structure
----    Table containing a sequence of strings formatted as
----    `<type> <fieldname> <array amount (optional)>`
----    e.g. `Vector normal`, `Byte fourCC 4`
----    Array amount can be a field name previously defined in the same structure.
----    e.g. `{ "Long edgeCount", "UShort edgeIndices edgeCount" }`
----  - Number for `File:Read(%d)`
----  - Function for custom procedure, passing `(bsp, currentTable, ...)`
----@param bsp File
----@param arg integer|string|string[]|fun(bsp: File, ...): BSP.DefinedStructures
----@param ... any
----@return BSP.DefinedStructures?
-local function read(bsp, arg, ...)
-    if isfunction(arg) then
-        ---@cast arg fun(bsp: File, ...): BSP.DefinedStructures
-        return arg(bsp, ...)
-    end
-    if isnumber(arg) then
-        ---@cast arg integer
-        return bsp:Read(arg)
-    end
-    if istable(arg) then
-        ---@cast arg string[]
-        ---@type BSP.DefinedStructures[]
-        local structure = {}
-        for _, varstring in ipairs(arg) do
-            ---@type string?, integer|string?, integer|string?
-            local vartype, varname, arraysize = unpack(string.Explode(" +", varstring, true))
-            if varname == nil or varname == "" or varname == "nil" then varname = #structure + 1 end
-            if arraysize == nil or arraysize == "" then arraysize = 1 end
-            ---@cast vartype -?
-            if isstring(arraysize) and structure[arraysize] or tonumber(arraysize) > 1 then
-                arraysize = structure[arraysize] or tonumber(arraysize) --[[@as integer]]
-                for i = 1, arraysize do
-                    if isstring(varname) then
-                        ---@cast varname string
-                        ---@cast structure table<string, BSP.DefinedStructures[]>
-                        structure[varname] = structure[varname] or {}
-                        structure[varname][i] = read(bsp, vartype, structure, ...)
-                    else
-                        ---@cast varname integer
-                        structure[varname] = read(bsp, vartype, structure, ...)
-                        varname = varname + 1
-                    end
-                end
-            else
-                structure[varname] = read(bsp, vartype, structure, ...)
-            end
-        end
-        return structure
-    end
-    ---@cast arg string
-    if arg == "Angle" then
-        local pitch = bsp:ReadFloat()
-        local yaw   = bsp:ReadFloat()
-        local roll  = bsp:ReadFloat()
-        return Angle(pitch, yaw, roll)
-    elseif arg == "SByte" then
-        local n = bsp:ReadByte()
-        return n - (n > 127 and 256 or 0)
-    elseif arg == "ShortVector" then
-        local x = bsp:ReadShort()
-        local y = bsp:ReadShort()
-        local z = bsp:ReadShort()
-        return Vector(x, y, z)
-    elseif arg == "LongVector" then
-        local x = bsp:ReadLong()
-        local y = bsp:ReadLong()
-        local z = bsp:ReadLong()
-        return Vector(x, y, z)
-    elseif arg:StartsWith "String" then
-        local str = ""
-        local chr = read(bsp, 1)
-        local minlen = tonumber(arg:sub(#"String" + 1)) or 0
-        local MAX_STRING_LENGTH = 1024
-        while chr and chr ~= "\x00" and #str < MAX_STRING_LENGTH do
-            str = str .. chr
-            chr = read(bsp, 1)
-        end
-        for _ = 1, minlen - (#str + 1) do
-            read(bsp, 1)
-        end
-        return str
-    elseif arg == "Vector" then
-        local x = bsp:ReadFloat()
-        local y = bsp:ReadFloat()
-        local z = bsp:ReadFloat()
-        return Vector(x, y, z)
-    elseif isfunction(bsp["Read" .. arg]) then
-        return bsp["Read" .. arg](bsp)
-    elseif StructureDefinitions[arg] then
-        return read(bsp, StructureDefinitions[arg], ...)
-    else
-        ErrorNoHalt(string.format(
-            "SplashSWEPs/BSPLoader: Need a correct structure name\n"
-            .. "    Map: %s\n"
-            .. "    Structure name given: %s\n",
-            game.GetMap(), tostring(arg)))
-    end
-end
+local GameLumpToRead = { sprp = "BSP.GAME_LUMP.sprp" }
+local LUMP_INV = table.Flip(LUMP)
 
-local sprpInvalidSize = false
-
----Reading structures from StaticProp_Lump_t
----@param bsp File
----@param struct BSP.sprp
----@param header BSP.LumpHeader
----@return BSP.DefinedStructures?
-function StructureDefinitions.StaticProp(bsp, struct, header)
-    local offset = struct.dictEntries * 128 + struct.leafEntries * 2 + 4 * 3
-    local nextlump = header.fileOffset + header.fileLength
-    local staticPropOffset = header.fileOffset + offset
-    local sizeofStaticPropLump = (nextlump - staticPropOffset) / struct.propEntries
-    local version = header.version
-    local structType = "StaticProp" .. tostring(version)
-    if not StructureDefinitions[structType] then return {} end
-    if version == 7 or version == 10 and sizeofStaticPropLump == StructureDefinitions.StaticProp7Star.size then
-        structType = "StaticProp7Star"
-    end
-    local data = read(bsp, structType)
-    if sizeofStaticPropLump ~= StructureDefinitions[structType].size then
-        bsp:Skip(sizeofStaticPropLump - StructureDefinitions[structType].size)
-        if not sprpInvalidSize then
-            sprpInvalidSize = true
-            ErrorNoHalt(string.format(
-                "SplashSWEPs/BSPLoader: StaticPropLump_t has unknown format.\n"
-                .. "    Map: %s\n"
-                .. "    Calculated size of StaticPropLump_t: %d\n"
-                .. "    StaticPropLump_t version: %d\n"
-                .. "    Suggested size of StaticPropLump_t: %d\n",
-                game.GetMap(), sizeofStaticPropLump, version, StructureDefinitions[structType].size))
-        end
-    end
-    return data
-end
-
----@param bsp File
----@return BSP.DefinedStructures
-function StructureDefinitions.LumpHeader(bsp)
-    local fileOffset = bsp:ReadLong()
-    local fileLength = bsp:ReadLong()
-    local version = bsp:ReadLong()
-    local fourCC = bsp:ReadLong()
-    if fileOffset < bsp:Tell() or version >= 0x100 then
-        -- Left 4 Dead 2 maps have different order
-        -- but I don't know how to detemine if this is Left 4 Dead 2 map
-        return {
-            fileOffset = fileLength,
-            fileLength = version,
-            version = fileOffset,
-            fourCC = fourCC,
-        }
-    else
-        return {
-            fileOffset = fileOffset,
-            fileLength = fileLength,
-            version = version,
-            fourCC = fourCC,
-        }
-    end
-end
+---List of lumps to read in the BSP file.  False to skip.
+---String values mean the entire lump is an array of that type.
+local LumpsToRead = {
+    ENTITIES             = "String",
+    PLANES               = "BSP.PLANES",
+    VERTEXES             = "Vector",
+    EDGES                = "BSP.EDGES",
+    SURFEDGES            = "Long",
+    FACES                = "BSP.FACES",
+    FACES_HDR            = "BSP.FACES",
+    ORIGINALFACES        = false, -- "BSP.FACES"
+    BRUSHES              = false,
+    BRUSHSIDES           = false,
+    NODES                = false,
+    LEAFS                = "BSP.LEAFS",
+    LEAFFACES            = false, -- "UShort"
+    LEAFBRUSHES          = false, -- "UShort"
+    TEXINFO              = "BSP.TEXINFO",
+    TEXDATA              = "BSP.TEXDATA",
+    TEXDATA_STRING_TABLE = "Long",
+    TEXDATA_STRING_DATA  = "String",
+    MODELS               = "BSP.MODELS",
+    DISPINFO             = "BSP.DISPINFO",
+    DISP_VERTS           = "BSP.DISP_VERTS",
+    DISP_TRIS            = "UShort",
+    LIGHTING             = "Raw",
+    LIGHTING_HDR         = "Raw",
+    CUBEMAPS             = false,
+    GAME_LUMP            = "BSP.GAME_LUMP",
+}
 
 ---@param id integer
 ---@return string
@@ -832,12 +832,12 @@ end
 ---@return integer
 local function decompress(bsp)
     local current       = bsp:Tell()
-    local actualSize    = read(bsp, 4)        --[[@as string]]
+    local actualSize    = ss.ReadStructureFromFile(bsp, 4)
     bsp:Seek(current)
-    local actualSizeNum = read(bsp, "Long")   --[[@as integer]]
-    local lzmaSize      = read(bsp, "Long")   --[[@as integer]]
-    local props         = read(bsp, 5)        --[[@as string]]
-    local contents      = read(bsp, lzmaSize) --[[@as string]]
+    local actualSizeNum = ss.ReadStructureFromFile(bsp, "Long")
+    local lzmaSize      = ss.ReadStructureFromFile(bsp, "Long")
+    local props         = ss.ReadStructureFromFile(bsp, 5)
+    local contents      = ss.ReadStructureFromFile(bsp, lzmaSize)
     local formatted     = props .. actualSize .. "\0\0\0\0" .. contents
     return util.Decompress(formatted) or "", actualSizeNum
 end
@@ -845,7 +845,7 @@ end
 ---@param bsp File
 ---@return File
 ---@return integer
-local function getDecompressed(bsp)
+local function openDecompressed(bsp)
     local decompressed, length = decompress(bsp)
     file.Write("splashsweps/temp.txt", decompressed)
     return file.Open("splashsweps/temp.txt", "rb", "DATA"), length
@@ -857,61 +857,42 @@ local function closeDecompressed(tmp)
     file.Delete "splashsweps/temp.txt"
 end
 
-local LUMP_INV = table.Flip(LUMP)
----@param name string
----@return integer
-local function LookupLump(name)
-    return LUMP_INV[name]
-end
-
----@param bsp table
----@return ss.BSP.Header
-local function ReadHeader(bsp)
-    return read(bsp, "BSPHeader") --[[@as ss.BSP.Header]]
-end
-
----@param bsp table
----@param headers BSP.LumpHeader[]
----@param lumpname string
+---@param bsp File
+---@param header ss.Binary.BSP.LumpHeader
+---@param structType string
 ---@return BSP.DefinedStructures?
-local function ReadLump(bsp, headers, lumpname)
-    local t = {} ---@type BSP.DefinedStructures|BSP.DefinedStructures[]?
-    local header = headers[LookupLump(lumpname)]
+local function readLump(bsp, header, structType)
+    local t = {} ---@type BSP.DefinedStructures|BSP.DefinedStructures[]
     local offset = header.fileOffset
-    local length = header.fileLength
-    local struct = StructureDefinitions[lumpname]
-
-    -- get length per struct
-    local strlen = istable(struct) and struct.size or length
-    if StructureDefinitions[struct] then ---@cast struct string
-        strlen = StructureDefinitions[struct].size
-    elseif BuiltinTypeSizes[struct] then ---@cast struct string
-        strlen = BuiltinTypeSizes[struct]
-    end
+    local totalLength = header.fileLength
+    local elementLength = BuiltinTypeSizes[structType] or ss.bstruct(structType).Size or math.huge
 
     bsp:Seek(offset)
-    local isCompressed = read(bsp, 4) == "LZMA"
+    local isCompressed = ss.ReadStructureFromFile(bsp, 4) == "LZMA"
     if isCompressed then
-        bsp, length = getDecompressed(bsp)
+        bsp, totalLength = openDecompressed(bsp)
     else
         bsp:Seek(offset)
     end
 
-    local numElements = length / strlen
-    if struct == "Raw" then
-        t = read(bsp, length)
-    elseif struct == "String" then
-        local all = read(bsp, length) --[[@as string]]
-        t = all:Split "\0"
+    local numElements = totalLength / elementLength
+    if structType == "Raw" then
+        t = ss.ReadStructureFromFile(bsp, totalLength)
+    elseif structType == "String" then
+        t = ss.ReadStructureFromFile(bsp, totalLength):Split "\0"
     elseif numElements > 0 then
         for i = 1, numElements do
-            t[i] = read(bsp, struct, header)
+            t[i] = ss.ReadStructureFromFile(bsp, structType)
         end
     else
-        t = read(bsp, struct, header)
+        ---@type BSP.DefinedStructures
+        t = ss.ReadStructureFromFile(bsp, structType)
     end
 
-    if isCompressed then closeDecompressed(bsp) end
+    if isCompressed then
+        closeDecompressed(bsp)
+    end
+
     return t
 end
 
@@ -925,40 +906,39 @@ function ss.LoadBSP()
     print "Loading BSP file..."
 
     local t = ss.new "RawBSPResults"
-    t.header = ReadHeader(bsp)
+    t.header = ss.ReadStructureFromFile(bsp, "BSP.Header")
     t.TexDataStringTableToIndex = {}
     print("    BSP file version: " .. t.header.version)
     for i = 1, #LUMP do
-        local lumpname = LUMP[i]
-        if StructureDefinitions[lumpname] then
-            print(string.format("        LUMP #%02d\t%s", i, lumpname))
-            t[lumpname] = ReadLump(bsp, t.header.lumps, lumpname)
+        local name = LUMP[i]
+        local structType = LumpsToRead[name]
+        if structType then
+            print(string.format("        LUMP #%02d\t%s", i, name))
+            t[name] = readLump(bsp, t.header.lumps[LUMP_INV[name]], structType)
         end
     end
 
     print "    Loading GameLump..."
     for _, header in ipairs(t.GAME_LUMP) do
         local idstr = getGameLumpStr(header.id)
-        local gamelump = GameLumpContents[idstr]
-        if gamelump then
+        local structType = GameLumpToRead[idstr]
+        if structType then
             print("        GameLump \"" .. idstr .. "\"... (version: " .. header.version .. ")")
             bsp:Seek(header.fileOffset)
-            local LZMAHeader = read(bsp, 4)
+            local LZMAHeader = ss.ReadStructureFromFile(bsp, 4)
             if LZMAHeader == "LZMA" then
-                local tmp = getDecompressed(bsp)
-                t[idstr] = read(tmp, gamelump, header)
+                local tmp = openDecompressed(bsp)
+                t[idstr] = ss.ReadStructureFromFile(tmp, structType, header)
                 closeDecompressed(tmp)
             else
                 bsp:Seek(header.fileOffset)
-                t[idstr] = read(bsp, gamelump, header)
+                t[idstr] = ss.ReadStructureFromFile(bsp, structType, header)
             end
         end
     end
 
     print "    Constructing texture name table..."
-    for i, j in ipairs(t.TEXDATA_STRING_TABLE) do
-        t.TexDataStringTableToIndex[j] = i
-    end
+    t.TexDataStringTableToIndex = table.Flip(t.TEXDATA_STRING_TABLE)
 
     local elapsed = math.Round((SysTime() - t0) * 1000, 2)
     print("Done.  Elapsed time: " .. elapsed .. " ms.")

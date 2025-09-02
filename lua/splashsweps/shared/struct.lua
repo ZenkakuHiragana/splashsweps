@@ -3,13 +3,17 @@
 local ss = SplashSWEPs
 if not ss then return end
 local locals = ss.Locals ---@class ss.Locals
-if not locals.StructDefinitions then
-    locals.StructDefinitions = {}
-end
+locals.StructDefinitions = locals.StructDefinitions or {}
+locals.BinaryStructDefinitions = locals.BinaryStructDefinitions or {}
 
 ---Struct templates are stored here
 ---@type table<string, table>
 local StructDefinitions = locals.StructDefinitions
+
+---Structures used to read and write binary data
+---@type table<string, string[]>
+local BinaryStructDefinitions = locals.BinaryStructDefinitions
+
 local getmetatable = getmetatable
 local isangle = isangle
 local ismatrix = ismatrix
@@ -90,4 +94,28 @@ function ss.struct(typename)
     return function(definition)
         StructDefinitions[typename] = definition
     end
+end
+
+---Structure definition to read/write binary data in a File.
+---@class ss.BinaryStructureDefinition
+---@field [integer] string
+---@field Read (fun(self: ss.BinaryStructureDefinition, binary: File, ...: any): table)? Special function to read this structure.
+---@field Write fun(self: ss.BinaryStructureDefinition, binary: File, ...: any)? Special function to write this structure.
+---@field Size integer? The total size of this structure.
+---@overload fun(definition: string[])
+
+---Defines binary structure template.
+---@generic T
+---@param typename ss.Binary.`T` The name of binary structure
+---@return ss.BinaryStructureDefinition
+function ss.bstruct(typename)
+    if not BinaryStructDefinitions[typename] then
+        BinaryStructDefinitions[typename] = setmetatable({}, {
+            __call = function(self, definition)
+                BinaryStructDefinitions[typename] = setmetatable(definition, getmetatable(self))
+            end,
+        })
+    end
+
+    return BinaryStructDefinitions[typename]
 end
