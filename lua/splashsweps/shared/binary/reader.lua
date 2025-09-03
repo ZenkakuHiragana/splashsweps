@@ -114,6 +114,8 @@ function ss.ReadStructureFromFile(binary, arg, ...)
             return Vector(x, y, z)
         elseif isfunction(binary["Read" .. arg]) then
             return binary["Read" .. arg](binary)
+        elseif tonumber(arg) then
+            return binary:Read(tonumber(arg))
         elseif #ss.bstruct(arg) > 0 or ss.bstruct(arg).Read then
             return ss.ReadStructureFromFile(binary, ss.bstruct(arg), ...)
         end

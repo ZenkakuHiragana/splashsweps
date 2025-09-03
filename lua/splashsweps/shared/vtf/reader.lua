@@ -2,32 +2,40 @@
 local ss = SplashSWEPs
 if not ss then return end
 
--- VTF layout <= 7.2
--- VTF Header
--- for mipmap = smallest, largest do
---   for frame = 1, numFrames do
---     for face = 1, numFaces do
---       for z = zMin, zMax do
---         VTF Image Data
---       end
---     end
---   end
--- end
+-- Parses VTF files and gives an ability to read pixel data of specified mipmap level.
+-- Volumetric textures (that has more than a single depth),
+-- cubemap textures (that has multiple faces), and
+-- animated textures (that has multiple frames) are not supported.
+-- Supported formats are:
+-- * Uncompressed LDR formats
+--   * RGBA8888
+--   * BGRA8888
+--   * ABGR8888
+--   * ARGB8888
+--   * RGB888
+--   * BGR888
+--   * I8
+--   * A8
+--   * IA88
+--   * RGB565
+--   * BGR565
+-- * DXT compressed formats
+--   * DXT1
+--   * DXT1 with one bit alpha
+--   * DXT3
+--   * DXT5
 
--- VTF layout >= 7.3
--- VTF Header
--- Resource entries
---   VTF low resolution image data
---   Other resources
---   for mipmap = smallest, largest do
---     for frame = 1, numFrames do
---       for face = 1, numFaces do
---         for z = zMin, zMax do
---           VTF high resolution image data
---         end
---       end
---     end
---   end
+---Decodes RGB565 16-bit integer.
+---@param value integer RGB value = 0bRRRR RGGG GGGB BBBB
+---@return integer r
+---@return integer g
+---@return integer b
+local function decode565(value)
+    local r = math.floor(bit.band(bit.rshift(value, 5 + 6), 0x1F) * 255 / 31)
+    local g = math.floor(bit.band(bit.rshift(value, 5),     0x3F) * 255 / 63)
+    local b = math.floor(bit.band(           value,         0x1F) * 255 / 31)
+    return r, g, b
+end
 
 local IMAGE_FORMATS = {
     [-1] = "IMAGE_FORMAT_NONE",
@@ -71,7 +79,75 @@ local IMAGE_FORMATS = {
     "IMAGE_FORMAT_ATI2N",
     "IMAGE_FORMAT_ATI1N",
 }
-
+---@type table<string, fun(pixelData: string): Color>
+local UNCOMPRESSED_HANDLERS = {
+    IMAGE_FORMAT_RGBA8888 = function(pixelData)
+        return Color(pixelData:byte(1, 4))
+    end,
+    IMAGE_FORMAT_ABGR8888 = function(pixelData)
+        local a, b, g, r = pixelData:byte(1, 4)
+        return Color(r, g, b, a)
+    end,
+    IMAGE_FORMAT_ARGB8888 = function(pixelData)
+        local a, r, g, b = pixelData:byte(1, 4)
+        return Color(r, g, b, a)
+    end,
+    IMAGE_FORMAT_BGRA8888 = function(pixelData)
+        local b, g, r, a = pixelData:byte(1, 4)
+        return Color(r, g, b, a)
+    end,
+    IMAGE_FORMAT_RGB888 = function(pixelData)
+        local r, g, b = pixelData:byte(1, 3)
+        return Color(r, g, b)
+    end,
+    IMAGE_FORMAT_BGR888 = function(pixelData)
+        local b, g, r = pixelData:byte(1, 3)
+        return Color(r, g, b)
+    end,
+    IMAGE_FORMAT_A8 = function(pixelData)
+        return Color(255, 255, 255, pixelData:byte(1))
+    end,
+    IMAGE_FORMAT_I8 = function(pixelData)
+        local i = pixelData:byte(1)
+        return Color(i, i, i)
+    end,
+    IMAGE_FORMAT_IA88 = function(pixelData)
+        local i, a = pixelData:byte(1, 2)
+        return Color(i, i, i, a)
+    end,
+    IMAGE_FORMAT_RGB565 = function(pixelData)
+        local byte1, byte2 = pixelData:byte(1, 2)
+        local r, g, b = decode565(byte1 + bit.lshift(byte2, 8))
+        return Color(r, g, b)
+    end,
+    IMAGE_FORMAT_BGR565 = function(pixelData)
+        local byte1, byte2 = pixelData:byte(1, 2)
+        local b, g, r = decode565(byte1 + bit.lshift(byte2, 8))
+        return Color(r, g, b)
+    end,
+}
+local IS_DXT = {
+    IMAGE_FORMAT_DXT1 = true,
+    IMAGE_FORMAT_DXT1_ONEBITALPHA = true,
+    IMAGE_FORMAT_DXT3 = true,
+    IMAGE_FORMAT_DXT5 = true,
+}
+local IS_DXT3_OR_DXT5 = {
+    IMAGE_FORMAT_DXT3 = true,
+    IMAGE_FORMAT_DXT5 = true,
+}
+local DXT_BYTES_PER_BLOCK = {
+    IMAGE_FORMAT_DXT1 = 8,
+    IMAGE_FORMAT_DXT1_ONEBITALPHA = 8,
+    IMAGE_FORMAT_DXT3 = 16,
+    IMAGE_FORMAT_DXT5 = 16,
+}
+local DXT_BLOCK_RGB_OFFSET = {
+    IMAGE_FORMAT_DXT1 = 0,
+    IMAGE_FORMAT_DXT1_ONEBITALPHA = 0,
+    IMAGE_FORMAT_DXT3 = 8,
+    IMAGE_FORMAT_DXT5 = 8,
+}
 local BYTES_PER_PIXEL = {
     IMAGE_FORMAT_RGBA8888          = 4, -- Implemented
     IMAGE_FORMAT_ABGR8888          = 4, -- Implemented
@@ -114,6 +190,7 @@ local BYTES_PER_PIXEL = {
     IMAGE_FORMAT_ATI2N             = 1,
 }
 
+---The VTF header.
 ---@class ss.Binary.VTF.Header
 ---@field signature          integer[]
 ---@field version            integer[]
@@ -137,17 +214,17 @@ local BYTES_PER_PIXEL = {
 ---@field numResources       integer?
 ---@field padding3           integer[]?
 ss.bstruct "VTF.Header" {
-    "Byte   signature 4",
-    "ULong  version   2",
+    "4      signature",
+    "ULong  version 2",
     "ULong  headerSize",
     "UShort width",
     "UShort height",
     "ULong  flags",
     "UShort frames",
     "UShort firstFrame",
-    "Byte   padding0 4",
+    "4      padding0",
     "Vector reflectivity",
-    "Byte   padding1 4",
+    "4      padding1",
     "Float  bumpmapScale",
     "Long   highResImageFormat",
     "Byte   mipmapCount",
@@ -155,44 +232,30 @@ ss.bstruct "VTF.Header" {
     "Byte   lowResImageWidth",
     "Byte   lowResImageHeight",
     "UShort depth",        -- 7.2+
-    "Byte   padding2 3",   -- 7.3+
+    "3      padding2",     -- 7.3+
     "ULong  numResources", -- 7.3+
-    "Byte   padding3 8",   -- 7.3+
+    "8      padding3",     -- 7.3+
 }
 
 ---@class ss.Binary.VTF.ResourceEntry
----@field tag integer[]
+---@field tag string
 ---@field flags integer
 ---@field offset integer
 ss.bstruct "VTF.ResourceEntry" {
-    "String3 tag",
-    "Byte    flags",
-    "ULong   offset",
+    "3     tag",
+    "Byte  flags",
+    "ULong offset",
 }
 
 ---@class ss.VTF.Image
 ---@field Width integer
 ---@field Height integer
----@field Depth integer
 ---@field Buffer string
 ss.struct "VTF.Image" {
     Width = 1,
     Height = 1,
-    Depth = 1,
-    Buffer = "\x00",
+    Buffer = "",
 }
-
----Decodes RGB565 16-bit integer
----@param value integer RGB value = 0bRRRR RGGG GGGB BBBB
----@return integer r
----@return integer g
----@return integer b
-local function decode565(value)
-    local r = math.floor(bit.band(bit.rshift(value, 5 + 6), 0x1F) * 255 / 31)
-    local g = math.floor(bit.band(bit.rshift(value, 5),     0x3F) * 255 / 63)
-    local b = math.floor(bit.band(           value,         0x1F) * 255 / 31)
-    return r, g, b
-end
 
 ---Reads a pixel located at x, y for given mipmap level.
 ---@param vtf ss.VTF.ImageStack
@@ -204,144 +267,95 @@ function ss.ReadPixelFromVTF(vtf, x, y, mipmapLevel)
     local format = vtf.ImageFormat
     local image = vtf.Images[mipmapLevel or 1]
     if not image then return color_transparent end
-    local bpp = BYTES_PER_PIXEL[format]
-    local idx = ((y - 1) * image.Width + (x - 1)) * bpp + 1
-    local pixelData = image.Buffer:sub(idx, idx + bpp - 1)
-    local r, g, b, a = 255, 255, 255, 255
-    if format == "IMAGE_FORMAT_RGBA8888" then
-        r = pixelData:byte(1)
-        g = pixelData:byte(2)
-        b = pixelData:byte(3)
-        a = pixelData:byte(4)
-    elseif format == "IMAGE_FORMAT_ABGR8888" then
-        a = pixelData:byte(1)
-        b = pixelData:byte(2)
-        g = pixelData:byte(3)
-        r = pixelData:byte(4)
-    elseif format == "IMAGE_FORMAT_ARGB8888" then
-        a = pixelData:byte(1)
-        r = pixelData:byte(2)
-        g = pixelData:byte(3)
-        b = pixelData:byte(4)
-    elseif format == "IMAGE_FORMAT_BGRA8888" then
-        b = pixelData:byte(1)
-        g = pixelData:byte(2)
-        r = pixelData:byte(3)
-        a = pixelData:byte(4)
-    elseif format == "IMAGE_FORMAT_RGB888" then
-        r = pixelData:byte(1)
-        g = pixelData:byte(2)
-        b = pixelData:byte(3)
-    elseif format == "IMAGE_FORMAT_BGR888" then
-        b = pixelData:byte(1)
-        g = pixelData:byte(2)
-        r = pixelData:byte(3)
-    elseif format == "IMAGE_FORMAT_A8" then
-        a = pixelData:byte(1)
-    elseif format == "IMAGE_FORMAT_I8" then
-        r = pixelData:byte(1)
-        g, b = r, r
-    elseif format == "IMAGE_FORMAT_IA88" then
-        r = pixelData:byte(1)
-        a = pixelData:byte(2)
-        g, b = r, r
-    elseif format == "IMAGE_FORMAT_RGB565"
-        or format == "IMAGE_FORMAT_BGR565" then
-        local byte1 = pixelData:byte(1)
-        local byte2 = pixelData:byte(2)
-        local value = byte1 + bit.lshift(byte2, 8)
-        r, g, b = decode565(value)
-        if format == "IMAGE_FORMAT_BGR565" then
-            r, b = b, r ---@type integer, integer
-        end
-    elseif format == "IMAGE_FORMAT_DXT1"
-        or format == "IMAGE_FORMAT_DXT1_ONEBITALPHA"
-        or format == "IMAGE_FORMAT_DXT3"
-        or format == "IMAGE_FORMAT_DXT5" then
-        -- DXT1: 4x4 blocks, 8 bytes per block
-        local blockX = math.floor((x - 1) / 4)
-        local blockY = math.floor((y - 1) / 4)
-        local blockWidth = math.floor((image.Width + 3) / 4)
-        local blockIdx = blockY * blockWidth + blockX
-        local bytesPerBlock = 8
-        local colorBlockOffset = 0
-        if format == "IMAGE_FORMAT_DXT3"
-        or format == "IMAGE_FORMAT_DXT5" then
-            bytesPerBlock = 16
-            colorBlockOffset = 8
-        end
-        local blockOffset = blockIdx * bytesPerBlock + 1
-        local block = image.Buffer:sub(blockOffset, blockOffset + bytesPerBlock - 1)
-        local px = (x - 1) % 4
-        local py = (y - 1) % 4
+    if UNCOMPRESSED_HANDLERS[format] then
+        local length = BYTES_PER_PIXEL[format]
+        local offset = (y * image.Width + x) * length + 1
+        local pixelData = image.Buffer:sub(offset, offset + length - 1)
+        return UNCOMPRESSED_HANDLERS[format](pixelData)
+    elseif IS_DXT[format] then
+        local blockX = bit.rshift(x, 2)
+        local blockY = bit.rshift(y, 2)
+        local blockWidth = math.ceil(image.Width / 4)
+        local blockIndex = blockY * blockWidth + blockX
+        local bytesPerBlock = DXT_BYTES_PER_BLOCK[format]
+        local blockOffset = blockIndex * bytesPerBlock + DXT_BLOCK_RGB_OFFSET[format]
+        local blockData = image.Buffer:sub(blockOffset + 1, blockOffset + 8)
+        local px, py = x % 4, y % 4
+
         local alpha = 255
-        if format == "IMAGE_FORMAT_DXT3" then
-            -- Alpha: 8 bytes, 4 bits per pixel
-            local alphaWord = block:byte(1 + py * 2) + bit.lshift(block:byte(2 + py * 2), 8)
-            alpha = math.floor(bit.band(bit.rshift(alphaWord, px * 4), 0xF) * 255 / 15)
-        elseif format == "IMAGE_FORMAT_DXT5" then
-            local alpha0 = block:byte(1)
-            local alpha1 = block:byte(2)
-            local alphaCodes = 0
-            local alphaIdx = py * 4 + px
-            for i = 6, 1, -1 do
-                alphaCodes = bit.lshift(alphaCodes, 8) + block:byte(2 + i)
-            end
-            local code = bit.band(bit.rshift(alphaCodes, alphaIdx * 3), 0x7) + 1
-            if alpha0 > alpha1 then
-                alpha = math.floor(((8 - code) * alpha0 + (code - 1) * alpha1) / 7)
-            elseif 3 <= code and code <= 6 then
-                alpha = math.floor(((6 - code) * alpha0 + (code - 1) * alpha1) / 5)
-            elseif code == 7 then
-                alpha = 0
-            elseif code == 8 then
-                alpha = 255
+        if IS_DXT3_OR_DXT5[format] then
+            local alphaOffset = blockIndex * bytesPerBlock
+            local alphaData = image.Buffer:sub(alphaOffset + 1, alphaOffset + 8)
+            if format == "IMAGE_FORMAT_DXT3" then
+                -- Alpha: 8 bytes, 4 bits per pixel
+                local value = alphaData:byte(py * 2 + ((px / 2 < 1) and 1 or 2))
+                if px % 2 > 0 then value = bit.rshift(value, 4) end
+                alpha = math.Remap(bit.band(value, 0x0F), 0x00, 0x0F, 0, 255)
+            elseif format == "IMAGE_FORMAT_DXT5" then
+                local offset = (py / 2 < 1) and 3 or 6
+                local alpha0, alpha1 = alphaData:byte(1, 2)
+                local c1, c2, c3 = alphaData:byte(offset, offset + 2)
+                local alphaCodes = c1 + bit.lshift(c2, 8) + bit.lshift(c3, 16)
+                local alphaIndex = (py % 2) * 4 + px
+                local code = bit.band(bit.rshift(alphaCodes, alphaIndex * 3), 0x07)
+                if code == 0 then
+                    alpha = alpha0
+                elseif code == 1 then
+                    alpha = alpha1
+                elseif alpha0 > alpha1 then
+                    alpha = math.floor(((8 - code) * alpha0 + (code - 1) * alpha1 + 3) / 7)
+                elseif 2 <= code and code <= 5 then
+                    alpha = math.floor(((6 - code) * alpha0 + (code - 1) * alpha1 + 2) / 5)
+                elseif code == 6 then
+                    alpha = 0
+                elseif code == 7 then
+                    alpha = 255
+                end
             end
         end
 
-        local color0 = block:byte(colorBlockOffset + 1)
-            + bit.lshift(block:byte(colorBlockOffset + 2), 8)
-        local color1 = block:byte(colorBlockOffset + 3)
-            + bit.lshift(block:byte(colorBlockOffset + 4), 8)
-        local codes  = block:byte(colorBlockOffset + 5)
-            + bit.lshift(block:byte(colorBlockOffset + 6), 8)
-            + bit.lshift(block:byte(colorBlockOffset + 7), 16)
-            + bit.lshift(block:byte(colorBlockOffset + 8), 24)
-        local c0r, c0g, c0b = decode565(color0)
-        local c1r, c1g, c1b = decode565(color1)
-        local palette = {
-            Color(c0r, c0g, c0b, alpha),
-            Color(c1r, c1g, c1b, alpha),
-            Color(255, 255, 255, alpha),
-            Color(0,   0,   0,   alpha),
-        }
-        if color0 > color1 or format == "IMAGE_FORMAT_DXT3" then
-            palette[3].r = math.floor((2 * c0r + c1r) / 3)
-            palette[3].g = math.floor((2 * c0g + c1g) / 3)
-            palette[3].b = math.floor((2 * c0b + c1b) / 3)
-            palette[4].r = math.floor((c0r + 2 * c1r) / 3)
-            palette[4].g = math.floor((c0g + 2 * c1g) / 3)
-            palette[4].b = math.floor((c0b + 2 * c1b) / 3)
+        local v1, v2, v3, v4, v5, v6, v7, v8 = blockData:byte(1, 8)
+        local color0 = v1 + bit.lshift(v2, 8)
+        local color1 = v3 + bit.lshift(v4, 8)
+        local codes  = v5 + bit.lshift(v6, 8) + bit.lshift(v7, 16) + bit.lshift(v8, 24)
+
+        local codeIndex = py * 4 + px
+        local paletteIndex = bit.band(bit.rshift(codes, codeIndex * 2), 0x3) + 1
+        if format == "IMAGE_FORMAT_DXT1_ONEBITALPHA" and paletteIndex == 4 then
+            return color_transparent
+        end
+
+        local r0, g0, b0 = decode565(color0)
+        local r1, g1, b1 = decode565(color1)
+        if IS_DXT3_OR_DXT5[format] or color0 > color1 then
+            return ({
+                Color(r0, g0, b0, alpha),
+                Color(r1, g1, b1, alpha),
+                Color(math.floor((2 * r0 + r1 + 1) / 3),
+                      math.floor((2 * g0 + g1 + 1) / 3),
+                      math.floor((2 * b0 + b1 + 1) / 3),
+                      alpha),
+                Color(math.floor((r0 + 2 * r1 + 1) / 3),
+                      math.floor((g0 + 2 * g1 + 1) / 3),
+                      math.floor((b0 + 2 * b1 + 1) / 3),
+                      alpha),
+            })[paletteIndex]
         else
-            palette[3].r = math.floor((c0r + c1r) / 2)
-            palette[3].g = math.floor((c0g + c1g) / 2)
-            palette[3].b = math.floor((c0b + c1b) / 2)
-            palette[4].a = 0
+            return ({
+                Color(r0, g0, b0, alpha),
+                Color(r1, g1, b1, alpha),
+                Color(math.floor((r0 + r1) / 2),
+                      math.floor((g0 + g1) / 2),
+                      math.floor((b0 + b1) / 2),
+                      alpha),
+                color_transparent,
+            })[paletteIndex]
         end
-        local codeIdx = py * 4 + px
-        local code = bit.band(bit.rshift(codes, codeIdx * 2), 0x3) + 1
-        local color = palette[code]
-
-        -- DXT1_ONEBITALPHA: if code==4, alpha=0
-        if format == "IMAGE_FORMAT_DXT1_ONEBITALPHA" and code == 4 then
-            color.a = 0
-        end
-
-        return color
     end
-    return Color(r, g, b, a)
+    return color_transparent
 end
 
+---Texture data that holds all mipmaps.
 ---@class ss.VTF.ImageStack
 ---@field ImageFormat string
 ---@field Images ss.VTF.Image[]
@@ -353,66 +367,54 @@ ss.struct "VTF.ImageStack" {
 ---Calculates image size in the given format in bytes.
 ---@param width integer
 ---@param height integer
----@param depth integer
 ---@param format integer
 ---@return integer
-local function getImageSize(width, height, depth, format)
-    local str = IMAGE_FORMATS[format]
-    if str == "IMAGE_FORMAT_DXT1" or str == "IMAGE_FORMAT_DXT1_ONEBITALPHA" then
-        if 0 < width and width < 4 then width = 4 end
-        if 0 < height and height < 4 then height = 4 end
-        return ((width + 3) / 4) * ((height + 3) / 4) * 8 * depth
-    elseif str == "IMAGE_FORMAT_DXT3" or str == "IMAGE_FORMAT_DXT5" then
-        if 0 < width and width < 4 then width = 4 end
-        if 0 < height and height < 4 then height = 4 end
-        return ((width + 3) / 4) * ((height + 3) / 4) * 16 * depth
+local function getImageSize(width, height, format)
+    local f = IMAGE_FORMATS[format]
+    if IS_DXT[f] then
+        return math.ceil(width / 4) * math.ceil(height / 4) * DXT_BYTES_PER_BLOCK[f]
     else
-        return width * height * (BYTES_PER_PIXEL[str] or 0) * depth
+        return width * height * (BYTES_PER_PIXEL[f] or 0)
     end
 end
 
 ---Returns the dimensions of a particular mipmap level.
 ---@param largestWidth integer
 ---@param largestHeight integer
----@param largestDepth integer
 ---@param mipmapLevel integer
 ---@return integer width
 ---@return integer height
----@return integer depth
-local function getMipmapDimensions(largestWidth, largestHeight, largestDepth, mipmapLevel)
+local function getMipmapDimensions(largestWidth, largestHeight, mipmapLevel)
     local width = math.max(bit.rshift(largestWidth, mipmapLevel - 1), 1)
     local height = math.max(bit.rshift(largestHeight, mipmapLevel - 1), 1)
-    local depth = math.max(bit.rshift(largestDepth, mipmapLevel - 1), 1)
-    return width, height, depth
+    return width, height
 end
 
 ---Returns the size of a single mipmap in bytes.
 ---@param largestWidth integer
 ---@param largestHeight integer
----@param largestDepth integer
 ---@param format integer
 ---@param mipmapLevel integer
 ---@return integer size
-local function getMipmapSize(largestWidth, largestHeight, largestDepth, format, mipmapLevel)
-    local width, height, depth = getMipmapDimensions(largestWidth, largestHeight, largestDepth, mipmapLevel)
-    return getImageSize(width, height, depth, format)
+local function getMipmapSize(largestWidth, largestHeight, format, mipmapLevel)
+    local width, height = getMipmapDimensions(largestWidth, largestHeight, mipmapLevel)
+    return getImageSize(width, height, format)
 end
 
 ---Calculates total size of the high resolution images in bytes.
+---Volumetric or animated textures are not compatible: assuming depth == 1 and frames == 1.
 ---@param header ss.Binary.VTF.Header
 ---@return integer
 local function getTotalImageSize(header)
     local width = header.width
     local height = header.height
-    local depth = header.depth
     local mipmapCount = header.mipmapCount
     local format = header.highResImageFormat
-    local frames = header.frames
     local total = 0
     for mipmapLevel = 1, mipmapCount do
-        total = total + getMipmapSize(width, height, depth, format, mipmapLevel)
+        total = total + getMipmapSize(width, height, format, mipmapLevel)
     end
-    return total * frames
+    return total
 end
 
 ---Returns offset to high resolution image for VTF version 7.2
@@ -426,17 +428,16 @@ local function getHighResImageOffset72(header)
         lowResImageSize = getImageSize(
             header.lowResImageWidth,
             header.lowResImageHeight,
-            1,
             header.lowResImageFormat)
     end
     return header.headerSize + lowResImageSize
 end
 
 ---Returns offset to high resolution image for VTF version 7.3+
----@param vtf File
 ---@param header ss.Binary.VTF.Header
+---@param vtf File
 ---@return integer
-local function getHighResImageOffset73(vtf, header)
+local function getHighResImageOffset73(header, vtf)
     for _ = 1, math.min(header.numResources, 32) do
         local resource = ss.ReadStructureFromFile(vtf, "VTF.ResourceEntry")
         if resource.tag == "\x30\x00\x00" then
@@ -455,40 +456,77 @@ function ss.ReadVTF(path)
     if not vtf then return end
 
     local header = ss.ReadStructureFromFile(vtf, "VTF.Header")
-    local majorVersion = header.version[1]
     local minorVersion = header.version[2]
-    if majorVersion ~= 7 then return end
-    local offset = -1
-    if minorVersion <= 2 then
-        offset = getHighResImageOffset72(header)
-    else
-        offset = getHighResImageOffset73(vtf, header)
-    end
+    if header.signature ~= "VTF\x00" then return end
+    if header.version[1] ~= 7 then return end
+    if header.depth ~= 1 and minorVersion >= 2 then return end
+    if header.frames ~= 1 then return end
+    if header.firstFrame ~= 0 then return end
+    if not (1 <= minorVersion and minorVersion <= 5) then return end
 
-    if offset < 0 then return end
+    local offset = minorVersion <= 2
+        and getHighResImageOffset72(header)
+        or getHighResImageOffset73(header, vtf)
+    if offset < header.headerSize then return end
+    if offset >= vtf:Size() then return end
 
     vtf:Seek(offset)
     local buffer = vtf:Read(getTotalImageSize(header))
     local format = header.highResImageFormat
-    local frames = header.frames
     local maxWidth = header.width
     local maxHeight = header.height
-    local maxDepth = header.depth
     local maxMipmapLevel = header.mipmapCount
-    local mipmapOffset = 0
+    local mipmapOffset = 1
     local imageStack = ss.new "VTF.ImageStack"
     imageStack.ImageFormat = IMAGE_FORMATS[format]
     for mipmapLevel = maxMipmapLevel, 1, -1 do
-        local width, height, depth = getMipmapDimensions(maxWidth, maxHeight, maxDepth, mipmapLevel)
-        local size = getImageSize(width, height, depth, format) * frames
+        local width, height = getMipmapDimensions(maxWidth, maxHeight, mipmapLevel)
+        local size = getImageSize(width, height, format)
         local image = ss.new "VTF.Image"
         image.Width = width
         image.Height = height
-        image.Depth = depth
         image.Buffer = buffer:sub(mipmapOffset, mipmapOffset + size - 1)
         imageStack.Images[mipmapLevel] = image
         mipmapOffset = mipmapOffset + size
     end
 
     return imageStack
+end
+
+---Prints VTF to the console
+---@param vtf ss.VTF.ImageStack
+---@param channel string?
+---@param mipmapLevel integer?
+function ss.PrintVTF(vtf, channel, mipmapLevel)
+    channel = (channel or "rgb"):lower()
+    mipmapLevel = mipmapLevel or 1
+    local s = {} ---@type string[]
+    local CONVERSION = " `.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESSwwqqkkPP66hh99dd44VVppOOGGbbUUAAKKXXHHmm88RRDD##$$BBgg00MMNNWWQQ%%&&@@"
+    local width = vtf.Images[mipmapLevel].Width
+    local height = vtf.Images[mipmapLevel].Height
+    width = math.min(width, 225)
+    -- height = math.min(height, 225)
+    for y = 0, height - 1, 2 do
+        s[#s + 1] = ""
+        for x = 0, width - 1 do
+            local c1 = ss.ReadPixelFromVTF(vtf, x, y, mipmapLevel)
+            local c2 = ss.ReadPixelFromVTF(vtf, x, y + 1, mipmapLevel)
+            local scale = 0
+            if channel:find "r" then scale = scale + (c1.r + c2.r) / 2 end
+            if channel:find "g" then scale = scale + (c1.g + c2.g) / 2 end
+            if channel:find "b" then scale = scale + (c1.b + c2.b) / 2 end
+            if channel:find "a" then scale = scale + (c1.a + c2.a) / 2 end
+            if channel:find "r" and channel:find "g" and channel:find "b" then
+                local g1 = c1:ToVector():Dot(ss.GrayScaleFactor) * 255
+                local g2 = c2:ToVector():Dot(ss.GrayScaleFactor) * 255
+                scale = (g1 + g2) / 2
+            else
+                scale = scale / #channel
+            end
+            local i = math.Clamp(math.Round(scale / 2) + 1, 1, 128)
+            s[#s] = s[#s] .. CONVERSION:sub(i, i)
+            -- s[#s] = s[#s] .. string.format("%4d", scale)
+        end
+    end
+    for _, si in ipairs(s) do print(si) end
 end
