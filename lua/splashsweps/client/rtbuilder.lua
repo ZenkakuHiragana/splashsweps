@@ -112,13 +112,13 @@ function ss.SetupRenderTargets()
     ss.ClearAllInk()
 end
 
----Loads lightmap PNG and places it.
----@param pngpath string The path to PNG to feed Material() function.
-function ss.SetupLightmap(pngpath)
-    local mat = Material(pngpath, "smooth")
-    if not mat:IsError() then
-        local rt = ss.RenderTarget
-        rt.StaticTextures.Lightmap = mat:GetTexture "$basetexture"
-        rt.StaticTextures.Lightmap:Download()
-    end
+local copy = Material "pp/copy"
+
+---Loads lightmap texture and places it.
+---@param path string The path to VTF to set to IMaterial:SetTexture.
+function ss.SetupLightmap(path)
+    copy:SetTexture("$basetexture", path)
+    local rt = ss.RenderTarget
+    rt.StaticTextures.Lightmap = copy:GetTexture "$basetexture"
+    rt.StaticTextures.Lightmap:Download()
 end

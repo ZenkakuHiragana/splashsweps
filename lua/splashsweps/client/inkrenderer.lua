@@ -4,11 +4,12 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+local gray = Material "gray" :GetTexture "$basetexture"
 local CVarWireframe = GetConVar "mat_wireframe"
 local CVarMinecraft = GetConVar "mat_showlowresimage"
 local function DrawMesh()
     render.SetMaterial(ss.InkMeshMaterial)
-    render.SetLightmapTexture(ss.RenderTarget.StaticTextures.Lightmap) -- Set custom lightmap
+    render.SetLightmapTexture(ss.RenderTarget.StaticTextures.Lightmap or gray) -- Set custom lightmap
     for _, model in ipairs(ss.IMesh) do -- Draw ink surface
         local ent = model.BrushEntity
         if not ent or IsValid(ent) then

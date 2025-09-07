@@ -175,7 +175,7 @@ end
 
 ---Construct a polygon from a raw displacement data
 ---@param bsp ss.RawBSPResults
----@param rawFace BSP.Face
+---@param rawFace ss.Binary.BSP.FACES
 ---@param vertices Vector[]
 ---@return ss.PrecachedData.Surface
 local function BuildFromDisplacement(bsp, rawFace, vertices)
@@ -271,7 +271,7 @@ end
 
 -- Construct a polygon from a raw face data
 ---@param bsp ss.RawBSPResults
----@param rawFace BSP.Face
+---@param rawFace ss.Binary.BSP.FACES
 ---@return ss.PrecachedData.Surface?, boolean?
 local function BuildFromBrushFace(bsp, rawFace)
     -- Collect texture information and see if it's valid

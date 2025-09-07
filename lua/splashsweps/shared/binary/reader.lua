@@ -61,7 +61,7 @@ function ss.ReadStructureFromFile(binary, arg, ...)
                 for i = 1, arraySize do
                     if isstring(fieldKey) then
                         ---@cast fieldKey string
-                        ---@cast structure table<string, BSP.DefinedStructures[]>
+                        ---@cast structure table<string, table[]>
                         structure[fieldKey] = structure[fieldKey] or {}
                         structure[fieldKey][i] = ss.ReadStructureFromFile(binary, fieldType, ...)
                     else
@@ -123,8 +123,6 @@ function ss.ReadStructureFromFile(binary, arg, ...)
 
     ErrorNoHalt(string.format(
         "SplashSWEPs/BinaryReader: Need a correct structure name\n"
-        .. "    Map: %s\n"
-        .. "    Structure name given: %s\n",
-        game.GetMap(), tostring(arg)))
+        .. "    Structure name given: %s\n", tostring(arg)))
     return {}
 end

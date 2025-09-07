@@ -452,7 +452,8 @@ end
 ---@param path string The path to VTF relative to materials/ folder without extension.
 ---@return ss.VTF.ImageStack?
 function ss.ReadVTF(path)
-    local vtf = file.Open(string.format("materials/%s.vtf", path), "rb", "GAME")
+    if not path:EndsWith ".vtf" then path = path .. ".vtf" end
+    local vtf = file.Open(string.format("materials/%s", path), "rb", "GAME")
     if not vtf then return end
 
     local header = ss.ReadStructureFromFile(vtf, "VTF.Header")

@@ -5,6 +5,6 @@
     "$alphatestreference" "0.0859375" // = 22 / 256
     "$vertexcolor" "1"
 
-    "$splashsweps_mask" "splashsweps/paints/shot/1-1.png"
+    "$splashsweps_mask" "splashsweps/paints/shot/a1"
     "$splashsweps_tag" "builtin_shot"
 }

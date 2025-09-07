@@ -33,7 +33,7 @@ local gammaInv = 1 / 2.2
 local expConst = -8 + (8 * BYTES_PER_CHANNEL - 1) * 2.2
 local marginInLuxels = 1
 
----@param faces BSP.Face[]
+---@param faces ss.Binary.BSP.FACES[]
 ---@param surfaces ss.PrecachedData.SurfaceInfo
 ---@return ss.Rectangle[]
 local function GetLightmapBounds(faces, surfaces)
@@ -99,17 +99,99 @@ local function GetRGB(r, g, b, exp)
            clamp(round(pow(b * pow(2, exp + expConst), gammaInv)), 0, CHANNEL_MAX)
 end
 
+---2^k = POWER_OF_TWO[k]
+local POWER_OF_TWO = { [0] = 1, 2, 4, 8, 16, 32, 64, 128 }
+
+---= math.floor(math.log(x, 2))
+---@param x integer
+---@return integer k = math.floor(math.log(x, 2))
+local function floorlog2(x)
+    local k = 0
+    if band(x, 0xF0) ~= 0 then x = rshift(x, 4) k = k + 4 end
+    if band(x, 0x0C) ~= 0 then x = rshift(x, 2) k = k + 2 end
+    if band(x, 0x02) ~= 0 then return               k + 1 end
+    return k
+end
+
+---Converts x = a * 2^b to Float16 representation.
+---@param a integer from 0x00 to 0xFF
+---@param b integer from -128 to +127
+---@return integer F Float16 representation
+local function to16F(a, b)
+    if a == 0 then return 0x0000 end
+    local k = floorlog2(a)
+    local exp = k + b - 2 -- -2 means overbright factor = x0.25
+    if exp > 15 then -- +Infinity
+        return 0x7C00
+    elseif exp > -15 then -- Normal numbers
+        return bor(
+           lshift(exp + 15, 10),
+           band(lshift(a - POWER_OF_TWO[k], 10 - k), 0x03FF))
+    else -- Subnormal numbers
+        exp = b + 24
+        return exp > 0
+           and band(lshift(a, exp), 0x03FF)
+           or  band(rshift(a, exp), 0x03FF)
+    end
+end
+
+---Converts x = a * 2^b to Float16 representation using math functions.
+---@param a integer from 0x00 to 0xFF
+---@param b integer from -128 to +127
+---@return integer F Float16 representation
+local function to16FM(a, b)
+    if a == 0 then return 0x0000 end
+    local x = a * pow(2, b - 1)
+    local m, k = math.frexp(x)
+    local M = clamp(round((m * 2 - 1) * 1024), 0, 1023)
+    local E = k - 1 + 15
+    if E > 30 then -- +Infinity
+        return 0x7C00
+    elseif E > 0 then -- Normal numbers
+        return bor(lshift(E, 10), band(M, 0x03FF))
+    else
+        return clamp(round(x * 16777216), 0x0000, 0x03FF)
+    end
+end
+
+---ColorRGBExp32 to RGB161616F
+---@param r integer
+---@param g integer
+---@param b integer
+---@param exp integer
+---@return integer r
+---@return integer g
+---@return integer b
+local function GetRGB16F(r, g, b, exp)
+    if exp > 127 then exp = exp - 256 end
+    -- return to16FM(r, exp), to16FM(g, exp), to16FM(b, exp)
+    return to16F(r, exp), to16F(g, exp), to16F(b, exp)
+end
+
+---ColorRGBExp32 to RGB323232F
+---@param r integer
+---@param g integer
+---@param b integer
+---@param exp integer
+---@return integer r
+---@return integer g
+---@return integer b
+local function GetRGB32F(r, g, b, exp)
+    if exp > 127 then exp = exp - 256 end
+    return r * pow(2, exp), g * pow(2, exp), b * pow(2, exp)
+end
+
 ---@param bitmap  integer[]
----@param pngsize integer
+---@param size    integer
 ---@param rect    ss.Rectangle
----@param rawFace BSP.Face
+---@param rawFace ss.Binary.BSP.FACES
 ---@param samples string
-local function WriteLightmap(bitmap, pngsize, rect, rawFace, samples)
+local function UpdateBitmap(bitmap, size, rect, rawFace, samples)
     local x0, y0 = rect.left, rect.bottom
     local sw = rawFace.lightmapTextureSizeInLuxels[1] + 1
     local sh = rawFace.lightmapTextureSizeInLuxels[2] + 1
     local sampleOffset = rawFace.lightOffset
-    local bitmapOffset = x0 + y0 * pngsize
+    local bitmapOffset = x0 + y0 * size   
     for y = 1, rect.height do
         for x = 1, rect.width do
             local sx, sy = x - marginInLuxels, y - marginInLuxels
@@ -118,8 +200,8 @@ local function WriteLightmap(bitmap, pngsize, rect, rawFace, samples)
                 sx, sy = sy, sx
             end
             local sampleIndex = GetLightmapSampleIndex(sx, sy, sw, sh, sampleOffset)
-            local r, g, b = GetRGB(samples:byte(sampleIndex, sampleIndex + 3))
-            local bitmapIndex = (bitmapOffset + x - 1 + (y - 1) * pngsize) * NUM_CHANNELS
+            local r, g, b = GetRGB16F(samples:byte(sampleIndex, sampleIndex + 3))
+            local bitmapIndex = (bitmapOffset + x - 1 + (y - 1) * size   ) * NUM_CHANNELS
             bitmap[bitmapIndex + 1] = r
             bitmap[bitmapIndex + 2] = g
             bitmap[bitmapIndex + 3] = b
@@ -130,11 +212,12 @@ local function WriteLightmap(bitmap, pngsize, rect, rawFace, samples)
     end
 end
 
+---Builds uncompressed PNG binary data with given width and height.
 ---@param width  integer
 ---@param height integer
 ---@param data   integer[]
 ---@return string
-local function encode(width, height, data)
+local function encodePNG(width, height, data)
     ---@param n integer
     ---@return string
     local function i16(n)
@@ -240,32 +323,63 @@ local function encode(width, height, data)
         .. "\x00\x00\x00\x00IEND\xAE\x42\x60\x82"
 end
 
+-- IMAGE_FORMAT_RGBA16161616F = 0x18
+-- IMAGE_FORMAT_RGB323232F = 0x1C
+local VTF_HEADER
+ = "VTF\x00"    .. "\x07\x00\x00\x00\x02\x00\x00\x00\x50\x00\x00\x00"
+.. "%s" .. "%s" .. "\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00"
+.. "\x00\x00\x80\x3F\x00\x00\x80\x3F\x00\x00\x80\x3F\x00\x00\x00\x00"
+.. "\x00\x00\x80\x3F\x18\x00\x00\x00\x01\xFF\xFF\xFF\xFF\x00\x00\x01"
+.. "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+---Builds RGBA16161616F VTF binary with given width and height.
+---@param size integer
+---@param data integer[]
+---@param ishdr boolean
+local function WriteVTF(size, data, ishdr)
+    ---@param n integer
+    ---@return string
+    local function i16(n)
+        return char(
+            band(0xFF, n),
+            band(0xFF, rshift(n, 8)))
+    end
+    local vtf = VTF_HEADER:format(i16(size), i16(size))
+    local f = file.Open("splashsweps/" .. game.GetMap() .. (ishdr and "_hdr.vtf" or "_ldr.vtf"), "wb", "DATA")
+    f:Write(vtf)
+    for i = 1, size * size * NUM_CHANNELS do
+        f:WriteUShort(data[i] or 0x0000)
+        -- f:WriteFloat(data[i] or 0.0)
+    end
+    f:Close()
+end
+
 ---@param bsp ss.RawBSPResults
 ---@param packer ss.RectanglePacker
 ---@param ishdr boolean
----@return string?
-local function GeneratePNG(bsp, packer, ishdr)
+---@return integer[]
+local function GenerateBitmap(bsp, packer, ishdr)
     local bitmap = {}
-    local pngsize = packer.maxsize
+    local size = packer.maxsize
     local samples = ishdr and bsp.LIGHTING_HDR or bsp.LIGHTING
     local faces = ishdr and bsp.FACES_HDR or bsp.FACES
-    if not samples then return end
+    if not samples then return {} end
     for _, index in ipairs(packer.results) do
         local rect = packer.rects[index]
         local surf = rect.tag ---@type ss.PrecachedData.Surface
         local faceIndex = surf.LightmapWidth
         local rawFace = faces[faceIndex]
-        WriteLightmap(bitmap, pngsize, rect, rawFace, samples)
+        UpdateBitmap(bitmap, size, rect, rawFace, samples)
     end
 
-    return encode(pngsize, pngsize, bitmap)
+    return bitmap
 end
 
 ---@param bsp ss.RawBSPResults
 ---@param packer ss.RectanglePacker
 ---@param ishdr boolean
 local function WriteLightmapUV(bsp, packer, ishdr)
-    local pngsize = packer.maxsize
+    local size = packer.maxsize
     local faces = ishdr and bsp.FACES_HDR or bsp.FACES
     local rawTexInfo = bsp.TEXINFO
     for _, index in ipairs(packer.results) do
@@ -276,8 +390,8 @@ local function WriteLightmapUV(bsp, packer, ishdr)
         local s0, t0 = rect.left + 1, rect.bottom + 1
         local sw = rawFace.lightmapTextureSizeInLuxels[1] + 1
         local sh = rawFace.lightmapTextureSizeInLuxels[2] + 1
-        surf.LightmapWidth = sw / pngsize
-        surf.LightmapHeight = sh / pngsize
+        surf.LightmapWidth = sw / size
+        surf.LightmapHeight = sh / size
         if rawFace.dispInfo >= 0 then
             for _, v in ipairs(surf.Vertices) do
                 local s = v.LightmapSamplePoint.x * sw
@@ -285,8 +399,8 @@ local function WriteLightmapUV(bsp, packer, ishdr)
                 if rect.istall == (sw > sh) then
                     s, t = t, s ---@type number, number
                 end
-                v.LightmapUV.x = (s + s0) / pngsize
-                v.LightmapUV.y = (t + t0) / pngsize
+                v.LightmapUV.x = (s + s0) / size
+                v.LightmapUV.y = (t + t0) / size
             end
         else
             local texInfo = rawTexInfo[rawFace.texInfo + 1]
@@ -302,8 +416,8 @@ local function WriteLightmapUV(bsp, packer, ishdr)
                 if rect.istall == (sw > sh) then
                     s, t = t, s ---@type number, number
                 end
-                v.LightmapUV.x = (s + s0) / pngsize
-                v.LightmapUV.y = (t + t0) / pngsize
+                v.LightmapUV.x = (s + s0) / size
+                v.LightmapUV.y = (t + t0) / size
             end
         end
     end
@@ -362,11 +476,12 @@ function ss.BuildLightmapCache(bsp, surfaces, ishdr)
     if #rects > 0 then
         t0 = SysTime()
         local packer = ss.MakeRectanglePacker(rects):packall()
-        local png = GeneratePNG(bsp, packer, ishdr) or ""
+        local bitmap = GenerateBitmap(bsp, packer, ishdr) or ""
         WriteLightmapUV(bsp, packer, ishdr)
+        WriteVTF(packer.maxsize, bitmap, ishdr)
         elapsed = round((SysTime() - t0) * 1000, 2)
         print("    Packed " .. (ishdr and "HDR" or "LDR") .. " lightmap in " .. elapsed .. " ms.")
-        return png
+        return ""
     end
 
     return ""

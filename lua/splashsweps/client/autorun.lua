@@ -67,8 +67,8 @@ include "splashsweps/client/surfacebuilder.lua"
 local ss = SplashSWEPs
 
 local cachePath = string.format("splashsweps/%s.json", game.GetMap())
-local pngldrPath = string.format("../data/splashsweps/%s_ldr.png", game.GetMap())
-local pnghdrPath = string.format("../data/splashsweps/%s_hdr.png", game.GetMap())
+local pngldrPath = string.format("../data/splashsweps/%s_ldr.vtf", game.GetMap())
+local pnghdrPath = string.format("../data/splashsweps/%s_hdr.vtf", game.GetMap())
 local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
 local hdrPath = string.format("splashsweps/%s_hdr.json", game.GetMap())
 local pngldrExists = file.Exists(pngldrPath:sub(9), "DATA")

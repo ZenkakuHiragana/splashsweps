@@ -52,15 +52,15 @@ ss.struct "InkShape" {
 ---@return ss.InkShape? # the mask to be stored to.
 local function ReadPixelsFromVTF(vmt)
     ---Uncompressed texture to define the mask.
-    local pngpath = vmt:GetString "$splashsweps_mask"
-    if not pngpath then return end
-    local mat = Material(pngpath)
-    local vtf = mat:GetTexture "$basetexture"
-    ss.assert(vtf and not vtf:IsErrorTexture(), "Shape mask has invalid texture (" .. pngpath .. ")")
+    local path = vmt:GetString "$splashsweps_mask"
+    if not path then return end
+    if not path:EndsWith ".vtf" then path = path .. ".vtf" end
+    if not file.Exists("materials/" .. path, "GAME") then return end
+    local vtf = ss.ReadVTF(path)
+    ss.assert(vtf, "Shape mask has invalid texture (" .. path .. ")") ---@cast vtf -?
 
-    local path = vtf:GetName()
-    local width = vtf:GetMappingWidth()
-    local height = vtf:GetMappingHeight()
+    local width = vtf.Images[1].Width
+    local height = vtf.Images[1].Height
     local shape = ss.new "InkShape"
     shape.Grid = ss.new "InkShape.Grid" (width, height)
     shape.MaskTexture = path
@@ -74,7 +74,7 @@ local function ReadPixelsFromVTF(vmt)
             local above =  y > 0            and grid.IntegralImage[(y - 1) * width + x + 1] or 0
             local left  =  x > 0            and grid.IntegralImage[ y      * width + x    ] or 0
             local diag  = (x > 0 and y > 0) and grid.IntegralImage[(y - 1) * width + x    ] or 0
-            grid[index] = vtf:GetColor(x, y).a > threshold
+            grid[index] = ss.ReadPixelFromVTF(vtf, x, y).a > threshold
             grid.IntegralImage[index] = (grid[index] and 1 or 0) + left + above - diag
         end
     end
