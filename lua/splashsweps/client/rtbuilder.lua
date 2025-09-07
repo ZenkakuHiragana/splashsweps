@@ -118,7 +118,5 @@ local copy = Material "pp/copy"
 ---@param path string The path to VTF to set to IMaterial:SetTexture.
 function ss.SetupLightmap(path)
     copy:SetTexture("$basetexture", path)
-    local rt = ss.RenderTarget
-    rt.StaticTextures.Lightmap = copy:GetTexture "$basetexture"
-    rt.StaticTextures.Lightmap:Download()
+    ss.RenderTarget.StaticTextures.Lightmap = copy:GetTexture "$basetexture"
 end

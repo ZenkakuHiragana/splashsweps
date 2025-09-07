@@ -192,7 +192,7 @@ local BYTES_PER_PIXEL = {
 
 ---The VTF header.
 ---@class ss.Binary.VTF.Header
----@field signature          integer[]
+---@field signature          string,
 ---@field version            integer[]
 ---@field headerSize         integer
 ---@field width              integer
@@ -200,9 +200,9 @@ local BYTES_PER_PIXEL = {
 ---@field flags              integer
 ---@field frames             integer
 ---@field firstFrame         integer
----@field padding0           integer[]
+---@field padding0           string
 ---@field reflectivity       Vector
----@field padding1           integer[]
+---@field padding1           string
 ---@field bumpmapScale       number
 ---@field highResImageFormat integer
 ---@field mipmapCount        integer
@@ -210,9 +210,9 @@ local BYTES_PER_PIXEL = {
 ---@field lowResImageWidth   integer
 ---@field lowResImageHeight  integer
 ---@field depth              integer
----@field padding2           integer[]?
+---@field padding2           string?
 ---@field numResources       integer?
----@field padding3           integer[]?
+---@field padding3           string?
 ss.bstruct "VTF.Header" {
     "4      signature",
     "ULong  version 2",
