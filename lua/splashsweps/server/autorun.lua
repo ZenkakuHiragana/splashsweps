@@ -2,29 +2,6 @@
 if not SplashSWEPs then
     ---@class ss
     SplashSWEPs = {
-        ---Various temporary tables used in limited files.
-        ---@class ss.Locals
-        Locals = {},
-        ---A set of event handlers with interactions to painted ink.
-        ---@type table<string, ss.IInkFeature>
-        InkFeatures = {},
-        ---Internal shape index --> ss.InkShape object
-        ---@type ss.InkShape[]
-        InkShapes = {},
-        ---Definition of ink type (color and functionality)
-        ---@type ss.InkType[]
-        InkTypes = {},
-        ---Array of paintable surfaces.
-        ---@type ss.PaintableSurface[]
-        SurfaceArray = {},
-
-        ---Resolution of serverside canvas to maintain collision detection.
-        InkGridCellSize = 12,
-        ---Number of bits to transfer ink drop radius.
-        MAX_INK_RADIUS_BITS = 8,
-        ---Gap between surfaces in UV coordinates in pixels.
-        RT_MARGIN_PIXELS = 4,
-
         ---Various debug data goes here
         Debug = {},
         ---Contains information around render targets clientside.
@@ -42,6 +19,7 @@ if not SplashSWEPs then
 end
 
 include "splashsweps/shared/autorun.lua"
+include "splashsweps/server/playerconnection.lua"
 include "splashsweps/server/mapcache/bsploader.lua"
 include "splashsweps/server/mapcache/cachebuilder.lua"
 include "splashsweps/server/mapcache/lightmapbuilder.lua"

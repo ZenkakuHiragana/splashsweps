@@ -2,29 +2,6 @@
 if not SplashSWEPs then
     ---@class ss
     SplashSWEPs = {
-        ---Various temporary tables used in limited files.
-        ---@class ss.Locals
-        Locals = {},
-        ---A set of event handlers with interactions to painted ink.
-        ---@type table<string, ss.IInkFeature>
-        InkFeatures = {},
-        ---Internal shape index --> ss.InkShape object
-        ---@type ss.InkShape[]
-        InkShapes = {},
-        ---Definition of ink type (color and functionality)
-        ---@type ss.InkType[]
-        InkTypes = {},
-        ---Array of paintable surfaces.
-        ---@type ss.PaintableSurface[]
-        SurfaceArray = {},
-
-        ---Resolution of serverside canvas to maintain collision detection.
-        InkGridCellSize = 12,
-        ---Number of bits to transfer ink drop radius.
-        MAX_INK_RADIUS_BITS = 8,
-        ---Gap between surfaces in UV coordinates in pixels.
-        RT_MARGIN_PIXELS = 4,
-
         ---List of IMeshes to render the painted ink.
         ---@type { BrushEntity: Entity?, [integer]: IMesh }[]
         IMesh = {},
@@ -108,4 +85,15 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     ss.LoadInkShapes()
     ss.LoadInkTypes()
     ss.LoadInkMaterials()
+
+    net.Start "SplashSWEPs: PlayerInitialSpawn"
+    net.SendToServer()
+end)
+
+net.Receive("SplashSWEPs: Refresh players table", function()
+    local playersReady = net.ReadTable()
+    table.Empty(ss.PlayersReady)
+    table.Empty(ss.PlayerIndices)
+    table.Merge(ss.PlayersReady, playersReady)
+    table.Merge(ss.PlayerIndices, table.Flip(playersReady))
 end)
