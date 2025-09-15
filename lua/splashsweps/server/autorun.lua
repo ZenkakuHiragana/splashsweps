@@ -39,8 +39,9 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
         file.Write(txtPath, util.TableToJSON(cache))
     end
 
+    ss.SurfaceHash = cache.SurfaceHash
+    ss.HashParameters = cache.HashParameters
     ss.SetupSurfaces()
-    ss.GenerateHashTable()
     ss.LoadInkFeatures()
     ss.LoadInkShapes()
     ss.LoadInkTypes()

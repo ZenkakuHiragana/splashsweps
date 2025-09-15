@@ -32,6 +32,22 @@ if not ss.Locals then
     ---Array of paintable surfaces.
     ---@type ss.PaintableSurface[]
     ss.SurfaceArray = {}
+
+    ---A hash table to represent grid separation of paintable surfaces  
+    --- `= { [hash] = { i1, i2, i3, ... }, ... }`  
+    ---where `i` is index of `ss.SurfaceArray`
+    ---@type table<integer, integer[]>
+    ss.SurfaceHash = {}
+
+    ---@class ss.HashParameters
+    ---@field GridSizeSurface integer Grid cell size for spatial hashing surfaces in the world.
+    ---@field MinGridSizeDisplacement integer Minimum grid cell size for spatial hashing triangles in a displacement.
+    ---@field NumDivisionsDisplacement integer Number of divisions to partition AABB containing triangles of a displacement.
+    ss.HashParameters = {
+        GridSizeSurface = 128,
+        MinGridSizeDisplacement = 32,
+        NumDivisionsDisplacement = 8,
+    }
 end
 
 ---Resolution of serverside canvas to maintain collision detection.

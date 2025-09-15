@@ -37,7 +37,12 @@ if not ss then return end
 ---@field AABBMax                Vector  AABB maximum of this surface in world coordinates.
 ---@field AABBMin                Vector  AABB minimum of this surface in world coordinates.
 ---@field Normal                 Vector  Normal vector of this surface.
----@field Grid          ss.PaintableGrid Represents serverside "canvas" for this surface to manage collision detection against painted ink.
+---@field Grid                   ss.PaintableGrid Represents serverside "canvas" for this surface to manage collision detection against painted ink.
+---@field MBBAngles              Angle   The angle of minimum (oriented) bounding box.
+---@field MBBOrigin              Vector  The origin of minimum (oriented) bounding box.
+---@field MBBSize                Vector  The size of minimum (oriented) bounding box in their local coordinates.
+---@field TriangleHash           table<integer, integer[]>? Hash table to lookup triangles of a displacement.
+---@field Triangles              ss.DisplacementTriangle[]? Array of triangles of a displacement.
 ---@field WorldToLocalGridMatrix VMatrix The transformation matrix to convert world coordinates into local coordinates. This does not modify scales.
 ---@field WorldToUVMatrix        VMatrix The transformation matrix to convert world coordinates into UV coordinates. This does not modify scales.
 ---@field OffsetU                number  The u-coordinate of left-top corner of this surface in UV space in pixels.
@@ -49,12 +54,48 @@ ss.struct "PaintableSurface" {
     AABBMin = Vector(),
     Normal = Vector(),
     Grid = ss.new "PaintableGrid",
+    MBBAngles = Angle(),
+    MBBOrigin = Vector(),
+    MBBSize   = Vector(),
+    TriangleHash = nil,
+    Triangles = nil,
     WorldToLocalGridMatrix = Matrix(),
     WorldToUVMatrix = Matrix(),
     OffsetU = 0,
     OffsetV = 0,
     UVWidth = 0,
     UVHeight = 0,
+}
+
+---Vertices and some other info of a triangle in a displacement.
+---@class ss.DisplacementTriangle[]
+---@field [1]       Vector The positions of this triangle.
+---@field [2]       Vector The positions of this triangle.
+---@field [3]       Vector The positions of this triangle.
+---@field [4]       Vector The position that the corresponding vertex originally was located at.
+---@field [5]       Vector The position that the corresponding vertex originally was located at.
+---@field [6]       Vector The position that the corresponding vertex originally was located at.
+---@field BarycentricDot1 Vector Parameter to calculate barycentric coordinates v.
+---@field BarycentricDot2 Vector Parameter to calculate barycentric coordinates w.
+---@field BarycentricAdd1 number Parameter to calculate barycentric coordinates v.
+---@field BarycentricAdd2 number Parameter to calculate barycentric coordinates w.
+---@field MBBAngles Angle  The angle of minimum (oriented) bounding box.
+---@field MBBOrigin Vector The origin of minimum (oriented) bounding box.
+---@field MBBSize   Vector The size of minimum (oriented) bounding box in their local coordinates.
+ss.struct "DisplacementTriangle" {
+    [1] = Vector(),
+    [2] = Vector(),
+    [3] = Vector(),
+    [4] = Vector(),
+    [5] = Vector(),
+    [6] = Vector(),
+    BarycentricDot1 = Vector(),
+    BarycentricDot2 = Vector(),
+    BarycentricAdd1 = 0,
+    BarycentricAdd2 = 0,
+    MBBAngles = Angle(),
+    MBBOrigin = Vector(),
+    MBBSize   = Vector(),
 }
 
 ---Reads a surface list from a file and stores them for later use.
@@ -73,6 +114,21 @@ function ss.SetupSurfaces()
         ps.Normal = ps.WorldToLocalGridMatrix:GetInverseTR():GetUp()
         ps.Grid.Width = surf.PaintGridWidth
         ps.Grid.Height = surf.PaintGridHeight
+        ps.MBBAngles = surf.MBBAngles
+        ps.MBBOrigin = surf.MBBOrigin
+        ps.MBBSize = surf.MBBSize
+        ps.TriangleHash = surf.TriangleHash
+        ps.Triangles = surf.Triangles
+        for j, t in ipairs(surf.Triangles or {}) do
+            ps.Triangles[j][1] = surf.Vertices[t.Index].Translation
+            ps.Triangles[j][2] = surf.Vertices[t.Index + 1].Translation
+            ps.Triangles[j][3] = surf.Vertices[t.Index + 2].Translation
+            ps.Triangles[j][4] = surf.Vertices[t.Index].DisplacementOrigin
+            ps.Triangles[j][5] = surf.Vertices[t.Index + 1].DisplacementOrigin
+            ps.Triangles[j][6] = surf.Vertices[t.Index + 2].DisplacementOrigin
+            ps.Triangles[j].BarycentricAdd1 = -ps.Triangles[j][1]:Dot(ps.Triangles[j].BarycentricDot1)
+            ps.Triangles[j].BarycentricAdd2 = -ps.Triangles[j][1]:Dot(ps.Triangles[j].BarycentricDot2)
+        end
         if CLIENT then
             local rtIndex = #ss.RenderTarget.Resolutions
             local rtSize = ss.RenderTarget.Resolutions[rtIndex]
@@ -85,5 +141,20 @@ function ss.SetupSurfaces()
             ps.UVHeight = uvInfo.Height * rtSize + ss.RT_MARGIN_PIXELS
         end
         ss.SurfaceArray[i] = ps
+    end
+end
+
+---Returns barycentric coordinates (u, v, w) from given triangle.
+---@param triangle ss.DisplacementTriangle
+---@param query Vector
+---@return Vector? barycentric The coordinates. nil if query point can't be projected onto the triangle.
+function ss.BarycentricCoordinates(triangle, query)
+    local v = query:Dot(triangle.BarycentricDot1) + triangle.BarycentricAdd1
+    local w = query:Dot(triangle.BarycentricDot2) + triangle.BarycentricAdd2
+    local u = 1 - v - w
+    if v < 0 or v > 1 or w < 0 or w > 1 or u < 0 or u > 1 then
+        return
+    else
+        return Vector(u, v, w)
     end
 end

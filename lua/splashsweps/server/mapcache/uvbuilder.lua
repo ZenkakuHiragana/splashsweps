@@ -62,13 +62,13 @@ function ss.BuildUVCache(surfaces, staticPropInfo, staticPropRectangles)
 
                 workMatrix:SetTranslation(info.Translation)
                 workMatrix:SetAngles(info.Angle)
-                workMatrix = workMatrix:GetInverseTR() -- InvertTR() seems broken #6401
+                workMatrix:InvertTR()
                 info.Angle:Set(workMatrix:GetAngles())
                 info.Translation:Set(workMatrix:GetTranslation())
             else ---@cast tag ss.PrecachedData.StaticProp.UVInfo
                 tag.Width = rect.width / rectangleSizeHU
                 tag.Height = rect.height / rectangleSizeHU
-                tag.Offset = Vector(rect.left, rect.bottom, 0) / rectangleSizeHU
+                tag.Offset:Set(Vector(rect.left, rect.bottom, 0) / rectangleSizeHU)
             end
         end
 

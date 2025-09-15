@@ -21,7 +21,7 @@ local MARGIN_IN_LUXELS = 1
 local function CreateRectangles(faces, surfaces)
     local out = {} ---@type ss.Rectangle[]
     for _, surf in ipairs(surfaces) do
-        local faceIndex = surf.LightmapWidth -- Index was written here temporarily in surfacebulder.lua
+        local faceIndex = surf.FaceLumpIndex
         local rawFace = faces[faceIndex]
         if rawFace.lightOffset >= 0 then
             local widthInLuxels = rawFace.lightmapTextureSizeInLuxels[1]
@@ -129,7 +129,7 @@ local function GenerateBitmap(bsp, packer, ishdr)
     for _, index in ipairs(packer.results) do
         local rect = packer.rects[index]
         local surf = rect.tag ---@type ss.PrecachedData.Surface
-        local faceIndex = surf.LightmapWidth
+        local faceIndex = surf.FaceLumpIndex
         local rawFace = faces[faceIndex]
         UpdateBitmap(bitmap, size, rect, rawFace, samples)
     end
@@ -147,7 +147,7 @@ local function WriteLightmapUV(bsp, packer, ishdr)
     for _, index in ipairs(packer.results) do
         local rect = packer.rects[index]
         local surf = rect.tag ---@type ss.PrecachedData.Surface
-        local faceIndex = surf.LightmapWidth
+        local faceIndex = surf.FaceLumpIndex
         local rawFace = faces[faceIndex]
         local s0, t0 = rect.left + 1, rect.bottom + 1
         local sw = rawFace.lightmapTextureSizeInLuxels[1] + 1
@@ -279,6 +279,7 @@ function ss.BuildLightmapCache(bsp, surfaces, ishdr)
         local bitmap = GenerateBitmap(bsp, packer, ishdr) or {}
         WriteLightmapUV(bsp, packer, ishdr)
         WriteBinary(packer.maxsize, bitmap, ishdr)
+        for _, surf in ipairs(surfaces) do  surf.FaceLumpIndex = nil end
         elapsed = round((SysTime() - t0) * 1000, 2)
         print("    Packed " .. (ishdr and "HDR" or "LDR") .. " lightmap in " .. elapsed .. " ms.")
     end

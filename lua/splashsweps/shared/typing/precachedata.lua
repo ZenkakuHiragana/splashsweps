@@ -118,15 +118,44 @@ ss.struct "PrecachedData.StaticProp" {
     Scale = 1,
 }
 
+---Vertices and some other info of a triangle in a displacement.
+---@class ss.PrecachedData.DisplacementTriangle
+---@field Index     integer Index to the vertices.
+---@field BarycentricDot1 Vector Parameter to calculate barycentric coordinates v.
+---@field BarycentricDot2 Vector Parameter to calculate barycentric coordinates w.
+-- ---@field BarycentricAdd1 number Parameter to calculate barycentric coordinates v.
+-- ---@field BarycentricAdd2 number Parameter to calculate barycentric coordinates w.
+---@field MBBAngles Angle  The angle of minimum (oriented) bounding box.
+---@field MBBOrigin Vector The origin of minimum (oriented) bounding box.
+---@field MBBSize   Vector The size of minimum (oriented) bounding box in their local coordinates.
+ss.struct "PrecachedData.DisplacementTriangle" {
+    Index = 0,
+    BarycentricDot1 = Vector(),
+    BarycentricDot2 = Vector(),
+    -- BarycentricAdd1 = 0,
+    -- BarycentricAdd2 = 0,
+    MBBAngles = Angle(),
+    MBBOrigin = Vector(),
+    MBBSize   = Vector(),
+}
+
 ---Per-surface precached data to construct paintable surface.
 ---@class ss.PrecachedData.Surface
----@field AABBMax            Vector Maximum component of all vertices in world coordinates.
----@field AABBMin            Vector Minimum component of all vertices in world coordinates.
+---@field AABBMax            Vector   Maximum component of all vertices in world coordinates.
+---@field AABBMin            Vector   Minimum component of all vertices in world coordinates.
+---@field FaceLumpIndex      integer? Index to face lump just used to calculate lightmap UV coordinates.
 ---@field TransformPaintGrid ss.PrecachedData.MatrixTransform Transforms world coordinates into the serverside paint grid coordinates.
----@field LightmapHeight     number  The height of this surface in lightmap texture in luxels.
----@field LightmapWidth      number  The width of this surface in lightmap texture in luxels.
----@field PaintGridHeight    integer The height of this surface in the serverside paint grid.
----@field PaintGridWidth     integer The width of this surface in the serverside paint grid.
+---@field LightmapHeight     number   The height of this surface in lightmap texture in luxels.
+---@field LightmapWidth      number   The width of this surface in lightmap texture in luxels.
+---@field MBBAngles          Angle    The angle of minimum (oriented) bounding box.
+---@field MBBOrigin          Vector   The origin of minimum (oriented) bounding box.
+---@field MBBSize            Vector   The size of minimum (oriented) bounding box in their local coordinates.
+---@field PaintGridHeight    integer  The height of this surface in the serverside paint grid.
+---@field PaintGridWidth     integer  The width of this surface in the serverside paint grid.
+---Hash table to search triangles of displacement.   
+---= `{ [hash] = { list of indices to Triangles }}`
+---@field TriangleHash       table<integer, integer[]>?
+---@field Triangles          ss.PrecachedData.DisplacementTriangle[]? Array of triangles of a displacement.
 ---Array of UV coordinates.
 ---One of them will be selected on mesh construction depending on the resolution of RenderTarget.
 ---@field UVInfo ss.PrecachedData.UVInfo[]
@@ -135,11 +164,17 @@ ss.struct "PrecachedData.StaticProp" {
 ss.struct "PrecachedData.Surface" {
     AABBMax = ss.vector_one * -math.huge,
     AABBMin = ss.vector_one * math.huge,
+    FaceLumpIndex = nil,
     TransformPaintGrid = ss.new "PrecachedData.MatrixTransform",
     LightmapHeight = 0,
     LightmapWidth = 0,
+    MBBAngles = Angle(),
+    MBBOrigin = Vector(),
+    MBBSize   = Vector(),
     PaintGridHeight = 0,
     PaintGridWidth = 0,
+    TriangleHash = nil,
+    Triangles = nil,
     UVInfo = {},
     Vertices = {},
 }
@@ -153,9 +188,10 @@ ss.struct "MinimapAreaBounds" {
     mins = Vector(),
 }
 
+---Array of paintable surfaces stored as JSON file.
 ---@class ss.PrecachedData.SurfaceInfo
 ---@field [integer] ss.PrecachedData.Surface
----@field UVScales number[] Render target size index -> Hammer units to UV multiplier
+---@field UVScales  number[] Render target size index -> Hammer units to UV multiplier
 ss.struct "PrecachedData.SurfaceInfo" {
     UVScales = {},
 }
@@ -173,6 +209,8 @@ ss.struct "PrecachedData.SurfaceInfo" {
 ---@field StaticPropLDR    ss.PrecachedData.StaticProp.UVInfo[][]
 ---@field SurfacesWaterHDR ss.PrecachedData.Surface[]
 ---@field SurfacesWaterLDR ss.PrecachedData.Surface[]
+---@field SurfaceHash      table<integer, integer[]> = `ss.SurfaceHash`
+---@field HashParameters   ss.HashParameters
 ss.struct "PrecachedData" {
     CacheVersion = -1,
     MapCRC = "",
@@ -185,4 +223,10 @@ ss.struct "PrecachedData" {
     StaticPropLDR = {},
     SurfacesWaterHDR = {},
     SurfacesWaterLDR = {},
+    SurfaceHash = {},
+    HashParameters = {
+        GridSizeSurface = 128,
+        MinGridSizeDisplacement = 32,
+        NumDivisionsDisplacement = 8,
+    },
 }

@@ -14,7 +14,6 @@ local InkCheckInterval = 1 / 20
 ---CurTime() based time to perform traces to check player's ink state.
 ---@type table<Player, number>
 local NextCheckTime = locals.Touch.NextInkCheckTimePlayer
-
 hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     if not ss.PlayerIndices[ply] then return end
 
@@ -24,25 +23,56 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     if CurTime() < NextCheckTime[ply] + timeOffset then return end
     NextCheckTime[ply] = CurTime() + InkCheckInterval
 
+    local origin = mv:GetOrigin() + ply:GetForward() * 2
+    local nearestFrom = ply:WorldSpaceCenter() + ply:GetForward() * 2
+    local queryMins = origin + ply:OBBMins()
+    local queryMaxs = origin + ply:OBBMaxs()
+
     local t = InkCheckInterval + FrameTime() * 2
-    for surf in ss.CollectSurfaces(
-        mv:GetOrigin() + ply:OBBMins() - ss.vector_one,
-        mv:GetOrigin() + ply:OBBMaxs() + ss.vector_one) do
+    debugoverlay.Cross(nearestFrom, 10, t, Color(255, 255, 0), true)
+
+    for surf in ss.CollectSurfaces(queryMins, queryMaxs) do
         local m = surf.WorldToLocalGridMatrix:GetInverseTR()
         local width = surf.Grid.Width * ss.InkGridCellSize
         local height = surf.Grid.Height * ss.InkGridCellSize
-        local mins = Vector()
-        local maxs = Vector(width, height, 0)
-        local nearest = surf.WorldToLocalGridMatrix * ply:WorldSpaceCenter()
-        local nearest2D = Vector(nearest.x, nearest.y)
-        local nearest3D = m * nearest2D
+        local size = Vector(width, height)
         debugoverlay.Box(Vector(), surf.AABBMin, surf.AABBMax, t, color_transparent)
-        debugoverlay.BoxAngles(m:GetTranslation(), mins, maxs, m:GetAngles(), t, Color(0, 255, 0, 64))
-        debugoverlay.Cross(nearest3D, 10, t, Color(255, 255, 0), true)
-    end
+        debugoverlay.BoxAngles(surf.MBBOrigin + vector_up, vector_origin, surf.MBBSize, surf.MBBAngles, t, Color(255, 255, 160, 0))
+        debugoverlay.Axis(surf.MBBOrigin, surf.MBBAngles, surf.MBBSize.x, t)
+        debugoverlay.BoxAngles(m:GetTranslation(), vector_origin, size, m:GetAngles(), t, Color(0, 255, 0, 0))
+        if surf.Triangles then
+            for tri in ss.CollectDisplacementTriangles(surf, queryMins, queryMaxs) do
+                local d = tri.MBBAngles:Up() * 0.5
+                debugoverlay.BoxAngles(
+                    tri.MBBOrigin, vector_origin,
+                    tri.MBBSize, tri.MBBAngles, t, Color(255, 255, 255, 0))
 
-    if CLIENT then
-        print(IsFirstTimePredicted(), ply == LocalPlayer(), ply)
+                debugoverlay.Line(tri[1] + d, tri[2] + d, t, Color(255, 255, 0))
+                debugoverlay.Line(tri[2] + d, tri[3] + d, t, Color(255, 255, 0))
+                debugoverlay.Line(tri[3] + d, tri[1] + d, t, Color(255, 255, 0))
+
+                debugoverlay.Line(tri[4] + d, tri[5] + d, t, Color(192, 96, 0), true)
+                debugoverlay.Line(tri[5] + d, tri[6] + d, t, Color(192, 96, 0), true)
+                debugoverlay.Line(tri[6] + d, tri[4] + d, t, Color(192, 96, 0), true)
+
+                debugoverlay.Line(tri[1] + d, tri[4] + d, t, Color(128, 128, 0), true)
+                debugoverlay.Line(tri[2] + d, tri[5] + d, t, Color(128, 128, 0), true)
+                debugoverlay.Line(tri[3] + d, tri[6] + d, t, Color(128, 128, 0), true)
+
+                local b = ss.BarycentricCoordinates(tri, nearestFrom)
+                if b then
+                    local nearest = tri[1] * b.x + tri[2] * b.y + tri[3] * b.z
+                    debugoverlay.Cross(nearest, 10, t, Color(255, 255, 0), true)
+                    debugoverlay.Line(nearestFrom, nearest, t, Color(255, 255, 0), true)
+                end
+            end
+        else
+            local nearestLocal = surf.WorldToLocalGridMatrix * nearestFrom
+            local nearest2D = Vector(nearestLocal.x, nearestLocal.y)
+            local nearest = m * nearest2D
+            debugoverlay.Cross(nearest, 10, t, Color(255, 255, 0), true)
+            debugoverlay.Line(nearestFrom, nearest, t, Color(255, 255, 0), true)
+        end
     end
 end)
 
