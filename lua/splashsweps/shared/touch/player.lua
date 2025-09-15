@@ -14,6 +14,9 @@ local InkCheckInterval = 1 / 20
 ---CurTime() based time to perform traces to check player's ink state.
 ---@type table<Player, number>
 local NextCheckTime = locals.Touch.NextInkCheckTimePlayer
+
+local track = true
+local lastPos = Vector()
 hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     if not ss.PlayerIndices[ply] then return end
 
@@ -22,11 +25,18 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     if not NextCheckTime[ply] then NextCheckTime[ply] = CurTime() end
     if CurTime() < NextCheckTime[ply] + timeOffset then return end
     NextCheckTime[ply] = CurTime() + InkCheckInterval
+    
+    if track then lastPos = ply:GetEyeTrace().HitPos end
+    if ply:KeyPressed(IN_ATTACK2) then track = not track end
 
     local origin = mv:GetOrigin() + ply:GetForward() * 2
     local nearestFrom = ply:WorldSpaceCenter() + ply:GetForward() * 2
+    -- local origin = lastPos
+    -- local nearestFrom = origin + ply:GetEyeTrace().HitNormal * 200
     local queryMins = origin + ply:OBBMins()
     local queryMaxs = origin + ply:OBBMaxs()
+    -- queryMins = origin - ss.vector_one * 500
+    -- queryMaxs = origin + ss.vector_one * 500
 
     local t = InkCheckInterval + FrameTime() * 2
     debugoverlay.Cross(nearestFrom, 10, t, Color(255, 255, 0), true)
@@ -37,8 +47,7 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
         local height = surf.Grid.Height * ss.InkGridCellSize
         local size = Vector(width, height)
         debugoverlay.Box(Vector(), surf.AABBMin, surf.AABBMax, t, color_transparent)
-        debugoverlay.BoxAngles(surf.MBBOrigin + vector_up, vector_origin, surf.MBBSize, surf.MBBAngles, t, Color(255, 255, 160, 0))
-        debugoverlay.Axis(surf.MBBOrigin, surf.MBBAngles, surf.MBBSize.x, t)
+        debugoverlay.BoxAngles(surf.MBBOrigin + vector_up, vector_origin, surf.MBBSize, surf.MBBAngles, t, Color(255, 255, 160, 8))
         debugoverlay.BoxAngles(m:GetTranslation(), vector_origin, size, m:GetAngles(), t, Color(0, 255, 0, 0))
         if surf.Triangles then
             for tri in ss.CollectDisplacementTriangles(surf, queryMins, queryMaxs) do
@@ -47,9 +56,9 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
                     tri.MBBOrigin, vector_origin,
                     tri.MBBSize, tri.MBBAngles, t, Color(255, 255, 255, 0))
 
-                debugoverlay.Line(tri[1] + d, tri[2] + d, t, Color(255, 255, 0))
-                debugoverlay.Line(tri[2] + d, tri[3] + d, t, Color(255, 255, 0))
-                debugoverlay.Line(tri[3] + d, tri[1] + d, t, Color(255, 255, 0))
+                debugoverlay.Line(tri[1] + d, tri[2] + d, t, Color(255, 255, 0, 64))
+                debugoverlay.Line(tri[2] + d, tri[3] + d, t, Color(255, 255, 0, 64))
+                debugoverlay.Line(tri[3] + d, tri[1] + d, t, Color(255, 255, 0, 64))
 
                 debugoverlay.Line(tri[4] + d, tri[5] + d, t, Color(192, 96, 0), true)
                 debugoverlay.Line(tri[5] + d, tri[6] + d, t, Color(192, 96, 0), true)
@@ -68,10 +77,13 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
             end
         else
             local nearestLocal = surf.WorldToLocalGridMatrix * nearestFrom
-            local nearest2D = Vector(nearestLocal.x, nearestLocal.y)
-            local nearest = m * nearest2D
-            debugoverlay.Cross(nearest, 10, t, Color(255, 255, 0), true)
-            debugoverlay.Line(nearestFrom, nearest, t, Color(255, 255, 0), true)
+            if not (nearestLocal.x < 0 or nearestLocal.x > surf.Grid.Width * ss.InkGridCellSize
+            or nearestLocal.y < 0 or nearestLocal.y > surf.Grid.Height * ss.InkGridCellSize) then
+                local nearest2D = Vector(nearestLocal.x, nearestLocal.y)
+                local nearest = m * nearest2D
+                debugoverlay.Cross(nearest, 10, t, Color(255, 255, 0), true)
+                debugoverlay.Line(nearestFrom, nearest, t, Color(255, 255, 0), true)
+            end
         end
     end
 end)
