@@ -129,9 +129,9 @@ local function posToIndexAABB(pos, mins, maxs)
     local size = maxs - mins
     local minGridSize = ss.HashParameters.MinGridSizeDisplacement
     local numDivision = ss.HashParameters.NumDivisionsDisplacement
-    local maxIndicesX = min(ceil(size.x / minGridSize), numDivision)
-    local maxIndicesY = min(ceil(size.y / minGridSize), numDivision)
-    local maxIndicesZ = min(ceil(size.z / minGridSize), numDivision)
+    local maxIndicesX = clamp(ceil(size.x / minGridSize), 1, numDivision)
+    local maxIndicesY = clamp(ceil(size.y / minGridSize), 1, numDivision)
+    local maxIndicesZ = clamp(ceil(size.z / minGridSize), 1, numDivision)
     local gridSize = size / numDivision
     OrderVectors(vector_one * minGridSize, gridSize)
     local indices = (pos - mins) / gridSize
