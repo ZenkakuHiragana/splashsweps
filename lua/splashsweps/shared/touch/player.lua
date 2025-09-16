@@ -69,7 +69,7 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
                 debugoverlay.Line(tri[3] + d, tri[6] + d, t, Color(128, 128, 0), true)
 
                 local b = ss.BarycentricCoordinates(tri, nearestFrom)
-                if b.y > 0 and b.z > 0 then
+                if b.x > 0 and b.y > 0 and b.z > 0 then
                     local nearest = tri[1] * b.x + tri[2] * b.y + tri[3] * b.z
                     debugoverlay.Cross(nearest, 10, t, Color(255, 255, 0), true)
                     debugoverlay.Line(nearestFrom, nearest, t, Color(255, 255, 0), true)

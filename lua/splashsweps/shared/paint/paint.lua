@@ -25,21 +25,20 @@ local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS) - 1
 local MAX_COS_DIFF = math.cos(math.rad(45))
 
 ---Gets AABB of incoming paint.
----@param pos     Vector The origin.
----@param angle   Angle  The normal and rotation.
----@param scale_x number Scale along the forward vector.
----@param scale_y number Scale along the right vector.
----@return Vector mins   The minimum bounding box.
----@return Vector maxs   The maximum bounding box.
-function ss.GetPaintBoundingBox(pos, angle, scale_x, scale_y)
+---@param pos   Vector The origin.
+---@param angle Angle  The normal and rotation.
+---@param scale Vector Scale along the angles.
+---@return Vector mins The minimum bounding box.
+---@return Vector maxs The maximum bounding box.
+function ss.GetPaintBoundingBox(pos, angle, scale)
     local axis_x = angle:Forward()
     local axis_y = -angle:Right()
     local axis_z = angle:Up()
-    local scale_z = min(scale_x, scale_y) * 0.5
     local mins = ss.vector_one * math.huge
     local maxs = -ss.vector_one * math.huge
-    for _, dx in ipairs { axis_x * scale_x, -axis_x * scale_x } do
-        for _, dy in ipairs { axis_y * scale_y, -axis_y * scale_y } do
+    local scale_z = max(scale.z, min(scale.x, scale.y) * 0.5)
+    for _, dx in ipairs { axis_x * scale.x, -axis_x * scale.x } do
+        for _, dy in ipairs { axis_y * scale.y, -axis_y * scale.y } do
             for _, dz in ipairs { axis_z * scale_z, -axis_z * scale_z } do
                 mins = ss.MinVector(mins, dx + dy + dz)
                 maxs = ss.MaxVector(maxs, dx + dy + dz)
@@ -105,20 +104,22 @@ function ss.EnumeratePaintPositions(mins, maxs, normal)
 end
 
 ---Paints an ink with given information.
+---If scale.z == 0, paints surfaces with specific angles.
+---If scale.z > 0, paints surfaces with all directions.
 ---@param worldpos Vector  The origin.
 ---@param angle    Angle   The normal and rotation.
----@param scale_x  number  Scale along the forward vector (angle:Forward()) which is limited to 510 Hammer units because of network optimization.
----@param scale_y  number  Scale along the right vector (angle:Right()) which is limited to 510 Hammer units because of network optimization.
+---@param scale    Vector  Scale along the angles which is limited to 510 Hammer units because of network optimization.
 ---@param shape    integer The internal index of shape to paint.
 ---@param inktype  integer The internal index of ink type.
-function ss.Paint(worldpos, angle, scale_x, scale_y, shape, inktype)
+function ss.Paint(worldpos, angle, scale, shape, inktype)
     if SERVER then
         -- Parameter limit to reduce network traffic
         local x     = Round(worldpos.x * 0.5)
         local y     = Round(worldpos.y * 0.5) -- -16384 to 16384, 2 step
         local z     = Round(worldpos.z * 0.5)
-        local sx    = Round(min(scale_x, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
-        local sy    = Round(min(scale_y, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
+        local sx    = Round(min(scale.x, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
+        local sy    = Round(min(scale.y, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
+        local sz    = Round(min(scale.z, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
         local pitch = Clamp(Round(NormalizeAngle(angle.pitch) / 180 * 128), -128, 127)
         local yaw   = Clamp(Round(NormalizeAngle(angle.yaw)   / 180 * 128), -128, 127)
         local roll  = Clamp(Round(NormalizeAngle(angle.roll)  / 180 * 128), -128, 127)
@@ -134,6 +135,7 @@ function ss.Paint(worldpos, angle, scale_x, scale_y, shape, inktype)
         net_WriteInt(z, 15) -- Z
         net_WriteUInt(sx, ss.MAX_INK_RADIUS_BITS) -- Scale X
         net_WriteUInt(sy, ss.MAX_INK_RADIUS_BITS) -- Scale Y
+        net_WriteUInt(sz, ss.MAX_INK_RADIUS_BITS) -- Scale Z
         net_Broadcast()
 
         worldpos:SetUnpacked(x * 2, y * 2, z * 2)
@@ -141,7 +143,7 @@ function ss.Paint(worldpos, angle, scale_x, scale_y, shape, inktype)
             Remap(pitch, -128, 127, -180, 180),
             Remap(yaw,   -128, 127, -180, 180),
             Remap(roll,  -128, 127, -180, 180))
-        scale_x, scale_y = sx * 2, sy * 2
+        scale:SetUnpacked(sx * 2, sy * 2, sz * 2)
     end
 
     -- -- Bounding box for finding surfaces
@@ -158,9 +160,10 @@ function ss.Paint(worldpos, angle, scale_x, scale_y, shape, inktype)
     --     end
     -- end
 
-    local mins, maxs = ss.GetPaintBoundingBox(worldpos, angle, scale_x, scale_y)
-    for surf, pos in ss.EnumeratePaintPositions(mins - ss.vector_one, maxs + ss.vector_one, angle:Up()) do
-        ss.WriteGrid(surf, pos, angle, scale_x, scale_y, inktype, shape)
+    local normal = scale.z == 0 and angle:Up() or nil
+    local mins, maxs = ss.GetPaintBoundingBox(worldpos, angle, scale)
+    for surf, pos in ss.EnumeratePaintPositions(mins, maxs, normal) do
+        ss.WriteGrid(surf, pos, angle, scale, inktype, shape)
     end
 end
 

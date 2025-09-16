@@ -64,12 +64,13 @@ function SWEP:PrimaryAttack()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
     self:EmitSound("Weapon_AR2.Single")
     local tr = Owner:GetEyeTrace()
+    local radius = 80
     local pos = tr.HitPos
     local normal = tr.HitNormal
     local right = normal:Cross(pos - tr.StartPos):GetNormalized()
     local ang = right:Cross(normal):AngleEx(normal)
     debugoverlay.Axis(pos, ang, 20, 5, false)
-    ss.Paint(pos, ang, 80, 80,
+    ss.Paint(pos, ang, Vector(radius, radius, radius * 0),
         ss.SelectRandomShape("builtin_drop").Index,
         ss.FindInkTypeID "ColorRed" or -1)
     self:SetNextPrimaryFire(CurTime() + self.Primary.Delay)

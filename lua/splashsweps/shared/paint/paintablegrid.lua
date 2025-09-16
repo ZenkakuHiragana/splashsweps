@@ -73,12 +73,11 @@ end
 ---@param self      ss.PaintableSurface
 ---@param mappedpos Vector  The preprocessed origin of the ink.
 ---@param angle     Angle   The normal and rotation of the ink in world coordinate system.
----@param radius_x  number  Scale along the forward vector (angle:Forward()), distance between the center and horizontal tip.
----@param radius_y  number  Scale along the right vector (angle:Right()), distance between the center and vertical tip.
+---@param radius    Vector  Scale along the angles, distance between the center and the tip.
 ---@param inktype   integer The internal index of ink type.
 ---@param shape     integer The internal index of shape.
 ---@return integer # Number of painted cells.
-function ss.WriteGrid(self, mappedpos, angle, radius_x, radius_y, inktype, shape)
+function ss.WriteGrid(self, mappedpos, angle, radius, inktype, shape)
     -- Caches
     local inkGridCellSize = ss.InkGridCellSize
     local surfaceGrid = self.Grid
@@ -135,7 +134,7 @@ function ss.WriteGrid(self, mappedpos, angle, radius_x, radius_y, inktype, shape
         inkOriginInSurfaceSystemX, inkOriginInSurfaceSystemY,
         inkSystemInSurfaceSystem:GetForward(),
        -inkSystemInSurfaceSystem:GetRight(),
-        radius_x, radius_y)
+        radius.x, radius.y)
     local indexMinX = max(floor(x_min / inkGridCellSize), 0)
     local indexMaxX = min( ceil(x_max / inkGridCellSize), surfaceGridWidth - 1)
     local indexMinY = max(floor(y_min / inkGridCellSize), 0)
@@ -145,8 +144,8 @@ function ss.WriteGrid(self, mappedpos, angle, radius_x, radius_y, inktype, shape
     local shapeGrid              = ss.InkShapes[shape].Grid
     local shapeGridWidth         = shapeGrid.Width
     local shapeGridHeight        = shapeGrid.Height
-    local oneOverShapeCellWidth  = shapeGridWidth  / (radius_x * 2)
-    local oneOverShapeCellHeight = shapeGridHeight / (radius_y * 2)
+    local oneOverShapeCellWidth  = shapeGridWidth  / (radius.x * 2)
+    local oneOverShapeCellHeight = shapeGridHeight / (radius.y * 2)
     local inkGridCellSizeHalf    = inkGridCellSize / 2
 
     -- These values are originally defined inside the loop (indexMinX, indexMinY --> ix, iy)
@@ -186,10 +185,10 @@ function ss.WriteGrid(self, mappedpos, angle, radius_x, radius_y, inktype, shape
                     xInInkSystem, yInInkSystem,
                     surfaceAxisXInInkSystem, surfaceAxisYInInkSystem,
                     inkGridCellSizeHalf, inkGridCellSizeHalf)
-                local shapeIndexMinX = floor((x_min + radius_x) * oneOverShapeCellWidth - 0.5)
-                local shapeIndexMaxX =  ceil((x_max + radius_x) * oneOverShapeCellWidth + 0.5)
-                local shapeIndexMinY = floor((y_min + radius_y) * oneOverShapeCellHeight - 0.5)
-                local shapeIndexMaxY =  ceil((y_max + radius_y) * oneOverShapeCellHeight + 0.5)
+                local shapeIndexMinX = floor((x_min + radius.x) * oneOverShapeCellWidth - 0.5)
+                local shapeIndexMaxX =  ceil((x_max + radius.x) * oneOverShapeCellWidth + 0.5)
+                local shapeIndexMinY = floor((y_min + radius.y) * oneOverShapeCellHeight - 0.5)
+                local shapeIndexMaxY =  ceil((y_max + radius.y) * oneOverShapeCellHeight + 0.5)
 
                 -- Check if the index range for the shape grid at least partially overlaps
                 if shapeIndexMaxX >= 0
@@ -241,8 +240,8 @@ function ss.WriteGrid(self, mappedpos, angle, radius_x, radius_y, inktype, shape
     else -- Otherwise, look up the nearest one
         for iy = indexMinY, indexMaxY do
             for ix = indexMinX, indexMaxX do
-                local shapeIndexX = floor((xInInkSystem + radius_x) * oneOverShapeCellWidth + 0.5)
-                local shapeIndexY = floor((yInInkSystem + radius_y) * oneOverShapeCellHeight + 0.5)
+                local shapeIndexX = floor((xInInkSystem + radius.x) * oneOverShapeCellWidth + 0.5)
+                local shapeIndexY = floor((yInInkSystem + radius.y) * oneOverShapeCellHeight + 0.5)
                 if  0 <= shapeIndexX and shapeIndexX < shapeGridWidth
                 and 0 <= shapeIndexY and shapeIndexY < shapeGridHeight
                 and shapeGrid[shapeIndexY * shapeGridWidth + shapeIndexX + 1] then
