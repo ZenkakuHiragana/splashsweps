@@ -8,6 +8,7 @@ local ceil  = math.ceil
 local floor = math.floor
 local min   = math.min
 local max   = math.max
+local MAX_COS_DIFF = math.cos(math.rad(45))
 
 ---The serverside canvas of a paintable surface which holds the result of paintings.
 ---@class ss.PaintableGrid
@@ -86,6 +87,20 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
 
     ---Total number of cells painted by this operation will be here.
     local numPaintedCells = 0
+
+    -- Before processing, if this is displacement,
+    -- we have to map the worldpos to the flat surface where it came from.
+    if self.Triangles then
+        for t in ss.CollectDisplacementTriangles(self, worldpos - ss.vector_one, worldpos + ss.vector_one) do
+            local b = ss.BarycentricCoordinates(t, worldpos)
+            if b then
+                worldpos = t[4] * b.x + t[5] * b.y + t[6] * b.z
+                break
+            end
+        end
+    elseif angle:Up():Dot(self.Normal) < MAX_COS_DIFF then
+        return 0
+    end
 
     ---Represents the given position and angles in the world coordinate system.
     local inkSystemInWorld = Matrix()
@@ -272,6 +287,13 @@ end
 ---@param query Vector Query point in world coordinates.
 ---@return ss.InkType? # The ink type painted at corresponding pixel.  nil if no ink was there.
 function ss.ReadGrid(self, query)
+    for t in ss.CollectDisplacementTriangles(self, query, query) do
+        local b = ss.BarycentricCoordinates(t, query)
+        if b then
+            query = t[4] * b.x + t[5] * b.y + t[6] * b.z
+            break
+        end
+    end
     local query2d = self.WorldToLocalGridMatrix * query
     local x = floor(query2d.x / ss.InkGridCellSize)
     local y = floor(query2d.y / ss.InkGridCellSize)

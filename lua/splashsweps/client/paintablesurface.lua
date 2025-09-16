@@ -45,8 +45,19 @@ function ss.PaintRenderTarget(pos, angle, scale_x, scale_y, shape, inktype)
 
     surface.SetDrawColor(128, 128, 255, 255)
     surface.SetMaterial(ss.GetInkMaterial(ss.InkTypes[inktype], ss.InkShapes[shape]))
-    for surf in ss.CollectSurfaces(mins - ss.vector_one, maxs + ss.vector_one, angle:Up()) do
-        local uv = surf.WorldToUVMatrix * pos * hammerUnitsToPixels
+    for surf in ss.CollectSurfaces(mins, maxs) do
+        local posWarp = pos
+        -- Before processing, if this is displacement,
+        -- we have to map the position to the flat surface where it came from.
+        for t in ss.CollectDisplacementTriangles(surf, mins, maxs) do
+            local b = ss.BarycentricCoordinates(t, pos)
+            if b then
+                posWarp = t[4] * b.x + t[5] * b.y + t[6] * b.z
+                break
+            end
+        end
+
+        local uv = surf.WorldToUVMatrix * posWarp * hammerUnitsToPixels
         local localRotation = surf.WorldToUVMatrix * rotationMatrix
         local localAngles = localRotation:GetAngles()
         render.PushRenderTarget(albedo, surf.OffsetV, surf.OffsetU, surf.UVHeight, surf.UVWidth)

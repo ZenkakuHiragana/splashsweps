@@ -82,7 +82,7 @@ function SWEP:SecondaryAttack()
     local tr = Owner:GetEyeTrace()
     local pos = tr.HitPos
     local normal = tr.HitNormal
-    for surf in ss.CollectSurfaces(pos - ss.vector_one, pos + ss.vector_one, normal) do
+    for surf in ss.CollectSurfaces(pos - ss.vector_one, pos + ss.vector_one) do
         for y = 0, surf.Grid.Height - 1 do
             for x = 0, surf.Grid.Width - 1 do
                 local pixel = surf.Grid[y * surf.Grid.Width + x + 1] or 0
@@ -99,7 +99,7 @@ function SWEP:Think()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
     local tr = util.QuickTrace(Owner:GetPos(), -vector_up * 16, Owner)
     if tr.HitWorld then
-        for surf in ss.CollectSurfaces(tr.HitPos - ss.vector_one, tr.HitPos + ss.vector_one, tr.HitNormal) do
+        for surf in ss.CollectSurfaces(tr.HitPos - ss.vector_one, tr.HitPos + ss.vector_one) do
             local color = ss.ReadGrid(surf, tr.HitPos)
             debugoverlay.Box(
                 tr.HitPos, -ss.vector_one, ss.vector_one + vector_up * 72, FrameTime() * 2,

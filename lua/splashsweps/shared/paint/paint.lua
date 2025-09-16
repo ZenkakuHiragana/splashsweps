@@ -98,7 +98,7 @@ function ss.Paint(pos, angle, scale_x, scale_y, shape, inktype)
     -- end
 
     local mins, maxs = ss.GetPaintBoundingBox(pos, angle, scale_x, scale_y)
-    for surf in ss.CollectSurfaces(mins - ss.vector_one, maxs + ss.vector_one, angle:Up()) do
+    for surf in ss.CollectSurfaces(mins - ss.vector_one, maxs + ss.vector_one) do
         ss.WriteGrid(surf, pos, angle, scale_x, scale_y, inktype, shape)
     end
 end

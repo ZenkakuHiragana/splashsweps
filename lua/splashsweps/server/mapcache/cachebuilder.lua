@@ -165,6 +165,8 @@ function ss.BuildMapCache()
         cache.SurfacesWaterHDR = whdr
         ss.BuildUVCache(hdr, cache.StaticPropHDR, staticPropRectangles)
         ss.BuildLightmapCache(bsp, hdr, true)
+        ss.BuildDisplacementHash(hdr)
+        ss.BuildSurfaceHash(hdr, cache.ModelsLDR[1].FaceIndices, cache.SurfaceHash)
         file.Write(string.format("splashsweps/%s_hdr.json", game.GetMap()), util.TableToJSON(hdr))
         collectgarbage "collect"
     end

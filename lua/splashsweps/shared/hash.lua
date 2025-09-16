@@ -7,7 +7,6 @@ if not ss then return end
 
 local ceil = math.ceil
 local clamp = math.Clamp
-local dot = Vector().Dot
 local floor = math.floor
 local ipairs = ipairs
 local max = math.max
@@ -22,7 +21,6 @@ local vector_one = ss.vector_one
 local vector_tenth = vector_one * 0.1
 local vector_16384 = vector_one * 16384
 local GRID_SIZE = 128
-local MAX_COS_DIFF = math.cos(math.rad(45))
 local MAX_GRID_INDEX = 32768 / GRID_SIZE
 local MAX_GRID_INDEX_SQR = MAX_GRID_INDEX * MAX_GRID_INDEX
 
@@ -82,12 +80,11 @@ function ss.BuildSurfaceHash(surfaces, faceIndices, hash)
     end
 end
 
----Generator function to enumerate surfaces containing given AABB and facing given normal.
+---Generator function to enumerate surfaces containing given AABB.
 ---@param mins Vector AABB minimum.
 ---@param maxs Vector AABB maximum.
----@param normal Vector? Optional normal vector to filter out surfaces.
 ---@return fun(): ss.PaintableSurface
-function ss.CollectSurfaces(mins, maxs, normal)
+function ss.CollectSurfaces(mins, maxs)
     mins = mins - vector_tenth
     maxs = maxs + vector_tenth
     return wrap(function()
@@ -102,8 +99,7 @@ function ss.CollectSurfaces(mins, maxs, normal)
                     --     FrameTime() * 5, Color(255, 255, 128, 0))
                     if IsOBBIntersectingOBB(
                         s.MBBOrigin, s.MBBAngles, vector_origin, s.MBBSize,
-                        vector_origin, angle_zero, mins, maxs, ss.eps)
-                        and (not normal or dot(s.Normal, normal) > MAX_COS_DIFF) then
+                        vector_origin, angle_zero, mins, maxs, ss.eps) then
                         yield(s)
                     end
                 end
@@ -220,10 +216,10 @@ end
 ---@param maxs Vector AABB maximum.
 ---@return fun(): ss.DisplacementTriangle triangle An array of vertices.
 function ss.CollectDisplacementTriangles(displacement, mins, maxs)
+    if not displacement.TriangleHash then return wrap(function() end) end
     mins = mins - vector_tenth
     maxs = maxs + vector_tenth
     return wrap(function()
-        if not displacement.TriangleHash then return end
         local hasSeenThisTriangle = {} ---@type table<integer, true>
         for h in hashpairsAABB(mins, maxs, displacement.AABBMin, displacement.AABBMax) do
             for _, i in ipairs(displacement.TriangleHash[h] or {}) do
@@ -232,7 +228,7 @@ function ss.CollectDisplacementTriangles(displacement, mins, maxs)
                     local t = displacement.Triangles[i]
                     -- debugoverlay.BoxAngles(
                     --     t.MBBOrigin, vector_origin, t.MBBSize, t.MBBAngles,
-                    --     FrameTime() * 5, Color(255, 255, 255, 0))
+                    --     FrameTime() * 5, Color(255, 255, 255, 8))
                     if IsOBBIntersectingOBB(
                         t.MBBOrigin, t.MBBAngles, vector_origin, t.MBBSize,
                         vector_origin, angle_zero, mins, maxs, ss.eps) then
