@@ -3,6 +3,17 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+---Classes containing the oriented minimum bounding box.
+---@class ss.IHasMBB
+---@field MBBAngles Angle  The angle of minimum (oriented) bounding box.
+---@field MBBOrigin Vector The origin of minimum (oriented) bounding box.
+---@field MBBSize   Vector The size of minimum (oriented) bounding box in their local coordinates.
+ss.struct "IHasMBB" {
+    MBBAngles = Angle(),
+    MBBOrigin = Vector(),
+    MBBSize   = Vector(),
+}
+
 ---This class holds information around serverside paintings and conversion to UV coordinates.
 ---```text
 ---World origin
@@ -33,14 +44,11 @@ if not ss then return end
 ---                v   |                 |
 ---              --+---+-----------------+
 ---```
----@class ss.PaintableSurface
+---@class ss.PaintableSurface : ss.IHasMBB
 ---@field AABBMax                Vector  AABB maximum of this surface in world coordinates.
 ---@field AABBMin                Vector  AABB minimum of this surface in world coordinates.
 ---@field Normal                 Vector  Normal vector of this surface.
 ---@field Grid                   ss.PaintableGrid Represents serverside "canvas" for this surface to manage collision detection against painted ink.
----@field MBBAngles              Angle   The angle of minimum (oriented) bounding box.
----@field MBBOrigin              Vector  The origin of minimum (oriented) bounding box.
----@field MBBSize                Vector  The size of minimum (oriented) bounding box in their local coordinates.
 ---@field TriangleHash           table<integer, integer[]>? Hash table to lookup triangles of a displacement.
 ---@field Triangles              ss.DisplacementTriangle[]? Array of triangles of a displacement.
 ---@field WorldToLocalGridMatrix VMatrix The transformation matrix to convert world coordinates into local coordinates. This does not modify scales.
@@ -49,14 +57,11 @@ if not ss then return end
 ---@field OffsetV                number  The v-coordinate of left-top corner of this surface in UV space in pixels.
 ---@field UVWidth                number  The width of this surface in UV space in pixels.
 ---@field UVHeight               number  The height of this surface in UV space in pixels.
-ss.struct "PaintableSurface" {
+ss.struct "PaintableSurface" "IHasMBB" {
     AABBMax = Vector(),
     AABBMin = Vector(),
     Normal = Vector(),
     Grid = ss.new "PaintableGrid",
-    MBBAngles = Angle(),
-    MBBOrigin = Vector(),
-    MBBSize   = Vector(),
     TriangleHash = nil,
     Triangles = nil,
     WorldToLocalGridMatrix = Matrix(),
@@ -68,7 +73,7 @@ ss.struct "PaintableSurface" {
 }
 
 ---Vertices and some other info of a triangle in a displacement.
----@class ss.DisplacementTriangle[]
+---@class ss.DisplacementTriangle : ss.IHasMBB
 ---@field [1]       Vector The positions of this triangle.
 ---@field [2]       Vector The positions of this triangle.
 ---@field [3]       Vector The positions of this triangle.
@@ -79,10 +84,7 @@ ss.struct "PaintableSurface" {
 ---@field BarycentricDot2 Vector Parameter to calculate barycentric coordinates w.
 ---@field BarycentricAdd1 number Parameter to calculate barycentric coordinates v.
 ---@field BarycentricAdd2 number Parameter to calculate barycentric coordinates w.
----@field MBBAngles Angle  The angle of minimum (oriented) bounding box.
----@field MBBOrigin Vector The origin of minimum (oriented) bounding box.
----@field MBBSize   Vector The size of minimum (oriented) bounding box in their local coordinates.
-ss.struct "DisplacementTriangle" {
+ss.struct "DisplacementTriangle" "IHasMBB" {
     [1] = Vector(),
     [2] = Vector(),
     [3] = Vector(),
@@ -93,9 +95,6 @@ ss.struct "DisplacementTriangle" {
     BarycentricDot2 = Vector(),
     BarycentricAdd1 = 0,
     BarycentricAdd2 = 0,
-    MBBAngles = Angle(),
-    MBBOrigin = Vector(),
-    MBBSize   = Vector(),
 }
 
 ---Reads a surface list from a file and stores them for later use.
@@ -144,17 +143,12 @@ function ss.SetupSurfaces()
     end
 end
 
----Returns barycentric coordinates (u, v, w) from given triangle.
+---Returns barycentric coordinates (1 - u - v, u, v) from given triangle.
 ---@param triangle ss.DisplacementTriangle
 ---@param query Vector
----@return Vector? barycentric The coordinates. nil if query point can't be projected onto the triangle.
+---@return Vector barycentric The coordinates which may be outside of the triangle.
 function ss.BarycentricCoordinates(triangle, query)
-    local v = query:Dot(triangle.BarycentricDot1) + triangle.BarycentricAdd1
-    local w = query:Dot(triangle.BarycentricDot2) + triangle.BarycentricAdd2
-    local u = 1 - v - w
-    if v < 0 or v > 1 or w < 0 or w > 1 or u < 0 or u > 1 then
-        return
-    else
-        return Vector(u, v, w)
-    end
+    local u = query:Dot(triangle.BarycentricDot1) + triangle.BarycentricAdd1
+    local v = query:Dot(triangle.BarycentricDot2) + triangle.BarycentricAdd2
+    return Vector(1 - u - v, u, v)
 end

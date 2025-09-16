@@ -3,7 +3,10 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local wrap = coroutine.wrap
+local yield = coroutine.yield
 local Clamp = math.Clamp
+local max = math.max
 local min = math.min
 local Round = math.Round
 local Remap = math.Remap
@@ -18,6 +21,9 @@ local net_Broadcast = net.Broadcast ---@type fun()
 ---Maximum paint scale of a single drop to be networked
 local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS) - 1
 
+---Maximum angle difference allowed to paint.
+local MAX_COS_DIFF = math.cos(math.rad(45))
+
 ---Gets AABB of incoming paint.
 ---@param pos     Vector The origin.
 ---@param angle   Angle  The normal and rotation.
@@ -28,36 +34,91 @@ local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS) - 1
 function ss.GetPaintBoundingBox(pos, angle, scale_x, scale_y)
     local axis_x = angle:Forward()
     local axis_y = -angle:Right()
+    local axis_z = angle:Up()
+    local scale_z = min(scale_x, scale_y) * 0.5
     local mins = ss.vector_one * math.huge
-    local maxs = ss.vector_one * -math.huge
-    for _, v in ipairs {
-        pos + axis_x * scale_x + axis_y * scale_y,
-        pos + axis_x * scale_x - axis_y * scale_y,
-        pos - axis_x * scale_x + axis_y * scale_y,
-        pos - axis_x * scale_x - axis_y * scale_y,
-    } do
-        mins = ss.MinVector(mins, v)
-        maxs = ss.MaxVector(maxs, v)
+    local maxs = -ss.vector_one * math.huge
+    for _, dx in ipairs { axis_x * scale_x, -axis_x * scale_x } do
+        for _, dy in ipairs { axis_y * scale_y, -axis_y * scale_y } do
+            for _, dz in ipairs { axis_z * scale_z, -axis_z * scale_z } do
+                mins = ss.MinVector(mins, dx + dy + dz)
+                maxs = ss.MaxVector(maxs, dx + dy + dz)
+            end
+        end
     end
 
-    return mins, maxs
+    return pos + mins, pos + maxs
+end
+
+---Before processing paintings, if the target surface is a displacement,
+---we have to map the worldpos to the flat surface where it came from.
+---
+---So this function gets the surfaces to paint and preprocessed position
+---for 3D-2D conversion to handle deformed surfaces correctly.
+---
+---Returns A generator function that returns paintable surfaces
+---and points to paint ready to convert by WorldToLocal matrix.
+---@param mins Vector The AABB minimum to search.
+---@param maxs Vector The AABB maximum to search.
+---@param normal Vector? Optional direction filter.
+---@return fun(): ss.PaintableSurface, Vector generator
+function ss.EnumeratePaintPositions(mins, maxs, normal)
+    local query = (mins + maxs) * 0.5
+    return wrap(function()
+        for surf in ss.CollectSurfaces(mins, maxs) do
+            if surf.Triangles then
+                local min_score = 0
+                local min_coordinates = nil ---@type Vector
+                local min_triangle = nil ---@type ss.DisplacementTriangle?
+                for t in ss.CollectDisplacementTriangles(surf, mins, maxs) do
+                    if not normal or t.MBBAngles:Up():Dot(normal) > MAX_COS_DIFF then
+                        local b = ss.BarycentricCoordinates(t, query)
+                        if b.x > 0 and b.y > 0 and b.z > 0 then
+                            yield(surf, t[4] * b.x + t[5] * b.y + t[6] * b.z)
+                            min_score = -math.huge
+                            min_triangle = nil
+                        else
+                            local score = min(b.x, 0) + min(b.y, 0) + min(b.z, 0)
+                            if score < min_score then
+                                min_score = score
+                                min_coordinates = b
+                                min_triangle = t
+                            end
+                        end
+                    end
+                end
+
+                -- If the paint position is outside, find the nearest triangle roughly and return it.
+                if min_triangle then
+                    yield(surf, min_triangle[4] * min_coordinates.x
+                              + min_triangle[5] * min_coordinates.y
+                              + min_triangle[6] * min_coordinates.z)
+                end
+            else
+                local up = surf.MBBAngles:Up()
+                if not normal or up:Dot(normal) > MAX_COS_DIFF then
+                    yield(surf, query)
+                end
+            end
+        end
+    end)
 end
 
 ---Paints an ink with given information.
----@param pos     Vector  The origin.
----@param angle   Angle   The normal and rotation.
----@param scale_x number  Scale along the forward vector (angle:Forward()) which is limited to 510 Hammer units because of network optimization.
----@param scale_y number  Scale along the right vector (angle:Right()) which is limited to 510 Hammer units because of network optimization.
----@param shape   integer The internal index of shape to paint.
----@param inktype integer The internal index of ink type.
-function ss.Paint(pos, angle, scale_x, scale_y, shape, inktype)
+---@param worldpos Vector  The origin.
+---@param angle    Angle   The normal and rotation.
+---@param scale_x  number  Scale along the forward vector (angle:Forward()) which is limited to 510 Hammer units because of network optimization.
+---@param scale_y  number  Scale along the right vector (angle:Right()) which is limited to 510 Hammer units because of network optimization.
+---@param shape    integer The internal index of shape to paint.
+---@param inktype  integer The internal index of ink type.
+function ss.Paint(worldpos, angle, scale_x, scale_y, shape, inktype)
     if SERVER then
         -- Parameter limit to reduce network traffic
-        local x     = Round(pos.x / 2)
-        local y     = Round(pos.y / 2) -- -16384 to 16384, 2 step
-        local z     = Round(pos.z / 2)
-        local sx    = Round(min(scale_x, MAX_RADIUS) / 2) -- 0 to MAX_RADIUS, 2 step, integer
-        local sy    = Round(min(scale_y, MAX_RADIUS) / 2) -- 0 to MAX_RADIUS, 2 step, integer
+        local x     = Round(worldpos.x * 0.5)
+        local y     = Round(worldpos.y * 0.5) -- -16384 to 16384, 2 step
+        local z     = Round(worldpos.z * 0.5)
+        local sx    = Round(min(scale_x, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
+        local sy    = Round(min(scale_y, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
         local pitch = Clamp(Round(NormalizeAngle(angle.pitch) / 180 * 128), -128, 127)
         local yaw   = Clamp(Round(NormalizeAngle(angle.yaw)   / 180 * 128), -128, 127)
         local roll  = Clamp(Round(NormalizeAngle(angle.roll)  / 180 * 128), -128, 127)
@@ -75,7 +136,7 @@ function ss.Paint(pos, angle, scale_x, scale_y, shape, inktype)
         net_WriteUInt(sy, ss.MAX_INK_RADIUS_BITS) -- Scale Y
         net_Broadcast()
 
-        pos:SetUnpacked(x * 2, y * 2, z * 2)
+        worldpos:SetUnpacked(x * 2, y * 2, z * 2)
         angle:SetUnpacked(
             Remap(pitch, -128, 127, -180, 180),
             Remap(yaw,   -128, 127, -180, 180),
@@ -89,7 +150,7 @@ function ss.Paint(pos, angle, scale_x, scale_y, shape, inktype)
     -- for y = 0, shape.Grid.Height - 1 do
     --     for x = 0, shape.Grid.Width - 1 do
     --         debugoverlay.BoxAngles(
-    --             pos + angle:Forward() * (x / shape.Grid.Width  - 0.5) * scale_x * 2
+    --             worldpos + angle:Forward() * (x / shape.Grid.Width  - 0.5) * scale_x * 2
     --                 - angle:Right()   * (y / shape.Grid.Height - 0.5) * scale_y * 2,
     --             Vector(-scale_x / shape.Grid.Width, -scale_y / shape.Grid.Height, -1),
     --             Vector( scale_x / shape.Grid.Width,  scale_y / shape.Grid.Height,  1), angle, 3,
@@ -97,8 +158,8 @@ function ss.Paint(pos, angle, scale_x, scale_y, shape, inktype)
     --     end
     -- end
 
-    local mins, maxs = ss.GetPaintBoundingBox(pos, angle, scale_x, scale_y)
-    for surf in ss.CollectSurfaces(mins - ss.vector_one, maxs + ss.vector_one) do
+    local mins, maxs = ss.GetPaintBoundingBox(worldpos, angle, scale_x, scale_y)
+    for surf, pos in ss.EnumeratePaintPositions(mins - ss.vector_one, maxs + ss.vector_one, angle:Up()) do
         ss.WriteGrid(surf, pos, angle, scale_x, scale_y, inktype, shape)
     end
 end

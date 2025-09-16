@@ -47,7 +47,7 @@ SWEP.Secondary.DefaultClip = 0
 SWEP.Secondary.Ammo = "Ink"
 
 SWEP.Primary.Automatic = true
-SWEP.Primary.Delay = 1 / 30
+SWEP.Primary.Delay = 1 / 120
 
 function SWEP:Initialize()
     self.LoopSound = CreateSound(self, "items/suitcharge1.wav")
@@ -69,7 +69,7 @@ function SWEP:PrimaryAttack()
     local right = normal:Cross(pos - tr.StartPos):GetNormalized()
     local ang = right:Cross(normal):AngleEx(normal)
     debugoverlay.Axis(pos, ang, 20, 5, false)
-    ss.Paint(pos, ang, 120, 120,
+    ss.Paint(pos, ang, 80, 80,
         ss.SelectRandomShape("builtin_drop").Index,
         ss.FindInkTypeID "ColorRed" or -1)
     self:SetNextPrimaryFire(CurTime() + self.Primary.Delay)
@@ -99,8 +99,8 @@ function SWEP:Think()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
     local tr = util.QuickTrace(Owner:GetPos(), -vector_up * 16, Owner)
     if tr.HitWorld then
-        for surf in ss.CollectSurfaces(tr.HitPos - ss.vector_one, tr.HitPos + ss.vector_one) do
-            local color = ss.ReadGrid(surf, tr.HitPos)
+        for surf, pos in ss.EnumeratePaintPositions(tr.HitPos - ss.vector_one, tr.HitPos + ss.vector_one) do
+            local color = ss.ReadGrid(surf, pos)
             debugoverlay.Box(
                 tr.HitPos, -ss.vector_one, ss.vector_one + vector_up * 72, FrameTime() * 2,
                 color and Color(0, 255, 128, 16) or Color(255, 255, 255, 16))

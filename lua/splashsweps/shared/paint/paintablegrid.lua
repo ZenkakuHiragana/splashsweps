@@ -70,15 +70,15 @@ local function CalculateBounds(origin_x, origin_y, axis_x, axis_y, scale_x, scal
 end
 
 ---Paint this surface with specified ink type and shape at given position, angle, and size.
----@param self     ss.PaintableSurface
----@param worldpos Vector  The origin of the ink in world coordinate system.
----@param angle    Angle   The normal and rotation of the ink in world coordinate system.
----@param radius_x number  Scale along the forward vector (angle:Forward()), distance between the center and horizontal tip.
----@param radius_y number  Scale along the right vector (angle:Right()), distance between the center and vertical tip.
----@param inktype  integer The internal index of ink type.
----@param shape    integer The internal index of shape.
+---@param self      ss.PaintableSurface
+---@param mappedpos Vector  The preprocessed origin of the ink.
+---@param angle     Angle   The normal and rotation of the ink in world coordinate system.
+---@param radius_x  number  Scale along the forward vector (angle:Forward()), distance between the center and horizontal tip.
+---@param radius_y  number  Scale along the right vector (angle:Right()), distance between the center and vertical tip.
+---@param inktype   integer The internal index of ink type.
+---@param shape     integer The internal index of shape.
 ---@return integer # Number of painted cells.
-function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
+function ss.WriteGrid(self, mappedpos, angle, radius_x, radius_y, inktype, shape)
     -- Caches
     local inkGridCellSize = ss.InkGridCellSize
     local surfaceGrid = self.Grid
@@ -88,23 +88,9 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
     ---Total number of cells painted by this operation will be here.
     local numPaintedCells = 0
 
-    -- Before processing, if this is displacement,
-    -- we have to map the worldpos to the flat surface where it came from.
-    if self.Triangles then
-        for t in ss.CollectDisplacementTriangles(self, worldpos - ss.vector_one, worldpos + ss.vector_one) do
-            local b = ss.BarycentricCoordinates(t, worldpos)
-            if b then
-                worldpos = t[4] * b.x + t[5] * b.y + t[6] * b.z
-                break
-            end
-        end
-    elseif angle:Up():Dot(self.Normal) < MAX_COS_DIFF then
-        return 0
-    end
-
     ---Represents the given position and angles in the world coordinate system.
     local inkSystemInWorld = Matrix()
-    inkSystemInWorld:SetTranslation(worldpos)
+    inkSystemInWorld:SetTranslation(mappedpos)
     inkSystemInWorld:SetAngles(angle)
 
     ---Represents the given position and angles in paintable surface's coordinate system.
@@ -135,7 +121,7 @@ function ss.WriteGrid(self, worldpos, angle, radius_x, radius_y, inktype, shape)
     ---   y  y_min +-------+-==---------------+
     ---            |      /    ^^--__         |
     ---            |     /           ^^--__   |
-    ---            |    /    worldpos      ^^-+
+    ---            |    /   mappedpos      ^^-+
     ---            |   /        +-__         /|
     ---            |  /        /    ^^-> x = inkSystemInSurfaceSystem
     ---            | /        v            /  |   :GetAngles():Forward()
@@ -284,16 +270,9 @@ end
 
 ---Reads a pixel from the grid using given position in world coordinates.
 ---@param self ss.PaintableSurface
----@param query Vector Query point in world coordinates.
+---@param query Vector Preprocessed query point in world coordinates.
 ---@return ss.InkType? # The ink type painted at corresponding pixel.  nil if no ink was there.
 function ss.ReadGrid(self, query)
-    for t in ss.CollectDisplacementTriangles(self, query, query) do
-        local b = ss.BarycentricCoordinates(t, query)
-        if b then
-            query = t[4] * b.x + t[5] * b.y + t[6] * b.z
-            break
-        end
-    end
     local query2d = self.WorldToLocalGridMatrix * query
     local x = floor(query2d.x / ss.InkGridCellSize)
     local y = floor(query2d.y / ss.InkGridCellSize)

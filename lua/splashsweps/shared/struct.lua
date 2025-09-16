@@ -87,13 +87,43 @@ function ss.new(typename)
 end
 
 ---Defines structure template.
+---```lua
+---ss.struct "Typename" {
+---  Field = 0,
+---  Field2 = Vector(),
+---}
+----- instance will be initialized with the definition above
+---local instance = ss.new "Typename"
+---```
+---Type inheritance example:
+---```lua
+---ss.struct "ISomeInterface" {
+---  Mininum = Vector(),
+---  Maximum = Vector(),
+---}
+---ss.struct "TheImplementation" "ISomeInterface" {
+---  ExtraField = 0,
+---}
+----- {
+-----   Minimum = Vector(),
+-----   Maximum = Vector(),
+-----   ExtraField = 0,
+----- }
+---local instance = ss.new "TheImplementation"
+---```
 ---@generic T
 ---@param typename ss.`T` The name of structure
----@return fun(definition: T)
+---@return fun(definition: T|string): fun(definition: T|string)?
 function ss.struct(typename)
-    return function(definition)
-        StructDefinitions[typename] = definition
+    local function func(definition)
+        if istable(definition) then ---@cast definition table
+            StructDefinitions[typename] = table.Merge(StructDefinitions[typename] or {}, definition)
+        else ---@cast definition string
+            StructDefinitions[typename] = table.Merge(StructDefinitions[typename] or {}, ss.new(definition))
+            return func
+        end
     end
+    return func
 end
 
 ---Structure definition to read/write binary data in a File.
