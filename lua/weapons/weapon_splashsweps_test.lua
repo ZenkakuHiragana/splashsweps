@@ -101,7 +101,7 @@ function SWEP:Think()
     local tr = util.QuickTrace(Owner:GetPos(), -vector_up * 16, Owner)
     if tr.HitWorld then
         for surf, pos in ss.EnumeratePaintPositions(tr.HitPos - ss.vector_one, tr.HitPos + ss.vector_one) do
-            local color = ss.ReadGrid(surf, pos)
+            local color = ss.ReadGrid(surf, pos or tr.HitPos)
             debugoverlay.Box(
                 tr.HitPos, -ss.vector_one, ss.vector_one + vector_up * 72, FrameTime() * 2,
                 color and Color(0, 255, 128, 16) or Color(255, 255, 255, 16))

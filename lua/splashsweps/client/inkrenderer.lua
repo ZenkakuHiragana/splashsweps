@@ -4,7 +4,7 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
-local gray = Material "gray" :GetTexture "$basetexture"
+local gray = Material "grey" :GetTexture "$basetexture"
 local CVarWireframe = GetConVar "mat_wireframe"
 local CVarMinecraft = GetConVar "mat_showlowresimage"
 local function DrawMesh()

@@ -191,8 +191,10 @@ ss.struct "MinimapAreaBounds" {
 ---Array of paintable surfaces stored as JSON file.
 ---@class ss.PrecachedData.SurfaceInfo
 ---@field [integer] ss.PrecachedData.Surface
+---@field SurfaceHash table<integer, integer[]> = `ss.SurfaceHash`
 ---@field UVScales  number[] Render target size index -> Hammer units to UV multiplier
 ss.struct "PrecachedData.SurfaceInfo" {
+    SurfaceHash = {},
     UVScales = {},
 }
 
@@ -209,7 +211,6 @@ ss.struct "PrecachedData.SurfaceInfo" {
 ---@field StaticPropLDR    ss.PrecachedData.StaticProp.UVInfo[][]
 ---@field SurfacesWaterHDR ss.PrecachedData.Surface[]
 ---@field SurfacesWaterLDR ss.PrecachedData.Surface[]
----@field SurfaceHash      table<integer, integer[]> = `ss.SurfaceHash`
 ---@field HashParameters   ss.HashParameters
 ss.struct "PrecachedData" {
     CacheVersion = -1,
@@ -223,7 +224,6 @@ ss.struct "PrecachedData" {
     StaticPropLDR = {},
     SurfacesWaterHDR = {},
     SurfacesWaterLDR = {},
-    SurfaceHash = {},
     HashParameters = {
         GridSizeSurface = 128,
         MinGridSizeDisplacement = 32,

@@ -98,11 +98,8 @@ ss.struct "DisplacementTriangle" "IHasMBB" {
 }
 
 ---Reads a surface list from a file and stores them for later use.
-function ss.SetupSurfaces()
-    ---@diagnostic disable-next-line: undefined-field
-    local dynamicRange = CLIENT and render.GetHDREnabled() and "hdr" or "ldr"
-    local surfacesPath = string.format("splashsweps/%s_%s.json", game.GetMap(), dynamicRange)
-    local surfaces = util.JSONToTable(file.Read(surfacesPath) or "", true) ---@type ss.PrecachedData.SurfaceInfo?
+---@param surfaces ss.PrecachedData.SurfaceInfo?
+function ss.SetupSurfaces(surfaces)
     if not surfaces then return end
     for i, surf in ipairs(surfaces) do
         local ps = ss.new "PaintableSurface"

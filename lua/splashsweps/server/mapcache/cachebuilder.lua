@@ -135,6 +135,8 @@ end
 ---and prepare paintable surfaces.
 ---@return ss.PrecachedData?
 function ss.BuildMapCache()
+    local gcpause = collectgarbage("setpause", 0)
+    collectgarbage "collect"
     local bsp = ss.LoadBSP()
     if not bsp then return end
     local cache = ss.new "PrecachedData"
@@ -166,9 +168,8 @@ function ss.BuildMapCache()
         ss.BuildUVCache(hdr, cache.StaticPropHDR, staticPropRectangles)
         ss.BuildLightmapCache(bsp, hdr, true)
         ss.BuildDisplacementHash(hdr)
-        ss.BuildSurfaceHash(hdr, cache.ModelsLDR[1].FaceIndices, cache.SurfaceHash)
+        ss.BuildSurfaceHash(hdr, cache.ModelsHDR[1].FaceIndices, hdr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_hdr.json", game.GetMap()), util.TableToJSON(hdr))
-        collectgarbage "collect"
     end
 
     do
@@ -178,11 +179,11 @@ function ss.BuildMapCache()
         ss.BuildUVCache(ldr, cache.StaticPropLDR, staticPropRectangles)
         ss.BuildLightmapCache(bsp, ldr, false)
         ss.BuildDisplacementHash(ldr)
-        ss.BuildSurfaceHash(ldr, cache.ModelsLDR[1].FaceIndices, cache.SurfaceHash)
+        ss.BuildSurfaceHash(ldr, cache.ModelsLDR[1].FaceIndices, ldr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_ldr.json", game.GetMap()), util.TableToJSON(ldr))
-        collectgarbage "collect"
     end
 
     collectgarbage "collect"
+    collectgarbage("setpause", gcpause)
     return cache
 end

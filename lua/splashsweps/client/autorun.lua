@@ -74,12 +74,12 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
 
     ss.SURFACE_ID_BITS = select(2, math.frexp(#surfaces))
     ss.RenderTarget.HammerUnitsToUV = surfaces.UVScales[#ss.RenderTarget.Resolutions]
-    ss.SurfaceHash = cache.SurfaceHash
+    ss.SurfaceHash = surfaces.SurfaceHash
     ss.HashParameters = cache.HashParameters
 
     ss.SetupHDRLighting(cache)
     ss.SetupModels(modelInfo, surfaces)
-    ss.SetupSurfaces()
+    ss.SetupSurfaces(surfaces)
     ss.SetupRenderTargets()
     ss.SetupLightmap(pngPath)
     ss.LoadInkFeatures()

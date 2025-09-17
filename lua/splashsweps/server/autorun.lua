@@ -30,6 +30,7 @@ include "splashsweps/server/packer/structures.lua"
 
 local ss = SplashSWEPs
 local txtPath = string.format("splashsweps/%s.json", game.GetMap())
+local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     ---@type ss.PrecachedData?
     local cache = util.JSONToTable(file.Read(txtPath) or "", true)
@@ -39,9 +40,13 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
         file.Write(txtPath, util.TableToJSON(cache))
     end
 
-    ss.SurfaceHash = cache.SurfaceHash
+    ---@type ss.PrecachedData.SurfaceInfo?
+    local ldr = util.JSONToTable(file.Read(ldrPath) or "", true)
+    if not ldr then return end
+
+    ss.SurfaceHash = ldr.SurfaceHash
     ss.HashParameters = cache.HashParameters
-    ss.SetupSurfaces()
+    ss.SetupSurfaces(ldr)
     ss.LoadInkFeatures()
     ss.LoadInkShapes()
     ss.LoadInkTypes()

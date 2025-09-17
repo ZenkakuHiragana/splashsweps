@@ -44,11 +44,10 @@ function ss.PaintRenderTarget(pos, angle, scale, shape, inktype)
     local height = scale.y * 2 * hammerUnitsToPixels
     local rotationMatrix = Matrix()
     rotationMatrix:SetAngles(angle)
-
     surface.SetDrawColor(128, 128, 255, 255)
     surface.SetMaterial(ss.GetInkMaterial(ss.InkTypes[inktype], ss.InkShapes[shape]))
     for surf, posWarp in ss.EnumeratePaintPositions(mins, maxs, up) do
-        local uv = surf.WorldToUVMatrix * posWarp * hammerUnitsToPixels
+        local uv = surf.WorldToUVMatrix * (posWarp or pos) * hammerUnitsToPixels
         local localRotation = surf.WorldToUVMatrix * rotationMatrix
         local localAngles = localRotation:GetAngles()
         render.PushRenderTarget(albedo, surf.OffsetV, surf.OffsetU, surf.UVHeight, surf.UVWidth)

@@ -60,7 +60,7 @@ end
 ---@param mins Vector The AABB minimum to search.
 ---@param maxs Vector The AABB maximum to search.
 ---@param normal Vector? Optional direction filter.
----@return fun(): ss.PaintableSurface, Vector generator
+---@return fun(): ss.PaintableSurface, Vector? generator
 function ss.EnumeratePaintPositions(mins, maxs, normal)
     local query = (mins + maxs) * 0.5
     return wrap(function()
@@ -96,7 +96,7 @@ function ss.EnumeratePaintPositions(mins, maxs, normal)
             else
                 local up = surf.MBBAngles:Up()
                 if not normal or up:Dot(normal) > MAX_COS_DIFF then
-                    yield(surf, query)
+                    yield(surf, nil)
                 end
             end
         end
@@ -163,7 +163,7 @@ function ss.Paint(worldpos, angle, scale, shape, inktype)
     local normal = scale.z == 0 and angle:Up() or nil
     local mins, maxs = ss.GetPaintBoundingBox(worldpos, angle, scale)
     for surf, pos in ss.EnumeratePaintPositions(mins, maxs, normal) do
-        ss.WriteGrid(surf, pos, angle, scale, inktype, shape)
+        ss.WriteGrid(surf, pos or worldpos, angle, scale, inktype, shape)
     end
 end
 
