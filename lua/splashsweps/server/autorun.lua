@@ -33,20 +33,23 @@ local txtPath = string.format("splashsweps/%s.json", game.GetMap())
 local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     ---@type ss.PrecachedData?
-    local cache = util.JSONToTable(file.Read(txtPath) or "", true)
+    local cache = util.JSONToTable(util.Decompress(file.Read(txtPath) or "") or "", true)
     local mapCRC = util.CRC(file.Read("maps/" .. game.GetMap() .. ".bsp", "GAME") or "")
-    if not cache or cache.MapCRC ~= mapCRC then
+    setmetatable(cache or {}, getmetatable(ss.new "PrecachedData"))
+    if not cache or cache.MapCRC ~= tonumber(mapCRC) then
         cache = ss.BuildMapCache() or {}
-        file.Write(txtPath, util.TableToJSON(cache))
+        file.Write(txtPath, util.Compress(util.TableToJSON(cache)))
     end
 
     ---@type ss.PrecachedData.SurfaceInfo?
-    local ldr = util.JSONToTable(file.Read(ldrPath) or "", true)
+    local ldr = util.JSONToTable(util.Decompress(file.Read(ldrPath) or "") or "", true)
     if not ldr then return end
+    setmetatable(cache, getmetatable(ss.new "PrecachedData"))
+    setmetatable(ldr, getmetatable(ss.new "PrecachedData.SurfaceInfo"))
 
     ss.SurfaceHash = ldr.SurfaceHash
-    ss.HashParameters = cache.HashParameters
-    ss.SetupSurfaces(ldr)
+    ss.HashParameters = setmetatable(cache.HashParameters, getmetatable(ss.new "PrecachedData.HashParameters"))
+    ss.SetupSurfaces(ldr.Surfaces)
     ss.LoadInkFeatures()
     ss.LoadInkShapes()
     ss.LoadInkTypes()

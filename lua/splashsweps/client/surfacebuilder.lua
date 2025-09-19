@@ -3,13 +3,18 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local ModelInfoMeta = getmetatable(ss.new "PrecachedData.ModelInfo")
+local StaticPropMeta = getmetatable(ss.new "PrecachedData.StaticProp")
+local SurfaceMeta = getmetatable(ss.new "PrecachedData.Surface")
+local UVInfoMeta = getmetatable(ss.new "PrecachedData.UVInfo")
+local VertexMeta = getmetatable(ss.new "PrecachedData.Vertex")
 local MAX_TRIANGLES = math.floor(32768 / 3) -- mesh library limitation
 
 ---Construct IMesh
----@param surfaces ss.PrecachedData.SurfaceInfo
+---@param surfInfo ss.PrecachedData.SurfaceInfo
 ---@param modelInfo ss.PrecachedData.ModelInfo
 ---@param modelIndex integer
-local function BuildInkMesh(surfaces, modelInfo, modelIndex)
+local function BuildInkMesh(surfInfo, modelInfo, modelIndex)
     local NumMeshTriangles = modelInfo.NumTriangles
     print("SplashSWEPs: Total mesh triangles = ", NumMeshTriangles)
 
@@ -31,16 +36,17 @@ local function BuildInkMesh(surfaces, modelInfo, modelIndex)
     end
 
     local rtIndex = #ss.RenderTarget.Resolutions
-    local scale = surfaces.UVScales[rtIndex]
+    local scale = surfInfo.UVScales[rtIndex]
     local worldToUV = Matrix()
     worldToUV:SetScale(ss.vector_one * scale)
     for _, faceIndex in ipairs(modelInfo.FaceIndices) do
-        local surf = surfaces[faceIndex]
-        local info = surf.UVInfo[rtIndex]
+        local surf = setmetatable(surfInfo.Surfaces[faceIndex], SurfaceMeta)
+        local info = setmetatable(surf.UVInfo[rtIndex], UVInfoMeta)
         local uvOrigin = Vector(info.OffsetU, info.OffsetV)
         worldToUV:SetAngles(info.Angle)
         worldToUV:SetTranslation(info.Translation * scale + uvOrigin)
         for i, v in ipairs(surf.Vertices) do
+            setmetatable(v, VertexMeta)
             local position = v.Translation
             local normal = v.Angle:Up()
             local tangent = v.Angle:Forward()
@@ -80,6 +86,7 @@ end
 ---Adjusts light intensity of ink mesh material from HDR info.
 ---@param cache ss.PrecachedData
 function ss.SetupHDRLighting(cache)
+    setmetatable(cache.DirectionalLight, getmetatable(ss.new "PrecachedData.DirectionalLight"))
     local intensity = 128
     local color = cache.DirectionalLight.Color
     if color then -- If there is light_environment
@@ -96,8 +103,8 @@ end
 
 ---Reads through BSP models which includes the worldspawn and brush entities and constructs IMeshes from them.
 ---@param modelInfo ss.PrecachedData.ModelInfo[]
----@param surfaces ss.PrecachedData.SurfaceInfo
-function ss.SetupModels(modelInfo, surfaces)
+---@param surfInfo ss.PrecachedData.SurfaceInfo
+function ss.SetupModels(modelInfo, surfInfo)
     local entities = {} ---@type Entity[]
     for _, e in ipairs(ents.GetAll()) do
         local modelName = e:GetModel() or ""
@@ -117,13 +124,15 @@ function ss.SetupModels(modelInfo, surfaces)
 
     for i, info in ipairs(modelInfo) do
         ss.IMesh[i] = { BrushEntity = entities[i - 1] }
-        BuildInkMesh(surfaces, info, i)
+        setmetatable(info, ModelInfoMeta)
+        BuildInkMesh(surfInfo, info, i)
     end
 end
 
 ---Builds render override functions of static props.
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
-function ss.SetupStaticProps(staticPropInfo)
+---@param modelNames string[]
+function ss.SetupStaticProps(staticPropInfo, modelNames)
     local copy = Material "pp/copy"
     local function RenderOverride(self, flags)
         if LocalPlayer():KeyDown(IN_RELOAD) then return end
@@ -136,15 +145,19 @@ function ss.SetupStaticProps(staticPropInfo)
     end
 
     for _, prop in ipairs(staticPropInfo or {}) do
-        ---@class ss.PaintableCSEnt : CSEnt
-        local mdl = ClientsideModel(prop.ModelName)
-        if mdl then
-            mdl:SetPos(prop.Position or Vector())
-            mdl:SetAngles(prop.Angles or Angle())
-            mdl:SetKeyValue("fademindist", prop.FadeMin or -1)
-            mdl:SetKeyValue("fademaxdist", prop.FadeMax or 0)
-            mdl:SetModelScale(prop.Scale or 1)
-            mdl.RenderOverride = RenderOverride
+        setmetatable(prop, StaticPropMeta)
+        local modelName = modelNames[prop.ModelIndex]
+        if modelName then
+            ---@class ss.PaintableCSEnt : CSEnt
+            local mdl = ClientsideModel(modelName)
+            if mdl then
+                mdl:SetPos(prop.Position or Vector())
+                mdl:SetAngles(prop.Angles or Angle())
+                mdl:SetKeyValue("fademindist", prop.FadeMin or -1)
+                mdl:SetKeyValue("fademaxdist", prop.FadeMax or 0)
+                mdl:SetModelScale(prop.Scale or 1)
+                mdl.RenderOverride = RenderOverride
+            end
         end
     end
 end

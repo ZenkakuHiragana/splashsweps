@@ -142,14 +142,10 @@ function ss.BuildMapCache()
     local cache = ss.new "PrecachedData"
     local mapCRC = util.CRC(file.Read("maps/" .. game.GetMap() .. ".bsp", "GAME") or "")
     cache.CacheVersion  = 1 -- TODO: Better versioning
-    cache.MapCRC        = mapCRC
+    cache.MapCRC        = tonumber(mapCRC) or 0
     cache.MinimapBounds = BuildMinimapBounds(bsp)
-    cache.StaticProps,
-    cache.StaticPropHDR,
-    cache.StaticPropLDR = ss.BuildStaticPropCache(bsp)
-    cache.DirectionalLight.Color,
-    cache.DirectionalLight.ColorHDR,
-    cache.DirectionalLight.ScaleHDR = ss.FindLightEnvironment(bsp)
+    ss.BuildStaticPropCache(bsp, cache)
+    ss.FindLightEnvironment(bsp, cache)
     for i = 1, #bsp.MODELS do
         cache.ModelsHDR[i] = ss.new "PrecachedData.ModelInfo"
         cache.ModelsLDR[i] = ss.new "PrecachedData.ModelInfo"
@@ -166,10 +162,10 @@ function ss.BuildMapCache()
         local hdr, whdr = ss.BuildSurfaceCache(bsp, cache.ModelsHDR, true)
         cache.SurfacesWaterHDR = whdr
         ss.BuildUVCache(hdr, cache.StaticPropHDR, staticPropRectangles)
-        ss.BuildLightmapCache(bsp, hdr, true)
-        ss.BuildDisplacementHash(hdr)
-        ss.BuildSurfaceHash(hdr, cache.ModelsHDR[1].FaceIndices, hdr.SurfaceHash)
-        file.Write(string.format("splashsweps/%s_hdr.json", game.GetMap()), util.TableToJSON(hdr))
+        ss.BuildLightmapCache(bsp, hdr.Surfaces, true)
+        ss.BuildDisplacementHash(hdr.Surfaces)
+        ss.BuildSurfaceHash(hdr.Surfaces, cache.ModelsHDR[1].FaceIndices, hdr.SurfaceHash)
+        file.Write(string.format("splashsweps/%s_hdr.json", game.GetMap()), util.Compress(util.TableToJSON(hdr)))
     end
 
     do
@@ -177,10 +173,10 @@ function ss.BuildMapCache()
         local ldr, wldr = ss.BuildSurfaceCache(bsp, cache.ModelsLDR, false)
         cache.SurfacesWaterLDR = wldr
         ss.BuildUVCache(ldr, cache.StaticPropLDR, staticPropRectangles)
-        ss.BuildLightmapCache(bsp, ldr, false)
-        ss.BuildDisplacementHash(ldr)
-        ss.BuildSurfaceHash(ldr, cache.ModelsLDR[1].FaceIndices, ldr.SurfaceHash)
-        file.Write(string.format("splashsweps/%s_ldr.json", game.GetMap()), util.TableToJSON(ldr))
+        ss.BuildLightmapCache(bsp, ldr.Surfaces, false)
+        ss.BuildDisplacementHash(ldr.Surfaces)
+        ss.BuildSurfaceHash(ldr.Surfaces, cache.ModelsLDR[1].FaceIndices, ldr.SurfaceHash)
+        file.Write(string.format("splashsweps/%s_ldr.json", game.GetMap()), util.Compress(util.TableToJSON(ldr)))
     end
 
     collectgarbage "collect"

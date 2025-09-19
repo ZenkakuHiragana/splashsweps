@@ -98,10 +98,17 @@ ss.struct "DisplacementTriangle" "IHasMBB" {
 }
 
 ---Reads a surface list from a file and stores them for later use.
----@param surfaces ss.PrecachedData.SurfaceInfo?
+---@param surfaces ss.PrecachedData.Surface[]?
 function ss.SetupSurfaces(surfaces)
     if not surfaces then return end
+    local SurfaceMeta = getmetatable(ss.new "PrecachedData.Surface")
+    local MatrixMeta = getmetatable(ss.new "PrecachedData.MatrixTransform")
+    local TriangleMeta = getmetatable(ss.new "PrecachedData.DisplacementTriangle")
+    local VertexMeta = getmetatable(ss.new "PrecachedData.Vertex")
+    local UVInfoMeta = getmetatable(ss.new "PrecachedData.UVInfo")
     for i, surf in ipairs(surfaces) do
+        setmetatable(surf, SurfaceMeta)
+        setmetatable(surf.TransformPaintGrid, MatrixMeta)
         local ps = ss.new "PaintableSurface"
         ps.AABBMax = surf.AABBMax
         ps.AABBMin = surf.AABBMin
@@ -114,21 +121,29 @@ function ss.SetupSurfaces(surfaces)
         ps.MBBOrigin = surf.MBBOrigin
         ps.MBBSize = surf.MBBSize
         ps.TriangleHash = surf.TriangleHash
-        ps.Triangles = surf.Triangles
+        ps.Triangles = surf.Triangles and {}
+        for _, v in ipairs(surf.Vertices) do setmetatable(v, VertexMeta) end
         for j, t in ipairs(surf.Triangles or {}) do
+            setmetatable(t, TriangleMeta)
+            ps.Triangles[j] = ss.new "DisplacementTriangle"
             ps.Triangles[j][1] = surf.Vertices[t.Index].Translation
             ps.Triangles[j][2] = surf.Vertices[t.Index + 1].Translation
             ps.Triangles[j][3] = surf.Vertices[t.Index + 2].Translation
             ps.Triangles[j][4] = surf.Vertices[t.Index].DisplacementOrigin
             ps.Triangles[j][5] = surf.Vertices[t.Index + 1].DisplacementOrigin
             ps.Triangles[j][6] = surf.Vertices[t.Index + 2].DisplacementOrigin
+            ps.Triangles[j].BarycentricDot1 = t.BarycentricDot1
+            ps.Triangles[j].BarycentricDot2 = t.BarycentricDot2
             ps.Triangles[j].BarycentricAdd1 = -ps.Triangles[j][1]:Dot(ps.Triangles[j].BarycentricDot1)
             ps.Triangles[j].BarycentricAdd2 = -ps.Triangles[j][1]:Dot(ps.Triangles[j].BarycentricDot2)
+            ps.Triangles[j].MBBAngles       = t.MBBAngles
+            ps.Triangles[j].MBBOrigin       = t.MBBOrigin
+            ps.Triangles[j].MBBSize         = t.MBBSize
         end
         if CLIENT then
             local rtIndex = #ss.RenderTarget.Resolutions
             local rtSize = ss.RenderTarget.Resolutions[rtIndex]
-            local uvInfo = surf.UVInfo[rtIndex]
+            local uvInfo = setmetatable(surf.UVInfo[rtIndex], UVInfoMeta)
             ps.WorldToUVMatrix:SetAngles(uvInfo.Angle)
             ps.WorldToUVMatrix:SetTranslation(uvInfo.Translation)
             ps.OffsetU = math.max(uvInfo.OffsetU * rtSize - ss.RT_MARGIN_PIXELS / 2, 0)

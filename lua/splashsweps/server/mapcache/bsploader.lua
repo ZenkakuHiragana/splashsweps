@@ -760,7 +760,12 @@ ss.bstruct "BSP.GAME_LUMP.sprp" { -- Static Props
 ---@field TexDataStringTableToIndex integer[]
 ---@field [string]                  BSP.DefinedStructures
 ss.struct "RawBSPResults" {
-    header = ss.new "Binary.BSP.Header",
+    header = {
+        identifier = 0,
+        version = 0,
+        lumps = {},
+        mapRevision = 0,
+    },
     ENTITIES = {},
     PLANES = {},
     VERTEXES = {},
@@ -779,7 +784,7 @@ ss.struct "RawBSPResults" {
     DISP_TRIS = {},
     LIGHTING = "",
     LIGHTING_HDR = "",
-    GAME_LUMP = ss.new "Binary.BSP.GAME_LUMP",
+    GAME_LUMP = { lumpCount = 0 },
     TexDataStringTableToIndex = {},
 }
 

@@ -4,12 +4,13 @@ local ss = SplashSWEPs
 if not ss then return end
 
 ---Sets up UV coordinates for precached surface data.
----@param surfaces ss.PrecachedData.SurfaceInfo
+---@param surfInfo ss.PrecachedData.SurfaceInfo
 ---@param staticPropInfo ss.PrecachedData.StaticProp.UVInfo[][]
 ---@param staticPropRectangles Vector[]
-function ss.BuildUVCache(surfaces, staticPropInfo, staticPropRectangles)
+function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
     print "Calculation UV coordinates..."
     local totalArea = 0
+    local surfaces = surfInfo.Surfaces
     for _, surf in ipairs(surfaces) do
         local info = surf.UVInfo[1]
         totalArea = totalArea + info.Width * info.Height
@@ -38,7 +39,7 @@ function ss.BuildUVCache(surfaces, staticPropInfo, staticPropRectangles)
 
         local packer = ss.MakeRectanglePacker(rects):packall()
         local rectangleSizeHU = packer.maxsize -- Size of generated rectangle in Hammer Units
-        surfaces.UVScales[rtIndex] = 1 / rectangleSizeHU
+        surfInfo.UVScales[rtIndex] = 1 / rectangleSizeHU
         for _, index in ipairs(packer.results) do
             local rect = packer.rects[index]
             local tag = rect.tag ---@cast tag ss.PrecachedData.Surface

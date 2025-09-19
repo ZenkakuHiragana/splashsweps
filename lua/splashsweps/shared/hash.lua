@@ -66,9 +66,9 @@ local function hashpairs(mins, maxs)
 end
 
 ---Generates look-up table for spatial partitioning to find surfaces faster.
----@param surfaces    ss.PrecachedData.SurfaceInfo The source array.
----@param faceIndices integer[]                    Indices of the worldspawn surfaces.
----@param hash        table<integer, integer[]>    The output hash table.
+---@param surfaces    ss.PrecachedData.Surface[] The source array.
+---@param faceIndices integer[]                  Indices of the worldspawn surfaces.
+---@param hash        table<integer, integer[]>  The output hash table.
 function ss.BuildSurfaceHash(surfaces, faceIndices, hash)
     print("Constructing spatial hash table for paintable surfaces...")
     for _, i in ipairs(faceIndices) do
@@ -182,7 +182,7 @@ local function hashpairsAABB(queryMins, queryMaxs, mins, maxs)
 end
 
 ---Generates look-up table for spatial partitioning to find triangles of displacement faster.
----@param surfaces ss.PrecachedData.SurfaceInfo The source displacement.
+---@param surfaces ss.PrecachedData.Surface[] The source displacement.
 function ss.BuildDisplacementHash(surfaces)
     print("Constructing spatial hash table for displacement triangles...")
     for _, surf in ipairs(surfaces) do

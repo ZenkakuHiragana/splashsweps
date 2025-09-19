@@ -16,7 +16,7 @@ local MARGIN_IN_LUXELS = 1
 
 ---Picks up width and height of all surfaces from their lightmap info and packs them to an array.
 ---@param faces ss.Binary.BSP.FACES[]
----@param surfaces ss.PrecachedData.SurfaceInfo
+---@param surfaces ss.PrecachedData.Surface[]
 ---@return ss.Rectangle[]
 local function CreateRectangles(faces, surfaces)
     local out = {} ---@type ss.Rectangle[]
@@ -226,8 +226,8 @@ end
 
 ---Finds light_environment entity in the ENTITIES lump and fetches directional light info.
 ---@param bsp ss.RawBSPResults
----@return Color ldr, Color hdr, number scale
-function ss.FindLightEnvironment(bsp)
+---@param cache ss.PrecachedData
+function ss.FindLightEnvironment(bsp, cache)
     for _, entities in ipairs(bsp.ENTITIES) do
         for k in entities:gmatch "{[^}]+}" do
             if k:find "light_environment" then
@@ -252,20 +252,19 @@ function ss.FindLightEnvironment(bsp)
                         lightColor[1], lightColor[2], lightColor[3], lightColor[4],
                         lightColorHDR[1], lightColorHDR[2], lightColorHDR[3], lightColorHDR[4],
                         lightScaleHDR))
-                    return Color(unpack(nlightColor)),
-                           Color(unpack(nlightColorHDR)),
-                           tonumber(lightScaleHDR) or 1
+                    cache.DirectionalLight.Color    = Color(unpack(nlightColor))
+                    cache.DirectionalLight.ColorHDR = Color(unpack(nlightColorHDR))
+                    cache.DirectionalLight.ScaleHDR = tonumber(lightScaleHDR) or 1
+                    return
                 end
             end
         end
     end
-
-    return color_transparent, color_transparent, 1
 end
 
 ---Sets up lightmap info for the cache.
 ---@param bsp ss.RawBSPResults
----@param surfaces ss.PrecachedData.SurfaceInfo
+---@param surfaces ss.PrecachedData.Surface[]
 ---@param ishdr boolean
 function ss.BuildLightmapCache(bsp, surfaces, ishdr)
     local t0 = SysTime()

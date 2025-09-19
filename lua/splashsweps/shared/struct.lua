@@ -26,6 +26,7 @@ local Angle = Angle
 local Matrix = Matrix
 
 ---Performs a deep copy for given table.
+---Metatable will not be deep-copied.
 ---@generic T: table<any, any>
 ---@param t T|table<any, any>?
 ---@param lookup table<any, any>?
@@ -34,7 +35,7 @@ local function deepcopy(t, lookup)
     if t == nil then return nil end
 
     ---@type table<any, any>
-    local copy = setmetatable({}, deepcopy(getmetatable(t)))
+    local copy = setmetatable({}, getmetatable(t))
     for k, v in pairs(t) do
         if istable(v) then
             lookup = lookup or {}
@@ -83,6 +84,7 @@ end
 ---@param typename ss.`T`
 ---@return T
 function ss.new(typename)
+    ss.assert(StructDefinitions[typename], "Attempt to instantiate unknown type!")
     return deepcopy(StructDefinitions[typename])
 end
 
@@ -117,7 +119,11 @@ end
 function ss.struct(typename)
     local function func(definition)
         if istable(definition) then ---@cast definition table
-            StructDefinitions[typename] = table.Merge(StructDefinitions[typename] or {}, definition)
+            if StructDefinitions[typename] then
+                StructDefinitions[typename] = table.Merge(StructDefinitions[typename], definition)
+            else
+                StructDefinitions[typename] = definition
+            end
         else ---@cast definition string
             StructDefinitions[typename] = table.Merge(StructDefinitions[typename] or {}, ss.new(definition))
             return func

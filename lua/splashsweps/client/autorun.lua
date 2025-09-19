@@ -54,8 +54,9 @@ local ldrExists = file.Exists(ldrPath, "DATA")
 local hdrExists = file.Exists(hdrPath, "DATA")
 
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
-    local cache = util.JSONToTable(file.Read(cachePath) or "", true) ---@type ss.PrecachedData?
+    local cache = util.JSONToTable(util.Decompress(file.Read(cachePath) or "") or "", true) ---@type ss.PrecachedData?
     if not cache then return end
+    setmetatable(cache, getmetatable(ss.new "PrecachedData"))
 
     local ishdr = false
     if render.GetHDREnabled() then
@@ -70,16 +71,17 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     local waterSurfaces = ishdr and cache.SurfacesWaterHDR or cache.SurfacesWaterLDR
 
     ---@type ss.PrecachedData.SurfaceInfo
-    local surfaces = util.JSONToTable(file.Read(surfacePath) or "", true) or {}
+    local surfaces = util.JSONToTable(util.Decompress(file.Read(surfacePath) or "") or "", true) or {}
+    setmetatable(surfaces, getmetatable(ss.new "PrecachedData.SurfaceInfo"))
 
-    ss.SURFACE_ID_BITS = select(2, math.frexp(#surfaces))
+    ss.SURFACE_ID_BITS = select(2, math.frexp(#surfaces.Surfaces))
     ss.RenderTarget.HammerUnitsToUV = surfaces.UVScales[#ss.RenderTarget.Resolutions]
     ss.SurfaceHash = surfaces.SurfaceHash
-    ss.HashParameters = cache.HashParameters
+    ss.HashParameters = setmetatable(cache.HashParameters, getmetatable(ss.new "PrecachedData.HashParameters"))
 
     ss.SetupHDRLighting(cache)
     ss.SetupModels(modelInfo, surfaces)
-    ss.SetupSurfaces(surfaces)
+    ss.SetupSurfaces(surfaces.Surfaces)
     ss.SetupRenderTargets()
     ss.SetupLightmap(pngPath)
     ss.LoadInkFeatures()

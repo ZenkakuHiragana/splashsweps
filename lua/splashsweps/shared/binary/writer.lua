@@ -95,9 +95,7 @@ function ss.WriteStructureToFile(binary, arg, value, ...)
             binary:WriteFloat(value.z)
         elseif isfunction(binary["Write" .. arg]) then
             binary["Write" .. arg](binary, value)
-        elseif tonumber(arg) then
-            ---@cast value string
-            print("Writing binary: ", arg, value:byte(1, tonumber(arg)))
+        elseif tonumber(arg) then ---@cast value string
             binary:Write(value:sub(1, tonumber(arg)))
         elseif #ss.bstruct(arg) > 0 or ss.bstruct(arg).Write then
             ss.WriteStructureToFile(binary, ss.bstruct(arg), value, ...)

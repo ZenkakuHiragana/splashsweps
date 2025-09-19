@@ -417,13 +417,12 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
     end
 
     for i, t in ipairs(triangles) do
-        surf.Vertices[i] = {
-            Angle               = dispVertices[t].ang,
-            Translation         = dispVertices[t].pos,
-            DisplacementOrigin  = dispVertices[t].org,
-            LightmapSamplePoint = dispVertices[t].lightmapSamplePoint,
-            LightmapUV          = Vector(),
-        }
+        surf.Vertices[i] = ss.new "PrecachedData.Vertex"
+        surf.Vertices[i].Angle = dispVertices[t].ang
+        surf.Vertices[i].Translation = dispVertices[t].pos
+        surf.Vertices[i].LightmapUV:Zero()
+        surf.Vertices[i].LightmapSamplePoint = dispVertices[t].lightmapSamplePoint
+        surf.Vertices[i].DisplacementOrigin = dispVertices[t].org
     end
 
     surf.Triangles = {}
@@ -446,16 +445,16 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
         local denominator = d1212 * d1313 - d1213 * d1213;
         local barycentricDot1 = (d1313 * v12 - d1213 * v13) / denominator
         local barycentricDot2 = (d1212 * v13 - d1213 * v12) / denominator
-        surf.Triangles[#surf.Triangles + 1] = {
-            Index = i,
-            BarycentricDot1 = barycentricDot1,
-            BarycentricDot2 = barycentricDot2,
-            -- BarycentricAdd1 = -t1:Dot(barycentricDot1),
-            -- BarycentricAdd2 = -t1:Dot(barycentricDot2),
-            MBBAngles = angle,
-            MBBOrigin = t3 + e1 * minX,
-            MBBSize = Vector(maxX - minX, e2:Dot(another)),
-        }
+        local t = ss.new "PrecachedData.DisplacementTriangle"
+        t.Index = i
+        t.BarycentricDot1 = barycentricDot1
+        t.BarycentricDot2 = barycentricDot2
+        -- t.BarycentricAdd1 = -t1:Dot(barycentricDot1) -- They need double precision
+        -- t.BarycentricAdd2 = -t1:Dot(barycentricDot2) -- which can't be stored
+        t.MBBAngles = angle
+        t.MBBOrigin:Set(t3 + e1 * minX)
+        t.MBBSize:SetUnpacked(maxX - minX, e2:Dot(another), 0)
+        surf.Triangles[#surf.Triangles + 1] = t
     end
 
     return surf
@@ -575,7 +574,8 @@ end
 ---@param bsp ss.RawBSPResults
 ---@param modelCache ss.PrecachedData.ModelInfo[]
 ---@param ishdr boolean
----@return ss.PrecachedData.SurfaceInfo surf, ss.PrecachedData.SurfaceInfo water
+---@return ss.PrecachedData.SurfaceInfo surf
+---@return ss.PrecachedData.Surface[] water
 function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
     local t0 = SysTime()
     local modelIndices = {} ---@type integer[] Face index --> model index
@@ -585,8 +585,9 @@ function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
         end
     end
 
-    local surf = ss.new "PrecachedData.SurfaceInfo"
-    local water = ss.new "PrecachedData.SurfaceInfo"
+    local surfInfo = ss.new "PrecachedData.SurfaceInfo"
+    local surf = surfInfo.Surfaces
+    local water = {} ---@type ss.PrecachedData.Surface[]
     local lump = ishdr and bsp.FACES_HDR or bsp.FACES or {}
     print("Generating inkable surfaces for " .. (ishdr and "HDR" or "LDR") .. "...")
     for i, face in ipairs(lump) do
@@ -610,20 +611,19 @@ function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
     local elapsed = round((SysTime() - t0) * 1000, 2)
     print("Elapsed time: " .. elapsed .. " ms.")
 
-    return surf, water
+    return surfInfo, water
 end
 
 ---Extracts surfaces from static props.
 ---@param bsp ss.RawBSPResults
----@return ss.PrecachedData.StaticProp[]
----@return ss.PrecachedData.StaticProp.UVInfo[][]
----@return ss.PrecachedData.StaticProp.UVInfo[][]
-function ss.BuildStaticPropCache(bsp)
+---@param cache ss.PrecachedData
+function ss.BuildStaticPropCache(bsp, cache)
     print "Generating static prop surfaces..."
     local results = {} ---@type ss.PrecachedData.StaticProp[]
     local uvinfo = {} ---@type ss.PrecachedData.StaticProp.UVInfo[][]
     for _, prop in ipairs(bsp.sprp.prop or {}) do
         if prop.solid > 0 then
+            local modelIndex = prop.propType + 1
             local name = bsp.sprp.name[prop.propType + 1] or ""
             local info = util.GetModelInfo(name)
             local index = util.GetSurfaceIndex(info and info.SurfacePropName or "")
@@ -636,7 +636,7 @@ function ss.BuildStaticPropCache(bsp)
                     BoundsMin = info.HullMin * scale,
                     FadeMax = prop.fadeMaxDist,
                     FadeMin = prop.fadeMinDist,
-                    ModelName = name,
+                    ModelIndex = modelIndex,
                     Position = prop.origin,
                     Scale = scale,
                 }
@@ -647,6 +647,10 @@ function ss.BuildStaticPropCache(bsp)
             end
         end
     end
+
+    cache.StaticProps = results
+    cache.StaticPropHDR = uvinfo
+    cache.StaticPropLDR = ss.deepcopy(uvinfo) or {}
+    cache.StaticPropMDL = bsp.sprp.name
     print("    Collected info for " .. #results .. " static props.")
-    return results, uvinfo, ss.deepcopy(uvinfo) or {}
 end
