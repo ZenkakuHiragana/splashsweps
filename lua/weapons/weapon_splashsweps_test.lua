@@ -89,7 +89,7 @@ function SWEP:SecondaryAttack()
                 local pixel = surf.Grid[y * surf.Grid.Width + x + 1] or 0
                 local xy = Vector(x + 0.5, y + 0.5, 0.1) * ss.InkGridCellSize
                 local color = pixel > 0 and Color(128, 255, 128) or Color(255, 255, 255)
-                debugoverlay.Cross(surf.WorldToLocalGridMatrix:GetInverseTR() * xy, ss.InkGridCellSize / 2, 5, color)
+                debugoverlay.Cross(surf.WorldToLocalGridMatrix:GetInverseTR() * xy, ss.InkGridCellSize / 2, 5, color, true)
             end
         end
     end
@@ -100,17 +100,21 @@ function SWEP:Think()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
     local tr = util.QuickTrace(Owner:GetPos(), -vector_up * 16, Owner)
     if tr.HitWorld then
-        for surf, pos in ss.EnumeratePaintPositions(tr.HitPos - ss.vector_one, tr.HitPos + ss.vector_one) do
-            local color = ss.ReadGrid(surf, pos or tr.HitPos)
-            debugoverlay.Box(
-                tr.HitPos, -ss.vector_one, ss.vector_one + vector_up * 72, FrameTime() * 2,
-                color and Color(0, 255, 128, 16) or Color(255, 255, 255, 16))
-            if color then
-                self.LoopSound:Play()
-            else
-                self.LoopSound:Stop()
+        local mins = tr.HitPos - ss.vector_one
+        local maxs = tr.HitPos + ss.vector_one
+        for surf in ss.CollectSurfaces(mins, maxs) do
+            for pos, ang in ss.EnumeratePaintPositions(surf, mins, maxs, tr.HitPos, tr.HitNormal:Angle()) do
+                local color = ss.ReadGrid(surf, pos)
+                debugoverlay.Box(
+                    tr.HitPos, -ss.vector_one, ss.vector_one + vector_up * 72, FrameTime() * 2,
+                    color and Color(0, 255, 128, 16) or Color(255, 255, 255, 16))
+                if color then
+                    self.LoopSound:Play()
+                else
+                    self.LoopSound:Stop()
+                end
+                break
             end
-            break
         end
     else
         self.LoopSound:Stop()

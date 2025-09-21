@@ -22,7 +22,7 @@ local net_Broadcast = net.Broadcast ---@type fun()
 local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS) - 1
 
 ---Maximum angle difference allowed to paint.
-local MAX_COS_DIFF = math.cos(math.rad(45))
+local MAX_COS = math.cos(math.rad(45))
 
 ---Gets AABB of incoming paint.
 ---@param pos   Vector The origin.
@@ -52,53 +52,61 @@ end
 ---Before processing paintings, if the target surface is a displacement,
 ---we have to map the worldpos to the flat surface where it came from.
 ---
----So this function gets the surfaces to paint and preprocessed position
+---So this function enumerates preprocessed positions
 ---for 3D-2D conversion to handle deformed surfaces correctly.
 ---
----Returns A generator function that returns paintable surfaces
----and points to paint ready to convert by WorldToLocal matrix.
----@param mins Vector The AABB minimum to search.
----@param maxs Vector The AABB maximum to search.
----@param normal Vector? Optional direction filter.
----@return fun(): ss.PaintableSurface, Vector? generator
-function ss.EnumeratePaintPositions(mins, maxs, normal)
-    local query = (mins + maxs) * 0.5
+---Returns A generator function that returns points to paint ready to convert by WorldToLocal matrix.
+---@param surf ss.PaintableSurface The surface to search.
+---@param mins Vector AABB minimum to enumerate triangles of displacement.
+---@param maxs Vector AABB minimum to enumerate triangles of displacement.
+---@param query Vector Query point to be projected onto the surface.
+---@param angle Angle? Query angle to be localized to the surface.
+---@return fun(): Vector, Angle? generator
+function ss.EnumeratePaintPositions(surf, mins, maxs, query, angle)
     return wrap(function()
-        for surf in ss.CollectSurfaces(mins, maxs) do
-            if surf.Triangles then
-                local min_score = 0
-                local min_coordinates = nil ---@type Vector
-                local min_triangle = nil ---@type ss.DisplacementTriangle?
-                for t in ss.CollectDisplacementTriangles(surf, mins, maxs) do
-                    if not normal or t.MBBAngles:Up():Dot(normal) > MAX_COS_DIFF then
-                        local b = ss.BarycentricCoordinates(t, query)
-                        if b.x > 0 and b.y > 0 and b.z > 0 then
-                            yield(surf, t[4] * b.x + t[5] * b.y + t[6] * b.z)
-                            min_score = -math.huge
-                            min_triangle = nil
-                        else
-                            local score = min(b.x, 0) + min(b.y, 0) + min(b.z, 0)
-                            if score < min_score then
-                                min_score = score
-                                min_coordinates = b
-                                min_triangle = t
-                            end
-                        end
+        if surf.Triangles then
+            local min_score = 0
+            local min_coordinates = nil ---@type Vector
+            local min_triangle = nil ---@type ss.DisplacementTriangle?
+            local R = Matrix()
+            for t in ss.CollectDisplacementTriangles(surf, mins, maxs) do
+                local b = ss.BarycentricCoordinates(t, query)
+                if b.x > 0 and b.y > 0 and b.z > 0 then
+                    if angle then
+                        R:SetAngles(angle)
+                        R:Set(t.WorldToLocalRotation * R)
+                    end
+                    if not angle or angle:Up():Dot(t.MBBAngles:Up()) > MAX_COS then
+                        yield(t[4] * b.x + t[5] * b.y + t[6] * b.z, angle and R:GetAngles())
+                        min_score = -math.huge
+                        min_triangle = nil
+                    end
+                else
+                    local score = min(b.x, 0) + min(b.y, 0) + min(b.z, 0)
+                    if score < min_score then
+                        min_score = score
+                        min_coordinates = b
+                        min_triangle = t
                     end
                 end
+            end
 
-                -- If the paint position is outside, find the nearest triangle roughly and return it.
-                if min_triangle then
-                    yield(surf, min_triangle[4] * min_coordinates.x
-                              + min_triangle[5] * min_coordinates.y
-                              + min_triangle[6] * min_coordinates.z)
+            -- If the paint position is outside, find the nearest triangle roughly and return it.
+            if min_triangle then
+                if angle then
+                    R:SetAngles(angle)
+                    R:Set(min_triangle.WorldToLocalRotation * R)
                 end
-            else
-                local up = surf.MBBAngles:Up()
-                if not normal or up:Dot(normal) > MAX_COS_DIFF then
-                    yield(surf, nil)
+                if not angle or angle:Up():Dot(min_triangle.MBBAngles:Up()) > MAX_COS then
+                    local pos
+                        = min_triangle[4] * min_coordinates.x
+                        + min_triangle[5] * min_coordinates.y
+                        + min_triangle[6] * min_coordinates.z
+                    yield(pos, angle and R:GetAngles())
                 end
             end
+        elseif not angle or angle:Up():Dot(surf.MBBAngles:Up()) > MAX_COS then
+            yield(query, angle)
         end
     end)
 end
@@ -160,10 +168,12 @@ function ss.Paint(worldpos, angle, scale, shape, inktype)
     --     end
     -- end
 
-    local normal = scale.z == 0 and angle:Up() or nil
+    local angleFilter = scale.z == 0 and angle or nil
     local mins, maxs = ss.GetPaintBoundingBox(worldpos, angle, scale)
-    for surf, pos in ss.EnumeratePaintPositions(mins, maxs, normal) do
-        ss.WriteGrid(surf, pos or worldpos, angle, scale, inktype, shape)
+    for surf in ss.CollectSurfaces(mins, maxs) do
+        for mappedpos, mappedangle in ss.EnumeratePaintPositions(surf, mins, maxs, worldpos, angleFilter) do
+            ss.WriteGrid(surf, mappedpos, mappedangle, scale, inktype, shape)
+        end
     end
 end
 

@@ -15,8 +15,8 @@ local InkCheckInterval = 1 / 20
 ---@type table<Player, number>
 local NextCheckTime = locals.Touch.NextInkCheckTimePlayer
 
-local track = true
-local lastPos = Vector()
+local lastTrace ---@type Structure.TraceResult
+local lastAim = Vector()
 hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     if not ss.PlayerIndices[ply] then return end
 
@@ -26,13 +26,20 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     if CurTime() < NextCheckTime[ply] + timeOffset then return end
     NextCheckTime[ply] = CurTime() + InkCheckInterval
     
-    if track then lastPos = ply:GetEyeTrace().HitPos end
-    if ply:KeyPressed(IN_ATTACK2) then track = not track end
+    local tr = ply:GetEyeTrace()
+    local aim = lastAim
+    local track = ply:KeyDown(IN_ATTACK2)
+    if track then
+        lastTrace = tr
+        lastAim = ply:GetAimVector()
+    else
+        tr = lastTrace or tr
+    end
 
     local origin = mv:GetOrigin() + ply:GetForward() * 2
     local nearestFrom = ply:WorldSpaceCenter() + ply:GetForward() * 2
-    -- local origin = lastPos
-    -- local nearestFrom = origin + ply:GetEyeTrace().HitNormal * 200
+    -- local origin = tr.HitPos
+    -- local nearestFrom = origin + tr.HitNormal * 200
     local queryMins = origin + ply:OBBMins()
     local queryMaxs = origin + ply:OBBMaxs()
     -- queryMins = origin - ss.vector_one * 500
@@ -47,10 +54,11 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
         local height = surf.Grid.Height * ss.InkGridCellSize
         local size = Vector(width, height)
         debugoverlay.Box(Vector(), surf.AABBMin, surf.AABBMax, t, color_transparent)
-        debugoverlay.BoxAngles(surf.MBBOrigin + vector_up, vector_origin, surf.MBBSize, surf.MBBAngles, t, Color(255, 255, 160, 8))
+        debugoverlay.BoxAngles(surf.MBBOrigin + vector_up, vector_origin, surf.MBBSize, surf.MBBAngles, t, Color(255, 255, 160, 2))
         debugoverlay.BoxAngles(m:GetTranslation(), vector_origin, size, m:GetAngles(), t, Color(0, 255, 0, 0))
         if surf.Triangles then
             for tri in ss.CollectDisplacementTriangles(surf, queryMins, queryMaxs) do
+            -- for _, tri in ipairs(surf.Triangles) do
                 local d = tri.MBBAngles:Up() * 0.5
                 debugoverlay.BoxAngles(
                     tri.MBBOrigin, vector_origin,
@@ -71,8 +79,18 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
                 local b = ss.BarycentricCoordinates(tri, nearestFrom)
                 if b.x > 0 and b.y > 0 and b.z > 0 then
                     local nearest = tri[1] * b.x + tri[2] * b.y + tri[3] * b.z
-                    debugoverlay.Cross(nearest, 10, t, Color(255, 255, 0), true)
-                    debugoverlay.Line(nearestFrom, nearest, t, Color(255, 255, 0), true)
+                    debugoverlay.Line(nearestFrom, LerpVector(20 / nearest:Distance(nearestFrom), nearest, nearestFrom), t, Color(255, 255, 0), true)
+
+                    local mapped = tri[4] * b.x + tri[5] * b.y + tri[6] * b.z
+                    local query2d = surf.WorldToLocalGridMatrix * mapped
+                    local hitang = aim:Cross(-tr.HitNormal):Cross(tr.HitNormal):AngleEx(tr.HitNormal)
+                    local R = Matrix()
+                    R:SetAngles(hitang)
+                    R:Set(tri.WorldToLocalRotation * R)
+
+                    debugoverlay.Axis(nearest, hitang, 20, t, true)
+                    debugoverlay.Axis(m * query2d, R:GetAngles(), 20, t, true)
+                    debugoverlay.Line(nearest, m * query2d, t, Color(0, 255, 255), true)
                 end
             end
         else

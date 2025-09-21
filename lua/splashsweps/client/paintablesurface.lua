@@ -38,23 +38,25 @@ function ss.PaintRenderTarget(pos, angle, scale, shape, inktype)
     local hammerUnitsToPixels = rt.HammerUnitsToPixels
 
     local gap = ss.RT_MARGIN_PIXELS / 2
-    local up = scale.z == 0 and angle:Up() or nil
     local mins, maxs = ss.GetPaintBoundingBox(pos, angle, scale)
+    local angleFilter = scale.z == 0 and angle or nil
     local width = scale.x * 2 * hammerUnitsToPixels
     local height = scale.y * 2 * hammerUnitsToPixels
     local rotationMatrix = Matrix()
     rotationMatrix:SetAngles(angle)
     surface.SetDrawColor(128, 128, 255, 255)
     surface.SetMaterial(ss.GetInkMaterial(ss.InkTypes[inktype], ss.InkShapes[shape]))
-    for surf, posWarp in ss.EnumeratePaintPositions(mins, maxs, up) do
-        local uv = surf.WorldToUVMatrix * (posWarp or pos) * hammerUnitsToPixels
-        local localRotation = surf.WorldToUVMatrix * rotationMatrix
-        local localAngles = localRotation:GetAngles()
-        render.PushRenderTarget(albedo, surf.OffsetV, surf.OffsetU, surf.UVHeight, surf.UVWidth)
-        render.SetRenderTargetEx(1, normal)
-        cam.Start2D()
-        surface.DrawTexturedRectRotated(uv.y + gap, uv.x + gap, height, width, localAngles.yaw)
-        cam.End2D()
-        render.PopRenderTarget()
+    for surf in ss.CollectSurfaces(mins, maxs) do
+        for posWarp, angWarp in ss.EnumeratePaintPositions(surf, mins, maxs, pos, angleFilter) do
+            local uv = surf.WorldToUVMatrix * (posWarp or pos) * hammerUnitsToPixels
+            local localRotation = surf.WorldToUVMatrix * rotationMatrix
+            local localAngles = localRotation:GetAngles()
+            render.PushRenderTarget(albedo, surf.OffsetV, surf.OffsetU, surf.UVHeight, surf.UVWidth)
+            render.SetRenderTargetEx(1, normal)
+            cam.Start2D()
+            surface.DrawTexturedRectRotated(uv.y + gap, uv.x + gap, height, width, localAngles.yaw)
+            cam.End2D()
+            render.PopRenderTarget()
+        end
     end
 end

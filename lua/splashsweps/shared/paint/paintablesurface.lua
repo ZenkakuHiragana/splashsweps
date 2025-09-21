@@ -84,6 +84,7 @@ ss.struct "PaintableSurface" "IHasMBB" {
 ---@field BarycentricDot2 Vector Parameter to calculate barycentric coordinates w.
 ---@field BarycentricAdd1 number Parameter to calculate barycentric coordinates v.
 ---@field BarycentricAdd2 number Parameter to calculate barycentric coordinates w.
+---@field WorldToLocalRotation VMatrix Rotation matrix to convert world coordinates into local coordinates.
 ss.struct "DisplacementTriangle" "IHasMBB" {
     [1] = Vector(),
     [2] = Vector(),
@@ -95,6 +96,7 @@ ss.struct "DisplacementTriangle" "IHasMBB" {
     BarycentricDot2 = Vector(),
     BarycentricAdd1 = 0,
     BarycentricAdd2 = 0,
+    WorldToLocalRotation = Matrix(),
 }
 
 ---Reads a surface list from a file and stores them for later use.
@@ -139,6 +141,7 @@ function ss.SetupSurfaces(surfaces)
             ps.Triangles[j].MBBAngles       = t.MBBAngles
             ps.Triangles[j].MBBOrigin       = t.MBBOrigin
             ps.Triangles[j].MBBSize         = t.MBBSize
+            ps.Triangles[j].WorldToLocalRotation:SetAngles(t.WorldToLocalGridRotation)
         end
         if CLIENT then
             local rtIndex = #ss.RenderTarget.Resolutions

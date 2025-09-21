@@ -193,23 +193,32 @@ ss.struct "PrecachedData.StaticProp" (setmetatable({
 ---@field Index           integer Index to the vertices.
 ---@field BarycentricDot1 Vector  Parameter to calculate barycentric coordinates v.
 ---@field BarycentricDot2 Vector  Parameter to calculate barycentric coordinates w.
+---@field BarycentricAdd1 number Parameter to calculate barycentric coordinates v.
+---@field BarycentricAdd2 number Parameter to calculate barycentric coordinates w.
 ---@field MBBAngles       Angle   The angle of minimum (oriented) bounding box.
 ---@field MBBOrigin       Vector  The origin of minimum (oriented) bounding box.
 ---@field MBBSize         Vector  The size of minimum (oriented) bounding box in their local coordinates.
+---@field WorldToLocalGridRotation Angle Transforms world angles into local to map to serverside paint grid.
 ss.struct "PrecachedData.DisplacementTriangle" (setmetatable({
     0,
     Vector(),
     Vector(),
+    0,
+    0,
     Angle(),
     Vector(),
     Vector(),
+    Angle(),
 }, {
     Index           = 1,
     BarycentricDot1 = 2,
     BarycentricDot2 = 3,
-    MBBAngles       = 4,
-    MBBOrigin       = 5,
-    MBBSize         = 6,
+    BarycentricAdd1 = 4,
+    BarycentricAdd2 = 5,
+    MBBAngles       = 6,
+    MBBOrigin       = 7,
+    MBBSize         = 8,
+    WorldToLocalGridRotation = 9,
     __index         = indexer,
     __newindex      = newindexer,
 }))

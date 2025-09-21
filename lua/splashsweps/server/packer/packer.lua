@@ -601,7 +601,7 @@ function ss.MakeRectanglePacker(rectangles)
         end
 
         local i = line and line.value and line.value.rectangle
-        if not i or self.optimized[i] then return false end
+        if not i or line.value.height >= self.maxsize or self.optimized[i] then return false end
         self.optimized[i] = true
 
         local h = line.value.height
