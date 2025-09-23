@@ -375,8 +375,6 @@ local function CalculateTriangleComponents(surf)
         t.Index = i
         t.BarycentricDot1 = barycentricDot1
         t.BarycentricDot2 = barycentricDot2
-        t.BarycentricAdd1 = -t1:Dot(barycentricDot1) -- Unused for now
-        t.BarycentricAdd2 = -t1:Dot(barycentricDot2)
         t.MBBAngles = angle
         t.MBBOrigin:Set(t3 + e1 * minX)
         t.MBBSize:SetUnpacked(maxX - minX, e2:Dot(another), 0)
