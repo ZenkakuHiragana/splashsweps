@@ -42,18 +42,16 @@ include "splashsweps/client/surfacebuilder.lua"
 
 ---@class ss
 local ss = SplashSWEPs
-
-local cachePath = string.format("splashsweps/%s.json", game.GetMap())
-local pngldrPath = string.format("../data/splashsweps/%s_ldr.vtf", game.GetMap())
-local pnghdrPath = string.format("../data/splashsweps/%s_hdr.vtf", game.GetMap())
-local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
-local hdrPath = string.format("splashsweps/%s_hdr.json", game.GetMap())
-local pngldrExists = file.Exists(pngldrPath:sub(9), "DATA")
-local pnghdrExists = file.Exists(pnghdrPath:sub(9), "DATA")
-local ldrExists = file.Exists(ldrPath, "DATA")
-local hdrExists = file.Exists(hdrPath, "DATA")
-
-hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
+local function LoadCache()
+    local cachePath = string.format("splashsweps/%s.json", game.GetMap())
+    local pngldrPath = string.format("../data/splashsweps/%s_ldr.vtf", game.GetMap())
+    local pnghdrPath = string.format("../data/splashsweps/%s_hdr.vtf", game.GetMap())
+    local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
+    local hdrPath = string.format("splashsweps/%s_hdr.json", game.GetMap())
+    local pngldrExists = file.Exists(pngldrPath:sub(9), "DATA")
+    local pnghdrExists = file.Exists(pnghdrPath:sub(9), "DATA")
+    local ldrExists = file.Exists(ldrPath, "DATA")
+    local hdrExists = file.Exists(hdrPath, "DATA")
     local cache = util.JSONToTable(util.Decompress(file.Read(cachePath) or "") or "", true) ---@type ss.PrecachedData?
     if not cache then return end
     setmetatable(cache, getmetatable(ss.new "PrecachedData"))
@@ -88,7 +86,11 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     ss.LoadInkShapes()
     ss.LoadInkTypes()
     ss.LoadInkMaterials()
+end
 
+hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
+    LoadCache()
+    collectgarbage "collect"
     net.Start "SplashSWEPs: PlayerInitialSpawn"
     net.SendToServer()
 end)

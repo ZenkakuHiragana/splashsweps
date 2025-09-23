@@ -29,9 +29,9 @@ include "splashsweps/server/packer/packer.lua"
 include "splashsweps/server/packer/structures.lua"
 
 local ss = SplashSWEPs
-local txtPath = string.format("splashsweps/%s.json", game.GetMap())
-local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
-hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
+local function LoadCache()
+    local txtPath = string.format("splashsweps/%s.json", game.GetMap())
+    local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
     ---@type ss.PrecachedData?
     local cache = util.JSONToTable(util.Decompress(file.Read(txtPath) or "") or "", true)
     local mapCRC = util.CRC(file.Read("maps/" .. game.GetMap() .. ".bsp", "GAME") or "")
@@ -53,6 +53,11 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     ss.LoadInkFeatures()
     ss.LoadInkShapes()
     ss.LoadInkTypes()
+end
+
+hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
+    LoadCache()
+    collectgarbage "collect"
 end)
 
 util.AddNetworkString "SplashSWEPs: Paint"
