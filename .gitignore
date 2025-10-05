@@ -27,3 +27,6 @@ lua/do.lua
 
 # Don't sync VSCode configurations
 .vscode
+
+# Don't sync compiled shaders created for auto-reload workaround
+shaders/fxc/splashsweps/[0-9]*_*.vcs
