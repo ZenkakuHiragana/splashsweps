@@ -31,7 +31,7 @@ $Version = switch -Regex ($baseFileName) {
 }
 if ($Version -notin @("20b", "30", "40", "41", "50", "51")) {
     Write-Host "[Abort] Version = $Version"
-	return
+    return
 }
 if ($baseShaderType -notin @("vs", "ps")) {
     Write-Host "[Abort] Shader Type = $ShaderType"
@@ -68,13 +68,10 @@ function New-One() {
             "$baseName$shaderSuffix.hlsl"
     }
 
-    # Move the output
-    New-Item -ItemType Directory -Path $shaderPath -Force -ErrorAction SilentlyContinue | Out-Null
-    Move-Item -Force `
-        -LiteralPath (Join-Path $PWD "shaders" "fxc" "$baseName$shaderSuffix.vcs") `
-        -Destination $shaderPath
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue -LiteralPath (Join-Path $PWD "include")
-    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue -LiteralPath (Join-Path $PWD "shaders")
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[Abort] ShaderCompile failed with exit code $LASTEXITCODE"
+        exit $LASTEXITCODE
+    }
 
     # Define the file path for refresh count
     $countFilePath = Join-Path $refreshCountPath "refresh_count_$shaderType.txt"
@@ -89,8 +86,33 @@ function New-One() {
     $count = Get-Content -LiteralPath $countFilePath | ForEach-Object { [int]$_ }
     $oldCount = $count
 
+    # Remove old files
+    $oldName = "${oldCount}_$baseName$shaderSuffix.vcs"
+    $destructionPath = Join-Path $shaderPath $oldName
+
+    # Check if the file exists and remove it
+    if (Test-Path $destructionPath) {
+        Remove-Item -LiteralPath $destructionPath -Force -ErrorAction SilentlyContinue
+        Write-Host "Removed: $oldName"
+    }
+
+    # Move the output
+    New-Item -ItemType Directory -Path $shaderPath -Force -ErrorAction SilentlyContinue | Out-Null
+    Move-Item -Force `
+        -LiteralPath (Join-Path $PWD "shaders" "fxc" "$baseName$shaderSuffix.vcs") `
+        -Destination $shaderPath
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue -LiteralPath (Join-Path $PWD "include")
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue -LiteralPath (Join-Path $PWD "shaders")
+
+    # Without GMOD running there is no need to rename so reset the count.
+    if (Get-Process -Name "gmod" -ErrorAction SilentlyContinue) {
+        $count++
+    } else {
+        $count = 1
+    }
+
     # Write the updated count back to the file
-    ++$count | Set-Content -LiteralPath $countFilePath
+    $count | Set-Content -LiteralPath $countFilePath
 
     # Display the new count for debugging
     Write-Host "Update:  #$count"
@@ -98,29 +120,17 @@ function New-One() {
     $oldCount = $oldCount.ToString()
     $count = $count.ToString()
 
-    $paramValue = "${count}_$baseName$shaderSuffix"
+    $paramValue = "splashsweps/${count}_$baseName$shaderSuffix"
     if (Test-Path $vmtPath) {
-        $vmtPixelShaderValue = ""
-        $vmtVertexShaderValue = ""
-        $vmtContents = Get-Content $vmtPath -Raw
-        $vertexShaderMatch = [regex]::Match($vmtContents, '"\$vertexshader"\s+"([^"]*)"')
-        if ($vertexShaderMatch.Success) {
-            $vmtVertexShaderValue = $vertexShaderMatch.Groups[1].Value
-            Write-Host "Found existing vertex shader value: $vmtVertexShaderValue"
-        }
-        $pixelShaderMatch = [regex]::Match($vmtContents, '"\$pixshader"\s+"([^"]*)"')
-        if ($pixelShaderMatch.Success) {
-            $vmtPixelShaderValue = $pixelShaderMatch.Groups[1].Value
-            Write-Host "Found existing pixel shader value: $vmtPixelShaderValue"
-        }
+        $vmtContents = Get-Content $vmtPath
         if ($isVertexShader) {
-            $content = $content -replace '"\$vertexshader"\s+"[^"]*"', "`"`$vertexshader`" `"$paramValue`""
+            $vmtContents = $vmtContents -replace '"\$vertexshader"\s+"[^"]*"', "`"`$vertexshader`" `"$paramValue`""
         }
         if ($isPixelShader) { 
-            $content = $content -replace '"\$pixshader"\s+"[^"]*"', "`"`$pixshader`" `"$paramValue`""
+            $vmtContents = $vmtContents -replace '"\$pixshader"\s+"[^"]*"', "`"`$pixshader`" `"$paramValue`""
         }
         New-Item -ItemType Directory -Path $materialPath -Force -ErrorAction SilentlyContinue | Out-Null
-        Set-Content -LiteralPath $vmtPath -Value $content
+        Set-Content -LiteralPath $vmtPath -Value $vmtContents
     }
 
     # Determine Output File (Shader) & Delete 
@@ -132,16 +142,6 @@ function New-One() {
         $newDestinationPath = Join-Path $shaderPath $newFileName
         Copy-Item -LiteralPath $vcsPath -Destination $newDestinationPath -Force
         Write-Host "Copied:  $baseName$shaderSuffix.vcs  ->  $newFileName"
-    }
-
-    # Remove old files
-    $oldName = "${oldCount}_$baseName$shaderSuffix.vcs"
-    $destructionPath = Join-Path $shaderPath $oldName
-
-    # Check if the file exists and remove it
-    if (Test-Path $destructionPath) {
-        Remove-Item -LiteralPath $destructionPath -Force -ErrorAction SilentlyContinue
-        Write-Host "Removed: $oldName"
     }
 }
 

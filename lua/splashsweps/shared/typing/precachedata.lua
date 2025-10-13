@@ -158,14 +158,15 @@ ss.struct "PrecachedData.UVInfo" (setmetatable({
 
 ---Fetched static prop information from the Game lump.
 ---@class ss.PrecachedData.StaticProp
----@field Angles     Angle
----@field BoundsMax  Vector
----@field BoundsMin  Vector
----@field FadeMax    number  Fade-out distance which completely hides this model.
----@field FadeMin    number  Fade-out distance which starts fading.
----@field ModelIndex integer Index to array of paths to mdl.
----@field Position   Vector  The origin.
----@field Scale      number  The model scale of this prop.
+---@field Angles      Angle
+---@field BoundsMax   Vector
+---@field BoundsMin   Vector
+---@field FadeMax     number  Fade-out distance which completely hides this model.
+---@field FadeMin     number  Fade-out distance which starts fading.
+---@field ModelIndex  integer Index to array of paths to mdl.
+---@field Position    Vector  The origin.
+---@field Scale       number  The model scale of this prop.
+---@field UnwrapIndex integer Describes how the bounding box is unwrapped in UV space.  See GetStaticPropUVSize in cachebuilder.lua.
 ss.struct "PrecachedData.StaticProp" (setmetatable({
     Angle(),
     Vector(),
@@ -175,15 +176,17 @@ ss.struct "PrecachedData.StaticProp" (setmetatable({
     0,
     Vector(),
     1,
+    1,
 }, {
-    Angles     = 1,
-    BoundsMax  = 2,
-    BoundsMin  = 3,
-    FadeMax    = 4,
-    FadeMin    = 5,
-    ModelIndex = 6,
-    Position   = 7,
-    Scale      = 8,
+    Angles      = 1,
+    BoundsMax   = 2,
+    BoundsMin   = 3,
+    FadeMax     = 4,
+    FadeMin     = 5,
+    ModelIndex  = 6,
+    Position    = 7,
+    Scale       = 8,
+    UnwrapIndex = 9,
     __index    = indexer,
     __newindex = newindexer,
 }))

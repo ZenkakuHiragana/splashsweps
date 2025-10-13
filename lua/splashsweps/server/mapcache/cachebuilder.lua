@@ -101,7 +101,9 @@ end
 ---```
 ---@param mins Vector
 ---@param maxs Vector
----@return number, number
+---@return number
+---@return number
+---@return integer
 local function GetStaticPropUVSize(mins, maxs)
     local size = maxs - mins
     local sx, sy, sz = size:Unpack()
@@ -123,11 +125,11 @@ local function GetStaticPropUVSize(mins, maxs)
 
     -- Find the pattern with the smallest area
     if wasted1 < wasted2 and wasted1 < wasted3 then
-        return width1, height1
+        return width1, height1, 1
     elseif wasted2 < wasted3 then
-        return width2, height2
+        return width2, height2, 2
     else
-        return width3, height3
+        return width3, height3, 3
     end
 end
 
@@ -153,8 +155,9 @@ function ss.BuildMapCache()
 
     local staticPropRectangles = {} ---@type Vector[]
     for i, prop in ipairs(cache.StaticProps) do
-        local w, h = GetStaticPropUVSize(prop.BoundsMin, prop.BoundsMax)
+        local w, h, layoutType = GetStaticPropUVSize(prop.BoundsMin, prop.BoundsMax)
         staticPropRectangles[i] = Vector(w, h)
+        prop.UnwrapIndex = layoutType
     end
 
     do

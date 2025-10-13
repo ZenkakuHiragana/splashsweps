@@ -1,0 +1,17 @@
+"VertexLitGeneric"
+{
+    // Dummy material used to pass dynamic light information
+    // to custom shader's pixel shader constants.
+    "$basetexture"            "hunter/myplastic"
+    "$bumpmap"                "hunter/myplastic_normal"
+    "$phong"                  "1"
+    "$halflambert"            "1"
+    "$phongboost"             "-0.25"
+    "$phongfresnelranges"     "[0.05 0.5 1]"
+    "$rimlight"               "1"
+    "$rimlightexponent"       "5"
+    "$phongtint"              "[0.75 0.125 0.25]"
+    "$basemapalphaphongmask"  "1"
+    "$blendtintcoloroverbase" "1"
+    "$invertphongmask"        "1"
+}

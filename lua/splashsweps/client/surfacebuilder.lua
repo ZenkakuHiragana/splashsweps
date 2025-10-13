@@ -151,6 +151,7 @@ function ss.SetupStaticProps(staticPropInfo, modelNames)
             ---@class ss.PaintableCSEnt : CSEnt
             local mdl = ClientsideModel(modelName)
             if mdl then
+                mdl.UnwrapIndex = prop.UnwrapIndex
                 mdl:SetPos(prop.Position or Vector())
                 mdl:SetAngles(prop.Angles or Angle())
                 mdl:SetKeyValue("fademindist", prop.FadeMin or -1)
