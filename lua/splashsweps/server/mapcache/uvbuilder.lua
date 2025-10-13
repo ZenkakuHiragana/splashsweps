@@ -34,7 +34,11 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
         for i, uvInfoList in ipairs(staticPropInfo) do
             local info = uvInfoList[rtIndex]
             local rect = staticPropRectangles[i]
-            rects[#surfaces + i] = ss.MakeRectangle(rect.x + margin, rect.y + margin, 0, 0, info)
+            local tag = {
+                UVInfo = info,
+                Rectangle = rect,
+            }
+            rects[#surfaces + i] = ss.MakeRectangle(rect.x + margin, rect.y + margin, 0, 0, tag)
         end
 
         local packer = ss.MakeRectanglePacker(rects):packall()
@@ -43,10 +47,10 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
         for _, index in ipairs(packer.results) do
             local rect = packer.rects[index]
             local tag = rect.tag ---@cast tag ss.PrecachedData.Surface
+            local width = rect.width - margin
+            local height = rect.height - margin
             if tag.UVInfo then
                 local info = tag.UVInfo[rtIndex]
-                local width = rect.width - margin
-                local height = rect.height - margin
 
                 -- If the face is rotated in the UV coord.
                 if rect.istall ~= (info.Width < info.Height) then
@@ -66,10 +70,12 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
                 workMatrix:InvertTR()
                 info.Angle:Set(workMatrix:GetAngles())
                 info.Translation:Set(workMatrix:GetTranslation())
-            else ---@cast tag ss.PrecachedData.StaticProp.UVInfo
-                tag.Width = rect.width / rectangleSizeHU
-                tag.Height = rect.height / rectangleSizeHU
-                tag.Offset:Set(Vector(rect.left, rect.bottom, 0) / rectangleSizeHU)
+            else ---@cast tag { UVInfo: ss.PrecachedData.StaticProp.UVInfo, Rectangle: Vector }
+                local rotated = rect.istall ~= (tag.Rectangle.x < tag.Rectangle.y)
+                local z = rotated and 1 or 0
+                tag.UVInfo.Width = width / rectangleSizeHU
+                tag.UVInfo.Height = height / rectangleSizeHU
+                tag.UVInfo.Offset:Set(Vector(rect.left, rect.bottom, z) / rectangleSizeHU)
             end
         end
 

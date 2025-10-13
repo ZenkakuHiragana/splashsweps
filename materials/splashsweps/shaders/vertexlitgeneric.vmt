@@ -2,7 +2,7 @@
 {
     // Dummy material used to pass flashlight information
     // to custom shader's pixel shader constants.
-    "$basetexture" "hunter/myplastic"
-    "$bumpmap"     "hunter/myplastic_normal"
+    "$basetexture" "grey"
+    "$bumpmap"     "null-bumpmap"
     "$phong"       "0"
 }

@@ -5,9 +5,18 @@ sampler Normal : register(s1); // $texture1
 // Fixed as there is no way to provide current projected texture to draw
 sampler FlashlightSampler : register(s3);
 
+// x -> UV width
+// y -> UV height
+// z = 1, 2, 3 -> UV expansion pattern
 // w = 0 -> do nothing special; just rendering
 // w = 1 -> additive flashlight
 const float4 c0 : register(c0);
+
+// x -> UV offset X
+// y -> UV offset Y
+const float4 c1 : register(c1);
+
+const float4x4 ModelMatrix : register(c11);
 
 //  We store four light colors and positions in an
 //  array of three of these structures like so:
@@ -169,14 +178,70 @@ float3 PixelShaderDoLightingLinear(
     return linearColor;
 }
 
+//      sx   sy   sx   sy
+//    +----+----+----+----+
+// sz |  0 |  1 |  2 |  3 |
+//    +----+----+----+----+
+// sx |    |  4 |    |  5 |
+//    +----+----+----+----+
+float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
+    float3 localPos = mul(float4(worldPos, 1.0), ModelMatrix).xyz;
+    float3 localNormal = mul(float4(worldNormal, 0.0), ModelMatrix).xyz;
+    float3 absLocalNormal = abs(localNormal);
+    float maxAbsComponent = max(absLocalNormal.x, max(absLocalNormal.y, absLocalNormal.z));
+    float2 uv;
+    int faceIndex = 0;
+    if (maxAbsComponent == absLocalNormal.x) {
+        uv = localPos.yz;
+        switch (c0.z) {
+            case 1:
+                faceIndex = localNormal.x < 0 ? 1 : 3;
+                break;
+            case 2:
+                faceIndex = localNormal.x < 0 ? 0 : 2;
+                break;
+            case 3:
+                faceIndex = localNormal.x < 0 ? 0 : 2;
+                break;
+        }
+    } else if (maxAbsComponent == absLocalNormal.y) {
+        uv = localPos.xz;
+        switch (c0.z) {
+            case 1:
+                faceIndex = localNormal.y < 0 ? 0 : 2;
+                break;
+            case 2:
+                faceIndex = localNormal.y < 0 ? 1 : 3;
+                break;
+            case 3:
+                faceIndex = localNormal.y < 0 ? 4 : 5;
+                break;
+        }
+    } else {
+        uv = localPos.xy;
+        switch (c0.z) {
+            case 1:
+                faceIndex = localNormal.z < 0 ? 4 : 5;
+                break;
+            case 2:
+                faceIndex = localNormal.z < 0 ? 4 : 5;
+                break;
+            case 3:
+                faceIndex = localNormal.z < 0 ? 1 : 3;
+                break;
+        }
+    }
+
+    return c1.xy + uv.xy;
+}
+
 struct PS_INPUT {
     float2 pos                     : VPOS;
     float3 diffuse                 : COLOR0;
-    float3 uv_lightCount           : TEXCOORD0;
-    float4 vWorldPos_BinormalX     : TEXCOORD1;
-    float4 vWorldNormal_BinormalY  : TEXCOORD2;
-    float4 vWorldTangent_BinormalZ : TEXCOORD3;
-    float4 vLightAtten             : TEXCOORD4;
+    float4 vWorldPos_BinormalX     : TEXCOORD0;
+    float4 vWorldNormal_BinormalY  : TEXCOORD1;
+    float4 vWorldTangent_BinormalZ : TEXCOORD2;
+    float4 vLightAtten             : TEXCOORD3;
 };
 
 float4 main(const PS_INPUT i) : COLOR0 {
@@ -196,7 +261,6 @@ float4 main(const PS_INPUT i) : COLOR0 {
     cLightInfo[2].color = c24;
     cLightInfo[2].pos   = c25;
 
-    float2 uv             = i.uv_lightCount.xy;
     float3 vertexPos      = i.vWorldPos_BinormalX.xyz;
     float3 vertexNormal   = i.vWorldNormal_BinormalY.xyz;
     float3 vertexTangent  = i.vWorldTangent_BinormalZ.xyz;
@@ -204,8 +268,12 @@ float4 main(const PS_INPUT i) : COLOR0 {
         i.vWorldPos_BinormalX.w,
         i.vWorldNormal_BinormalY.w,
         i.vWorldTangent_BinormalZ.w);
+    float2 uv     = CalculateMappedUV(vertexPos, vertexNormal);
     float4 albedo = tex2D(Albedo, uv);
     float4 normal = tex2D(Normal, uv);
+    if (normal.x == 0 && normal.y == 0 && normal.z == 0) {
+        normal = float4(0.5, 0.5, 1.0, 1.0);
+    }
     float3 tangentSpaceNormal = normal.xyz * 2.0 - 1.0;
     float3 worldSpaceNormal = Vec3TangentToWorldNormalized(
         tangentSpaceNormal, vertexNormal, vertexTangent, vertexBinormal);
@@ -225,12 +293,12 @@ float4 main(const PS_INPUT i) : COLOR0 {
             *  step(0.0, flashlightUV.y)
             *  step(flashlightUV.x, 1.0)
             *  step(flashlightUV.y, 1.0);
-        return float4(flashlightColor, 1.0);
+        return albedo * float4(flashlightColor, 1.0);
     }
     else {
         float3 diffuseLighting = PixelShaderDoLightingLinear(
             vertexPos, worldSpaceNormal, i.vLightAtten, 4, cLightInfo, true);
         diffuseLighting += i.diffuse;
-        return float4(albedo.rgb * diffuseLighting, albedo.a);
+        return albedo * float4(diffuseLighting, 1.0);
     }
 }

@@ -9,11 +9,10 @@ struct VS_INPUT {
 struct VS_OUTPUT {
     float4 pos                     : POSITION;
     float3 color                   : COLOR0;
-    float3 uv_lightCount           : TEXCOORD0;
-    float4 vWorldPos_BinormalX     : TEXCOORD1;
-    float4 vWorldNormal_BinormalY  : TEXCOORD2;
-    float4 vWorldTangent_BinormalZ : TEXCOORD3;
-    float4 vLightAtten             : TEXCOORD4;
+    float4 vWorldPos_BinormalX     : TEXCOORD0;
+    float4 vWorldNormal_BinormalY  : TEXCOORD1;
+    float4 vWorldTangent_BinormalZ : TEXCOORD2;
+    float4 vLightAtten             : TEXCOORD3;
 };
 
 struct LightInfo {
@@ -120,9 +119,6 @@ VS_OUTPUT main(const VS_INPUT v) {
     float3 binormal = normalize(cross(v.normal, tangent));
 
     output.pos = mul(float4(v.pos.xyz, 1.0), cModelViewProj);
-    output.uv_lightCount.xy = v.uv;
-    output.uv_lightCount.z  = 0.0;
-    for (int i = 0; i < g_nLightCount; i++) output.uv_lightCount.z += 0.25;
     output.color = DoLighting(v.pos.xyz, v.normal, true);
     output.vWorldPos_BinormalX.xyz     = v.pos.xyz;
     output.vWorldNormal_BinormalY.xyz  = v.normal;

@@ -5,6 +5,7 @@ if not ss then return end
 
 local ModelInfoMeta = getmetatable(ss.new "PrecachedData.ModelInfo")
 local StaticPropMeta = getmetatable(ss.new "PrecachedData.StaticProp")
+local StaticPropUVMeta = getmetatable(ss.new "PrecachedData.StaticProp.UVInfo")
 local SurfaceMeta = getmetatable(ss.new "PrecachedData.Surface")
 local UVInfoMeta = getmetatable(ss.new "PrecachedData.UVInfo")
 local VertexMeta = getmetatable(ss.new "PrecachedData.Vertex")
@@ -132,31 +133,76 @@ end
 ---Builds render override functions of static props.
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
 ---@param modelNames string[]
-function ss.SetupStaticProps(staticPropInfo, modelNames)
-    local copy = Material "pp/copy"
-    local function RenderOverride(self, flags)
-        if LocalPlayer():KeyDown(IN_RELOAD) then return end
-        copy:SetTexture("$basetexture", "uvchecker")
-        render.MaterialOverride(copy)
-        render.DepthRange(0, 65534 / 65535)
+---@param uvinfo ss.PrecachedData.StaticProp.UVInfo[][]
+function ss.SetupStaticProps(staticPropInfo, modelNames, uvinfo)
+    local mat = Material "splashsweps/shaders/staticprop"
+    local dynamiclight = Material "splashsweps/shaders/phong"
+    local flashlight = Material "splashsweps/shaders/vertexlitgeneric"
+
+    ---@param self Entity
+    ---@param flags Enum.STUDIO
+    local function RenderOverrideInternal(self, flags)
+        render.MaterialOverride(dynamiclight)
+        render.SetBlend(0)
         self:DrawModel(flags)
-        render.DepthRange(0, 1)
+        render.SetBlend(1)
         render.MaterialOverride()
+        render.OverrideDepthEnable(true, true)
+        self:DrawModel(flags)
+        render.OverrideDepthEnable(false)
     end
 
-    for _, prop in ipairs(staticPropInfo or {}) do
+    ---@param self ss.PaintableCSEnt
+    ---@param flags Enum.STUDIO
+    local function RenderOverride(self, flags)
+        if LocalPlayer():KeyDown(IN_RELOAD) then return end
+        mat:SetFloat("$c0_x", self.Width)
+        mat:SetFloat("$c0_y", self.Height)
+        mat:SetFloat("$c0_z", self.UnwrapIndex)
+        mat:SetFloat("$c1_x", self.Offset.x)
+        mat:SetFloat("$c1_y", self.Offset.y)
+        mat:SetFloat("$c1_x", self.BasisU.x)
+        mat:SetFloat("$c1_y", self.BasisU.y)
+        mat:SetFloat("$c1_z", self.BasisV.x)
+        mat:SetFloat("$c1_w", self.BasisV.y)
+        mat:SetMatrix("$viewprojmat", self:GetWorldTransformMatrix())
+        RenderOverrideInternal(self, flags)
+        render.RenderFlashlights(function()
+            mat:SetFloat("$c0_w", 1)
+            render.MaterialOverride(flashlight)
+            render.SetBlend(0)
+            self:DrawModel(flags)
+            render.SetBlend(1)
+            render.MaterialOverride()
+            render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_MAX)
+            render.DepthRange(0, 65534 / 65535)
+            self:DrawModel(flags)
+            render.DepthRange(0, 1)
+            render.OverrideBlend(false)
+            mat:SetFloat("$c0_w", 0)
+        end)
+    end
+
+    for i, prop in ipairs(staticPropInfo or {}) do
         setmetatable(prop, StaticPropMeta)
+        local uv = setmetatable(uvinfo[i][#ss.RenderTarget.Resolutions], StaticPropUVMeta)
         local modelName = modelNames[prop.ModelIndex]
         if modelName then
             ---@class ss.PaintableCSEnt : CSEnt
             local mdl = ClientsideModel(modelName)
             if mdl then
+                mdl.Width = uv.Width
+                mdl.Height = uv.Height
+                mdl.Offset = uv.Offset
                 mdl.UnwrapIndex = prop.UnwrapIndex
+                mdl.BasisU = Vector(1, 0, 0)
+                mdl.BasisV = Vector(0, 1, 0)
                 mdl:SetPos(prop.Position or Vector())
                 mdl:SetAngles(prop.Angles or Angle())
                 mdl:SetKeyValue("fademindist", prop.FadeMin or -1)
                 mdl:SetKeyValue("fademaxdist", prop.FadeMax or 0)
                 mdl:SetModelScale(prop.Scale or 1)
+                mdl:SetMaterial(mat:GetName())
                 mdl.RenderOverride = RenderOverride
             end
         end

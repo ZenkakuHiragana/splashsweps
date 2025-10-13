@@ -66,6 +66,7 @@ local function LoadCache()
     local pngPath = ishdr and pnghdrPath or pngldrPath
     local surfacePath = ishdr and hdrPath or ldrPath
     local modelInfo = ishdr and cache.ModelsHDR or cache.ModelsLDR
+    local staticPropUV = ishdr and cache.StaticPropHDR or cache.StaticPropLDR
     local waterSurfaces = ishdr and cache.SurfacesWaterHDR or cache.SurfacesWaterLDR
 
     ---@type ss.PrecachedData.SurfaceInfo
@@ -80,6 +81,7 @@ local function LoadCache()
     ss.SetupHDRLighting(cache)
     ss.SetupModels(modelInfo, surfaces)
     ss.SetupSurfaces(surfaces.Surfaces)
+    ss.SetupStaticProps(cache.StaticProps, cache.StaticPropMDL, staticPropUV)
     ss.SetupRenderTargets()
     ss.SetupLightmap(pngPath)
     ss.LoadInkFeatures()
