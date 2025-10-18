@@ -177,14 +177,14 @@ function ss.CalculateStaticPropUV(worldPos, worldNormal, worldToLocal, uvTransfo
 
     local offsetU = { 0, size.x, size.x + size.y, 2 * size.x + size.y, size.x, 2 * size.x + size.y }
     local offsetV = { 0, 0, 0, 0, size.z, size.z }
-    if faceIndex == 2 or faceIndex == 3 or faceIndex == 5 then
+    if faceIndex == 3 or faceIndex == 4 or faceIndex == 6 then
         uv.x = size.x - uv.x
     end
 
     uv.x = uv.x + offsetU[faceIndex]
     uv.y = uv.y + offsetV[faceIndex]
     local uvTransformed = uvTransformMatrix * uv
-    return Vector(uvTransformed.y, uvTransformed.x)
+    return Vector(uvTransformed.x, uvTransformed.y)
 end
 
 ---Reads a surface list from a file and stores them for later use.

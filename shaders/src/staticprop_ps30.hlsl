@@ -176,12 +176,16 @@ float3 PixelShaderDoLightingLinear(
     return linearColor;
 }
 
-//      sx   sy   sx   sy
-//    +----+----+----+----+
-// sz |  0 |  1 |  2 |  3 |
-//    +----+----+----+----+
-// sx |    |  4 |    |  5 |
-//    +----+----+----+----+
+//      sz   sx
+//    +----+----+
+// sx |  0 |    |
+//    +----+----+
+// sy |  1 |  4 |
+//    +----+----+
+//    |  2 |    |
+//    +----+----+
+//    |  3 |  5 |
+//    +----+----+
 float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
     float3 localPos = mul(float4(worldPos, 1.0), ModelMatrix).xyz;
     float3 localNormal = mul(float4(worldNormal, 0.0), ModelMatrix).xyz;
