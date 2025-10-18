@@ -40,7 +40,7 @@ if ($baseShaderType -notin @("vs", "ps")) {
 
 function New-One() {
     param([string]$shaderType)
-    
+
     $isPixelShader = $shaderType -eq "ps"
     $isVertexShader = $shaderType -eq "vs"
     $shaderSuffix = "_$shaderType$Version"
@@ -126,14 +126,14 @@ function New-One() {
         if ($isVertexShader) {
             $vmtContents = $vmtContents -replace '"\$vertexshader"\s+"[^"]*"', "`"`$vertexshader`" `"$paramValue`""
         }
-        if ($isPixelShader) { 
+        if ($isPixelShader) {
             $vmtContents = $vmtContents -replace '"\$pixshader"\s+"[^"]*"', "`"`$pixshader`" `"$paramValue`""
         }
         New-Item -ItemType Directory -Path $materialPath -Force -ErrorAction SilentlyContinue | Out-Null
         Set-Content -LiteralPath $vmtPath -Value $vmtContents
     }
 
-    # Determine Output File (Shader) & Delete 
+    # Determine Output File (Shader) & Delete
     $vcsPath = Join-Path $shaderPath "$baseName$shaderSuffix.vcs"
 
     # Copy the file and overwrite if it exists

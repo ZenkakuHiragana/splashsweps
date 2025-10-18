@@ -25,7 +25,7 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     if not NextCheckTime[ply] then NextCheckTime[ply] = CurTime() end
     if CurTime() < NextCheckTime[ply] + timeOffset then return end
     NextCheckTime[ply] = CurTime() + InkCheckInterval
-    
+
     local tr = ply:GetEyeTrace()
     local aim = lastAim
     local track = ply:KeyDown(IN_ATTACK2)

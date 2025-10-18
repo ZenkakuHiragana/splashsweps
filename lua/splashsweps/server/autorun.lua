@@ -28,6 +28,7 @@ include "splashsweps/server/mapcache/uvbuilder.lua"
 include "splashsweps/server/packer/packer.lua"
 include "splashsweps/server/packer/structures.lua"
 
+---@class ss
 local ss = SplashSWEPs
 local function LoadCache()
     local txtPath = string.format("splashsweps/%s.json", game.GetMap())
@@ -50,6 +51,7 @@ local function LoadCache()
     ss.SurfaceHash = ldr.SurfaceHash
     ss.HashParameters = setmetatable(cache.HashParameters, getmetatable(ss.new "PrecachedData.HashParameters"))
     ss.SetupSurfaces(ldr.Surfaces)
+    ss.SetupSurfacesStaticProp(cache.StaticProps, cache.StaticPropLDR)
     ss.LoadInkFeatures()
     ss.LoadInkShapes()
     ss.LoadInkTypes()
@@ -61,3 +63,8 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
 end)
 
 util.AddNetworkString "SplashSWEPs: Paint"
+
+---Clears all painted ink in the map.
+function ss.ClearAllInk()
+    for _, s in ipairs(ss.SurfaceArray) do ss.ClearGrid(s) end
+end

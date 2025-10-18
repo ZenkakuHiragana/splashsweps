@@ -8,7 +8,6 @@ local ceil  = math.ceil
 local floor = math.floor
 local min   = math.min
 local max   = math.max
-local MAX_COS_DIFF = math.cos(math.rad(45))
 
 ---The serverside canvas of a paintable surface which holds the result of paintings.
 ---@class ss.PaintableGrid

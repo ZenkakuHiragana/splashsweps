@@ -5,18 +5,16 @@ sampler Normal : register(s1); // $texture1
 // Fixed as there is no way to provide current projected texture to draw
 sampler FlashlightSampler : register(s3);
 
-// x -> UV width
-// y -> UV height
-// z = 1, 2, 3 -> UV expansion pattern
-// w = 0 -> do nothing special; just rendering
-// w = 1 -> additive flashlight
+// xyz -> OBB size
+// w = 1, 2, 3 -> UV expansion pattern
 const float4 c0 : register(c0);
 
-// x -> UV offset X
-// y -> UV offset Y
+// x = 0 -> do nothing special; just rendering
+// x = 1 -> additive flashlight
 const float4 c1 : register(c1);
 
 const float4x4 ModelMatrix : register(c11);
+const float4x4 UVMatrix : register(c15);
 
 //  We store four light colors and positions in an
 //  array of three of these structures like so:
@@ -189,50 +187,64 @@ float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
     float3 localNormal = mul(float4(worldNormal, 0.0), ModelMatrix).xyz;
     float3 absLocalNormal = abs(localNormal);
     float maxAbsComponent = max(absLocalNormal.x, max(absLocalNormal.y, absLocalNormal.z));
+
     float2 uv;
-    int faceIndex = 0;
-    if (maxAbsComponent == absLocalNormal.x) {
-        uv = localPos.yz;
-        switch (c0.z) {
-            case 1:
-                faceIndex = localNormal.x < 0 ? 1 : 3;
-                break;
-            case 2:
-                faceIndex = localNormal.x < 0 ? 0 : 2;
-                break;
-            case 3:
-                faceIndex = localNormal.x < 0 ? 0 : 2;
-                break;
+    float3 size;
+    int faceIndex;
+    int patternIndex = c0.w;
+    if (patternIndex == 1) {
+        size = c0.xyz;
+        if (maxAbsComponent == absLocalNormal.x) {
+            uv = localPos.yz;
+            faceIndex = localNormal.x < 0 ? 3 : 1;
+        } else if (maxAbsComponent == absLocalNormal.y) {
+            uv = localPos.xz;
+            faceIndex = localNormal.y < 0 ? 0 : 2;
+        } else {
+            uv = localPos.yx;
+            faceIndex = localNormal.z < 0 ? 4 : 5;
         }
-    } else if (maxAbsComponent == absLocalNormal.y) {
-        uv = localPos.xz;
-        switch (c0.z) {
-            case 1:
-                faceIndex = localNormal.y < 0 ? 0 : 2;
-                break;
-            case 2:
-                faceIndex = localNormal.y < 0 ? 1 : 3;
-                break;
-            case 3:
-                faceIndex = localNormal.y < 0 ? 4 : 5;
-                break;
+    } else if (patternIndex == 2) {
+        size = c0.yxz;
+        if (maxAbsComponent == absLocalNormal.x) {
+            uv = localPos.yz;
+            faceIndex = localNormal.x < 0 ? 0 : 2;
+        } else if (maxAbsComponent == absLocalNormal.y) {
+            uv = localPos.xz;
+            faceIndex = localNormal.y < 0 ? 3 : 1;
+        } else {
+            uv = localPos.xy;
+            faceIndex = localNormal.z < 0 ? 4 : 5;
         }
     } else {
-        uv = localPos.xy;
-        switch (c0.z) {
-            case 1:
-                faceIndex = localNormal.z < 0 ? 4 : 5;
-                break;
-            case 2:
-                faceIndex = localNormal.z < 0 ? 4 : 5;
-                break;
-            case 3:
-                faceIndex = localNormal.z < 0 ? 1 : 3;
-                break;
+        size = c0.zxy;
+        if (maxAbsComponent == absLocalNormal.x) {
+            uv = localPos.zy;
+            faceIndex = localNormal.x < 0 ? 0 : 2;
+        } else if (maxAbsComponent == absLocalNormal.y) {
+            uv = localPos.xz;
+            faceIndex = localNormal.y < 0 ? 4 : 5;
+        } else {
+            uv = localPos.xy;
+            faceIndex = localNormal.z < 0 ? 3 : 1;
         }
     }
 
-    return c1.xy + uv.xy;
+    float2 offset[6] = {
+        float2(       0.0,          0.0   ),
+        float2(    size.x,          0.0   ),
+        float2(    size.x + size.y, 0.0   ),
+        float2(2 * size.x + size.y, 0.0   ),
+        float2(    size.x,          size.z),
+        float2(2 * size.x + size.y, size.z),
+    };
+
+    if (faceIndex == 2 || faceIndex == 3 || faceIndex == 5) {
+        uv.x = size.x - uv.x;
+    }
+    float4 uv4 = float4(uv.xy + offset[faceIndex], 0.0, 1.0);
+    float4 uvTransformed = mul(uv4, UVMatrix);
+    return uvTransformed.yx;
 }
 
 struct PS_INPUT {
@@ -275,18 +287,18 @@ float4 main(const PS_INPUT i) : COLOR0 {
         normal = float4(0.5, 0.5, 1.0, 1.0);
     }
     float3 tangentSpaceNormal = normal.xyz * 2.0 - 1.0;
-    float3 worldSpaceNormal = Vec3TangentToWorldNormalized(
+    float3 worldNormal = Vec3TangentToWorldNormalized(
         tangentSpaceNormal, vertexNormal, vertexTangent, vertexBinormal);
-    if (c0.w > 0.5) {
+    if (c1.x > 0.5) {
         float3 vEyeDir = normalize(g_EyePos.xyz - vertexPos);
         float3 vLightDir = normalize(g_FlashlightPos.xyz - vertexPos);
         float4 flashlightSpacePos = mul(float4(vertexPos, 1.0), g_FlashlightWorldToTexture);
         float3 flashlightUV = flashlightSpacePos.xyz / flashlightSpacePos.w;
         float3 flashlightColor = DoFlashlight(
             g_FlashlightPos.xyz, vertexPos, flashlightSpacePos,
-            worldSpaceNormal, g_FlashlightAttenuationFactors.xyz,
+            worldNormal, g_FlashlightAttenuationFactors.xyz,
             g_FlashlightAttenuationFactors.w, FlashlightSampler);
-        float3 flashlightSpecular = flashlightColor * SpecularLight(worldSpaceNormal, vLightDir, g_fSpecExp, vEyeDir);
+        float3 flashlightSpecular = flashlightColor * SpecularLight(worldNormal, vLightDir, g_fSpecExp, vEyeDir);
         flashlightColor += flashlightSpecular;
         flashlightColor
             *= step(0.0, flashlightUV.x)
@@ -297,7 +309,7 @@ float4 main(const PS_INPUT i) : COLOR0 {
     }
     else {
         float3 diffuseLighting = PixelShaderDoLightingLinear(
-            vertexPos, worldSpaceNormal, i.vLightAtten, 4, cLightInfo, true);
+            vertexPos, worldNormal, i.vLightAtten, 4, cLightInfo, true);
         diffuseLighting += i.diffuse;
         return albedo * float4(diffuseLighting, 1.0);
     }

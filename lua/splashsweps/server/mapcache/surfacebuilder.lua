@@ -452,7 +452,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
     -- ^ v
     -- |    |  totalLengthV[xi]
     -- |    |   = ∑(i=2..power) ||(xi,i-1) to (xi,i)||
-    -- |    |     
+    -- |    |
     -- +----+--------- totalLengthU[yi]
     -- |    |           = ∑(i=2..power) ||(i-1,yi) to (i,yi)||
     -- +----+-----------> u
@@ -729,6 +729,7 @@ function ss.BuildStaticPropCache(bsp, cache)
                     ModelIndex = modelIndex,
                     Position = prop.origin,
                     Scale = scale,
+                    UnwrapIndex = 1,
                 }
                 uvinfo[#uvinfo + 1] = {}
                 for i = 1, #ss.RenderTarget.Resolutions do

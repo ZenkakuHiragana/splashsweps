@@ -98,9 +98,9 @@ ss.struct "PrecachedData.ModelInfo" (setmetatable({
 ---|     (OffsetU, OffsetV)
 ---|   /^^^^^^^^^^^^^^^^^^^
 ---|  +---------+
----|  |         | Height
+---|  |         | Width
 ---|  +---------+
----v     Width
+---v     Height
 ---u
 ---```
 ---@class ss.PrecachedData.StaticProp.UVInfo
@@ -126,9 +126,9 @@ ss.struct "PrecachedData.StaticProp.UVInfo" (setmetatable({
 ---|     (OffsetU, OffsetV)
 ---|   /^^^^^^^^^^^^^^^^^^^
 ---|  +---------+
----|  |         | Height
+---|  |         | Width
 ---|  +---------+
----v     Width
+---v     Height
 ---u
 ---```
 ---@class ss.PrecachedData.UVInfo
@@ -237,7 +237,7 @@ ss.struct "PrecachedData.DisplacementTriangle" (setmetatable({
 ---@field UVInfo ss.PrecachedData.UVInfo[]
 ---Vertices in world coordinates (x0, y0, z0) which are directly fed into mesh triangles.
 ---@field Vertices ss.PrecachedData.Vertex[]
----Hash table to search triangles of displacement.   
+---Hash table to search triangles of displacement.  
 ---= `{ [hash] = { list of indices to Triangles }}`
 ---@field TriangleHash       table<integer, integer[]>?
 ---@field Triangles          ss.PrecachedData.DisplacementTriangle[]? Array of triangles of a displacement.

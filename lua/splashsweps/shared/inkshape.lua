@@ -39,7 +39,7 @@ end)
 ---@field Index       integer The internal index used in networking.
 ---@field Identifier  string  The identifier of this ink shape as the key of ss.InkShapes.
 ---@field MaskTexture string  Only used clientside; mask texture to create drawing materials.
----@field Grid        ss.InkShape.Grid Only used serverside; mask for drawing on PaintableSurface grid.  
+---@field Grid        ss.InkShape.Grid Only used serverside; mask for drawing on PaintableSurface grid.
 ss.struct "InkShape" {
     Index = 0,
     Identifier = "",

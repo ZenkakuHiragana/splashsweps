@@ -38,4 +38,27 @@ local function DrawMeshes(bDrawingDepth, bDrawingSkybox)
     render.DepthRange(0, 1)
 end
 
+---Clears all painted ink in the map.
+function ss.ClearAllInk()
+    for _, s in ipairs(ss.SurfaceArray) do ss.ClearGrid(s) end
+
+    local rt = ss.RenderTarget
+    render.PushRenderTarget(rt.StaticTextures.Albedo)
+    render.OverrideAlphaWriteEnable(true, true)
+    render.ClearDepth()
+    render.ClearStencil()
+    render.Clear(0, 0, 0, 0)
+    render.OverrideAlphaWriteEnable(false)
+    render.DrawTextureToScreen("splashsweps/debug/uvchecker")
+    render.PopRenderTarget()
+
+    render.PushRenderTarget(rt.StaticTextures.Normal)
+    render.OverrideAlphaWriteEnable(true, true)
+    render.ClearDepth()
+    render.ClearStencil()
+    render.Clear(128, 128, 255, 255)
+    render.OverrideAlphaWriteEnable(false)
+    render.PopRenderTarget()
+end
+
 hook.Add("PostDrawTranslucentRenderables", "SplashSWEPs: Draw ink", DrawMeshes)

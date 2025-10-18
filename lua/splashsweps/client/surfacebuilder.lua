@@ -133,8 +133,8 @@ end
 ---Builds render override functions of static props.
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
 ---@param modelNames string[]
----@param uvinfo ss.PrecachedData.StaticProp.UVInfo[][]
-function ss.SetupStaticProps(staticPropInfo, modelNames, uvinfo)
+---@param uvInfo ss.PrecachedData.StaticProp.UVInfo[][]
+function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
     local mat = Material "splashsweps/shaders/staticprop"
     local dynamiclight = Material "splashsweps/shaders/phong"
     local flashlight = Material "splashsweps/shaders/vertexlitgeneric"
@@ -148,7 +148,9 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvinfo)
         render.SetBlend(1)
         render.MaterialOverride()
         render.OverrideDepthEnable(true, true)
+        render.DepthRange(0, 65534 / 65535)
         self:DrawModel(flags)
+        render.DepthRange(0, 1)
         render.OverrideDepthEnable(false)
     end
 
@@ -156,19 +158,15 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvinfo)
     ---@param flags Enum.STUDIO
     local function RenderOverride(self, flags)
         if LocalPlayer():KeyDown(IN_RELOAD) then return end
-        mat:SetFloat("$c0_x", self.Width)
-        mat:SetFloat("$c0_y", self.Height)
-        mat:SetFloat("$c0_z", self.UnwrapIndex)
-        mat:SetFloat("$c1_x", self.Offset.x)
-        mat:SetFloat("$c1_y", self.Offset.y)
-        mat:SetFloat("$c1_x", self.BasisU.x)
-        mat:SetFloat("$c1_y", self.BasisU.y)
-        mat:SetFloat("$c1_z", self.BasisV.x)
-        mat:SetFloat("$c1_w", self.BasisV.y)
-        mat:SetMatrix("$viewprojmat", self:GetWorldTransformMatrix())
+        mat:SetFloat("$c0_x", self.Size.x)
+        mat:SetFloat("$c0_y", self.Size.y)
+        mat:SetFloat("$c0_z", self.Size.z)
+        mat:SetFloat("$c0_w", self.UnwrapIndex)
+        mat:SetMatrix("$viewprojmat", self.WorldMatrix)
+        mat:SetMatrix("$invviewprojmat", self.UVMatrix)
         RenderOverrideInternal(self, flags)
         render.RenderFlashlights(function()
-            mat:SetFloat("$c0_w", 1)
+            mat:SetFloat("$c1_x", 1)
             render.MaterialOverride(flashlight)
             render.SetBlend(0)
             self:DrawModel(flags)
@@ -179,24 +177,30 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvinfo)
             self:DrawModel(flags)
             render.DepthRange(0, 1)
             render.OverrideBlend(false)
-            mat:SetFloat("$c0_w", 0)
+            mat:SetFloat("$c1_x", 0)
         end)
     end
 
+    local uvScale = ss.RenderTarget.HammerUnitsToUV
     for i, prop in ipairs(staticPropInfo or {}) do
         setmetatable(prop, StaticPropMeta)
-        local uv = setmetatable(uvinfo[i][#ss.RenderTarget.Resolutions], StaticPropUVMeta)
+        local uv = setmetatable(uvInfo[i][#ss.RenderTarget.Resolutions], StaticPropUVMeta)
         local modelName = modelNames[prop.ModelIndex]
         if modelName then
             ---@class ss.PaintableCSEnt : CSEnt
             local mdl = ClientsideModel(modelName)
             if mdl then
-                mdl.Width = uv.Width
-                mdl.Height = uv.Height
-                mdl.Offset = uv.Offset
-                mdl.UnwrapIndex = prop.UnwrapIndex
-                mdl.BasisU = Vector(1, 0, 0)
-                mdl.BasisV = Vector(0, 1, 0)
+                local x ---@type number
+                local u, v ---@type Vector, Vector
+                if uv.Offset.z > 0 then
+                    x = uv.Offset.x + uv.Width
+                    u = Vector(0, 1, 0)
+                    v = Vector(-1, 0, 0)
+                else
+                    x = uv.Offset.x
+                    u = Vector(1, 0, 0)
+                    v = Vector(0, 1, 0)
+                end
                 mdl:SetPos(prop.Position or Vector())
                 mdl:SetAngles(prop.Angles or Angle())
                 mdl:SetKeyValue("fademindist", prop.FadeMin or -1)
@@ -204,6 +208,16 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvinfo)
                 mdl:SetModelScale(prop.Scale or 1)
                 mdl:SetMaterial(mat:GetName())
                 mdl.RenderOverride = RenderOverride
+                mdl.UnwrapIndex = prop.UnwrapIndex
+                mdl.WorldMatrix = mdl:GetWorldTransformMatrix()
+                mdl.WorldMatrix:SetTranslation(mdl.WorldMatrix * prop.BoundsMin)
+                mdl.WorldMatrix:InvertTR()
+                mdl.UVMatrix = Matrix()
+                mdl.UVMatrix:SetForward(u)
+                mdl.UVMatrix:SetRight(-v)
+                mdl.UVMatrix:SetTranslation(Vector(x, uv.Offset.y, uv.Offset.z))
+                mdl.UVMatrix:SetScale(Vector(uvScale, uvScale, 1))
+                mdl.Size = prop.BoundsMax - prop.BoundsMin
             end
         end
     end

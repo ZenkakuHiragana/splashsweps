@@ -105,7 +105,8 @@ function ss.EnumeratePaintPositions(surf, mins, maxs, query, angle)
                     yield(pos, angle and R:GetAngles())
                 end
             end
-        elseif not angle or angle:Up():Dot(surf.MBBAngles:Up()) > MAX_COS then
+        elseif surf.StaticPropUnwrapIndex or not angle
+            or angle:Up():Dot(surf.MBBAngles:Up()) > MAX_COS then
             yield(query, angle)
         end
     end)
@@ -175,27 +176,4 @@ function ss.Paint(worldpos, angle, scale, shape, inktype)
             ss.WriteGrid(surf, mappedpos, mappedangle, scale, inktype, shape)
         end
     end
-end
-
----Clears all painted ink in the map.
-function ss.ClearAllInk()
-    for _, s in ipairs(ss.SurfaceArray) do ss.ClearGrid(s) end
-    if SERVER then return end
-
-    local rt = ss.RenderTarget
-    render.PushRenderTarget(rt.StaticTextures.Albedo)
-    render.OverrideAlphaWriteEnable(true, true)
-    render.ClearDepth()
-    render.ClearStencil()
-    render.Clear(0, 0, 0, 0)
-    render.OverrideAlphaWriteEnable(false)
-    render.PopRenderTarget()
-
-    render.PushRenderTarget(rt.StaticTextures.Normal)
-    render.OverrideAlphaWriteEnable(true, true)
-    render.ClearDepth()
-    render.ClearStencil()
-    render.Clear(128, 128, 255, 255)
-    render.OverrideAlphaWriteEnable(false)
-    render.PopRenderTarget()
 end

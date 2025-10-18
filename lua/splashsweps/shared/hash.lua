@@ -66,16 +66,30 @@ local function hashpairs(mins, maxs)
 end
 
 ---Generates look-up table for spatial partitioning to find surfaces faster.
----@param surfaces    ss.PrecachedData.Surface[] The source array.
----@param faceIndices integer[]                  Indices of the worldspawn surfaces.
----@param hash        table<integer, integer[]>  The output hash table.
-function ss.BuildSurfaceHash(surfaces, faceIndices, hash)
+---@param surfaces    ss.PrecachedData.Surface[]    The source array.
+---@param faceIndices integer[]                     Indices of the worldspawn surfaces.
+---@param staticProps ss.PrecachedData.StaticProp[] List of static props.
+---@param hash        table<integer, integer[]>     The output hash table.
+function ss.BuildSurfaceHash(surfaces, faceIndices, staticProps, hash)
     print("Constructing spatial hash table for paintable surfaces...")
     for _, i in ipairs(faceIndices) do
         local s = surfaces[i]
         for h in hashpairs(s.AABBMin, s.AABBMax) do
             hash[h] = hash[h] or {}
             hash[h][#hash[h] + 1] = i
+        end
+    end
+
+    for i, s in ipairs(staticProps) do
+        local localToWorld = Matrix()
+        localToWorld:SetAngles(s.Angles)
+        localToWorld:SetTranslation(s.Position)
+        local maxs = localToWorld * s.BoundsMax
+        local mins = localToWorld * s.BoundsMin
+        OrderVectors(mins, maxs)
+        for h in hashpairs(mins, maxs) do
+            hash[h] = hash[h] or {}
+            hash[h][#hash[h] + 1] = #surfaces + i
         end
     end
 end

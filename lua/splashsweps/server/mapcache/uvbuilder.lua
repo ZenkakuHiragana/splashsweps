@@ -35,7 +35,7 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
             local info = uvInfoList[rtIndex]
             local rect = staticPropRectangles[i]
             local tag = {
-                UVInfo = info,
+                UV = info,
                 Rectangle = rect,
             }
             rects[#surfaces + i] = ss.MakeRectangle(rect.x + margin, rect.y + margin, 0, 0, tag)
@@ -70,12 +70,14 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
                 workMatrix:InvertTR()
                 info.Angle:Set(workMatrix:GetAngles())
                 info.Translation:Set(workMatrix:GetTranslation())
-            else ---@cast tag { UVInfo: ss.PrecachedData.StaticProp.UVInfo, Rectangle: Vector }
+            else ---@cast tag { UV: ss.PrecachedData.StaticProp.UVInfo, Rectangle: Vector }
                 local rotated = rect.istall ~= (tag.Rectangle.x < tag.Rectangle.y)
-                local z = rotated and 1 or 0
-                tag.UVInfo.Width = width / rectangleSizeHU
-                tag.UVInfo.Height = height / rectangleSizeHU
-                tag.UVInfo.Offset:Set(Vector(rect.left, rect.bottom, z) / rectangleSizeHU)
+                tag.UV.Width = width / rectangleSizeHU
+                tag.UV.Height = height / rectangleSizeHU
+                tag.UV.Offset:SetUnpacked(
+                    rect.left / rectangleSizeHU,
+                    rect.bottom / rectangleSizeHU,
+                    rotated and 1 or 0)
             end
         end
 

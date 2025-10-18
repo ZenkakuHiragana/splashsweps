@@ -30,25 +30,26 @@ ss.struct "IHasMBB" {
 ---
 ---```text
 ---UV origin
---- +--------------+--> U             WorldToUVMatrix
---- |              ^                    :GetInverseTR()
---- |              |                    :GetTranslation()
---- |           OffsetV                       |
---- |              |   |<----UVWidth---->|    |
---- |              v   |                 |    |
---- +<----OffsetU--+-->+--------------<==@ <--+
---- |              ^   |                 $
---- v              |   |                 V
---- V         UVHeight |                 |
----                |   |                 |
----                v   |                 |
----              --+---+-----------------+
+--- +-------------+--> V              WorldToUVMatrix
+--- |             ^                     :GetInverseTR()
+--- |             |                     :GetTranslation()
+--- |          OffsetU                        |
+--- |             |    |<----UVHeight--->|    |
+--- |             v    |                 |    |
+--- +<----OffsetV-+--->+--------------<==@ <--+
+--- |             ^    |                 $
+--- v             |    |                 v
+--- U          UVWidth |                 |
+---               |    |                 |
+---               v    |                 |
+---              -+----+-----------------+
 ---```
 ---@class ss.PaintableSurface : ss.IHasMBB
----@field AABBMax                Vector  AABB maximum of this surface in world coordinates.
----@field AABBMin                Vector  AABB minimum of this surface in world coordinates.
----@field Normal                 Vector  Normal vector of this surface.
+---@field AABBMax                Vector           AABB maximum of this surface in world coordinates.
+---@field AABBMin                Vector           AABB minimum of this surface in world coordinates.
+---@field Normal                 Vector           Normal vector of this surface.
 ---@field Grid                   ss.PaintableGrid Represents serverside "canvas" for this surface to manage collision detection against painted ink.
+---@field StaticPropUnwrapIndex  integer?         Determines how this static prop surfaces are unwrapped.
 ---@field TriangleHash           table<integer, integer[]>? Hash table to lookup triangles of a displacement.
 ---@field Triangles              ss.DisplacementTriangle[]? Array of triangles of a displacement.
 ---@field WorldToLocalGridMatrix VMatrix The transformation matrix to convert world coordinates into local coordinates. This does not modify scales.
@@ -62,6 +63,7 @@ ss.struct "PaintableSurface" "IHasMBB" {
     AABBMin = Vector(),
     Normal = Vector(),
     Grid = ss.new "PaintableGrid",
+    StaticPropUnwrapIndex = nil,
     TriangleHash = nil,
     Triangles = nil,
     WorldToLocalGridMatrix = Matrix(),
@@ -98,6 +100,92 @@ ss.struct "DisplacementTriangle" "IHasMBB" {
     BarycentricAdd2 = 0,
     WorldToLocalRotation = Matrix(),
 }
+
+---Returns barycentric coordinates (1 - u - v, u, v) from given triangle.
+---@param triangle ss.DisplacementTriangle
+---@param query Vector
+---@return Vector barycentric The coordinates which may be outside of the triangle.
+function ss.BarycentricCoordinates(triangle, query)
+    local u = query:Dot(triangle.BarycentricDot1) + triangle.BarycentricAdd1
+    local v = query:Dot(triangle.BarycentricDot2) + triangle.BarycentricAdd2
+    return Vector(1 - u - v, u, v)
+end
+
+---Calculates cube-projected UV coordinates of a static prop.
+---@param worldPos Vector
+---@param worldNormal Vector
+---@param worldToLocal VMatrix
+---@param uvTransformMatrix VMatrix
+---@param unwrapIndex integer
+---@param boundingBoxSize Vector
+---@return Vector
+function ss.CalculateStaticPropUV(worldPos, worldNormal, worldToLocal, uvTransformMatrix, unwrapIndex, boundingBoxSize)
+    local localPos = worldToLocal * worldPos
+    local localNormal = worldToLocal * worldNormal - worldToLocal:GetTranslation()
+    local absLocalNormal = Vector(math.abs(localNormal.x), math.abs(localNormal.y), math.abs(localNormal.z))
+    local maxAbsComponent = math.max(absLocalNormal.x, absLocalNormal.y, absLocalNormal.z)
+
+    local size = Vector()
+    local uv = Vector()
+    local faceIndex = 0
+    if unwrapIndex == 1 then
+        size:SetUnpacked(boundingBoxSize.x, boundingBoxSize.y, boundingBoxSize.z)
+        if maxAbsComponent == absLocalNormal.x then
+            uv.x = localPos.y
+            uv.y = localPos.z
+            faceIndex = (localNormal.x < 0) and 4 or 2
+        elseif maxAbsComponent == absLocalNormal.y then
+            uv.x = localPos.x
+            uv.y = localPos.z
+            faceIndex = (localNormal.y < 0) and 1 or 3
+        else
+            uv.x = localPos.y
+            uv.y = localPos.x
+            faceIndex = (localNormal.z < 0) and 5 or 6
+        end
+    elseif unwrapIndex == 2 then
+        size:SetUnpacked(boundingBoxSize.y, boundingBoxSize.x, boundingBoxSize.z)
+        if maxAbsComponent == absLocalNormal.x then
+            uv.x = localPos.y
+            uv.y = localPos.z
+            faceIndex = (localNormal.x < 0) and 1 or 3
+        elseif maxAbsComponent == absLocalNormal.y then
+            uv.x = localPos.x
+            uv.y = localPos.z
+            faceIndex = (localNormal.y < 0) and 4 or 2
+        else
+            uv.x = localPos.x
+            uv.y = localPos.y
+            faceIndex = (localNormal.z < 0) and 5 or 6
+        end
+    else
+        size:SetUnpacked(boundingBoxSize.z, boundingBoxSize.x, boundingBoxSize.y)
+        if maxAbsComponent == absLocalNormal.x then
+            uv.x = localPos.z
+            uv.y = localPos.y
+            faceIndex = (localNormal.x < 0) and 1 or 3
+        elseif maxAbsComponent == absLocalNormal.y then
+            uv.x = localPos.x
+            uv.y = localPos.z
+            faceIndex = (localNormal.y < 0) and 5 or 6
+        else
+            uv.x = localPos.x
+            uv.y = localPos.y
+            faceIndex = (localNormal.z < 0) and 4 or 2
+        end
+    end
+
+    local offsetU = { 0, size.x, size.x + size.y, 2 * size.x + size.y, size.x, 2 * size.x + size.y }
+    local offsetV = { 0, 0, 0, 0, size.z, size.z }
+    if faceIndex == 2 or faceIndex == 3 or faceIndex == 5 then
+        uv.x = size.x - uv.x
+    end
+
+    uv.x = uv.x + offsetU[faceIndex]
+    uv.y = uv.y + offsetV[faceIndex]
+    local uvTransformed = uvTransformMatrix * uv
+    return Vector(uvTransformed.y, uvTransformed.x)
+end
 
 ---Reads a surface list from a file and stores them for later use.
 ---@param surfaces ss.PrecachedData.Surface[]?
@@ -158,12 +246,57 @@ function ss.SetupSurfaces(surfaces)
     end
 end
 
----Returns barycentric coordinates (1 - u - v, u, v) from given triangle.
----@param triangle ss.DisplacementTriangle
----@param query Vector
----@return Vector barycentric The coordinates which may be outside of the triangle.
-function ss.BarycentricCoordinates(triangle, query)
-    local u = query:Dot(triangle.BarycentricDot1) + triangle.BarycentricAdd1
-    local v = query:Dot(triangle.BarycentricDot2) + triangle.BarycentricAdd2
-    return Vector(1 - u - v, u, v)
+---Reads a list of static props and stores them for later use.
+---@param staticPropInfo ss.PrecachedData.StaticProp[]
+---@param uvInfo ss.PrecachedData.StaticProp.UVInfo[][]
+function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
+    local StaticPropMeta = getmetatable(ss.new "PrecachedData.StaticProp")
+    local StaticPropUVMeta = getmetatable(ss.new "PrecachedData.StaticProp.UVInfo")
+    local numSurfaces = #ss.SurfaceArray
+    for i, prop in ipairs(staticPropInfo or {}) do
+        setmetatable(prop, StaticPropMeta)
+        local uv = setmetatable(uvInfo[i][#ss.RenderTarget.Resolutions], StaticPropUVMeta)
+        local localToWorld = Matrix()
+        localToWorld:SetAngles(prop.Angles)
+        localToWorld:SetTranslation(prop.Position)
+        localToWorld:SetTranslation(localToWorld * prop.BoundsMin)
+        local worldToLocal = localToWorld:GetInverseTR()
+        local ps = ss.new "PaintableSurface"
+        ps.AABBMax = localToWorld * prop.BoundsMax
+        ps.AABBMin = localToWorld:GetTranslation()
+        OrderVectors(ps.AABBMin, ps.AABBMax)
+        ps.WorldToLocalGridMatrix:SetAngles(worldToLocal:GetAngles())
+        ps.WorldToLocalGridMatrix:SetTranslation(worldToLocal:GetTranslation())
+        ps.Normal = localToWorld:GetUp()
+        ps.Grid.Width = math.ceil(uv.Width / ss.InkGridCellSize)
+        ps.Grid.Height = math.ceil(uv.Height / ss.InkGridCellSize)
+        ps.StaticPropUnwrapIndex = prop.UnwrapIndex
+        ps.MBBAngles = prop.Angles
+        ps.MBBOrigin = localToWorld:GetTranslation()
+        ps.MBBSize = prop.BoundsMax - prop.BoundsMin
+        if CLIENT then
+            local rtIndex = #ss.RenderTarget.Resolutions
+            local rtSize = ss.RenderTarget.Resolutions[rtIndex]
+            local uvScale = ss.RenderTarget.HammerUnitsToUV
+            local du ---@type number
+            local u, v ---@type Vector, Vector
+            if uv.Offset.z > 0 then
+                du = uv.Offset.x + uv.Width
+                u = Vector(0, 1, 0)
+                v = Vector(-1, 0, 0)
+            else
+                du = uv.Offset.x
+                u = Vector(1, 0, 0)
+                v = Vector(0, 1, 0)
+            end
+            ps.WorldToUVMatrix:SetForward(u)
+            ps.WorldToUVMatrix:SetRight(-v)
+            ps.WorldToUVMatrix:SetScale(Vector(uvScale * rtSize, uvScale * rtSize, 1))
+            ps.OffsetU  = math.max(du          * rtSize - ss.RT_MARGIN_PIXELS / 2, 0)
+            ps.OffsetV  = math.max(uv.Offset.y * rtSize - ss.RT_MARGIN_PIXELS / 2, 0)
+            ps.UVWidth  = uv.Width    * rtSize + ss.RT_MARGIN_PIXELS
+            ps.UVHeight = uv.Height   * rtSize + ss.RT_MARGIN_PIXELS
+        end
+        ss.SurfaceArray[numSurfaces + i] = ps
+    end
 end

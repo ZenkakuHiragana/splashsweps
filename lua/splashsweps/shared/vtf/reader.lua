@@ -502,7 +502,9 @@ function ss.PrintVTF(vtf, channel, mipmapLevel)
     channel = (channel or "rgb"):lower()
     mipmapLevel = mipmapLevel or 1
     local s = {} ---@type string[]
-    local CONVERSION = " `.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESSwwqqkkPP66hh99dd44VVppOOGGbbUUAAKKXXHHmm88RRDD##$$BBgg00MMNNWWQQ%%&&@@"
+    local CONVERSION
+        = " `.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESSwwqqkk"
+        .. "PP66hh99dd44VVppOOGGbbUUAAKKXXHHmm88RRDD##$$BBgg00MMNNWWQQ%%&&@@"
     local width = vtf.Images[mipmapLevel].Width
     local height = vtf.Images[mipmapLevel].Height
     width = math.min(width, 225)
@@ -526,7 +528,6 @@ function ss.PrintVTF(vtf, channel, mipmapLevel)
             end
             local i = math.Clamp(math.Round(scale / 2) + 1, 1, 128)
             s[#s] = s[#s] .. CONVERSION:sub(i, i)
-            -- s[#s] = s[#s] .. string.format("%4d", scale)
         end
     end
     for _, si in ipairs(s) do print(si) end

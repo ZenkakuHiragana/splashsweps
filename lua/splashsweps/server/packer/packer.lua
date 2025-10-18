@@ -332,7 +332,7 @@ function ss.MakeRectanglePacker(rectangles)
     ---    <-----rw---->     n
     ---  ^ +-----------+     v
     ---  | |           |     |
-    --- rh | rectangle |      
+    --- rh | rectangle |     |
     ---  | |           |     |
     ---  v +-----------+-----+-^- --- <- xline.parent
     ---  ^ <-------Lx------->| |

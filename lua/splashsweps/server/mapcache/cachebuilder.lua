@@ -39,18 +39,18 @@ end
 ---```text
 ---  z
 ---  ^
----. |     y
----. |    /        +--- size = (maxs - mins)
----. |   /'''---___V
----. |  /         /|             |<------width------>|
----. | /    +z   / |       -.----+----+----+----+----+
----. |/         /  |        |    | -x | -z | +x | +z |
----. |'''---___/   |  ==> height +----+----+----+----+
----. |         |+x /        |    |    | -y |    | +y |
----. |   -y    |  /        -*----+----+----+----+----+
----. |         | /
----   '''---___|/
----            '''---> x
+---. |     y     size = (maxs - mins)
+---. |    /        |
+---. |   /'''---___V            <--height->
+---. |  /         /|       -.---+----+----+
+---. | /    +z   / |        |   | -x |    |
+---. |/         /  |        |   +----+----+
+---. |'''---___/   |        |   | -z | -y |
+---. |         |+x /  ==> width +----+----+
+---. |   -y    |  /         |   | +x |    |
+---. |         | /          |   +----+----+
+---   '''---___|/           |   | +z | +y |
+---            '''---> x   -v---+----+----+
 ---```
 ---
 ---Width and height of each surface:
@@ -61,43 +61,20 @@ end
 ---
 ---There are three patterns of unpacking and the one with minimum wasted spaces is selected:
 ---
----(1) width = 2 * (size.x + size.y), height = size.x + size.z
----
 ---```text
----       sx   sy   sx   sy
----.    +----+----+----+----+
----. sz | -y | -x | +y | +x |
----.    +----+----+----+----+
----. sx | ^  | -z |    | +z |
----.    +-|--+----+----+----+
----.      |
----  area of wasted spaces = 2 * size.x^2
----```
----
----(2) width = 2 * (size.x + size.y), height = size.y + size.z
----
----```text
----       sy   sx   sy   sx
----.    +----+----+----+----+
----. sz | -x | -y | +x | +y |
----.    +----+----+----+----+
----. sy | ^  | -z |    | +z |
----.    +-|--+----+----+----+
----.      |
----  area of wasted spaces = 2 * size.y^2
----```
----
----(3) width = 2 * (size.x + size.z), height = size.y + size.z
----
----```text
----       sz   sx   sz   sx
----.    +----+----+----+----+
----. sy | -x | -z | +x | +z |
----.    +----+----+----+----+
----. sz | ^  | -y |    | +y |
----.    +-|--+----+----+----+
----.      |
----  area of wasted spaces = 2 * size.z^2
+---.   (1)               (2)               (3)
+---. w = 2 (sx + sy)       2 (sx + sy)       2 (sx + sz)
+---. h =    sx + sz           sy + sz           sy + sz
+---.        sz   sx           sz   sy           sy   sz
+---.      +----+----+       +----+----+       +----+----+
+---.   sx | -y |    |    sy | -x |    |    sz | -x |    |
+---.      +----+----+       +----+----+       +----+----+
+---.   sy | -x | -z |    sx | -y | -z |    sx | -z | -y |
+---.      +----+----+       +----+----+       +----+----+
+---.   sx | +y |    |    sy | +x |    |    sz | +x |    |
+---.      +----+----+       +----+----+       +----+----+
+---.   sy | +x | +z |    sx | +y | +z |    sx | +z | +y |
+---.      +----+----+       +----+----+       +----+----+
 ---```
 ---@param mins Vector
 ---@param maxs Vector
@@ -167,7 +144,7 @@ function ss.BuildMapCache()
         ss.BuildUVCache(hdr, cache.StaticPropHDR, staticPropRectangles)
         ss.BuildLightmapCache(bsp, hdr.Surfaces, true)
         ss.BuildDisplacementHash(hdr.Surfaces)
-        ss.BuildSurfaceHash(hdr.Surfaces, cache.ModelsHDR[1].FaceIndices, hdr.SurfaceHash)
+        ss.BuildSurfaceHash(hdr.Surfaces, cache.ModelsHDR[1].FaceIndices, cache.StaticProps, hdr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_hdr.json", game.GetMap()), util.Compress(util.TableToJSON(hdr)))
     end
 
@@ -178,7 +155,7 @@ function ss.BuildMapCache()
         ss.BuildUVCache(ldr, cache.StaticPropLDR, staticPropRectangles)
         ss.BuildLightmapCache(bsp, ldr.Surfaces, false)
         ss.BuildDisplacementHash(ldr.Surfaces)
-        ss.BuildSurfaceHash(ldr.Surfaces, cache.ModelsLDR[1].FaceIndices, ldr.SurfaceHash)
+        ss.BuildSurfaceHash(ldr.Surfaces, cache.ModelsLDR[1].FaceIndices, cache.StaticProps, ldr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_ldr.json", game.GetMap()), util.Compress(util.TableToJSON(ldr)))
     end
 
