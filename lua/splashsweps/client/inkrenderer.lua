@@ -8,8 +8,6 @@ local gray = Material "grey" :GetTexture "$basetexture"
 local CVarWireframe = GetConVar "mat_wireframe"
 local CVarMinecraft = GetConVar "mat_showlowresimage"
 local function DrawMesh()
-    render.SetMaterial(ss.InkMeshMaterial)
-    render.SetLightmapTexture(ss.RenderTarget.StaticTextures.Lightmap or gray) -- Set custom lightmap
     for _, model in ipairs(ss.IMesh) do -- Draw ink surface
         local ent = model.BrushEntity
         if not ent or IsValid(ent) then
@@ -32,6 +30,8 @@ local function DrawMeshes(bDrawingDepth, bDrawingSkybox)
     -- if ss.GetOption "hideink" then return end
     if LocalPlayer():KeyDown(IN_RELOAD) then return end
     if bDrawingSkybox or CVarWireframe:GetBool() or CVarMinecraft:GetBool() then return end
+    render.SetMaterial(ss.InkMeshMaterial)
+    render.SetLightmapTexture(ss.RenderTarget.StaticTextures.Lightmap or gray) -- Set custom lightmap
     render.DepthRange(0, 65534 / 65535)
     DrawMesh()
     render.RenderFlashlights(DrawMesh)

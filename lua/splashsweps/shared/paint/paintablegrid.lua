@@ -69,14 +69,14 @@ local function CalculateBounds(origin_x, origin_y, axis_x, axis_y, scale_x, scal
 end
 
 ---Paint this surface with specified ink type and shape at given position, angle, and size.
----@param self      ss.PaintableSurface
----@param mappedpos Vector  The preprocessed origin of the ink.
----@param mappedang Angle   The preprocessed normal and rotation of the ink in world coordinate system.
----@param radius    Vector  Scale along the angles, distance between the center and the tip.
----@param inktype   integer The internal index of ink type.
----@param shape     integer The internal index of shape.
+---@param self    ss.PaintableSurface
+---@param pos     Vector  The preprocessed origin of the ink.
+---@param ang     Angle   The preprocessed normal and rotation of the ink in world coordinate system.
+---@param radius  Vector  Scale along the angles, distance between the center and the tip.
+---@param inktype integer The internal index of ink type.
+---@param shape   integer The internal index of shape.
 ---@return integer # Number of painted cells.
-function ss.WriteGrid(self, mappedpos, mappedang, radius, inktype, shape)
+function ss.WriteGrid(self, pos, ang, radius, inktype, shape)
     -- Caches
     local inkGridCellSize = ss.InkGridCellSize
     local surfaceGrid = self.Grid
@@ -88,8 +88,8 @@ function ss.WriteGrid(self, mappedpos, mappedang, radius, inktype, shape)
 
     ---Represents the given position and angles in the world coordinate system.
     local inkSystemInWorld = Matrix()
-    inkSystemInWorld:SetTranslation(mappedpos)
-    inkSystemInWorld:SetAngles(mappedang)
+    inkSystemInWorld:SetTranslation(pos)
+    inkSystemInWorld:SetAngles(ang)
 
     ---Represents the given position and angles in paintable surface's coordinate system.
     local inkSystemInSurfaceSystem = self.WorldToLocalGridMatrix * inkSystemInWorld

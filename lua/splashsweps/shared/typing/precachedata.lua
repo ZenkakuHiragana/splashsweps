@@ -92,21 +92,29 @@ ss.struct "PrecachedData.ModelInfo" (setmetatable({
 }))
 
 ---Structure of UV coordinates for static props.
----```
----+------------------> v
----|
----|     (OffsetU, OffsetV)
----|   /^^^^^^^^^^^^^^^^^^^
----|  +---------+
----|  |         | Width
----|  +---------+
----v     Height
----u
+---```text
+---. +-----------------------------> v
+---. |
+---. |            (OffsetU, OffsetV)
+---. |          /^^^^^^^^^^^^^^^^^^^
+---. |         /
+---. |        / Height              Width
+---. |       +---------+          +-------+
+---. | Width |         |          |       |
+---. |       +---------+   Height |       |
+---. |                            |       |
+---. |                            +-------+
+---. |        (OffsetU, OffsetV) /
+---. |        ^^^^^^^^^^^^^^^^^^^
+---. V      (not rotated)         (rotated)
+---. u
 ---```
 ---@class ss.PrecachedData.StaticProp.UVInfo
----@field Offset Vector Offset (left and top position) in the UV space.
----@field Width  number Width in the UV space.
----@field Height number Height in the UV space.
+---Offset (left and top position) in the UV space in hammer units.
+---Z indicates if this rectangle is rotated.
+---@field Offset Vector
+---@field Width  number Width in the UV space in hammer units.
+---@field Height number Height in the UV space in hammer units.
 ss.struct "PrecachedData.StaticProp.UVInfo" (setmetatable({
     Vector(),
     0,
@@ -120,24 +128,30 @@ ss.struct "PrecachedData.StaticProp.UVInfo" (setmetatable({
 }))
 
 ---Structure of UV coordinates.
----```
----+------------------> v
----|
----|     (OffsetU, OffsetV)
----|   /^^^^^^^^^^^^^^^^^^^
----|  +---------+
----|  |         | Width
----|  +---------+
----v     Height
----u
+---```text
+---. +-----------------------------> v
+---. |
+---. |            (OffsetU, OffsetV)
+---. |          /^^^^^^^^^^^^^^^^^^^
+---. |         /
+---. |        / Height              Width
+---. |       +---------+          +-------+
+---. | Width |         |          |       |
+---. |       +---------+   Height |       |
+---. |                            |       |
+---. |                            +-------+
+---. |        (OffsetU, OffsetV) /
+---. |        ^^^^^^^^^^^^^^^^^^^
+---. V      (not rotated)         (rotated)
+---. u
 ---```
 ---@class ss.PrecachedData.UVInfo
 ---@field Angle       Angle  Transforms world coordinates into UV space.
 ---@field Translation Vector Transforms world coordinates into UV space.
----@field OffsetU     number Left position in UV space.
----@field OffsetV     number Top position in UV space.
----@field Width       number The width of this surface in UV space.
----@field Height      number The height of this surface in UV space.
+---@field OffsetU     number Left position in UV space ranging from 0 to 1.
+---@field OffsetV     number Top position in UV space ranging from 0 to 1.
+---@field Width       number The width of this surface in UV space ranging from 0 to 1.
+---@field Height      number The height of this surface in UV space ranging from 0 to 1.
 ss.struct "PrecachedData.UVInfo" (setmetatable({
     Angle(),
     Vector(),
@@ -158,9 +172,9 @@ ss.struct "PrecachedData.UVInfo" (setmetatable({
 
 ---Fetched static prop information from the Game lump.
 ---@class ss.PrecachedData.StaticProp
----@field Angles      Angle
----@field BoundsMax   Vector
----@field BoundsMin   Vector
+---@field Angles      Angle   The angle of the prop.
+---@field BoundsMax   Vector  OBB maximum.
+---@field BoundsMin   Vector  OBB minimum.
 ---@field FadeMax     number  Fade-out distance which completely hides this model.
 ---@field FadeMin     number  Fade-out distance which starts fading.
 ---@field ModelIndex  integer Index to array of paths to mdl.

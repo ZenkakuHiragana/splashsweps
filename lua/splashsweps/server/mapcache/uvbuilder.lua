@@ -72,12 +72,9 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
                 info.Translation:Set(workMatrix:GetTranslation())
             else ---@cast tag { UV: ss.PrecachedData.StaticProp.UVInfo, Rectangle: Vector }
                 local rotated = rect.istall ~= (tag.Rectangle.x < tag.Rectangle.y)
-                tag.UV.Width = width / rectangleSizeHU
-                tag.UV.Height = height / rectangleSizeHU
-                tag.UV.Offset:SetUnpacked(
-                    rect.left / rectangleSizeHU,
-                    rect.bottom / rectangleSizeHU,
-                    rotated and 1 or 0)
+                tag.UV.Width = width
+                tag.UV.Height = height
+                tag.UV.Offset:SetUnpacked(rect.left, rect.bottom, rotated and 1 or 0)
             end
         end
 

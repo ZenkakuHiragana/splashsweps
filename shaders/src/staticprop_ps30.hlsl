@@ -11,10 +11,11 @@ const float4 c0 : register(c0);
 
 // x = 0 -> do nothing special; just rendering
 // x = 1 -> additive flashlight
+// y -> Hammer Unit to UV multiplier
 const float4 c1 : register(c1);
 
-const float4x4 ModelMatrix : register(c11);
-const float4x4 UVMatrix : register(c15);
+const float4x4 WorldToLocalMatrix : register(c11);
+const float4x4 LocalTextureSpaceMatrixInv : register(c15);
 
 //  We store four light colors and positions in an
 //  array of three of these structures like so:
@@ -187,68 +188,70 @@ float3 PixelShaderDoLightingLinear(
 //    |  3 |  5 |
 //    +----+----+
 float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
-    float3 localPos = mul(float4(worldPos, 1.0), ModelMatrix).xyz;
-    float3 localNormal = mul(float4(worldNormal, 0.0), ModelMatrix).xyz;
+    float3 localPos = mul(float4(worldPos, 1.0), WorldToLocalMatrix).xyz;
+    float3 localNormal = mul(float4(worldNormal, 0.0), WorldToLocalMatrix).xyz;
     float3 absLocalNormal = abs(localNormal);
     float maxAbsComponent = max(absLocalNormal.x, max(absLocalNormal.y, absLocalNormal.z));
 
-    float2 uv;
-    float3 size;
-    int faceIndex;
-    int patternIndex = c0.w;
-    if (patternIndex == 1) {
-        size = c0.xyz;
-        if (maxAbsComponent == absLocalNormal.x) {
-            uv = localPos.yz;
-            faceIndex = localNormal.x < 0 ? 3 : 1;
-        } else if (maxAbsComponent == absLocalNormal.y) {
-            uv = localPos.xz;
-            faceIndex = localNormal.y < 0 ? 0 : 2;
-        } else {
-            uv = localPos.yx;
-            faceIndex = localNormal.z < 0 ? 4 : 5;
-        }
-    } else if (patternIndex == 2) {
-        size = c0.yxz;
-        if (maxAbsComponent == absLocalNormal.x) {
-            uv = localPos.yz;
-            faceIndex = localNormal.x < 0 ? 0 : 2;
-        } else if (maxAbsComponent == absLocalNormal.y) {
-            uv = localPos.xz;
-            faceIndex = localNormal.y < 0 ? 3 : 1;
-        } else {
-            uv = localPos.xy;
-            faceIndex = localNormal.z < 0 ? 4 : 5;
-        }
-    } else {
-        size = c0.zxy;
-        if (maxAbsComponent == absLocalNormal.x) {
-            uv = localPos.zy;
-            faceIndex = localNormal.x < 0 ? 0 : 2;
-        } else if (maxAbsComponent == absLocalNormal.y) {
-            uv = localPos.xz;
-            faceIndex = localNormal.y < 0 ? 4 : 5;
-        } else {
-            uv = localPos.xy;
-            faceIndex = localNormal.z < 0 ? 3 : 1;
-        }
-    }
-
-    float2 offset[6] = {
-        float2(       0.0,          0.0   ),
-        float2(    size.x,          0.0   ),
-        float2(    size.x + size.y, 0.0   ),
-        float2(2 * size.x + size.y, 0.0   ),
-        float2(    size.x,          size.z),
-        float2(2 * size.x + size.y, size.z),
+    const float uvScale = c1.y;
+    const float3 size = c0.xyz;
+    const float3 normals[6] = {
+        { 1.0, 0.0, 0.0 }, { 0.0,  1.0, 0.0 }, { 0.0, 0.0,  1.0 },
+        {-1.0, 0.0, 0.0 }, { 0.0, -1.0, 0.0 }, { 0.0, 0.0, -1.0 },
+    };
+    const float3 tangents[6] = {
+        normals[4], normals[0], normals[4],
+        normals[1], normals[3], normals[1],
+    };
+    const float3 faceOriginCoefficients[6] = {
+        { 1, 1, 1 }, { 0, 1, 1 }, { 0, 1, 1 },
+        { 0, 0, 1 }, { 1, 0, 1 }, { 0, 0, 0 },
+    };
+    const float3 uvOffsetCoefficients[6] = {
+        { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 1 },
+        { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 1 },
     };
 
-    if (faceIndex == 2 || faceIndex == 3 || faceIndex == 5) {
-        uv.x = size.x - uv.x;
+    int faceIndex;
+    if (maxAbsComponent == absLocalNormal.x) {
+        faceIndex = localNormal.x < 0 ? 3 : 0;
+    } else if (maxAbsComponent == absLocalNormal.y) {
+        faceIndex = localNormal.y < 0 ? 4 : 1;
+    } else {
+        faceIndex = localNormal.z < 0 ? 5 : 2;
     }
-    float4 uv4 = float4(uv.xy + offset[faceIndex], 0.0, 1.0);
-    float4 uvTransformed = mul(uv4, UVMatrix);
-    return uvTransformed.yx;
+
+    float3 binormal = cross(normals[faceIndex], tangents[faceIndex]);
+    float3 modelLocalFaceOrigin = size * faceOriginCoefficients[faceIndex];
+    float3x3 modelLocalFaceRotation = {
+        tangents[faceIndex],
+        binormal,
+        normals[faceIndex],
+    };
+    float3x3 modelToFaceRotation = transpose(modelLocalFaceRotation);
+    float3 faceOriginInv = mul(-modelLocalFaceOrigin, modelToFaceRotation);
+    float4x4 modelToFaceMatrix = {
+        { modelToFaceRotation[0], 0.0 },
+        { modelToFaceRotation[1], 0.0 },
+        { modelToFaceRotation[2], 0.0 },
+        { faceOriginInv,          1.0 },
+    };
+    float4x4 worldToFaceMatrix = mul(WorldToLocalMatrix, modelToFaceMatrix);
+    float4x4 worldToUV = mul(worldToFaceMatrix, LocalTextureSpaceMatrixInv);
+    float4x4 localTextureSpaceMatrix = transpose(LocalTextureSpaceMatrixInv);
+    float3 localTextureSpaceOffset = mul(
+        localTextureSpaceMatrix,
+        float4(localTextureSpaceMatrix._14_24_34, 0.0)).xyz;
+    localTextureSpaceMatrix._14_24_34 = 0.0;
+    localTextureSpaceMatrix[3] = float4(localTextureSpaceOffset, 1.0);
+    float4 uvOffset = { size * uvOffsetCoefficients[faceIndex], 1.0 };
+    uvOffset.x += uvOffset.y;
+    uvOffset.y = uvOffset.z;
+    uvOffset.z = 0.0;
+    uvOffset = mul(uvOffset, localTextureSpaceMatrix);
+    float2 uv = mul(float4(worldPos, 1.0), worldToUV).xy;
+    uv += uvOffset.xy;
+    return uv.yx * uvScale;
 }
 
 struct PS_INPUT {
@@ -285,6 +288,9 @@ float4 main(const PS_INPUT i) : COLOR0 {
         i.vWorldNormal_BinormalY.w,
         i.vWorldTangent_BinormalZ.w);
     float2 uv     = CalculateMappedUV(vertexPos, vertexNormal);
+#if 0
+    return uv;
+#else
     float4 albedo = tex2D(Albedo, uv);
     float4 normal = tex2D(Normal, uv);
     if (normal.x == 0 && normal.y == 0 && normal.z == 0) {
@@ -317,4 +323,5 @@ float4 main(const PS_INPUT i) : COLOR0 {
         diffuseLighting += i.diffuse;
         return albedo * float4(diffuseLighting, 1.0);
     }
+#endif
 }

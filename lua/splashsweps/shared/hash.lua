@@ -89,7 +89,9 @@ function ss.BuildSurfaceHash(surfaces, faceIndices, staticProps, hash)
         OrderVectors(mins, maxs)
         for h in hashpairs(mins, maxs) do
             hash[h] = hash[h] or {}
-            hash[h][#hash[h] + 1] = #surfaces + i
+            for j = 1, 6 do
+                hash[h][#hash[h] + 1] = #surfaces + 6 * (i - 1) + j
+            end
         end
     end
 end

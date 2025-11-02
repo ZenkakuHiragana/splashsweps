@@ -204,7 +204,7 @@ function ss.SetupSurfaces(surfaces)
         ps.AABBMin = surf.AABBMin
         ps.WorldToLocalGridMatrix:SetAngles(surf.TransformPaintGrid.Angle)
         ps.WorldToLocalGridMatrix:SetTranslation(surf.TransformPaintGrid.Translation)
-        ps.Normal = ps.WorldToLocalGridMatrix:GetInverseTR():GetUp()
+        ps.Normal = surf.MBBAngles:Up()
         ps.Grid.Width = surf.PaintGridWidth
         ps.Grid.Height = surf.PaintGridHeight
         ps.MBBAngles = surf.MBBAngles
@@ -247,56 +247,222 @@ function ss.SetupSurfaces(surfaces)
 end
 
 ---Reads a list of static props and stores them for later use.
+---
+---Each static prop has its own oriented bounding box (OBB).  
+---We project the vertices of the prop onto one of the surfaces of the OBB.  
+---Then, unwrap the OBB to the UV space.
+---
+---First, we set up a coordinate system on the surface
+---where its X axis will be the U coordinates in UV space
+---and its Y axis will be the V coordinates.
+---
+---```text
+---.      v
+---. z   /
+---. ^  y
+---. | /
+---. |/
+---. *--__
+---.      ''-->_x
+---.            ''-->_u
+---```
+---
+---The coordinate system will be determined as follows.
+---
+---Let `X`, `Y`, and `Z` be the basis of the OBB  
+---and `S = (sx, sy, sz)` be the size of the OBB along each basis.
+---
+---- Orientation of the coordinate system for each surface:
+---  - Normal = `localNormals = { X, Y, Z, -X, -Y, -Z }`
+---  - Tangent = `normalToTangent * localNormals[i]` which means the following replacement:
+---    - `X` -> `-Y`
+---    - `Y` ->  `X`
+---    - `Z` -> `-Y`
+---  - Binormal = `tangent:AngleEx(normal)`
+---- Origin of the coordinate system = `S * localOriginCoefficients` (element-wise multiplication)
+---- Offset in UV space: `mul = S * uvOffsetCoefficients` (element-wise multiplication)
+---  - u = `mul.x + mul.y`
+---  - v = `mul.z`
+---
+---The following figure visualizes how the corrdinate systems of the OBB surfaces are placed:
+---
+---```text
+---.                             z
+---.                            /
+---.                        z  A''-> x
+---.                        ^ /|  #2(X, -Z, Y)
+---.                        |/ V
+---.                        |  y
+---.                       /|''---___
+---.                      / /''--> y '''---___
+---.                     / / #3(-Y, X, Z)    /|
+---. #4(Y, -Z, -X)      / x                 / |
+---.          x        /                   / A''--> z
+---. z <--___/        /                   / /|| #1(-Y, -Z, X)
+---.         |''--__ /                   / x ||
+---.         V      |'''---___          /    V|
+---.         y                '''---___/     y|
+---.                Z          x <--_._|___   |
+---.                ^               /| |  |   /
+---.                |   Y          / V |  |  /
+---.                |  /          z  y |  +-/-- #5(-X, -Z, -Y)
+---.                | /                |   /
+---.                |/                 |  /
+---.         Origin *'''---__, X       | /
+---.                | x       '''---___|/
+---.                |/
+---.                |''-> y
+---.                V #6(Y, X, -Z)
+---.                z
+---```
+---
+---Unwrapped OBB in UV space is shown in this figure.
+---+/- X,Y,Z indicates corresponding normal vectors of the OBB surfaces.
+---
+---```text
+---.      sz   sx
+---.    +----+----+---> v
+---. sx | -Y |    |
+---.    +----+----+
+---. sy | -X | -Z |
+---.    +----+----+
+---. sx | +Y |    |
+---.    +----+----+
+---. sy | +X | +Z |
+---.    +----+----+
+---.    |
+---.    V
+---.    u
+---```
+---
+---The area of total wasted space is `2 * sx * sx`, so if `sx` is not the shortest,
+---We swap the basis of the OBB as follows:
+---
+---- `sx` is the smallest: (X, Y, Z) -> (X, Y, Z)
+---- `sy` is the smallest: (X, Y, Z) -> (Y, Z, X)
+---- `sz` is the smallest: (X, Y, Z) -> (Z, X, Y)
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
 ---@param uvInfo ss.PrecachedData.StaticProp.UVInfo[][]
 function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
     local StaticPropMeta = getmetatable(ss.new "PrecachedData.StaticProp")
     local StaticPropUVMeta = getmetatable(ss.new "PrecachedData.StaticProp.UVInfo")
     local numSurfaces = #ss.SurfaceArray
+    local vec = Vector
+    local localNormals = {
+        vec( 1, 0, 0), vec(0,  1, 0), vec(0, 0,  1),
+        vec(-1, 0, 0), vec(0, -1, 0), vec(0, 0, -1),
+    }
+    local normalToTangent = Matrix {
+        {  0,  1,  0,  0 },
+        { -1,  0, -1,  0 },
+        {  0,  0,  0,  0 },
+        {  0,  0,  0,  1 },
+    }
+    -- Matrix(X, Y, Z) * rotateBasis = (Y, Z, X)
+    -- Vector(X, Y, Z) * rotateBasis = (Z, X, Y)
+    local rotateBasis = Matrix {
+        { 0, 0, 1, 0 },
+        { 1, 0, 0, 0 },
+        { 0, 1, 0, 0 },
+        { 0, 0, 0, 1 },
+    }
+    local rotateBasisT = rotateBasis:GetTransposed()
+    local localOriginCoefficients = {
+        vec(1, 1, 1), vec(0, 1, 1), vec(0, 1, 1),
+        vec(0, 0, 1), vec(1, 0, 1), vec(0, 0, 0),
+    }
+    local uvOffsetCoefficients = {
+        vec(2, 1, 0), vec(1, 1, 0), vec(2, 1, 1),
+        vec(1, 0, 0), vec(0, 0, 0), vec(1, 0, 1),
+    }
+    local localToWorld = Matrix()
+    local localTextureSpaceMatrix = Matrix()
+    local localTextureSpaceInv = Matrix()
     for i, prop in ipairs(staticPropInfo or {}) do
         setmetatable(prop, StaticPropMeta)
-        local uv = setmetatable(uvInfo[i][#ss.RenderTarget.Resolutions], StaticPropUVMeta)
-        local localToWorld = Matrix()
+        local boundingBoxSize = prop.BoundsMax - prop.BoundsMin
         localToWorld:SetAngles(prop.Angles)
         localToWorld:SetTranslation(prop.Position)
         localToWorld:SetTranslation(localToWorld * prop.BoundsMin)
+        if prop.UnwrapIndex == 2 then
+            localToWorld:Mul(rotateBasis)
+            boundingBoxSize:Mul(rotateBasisT)
+        elseif prop.UnwrapIndex == 3 then
+            localToWorld:Mul(rotateBasisT)
+            boundingBoxSize:Mul(rotateBasis)
+        end
+
         local worldToLocal = localToWorld:GetInverseTR()
-        local ps = ss.new "PaintableSurface"
-        ps.AABBMax = localToWorld * prop.BoundsMax
-        ps.AABBMin = localToWorld:GetTranslation()
-        OrderVectors(ps.AABBMin, ps.AABBMax)
-        ps.WorldToLocalGridMatrix:SetAngles(worldToLocal:GetAngles())
-        ps.WorldToLocalGridMatrix:SetTranslation(worldToLocal:GetTranslation())
-        ps.Normal = localToWorld:GetUp()
-        ps.Grid.Width = math.ceil(uv.Width / ss.InkGridCellSize)
-        ps.Grid.Height = math.ceil(uv.Height / ss.InkGridCellSize)
-        ps.StaticPropUnwrapIndex = prop.UnwrapIndex
-        ps.MBBAngles = prop.Angles
-        ps.MBBOrigin = localToWorld:GetTranslation()
-        ps.MBBSize = prop.BoundsMax - prop.BoundsMin
+        local aabbMax = localToWorld * prop.BoundsMax
+        local aabbMin = localToWorld:GetTranslation()
+        OrderVectors(aabbMin, aabbMax)
+        local hammerToPixel ---@type number
+        local isRotated ---@type boolean
         if CLIENT then
             local rtIndex = #ss.RenderTarget.Resolutions
             local rtSize = ss.RenderTarget.Resolutions[rtIndex]
-            local uvScale = ss.RenderTarget.HammerUnitsToUV
-            local du ---@type number
-            local u, v ---@type Vector, Vector
-            if uv.Offset.z > 0 then
-                du = uv.Offset.x + uv.Width
-                u = Vector(0, 1, 0)
-                v = Vector(-1, 0, 0)
+            local uvScale = ss.RenderTarget.HammerUnitsToUV or 1
+            local uv = setmetatable(uvInfo[i][rtIndex], StaticPropUVMeta)
+            hammerToPixel = uvScale * rtSize
+            isRotated = uv.Offset.z > 0
+            if isRotated then
+                -- +--------> v
+                -- |   v'
+                -- |   ^
+                -- v   +---> u'
+                -- u    \__local texture space
+                localTextureSpaceMatrix:SetUnpacked(
+                    0, -1, 0, uv.Offset.x + uv.Width,
+                    1,  0, 0, uv.Offset.y,
+                    0,  0, 1, uv.Offset.z,
+                    0,  0, 0, 1)
             else
-                du = uv.Offset.x
-                u = Vector(1, 0, 0)
-                v = Vector(0, 1, 0)
+                -- +--------> v
+                -- | local texture space
+                -- |   +---> v'
+                -- v   |
+                -- u   u'
+                localTextureSpaceMatrix:SetUnpacked(
+                    1, 0, 0, uv.Offset.x,
+                    0, 1, 0, uv.Offset.y,
+                    0, 0, 1, uv.Offset.z,
+                    0, 0, 0, 1)
             end
-            ps.WorldToUVMatrix:SetForward(u)
-            ps.WorldToUVMatrix:SetRight(-v)
-            ps.WorldToUVMatrix:SetScale(Vector(uvScale * rtSize, uvScale * rtSize, 1))
-            ps.OffsetU  = math.max(du          * rtSize - ss.RT_MARGIN_PIXELS / 2, 0)
-            ps.OffsetV  = math.max(uv.Offset.y * rtSize - ss.RT_MARGIN_PIXELS / 2, 0)
-            ps.UVWidth  = uv.Width    * rtSize + ss.RT_MARGIN_PIXELS
-            ps.UVHeight = uv.Height   * rtSize + ss.RT_MARGIN_PIXELS
+            localTextureSpaceInv = localTextureSpaceMatrix:GetInverseTR()
         end
-        ss.SurfaceArray[numSurfaces + i] = ps
+        for j, localNormal in ipairs(localNormals) do
+            local localForward = normalToTangent * localNormal
+            local localAngle = localForward:AngleEx(localNormal)
+            local localOrigin = boundingBoxSize * localOriginCoefficients[j]
+            local width = math.abs(boundingBoxSize:Dot(localForward))
+            local height = math.abs(boundingBoxSize:Dot(-localAngle:Right()))
+            local ps = ss.new "PaintableSurface"
+            ps.AABBMax = aabbMax
+            ps.AABBMin = aabbMin
+            ps.WorldToLocalGridMatrix:SetAngles(localAngle)
+            ps.WorldToLocalGridMatrix:SetTranslation(localOrigin)
+            ps.WorldToLocalGridMatrix:InvertTR()
+            ps.WorldToLocalGridMatrix:Mul(worldToLocal)
+            ps.Normal = localToWorld * localNormal - localToWorld:GetTranslation()
+            ps.Grid.Width  = math.ceil(width / ss.InkGridCellSize)
+            ps.Grid.Height = math.ceil(height / ss.InkGridCellSize)
+            ps.StaticPropUnwrapIndex = prop.UnwrapIndex
+            ps.MBBAngles = localToWorld:GetAngles()
+            ps.MBBOrigin = localToWorld:GetTranslation()
+            ps.MBBSize   = boundingBoxSize
+            if CLIENT then
+                local mul = boundingBoxSize * uvOffsetCoefficients[j]
+                local uvOffset = localTextureSpaceMatrix * Vector(mul.x + mul.y, mul.z)
+                ps.WorldToUVMatrix:Set(localTextureSpaceInv * ps.WorldToLocalGridMatrix)
+                ps.OffsetU  = uvOffset.x * hammerToPixel
+                ps.OffsetV  = uvOffset.y * hammerToPixel
+                ps.UVWidth  = width      * hammerToPixel
+                ps.UVHeight = height     * hammerToPixel
+                if isRotated then
+                    ps.OffsetU = ps.OffsetU - ps.UVWidth
+                end
+            end
+            ss.SurfaceArray[numSurfaces + 6 * (i - 1) + j] = ps
+        end
     end
 end

@@ -158,12 +158,14 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
     ---@param flags Enum.STUDIO
     local function RenderOverride(self, flags)
         if LocalPlayer():KeyDown(IN_RELOAD) then return end
+        debugoverlay.Axis(self:GetPos(), self:GetAngles(), 100, FrameTime(), true)
         mat:SetFloat("$c0_x", self.Size.x)
         mat:SetFloat("$c0_y", self.Size.y)
         mat:SetFloat("$c0_z", self.Size.z)
         mat:SetFloat("$c0_w", self.UnwrapIndex)
-        mat:SetMatrix("$viewprojmat", self.WorldMatrix)
-        mat:SetMatrix("$invviewprojmat", self.UVMatrix)
+        mat:SetFloat("$c1_y", self.UVScale)
+        mat:SetMatrix("$viewprojmat", self.WorldToLocalMatrix)
+        mat:SetMatrix("$invviewprojmat", self.LocalTextureSpaceMatrixInv)
         RenderOverrideInternal(self, flags)
         render.RenderFlashlights(function()
             mat:SetFloat("$c1_x", 1)
@@ -181,7 +183,15 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
         end)
     end
 
-    local uvScale = ss.RenderTarget.HammerUnitsToUV
+    -- Matrix(X, Y, Z) * rotateBasis = (Y, Z, X)
+    -- Vector(X, Y, Z) * rotateBasis = (Z, X, Y)
+    local rotateBasis = Matrix {
+        { 0, 0, 1, 0 },
+        { 1, 0, 0, 0 },
+        { 0, 1, 0, 0 },
+        { 0, 0, 0, 1 },
+    }
+    local rotateBasisT = rotateBasis:GetTransposed()
     for i, prop in ipairs(staticPropInfo or {}) do
         setmetatable(prop, StaticPropMeta)
         local uv = setmetatable(uvInfo[i][#ss.RenderTarget.Resolutions], StaticPropUVMeta)
@@ -190,17 +200,6 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
             ---@class ss.PaintableCSEnt : CSEnt
             local mdl = ClientsideModel(modelName)
             if mdl then
-                local x ---@type number
-                local u, v ---@type Vector, Vector
-                if uv.Offset.z > 0 then
-                    x = uv.Offset.x + uv.Width
-                    u = Vector(0, 1, 0)
-                    v = Vector(-1, 0, 0)
-                else
-                    x = uv.Offset.x
-                    u = Vector(1, 0, 0)
-                    v = Vector(0, 1, 0)
-                end
                 mdl:SetPos(prop.Position or Vector())
                 mdl:SetAngles(prop.Angles or Angle())
                 mdl:SetKeyValue("fademindist", prop.FadeMin or -1)
@@ -208,16 +207,46 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                 mdl:SetModelScale(prop.Scale or 1)
                 mdl:SetMaterial(mat:GetName())
                 mdl.RenderOverride = RenderOverride
-                mdl.UnwrapIndex = prop.UnwrapIndex
-                mdl.WorldMatrix = mdl:GetWorldTransformMatrix()
-                mdl.WorldMatrix:SetTranslation(mdl.WorldMatrix * prop.BoundsMin)
-                mdl.WorldMatrix:InvertTR()
-                mdl.UVMatrix = Matrix()
-                mdl.UVMatrix:SetForward(u)
-                mdl.UVMatrix:SetRight(-v)
-                mdl.UVMatrix:SetTranslation(Vector(x, uv.Offset.y, uv.Offset.z))
-                mdl.UVMatrix:SetScale(Vector(uvScale, uvScale, 1))
                 mdl.Size = prop.BoundsMax - prop.BoundsMin
+                mdl.LocalTextureSpaceMatrixInv = Matrix()
+                if uv.Offset.z > 0 then
+                    -- +--------> v
+                    -- |   v'
+                    -- |   ^
+                    -- v   +---> u'
+                    -- u    \__local texture space
+                    mdl.LocalTextureSpaceMatrixInv:SetUnpacked(
+                        0, -1, 0, uv.Offset.x + uv.Width,
+                        1,  0, 0, uv.Offset.y,
+                        0,  0, 1, uv.Offset.z,
+                        0,  0, 0, 1)
+                else
+                    -- +--------> v
+                    -- | local texture space
+                    -- |   +---> v'
+                    -- v   |
+                    -- u   u'
+                    mdl.LocalTextureSpaceMatrixInv:SetUnpacked(
+                        1, 0, 0, uv.Offset.x,
+                        0, 1, 0, uv.Offset.y,
+                        0, 0, 1, uv.Offset.z,
+                        0, 0, 0, 1)
+                end
+                mdl.LocalTextureSpaceMatrixInv:InvertTR()
+                mdl.UVScale = ss.RenderTarget.HammerUnitsToUV
+                mdl.UnwrapIndex = prop.UnwrapIndex
+                mdl.WorldToLocalMatrix = mdl:GetWorldTransformMatrix()
+                mdl.WorldToLocalMatrix:SetTranslation(mdl.WorldToLocalMatrix * prop.BoundsMin)
+                if prop.UnwrapIndex == 2 then
+                    -- (X, Y, Z) * rotateBasis = (Y, Z, X)
+                    mdl.WorldToLocalMatrix:Mul(rotateBasis)
+                    mdl.Size:Mul(rotateBasisT)
+                elseif prop.UnwrapIndex == 3 then
+                    -- (X, Y, Z) * rotateBasis = (Z, X, Y)
+                    mdl.WorldToLocalMatrix:Mul(rotateBasisT)
+                    mdl.Size:Mul(rotateBasis)
+                end
+                mdl.WorldToLocalMatrix:InvertTR()
             end
         end
     end
