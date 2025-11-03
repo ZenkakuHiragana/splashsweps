@@ -1,6 +1,7 @@
 
 sampler Albedo : register(s0); // $basetexture
 sampler Normal : register(s1); // $texture1
+sampler OriginalBaseTexture : register(s2); // $texture2
 
 // Fixed as there is no way to provide current projected texture to draw
 sampler FlashlightSampler : register(s3);
@@ -14,8 +15,8 @@ const float4 c0 : register(c0);
 // y -> Hammer Unit to UV multiplier
 const float4 c1 : register(c1);
 
-const float4x4 WorldToLocalMatrix : register(c11);
-const float4x4 LocalTextureSpaceMatrixInv : register(c15);
+const float4x4 Model_T_World : register(c11);
+const float4x4 AbsoluteUV_T_LocalUV : register(c15);
 
 //  We store four light colors and positions in an
 //  array of three of these structures like so:
@@ -188,8 +189,8 @@ float3 PixelShaderDoLightingLinear(
 //    |  3 |  5 |
 //    +----+----+
 float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
-    float3 localPos = mul(float4(worldPos, 1.0), WorldToLocalMatrix).xyz;
-    float3 localNormal = mul(float4(worldNormal, 0.0), WorldToLocalMatrix).xyz;
+    float3 localPos = mul(float4(worldPos, 1.0), Model_T_World).xyz;
+    float3 localNormal = mul(float4(worldNormal, 0.0), Model_T_World).xyz;
     float3 absLocalNormal = abs(localNormal);
     float maxAbsComponent = max(absLocalNormal.x, max(absLocalNormal.y, absLocalNormal.z));
 
@@ -211,6 +212,14 @@ float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
         { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 1 },
         { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 1 },
     };
+    const float2x2 absoluteuvRlocaluv = (const float2x2)AbsoluteUV_T_LocalUV;
+    const float2 absoluteUVOriginInLocalUV = AbsoluteUV_T_LocalUV[3].xy;
+    const float4x4 absoluteuvRlocaluv4 = {
+        { absoluteuvRlocaluv[0], 0.0, 0.0 },
+        { absoluteuvRlocaluv[1], 0.0, 0.0 },
+        { 0.0, 0.0, 1.0, 0.0 },
+        { 0.0, 0.0, 0.0, 1.0 },
+    };
 
     int faceIndex;
     if (maxAbsComponent == absLocalNormal.x) {
@@ -221,46 +230,52 @@ float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
         faceIndex = localNormal.z < 0 ? 5 : 2;
     }
 
-    float3 binormal = cross(normals[faceIndex], tangents[faceIndex]);
-    float3 modelLocalFaceOrigin = size * faceOriginCoefficients[faceIndex];
-    float3x3 modelLocalFaceRotation = {
-        tangents[faceIndex],
-        binormal,
-        normals[faceIndex],
+    float3 faceNormalInModelSystem = normals[faceIndex];
+    float3 faceForwardInModelSystem = tangents[faceIndex];
+    float3 faceBinormalInModelSystem
+        = cross(faceNormalInModelSystem, faceForwardInModelSystem);
+    float3 faceOriginInModelSystem = size * faceOriginCoefficients[faceIndex];
+    float2 faceSizeInModelSystem = {
+        abs(dot(size, faceForwardInModelSystem)),
+        abs(dot(size, faceBinormalInModelSystem)),
     };
-    float3x3 modelToFaceRotation = transpose(modelLocalFaceRotation);
-    float3 faceOriginInv = mul(-modelLocalFaceOrigin, modelToFaceRotation);
-    float4x4 modelToFaceMatrix = {
-        { modelToFaceRotation[0], 0.0 },
-        { modelToFaceRotation[1], 0.0 },
-        { modelToFaceRotation[2], 0.0 },
-        { faceOriginInv,          1.0 },
+
+    float3x3 modelRface = {
+        faceForwardInModelSystem,
+        faceBinormalInModelSystem,
+        faceNormalInModelSystem,
     };
-    float4x4 worldToFaceMatrix = mul(WorldToLocalMatrix, modelToFaceMatrix);
-    float4x4 worldToUV = mul(worldToFaceMatrix, LocalTextureSpaceMatrixInv);
-    float4x4 localTextureSpaceMatrix = transpose(LocalTextureSpaceMatrixInv);
-    float3 localTextureSpaceOffset = mul(
-        localTextureSpaceMatrix,
-        float4(localTextureSpaceMatrix._14_24_34, 0.0)).xyz;
-    localTextureSpaceMatrix._14_24_34 = 0.0;
-    localTextureSpaceMatrix[3] = float4(localTextureSpaceOffset, 1.0);
-    float4 uvOffset = { size * uvOffsetCoefficients[faceIndex], 1.0 };
-    uvOffset.x += uvOffset.y;
-    uvOffset.y = uvOffset.z;
-    uvOffset.z = 0.0;
-    uvOffset = mul(uvOffset, localTextureSpaceMatrix);
-    float2 uv = mul(float4(worldPos, 1.0), worldToUV).xy;
-    uv += uvOffset.xy;
+    float3x3 faceRmodel = transpose(modelRface);
+    float3 modelOriginInFaceSystem = mul(-faceOriginInModelSystem, faceRmodel);
+    float4x4 faceTmodel = {
+        { faceRmodel[0],           0.0 },
+        { faceRmodel[1],           0.0 },
+        { faceRmodel[2],           0.0 },
+        { modelOriginInFaceSystem, 1.0 },
+    };
+    float4x4 faceTworld = mul(Model_T_World, faceTmodel);
+
+    float2 faceSizeInAbsoluteUV = abs(mul(faceSizeInModelSystem, absoluteuvRlocaluv));
+    float4x4 worldToUV = mul(faceTworld, absoluteuvRlocaluv4);
+    float3 faceUVOriginInLocalUV = size * uvOffsetCoefficients[faceIndex];
+    faceUVOriginInLocalUV.x += faceUVOriginInLocalUV.y;
+    faceUVOriginInLocalUV.y = faceUVOriginInLocalUV.z;
+    faceUVOriginInLocalUV.z = 0.0;
+    float2 faceUVOriginInAbsoluteUV
+        = mul(faceUVOriginInLocalUV.xy, absoluteuvRlocaluv)
+        + absoluteUVOriginInLocalUV;
+    float2 uv = mul(float4(worldPos, 1.0), worldToUV).xy + faceUVOriginInAbsoluteUV;
     return uv.yx * uvScale;
 }
 
 struct PS_INPUT {
     float2 pos                     : VPOS;
     float3 diffuse                 : COLOR0;
-    float4 vWorldPos_BinormalX     : TEXCOORD0;
-    float4 vWorldNormal_BinormalY  : TEXCOORD1;
-    float4 vWorldTangent_BinormalZ : TEXCOORD2;
-    float4 vLightAtten             : TEXCOORD3;
+    float2 uv                      : TEXCOORD0;
+    float4 vWorldPos_BinormalX     : TEXCOORD1;
+    float4 vWorldNormal_BinormalY  : TEXCOORD2;
+    float4 vWorldTangent_BinormalZ : TEXCOORD3;
+    float4 vLightAtten             : TEXCOORD4;
 };
 
 float4 main(const PS_INPUT i) : COLOR0 {
@@ -288,11 +303,9 @@ float4 main(const PS_INPUT i) : COLOR0 {
         i.vWorldNormal_BinormalY.w,
         i.vWorldTangent_BinormalZ.w);
     float2 uv     = CalculateMappedUV(vertexPos, vertexNormal);
-#if 0
-    return uv;
-#else
     float4 albedo = tex2D(Albedo, uv);
     float4 normal = tex2D(Normal, uv);
+    float  alpha  = tex2D(OriginalBaseTexture, i.uv).a;
     if (normal.x == 0 && normal.y == 0 && normal.z == 0) {
         normal = float4(0.5, 0.5, 1.0, 1.0);
     }
@@ -315,13 +328,12 @@ float4 main(const PS_INPUT i) : COLOR0 {
             *  step(0.0, flashlightUV.y)
             *  step(flashlightUV.x, 1.0)
             *  step(flashlightUV.y, 1.0);
-        return albedo * float4(flashlightColor, 1.0);
+        return albedo * float4(flashlightColor, alpha);
     }
     else {
         float3 diffuseLighting = PixelShaderDoLightingLinear(
             vertexPos, worldNormal, i.vLightAtten, 4, cLightInfo, true);
         diffuseLighting += i.diffuse;
-        return albedo * float4(diffuseLighting, 1.0);
+        return albedo * float4(diffuseLighting, alpha);
     }
-#endif
 }

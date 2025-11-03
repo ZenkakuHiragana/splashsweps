@@ -138,6 +138,8 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
     local mat = Material "splashsweps/shaders/staticprop"
     local dynamiclight = Material "splashsweps/shaders/phong"
     local flashlight = Material "splashsweps/shaders/vertexlitgeneric"
+    local drawStaticProps = GetConVar "r_drawstaticprops"
+    local materialCache = {} ---@type table<string, IMaterial>
 
     ---@param self Entity
     ---@param flags Enum.STUDIO
@@ -158,6 +160,9 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
     ---@param flags Enum.STUDIO
     local function RenderOverride(self, flags)
         if LocalPlayer():KeyDown(IN_RELOAD) then return end
+        if not drawStaticProps:GetBool() then return end
+        if self.FadeMaxSqr and self.FadeMaxSqr > 0 and
+           self:GetPos():DistToSqr(EyePos()) > self.FadeMaxSqr then return end
         debugoverlay.Axis(self:GetPos(), self:GetAngles(), 100, FrameTime(), true)
         mat:SetFloat("$c0_x", self.Size.x)
         mat:SetFloat("$c0_y", self.Size.y)
@@ -165,7 +170,8 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
         mat:SetFloat("$c0_w", self.UnwrapIndex)
         mat:SetFloat("$c1_y", self.UVScale)
         mat:SetMatrix("$viewprojmat", self.WorldToLocalMatrix)
-        mat:SetMatrix("$invviewprojmat", self.LocalTextureSpaceMatrixInv)
+        mat:SetMatrix("$invviewprojmat", self.AbsoluteUV_T_LocalUV)
+        mat:SetTexture("$texture2", self.BaseTexture)
         RenderOverrideInternal(self, flags)
         render.RenderFlashlights(function()
             mat:SetFloat("$c1_x", 1)
@@ -173,25 +179,28 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
             render.SetBlend(0)
             self:DrawModel(flags)
             render.SetBlend(1)
+            -- render.MaterialOverride(self.FlashlightMaterial)
             render.MaterialOverride()
             render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_MAX)
             render.DepthRange(0, 65534 / 65535)
             self:DrawModel(flags)
             render.DepthRange(0, 1)
             render.OverrideBlend(false)
+            -- render.MaterialOverride()
             mat:SetFloat("$c1_x", 0)
         end)
     end
 
-    -- Matrix(X, Y, Z) * rotateBasis = (Y, Z, X)
-    -- Vector(X, Y, Z) * rotateBasis = (Z, X, Y)
-    local rotateBasis = Matrix {
+    -- Matrix(X, Y, Z) * xyzTyzx = (Y, Z, X)
+    local xyzTyzx = Matrix {
         { 0, 0, 1, 0 },
         { 1, 0, 0, 0 },
         { 0, 1, 0, 0 },
         { 0, 0, 0, 1 },
     }
-    local rotateBasisT = rotateBasis:GetTransposed()
+    -- xyzTzxy = xyzTyzx * xyzTyzx
+    -- xyzTzxy * Vector(X, Y, Z) = (Y, Z, X)
+    local xyzTzxy = xyzTyzx:GetTransposed()
     for i, prop in ipairs(staticPropInfo or {}) do
         setmetatable(prop, StaticPropMeta)
         local uv = setmetatable(uvInfo[i][#ss.RenderTarget.Resolutions], StaticPropUVMeta)
@@ -205,17 +214,18 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                 mdl:SetKeyValue("fademindist", prop.FadeMin or -1)
                 mdl:SetKeyValue("fademaxdist", prop.FadeMax or 0)
                 mdl:SetModelScale(prop.Scale or 1)
-                mdl:SetMaterial(mat:GetName())
                 mdl.RenderOverride = RenderOverride
+                mdl.FadeMaxSqr = prop.FadeMax and (prop.FadeMax * prop.FadeMax)
                 mdl.Size = prop.BoundsMax - prop.BoundsMin
-                mdl.LocalTextureSpaceMatrixInv = Matrix()
+                mdl.AbsoluteUV_T_LocalUV = Matrix()
+                mdl.Rotated = uv.Offset.z > 0
                 if uv.Offset.z > 0 then
                     -- +--------> v
                     -- |   v'
                     -- |   ^
                     -- v   +---> u'
                     -- u    \__local texture space
-                    mdl.LocalTextureSpaceMatrixInv:SetUnpacked(
+                    mdl.AbsoluteUV_T_LocalUV:SetUnpacked(
                         0, -1, 0, uv.Offset.x + uv.Width,
                         1,  0, 0, uv.Offset.y,
                         0,  0, 1, uv.Offset.z,
@@ -226,27 +236,51 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                     -- |   +---> v'
                     -- v   |
                     -- u   u'
-                    mdl.LocalTextureSpaceMatrixInv:SetUnpacked(
+                    mdl.AbsoluteUV_T_LocalUV:SetUnpacked(
                         1, 0, 0, uv.Offset.x,
                         0, 1, 0, uv.Offset.y,
                         0, 0, 1, uv.Offset.z,
                         0, 0, 0, 1)
                 end
-                mdl.LocalTextureSpaceMatrixInv:InvertTR()
                 mdl.UVScale = ss.RenderTarget.HammerUnitsToUV
                 mdl.UnwrapIndex = prop.UnwrapIndex
                 mdl.WorldToLocalMatrix = mdl:GetWorldTransformMatrix()
                 mdl.WorldToLocalMatrix:SetTranslation(mdl.WorldToLocalMatrix * prop.BoundsMin)
                 if prop.UnwrapIndex == 2 then
-                    -- (X, Y, Z) * rotateBasis = (Y, Z, X)
-                    mdl.WorldToLocalMatrix:Mul(rotateBasis)
-                    mdl.Size:Mul(rotateBasisT)
+                    -- (X, Y, Z) * xyzTyzx = (Y, Z, X)
+                    mdl.WorldToLocalMatrix:Mul(xyzTyzx)
+                    mdl.Size:Mul(xyzTzxy)
                 elseif prop.UnwrapIndex == 3 then
-                    -- (X, Y, Z) * rotateBasis = (Z, X, Y)
-                    mdl.WorldToLocalMatrix:Mul(rotateBasisT)
-                    mdl.Size:Mul(rotateBasis)
+                    -- (X, Y, Z) * xyzTzxy = (Z, X, Y)
+                    mdl.WorldToLocalMatrix:Mul(xyzTzxy)
+                    mdl.Size:Mul(xyzTyzx)
                 end
                 mdl.WorldToLocalMatrix:InvertTR()
+                local matname = mdl:GetMaterials()[1]
+                local mdlmat = materialCache[matname] or Material(matname)
+                local basetexture = mdlmat:GetTexture "$basetexture"
+                -- local params = table.Merge(mat:GetKeyValues(), {
+                --     ["$texture2"]       = basetexture and basetexture:GetName() or "grey",
+                --     ["$c0_x"]           = mdl.Size.x,
+                --     ["$c0_y"]           = mdl.Size.y,
+                --     ["$c0_z"]           = mdl.Size.z,
+                --     ["$c0_w"]           = mdl.UnwrapIndex,
+                --     ["$c1_x"]           = "0",
+                --     ["$c1_y"]           = mdl.UVScale,
+                --     ["$viewprojmat"]    = mdl.WorldToLocalMatrix,
+                --     ["$invviewprojmat"] = mdl.AbsoluteUV_T_LocalUV,
+                -- })
+                -- materialCache[matname] = mdlmat
+                -- mdl.Material = CreateMaterial("splashsweps/sprp" .. i, "Screenspace_General", params)
+                -- mdl.Material:SetMatrix("$viewprojmat", mdl.WorldToLocalMatrix)
+                -- mdl.Material:SetMatrix("$invviewprojmat", mdl.AbsoluteUV_T_LocalUV)
+                -- mdl.FlashlightMaterial = CreateMaterial("splashsweps/sprpf" .. i, "Screenspace_General", params)
+                -- mdl.FlashlightMaterial:SetMatrix("$viewprojmat", mdl.WorldToLocalMatrix)
+                -- mdl.FlashlightMaterial:SetMatrix("$invviewprojmat", mdl.AbsoluteUV_T_LocalUV)
+                -- mdl.FlashlightMaterial:SetInt("$c1_x", 1)
+                -- mdl:SetMaterial("!" .. mdl.Material:GetName())
+                mdl.BaseTexture = basetexture
+                mdl:SetMaterial(mat:GetName())
             end
         end
     end

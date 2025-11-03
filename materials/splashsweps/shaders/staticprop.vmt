@@ -1,11 +1,12 @@
 "Screenspace_General"
 {
-    "$pixshader" "splashsweps/33_staticprop_ps30"
-    "$vertexshader" "splashsweps/34_staticprop_vs30"
+    "$pixshader" "splashsweps/staticprop_ps30"
+    "$vertexshader" "splashsweps/staticprop_vs30"
     "$linearread_texture1" "1"
 
     "$basetexture" "splashsweps_basetexture"
     "$texture1"    "splashsweps_bumpmap"
+    "$texture2"    "grey"
     "$texture3"    "effects/flashlight001"
 
     "$cull"         "1"

@@ -306,9 +306,9 @@ end
 ---.                ^               /| |  |   /
 ---.                |   Y          / V |  |  /
 ---.                |  /          z  y |  +-/-- #5(-X, -Z, -Y)
----.                | /                |   /
----.                |/                 |  /
----.         Origin *'''---__, X       | /
+---.       Model    | /                |   /
+---.        local   |/                 |  /
+---.         origin *'''---__, X       | /
 ---.                | x       '''---___|/
 ---.                |/
 ---.                |''-> y
@@ -352,22 +352,24 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
         vec( 1, 0, 0), vec(0,  1, 0), vec(0, 0,  1),
         vec(-1, 0, 0), vec(0, -1, 0), vec(0, 0, -1),
     }
-    local normalToTangent = Matrix {
-        {  0,  1,  0,  0 },
-        { -1,  0, -1,  0 },
-        {  0,  0,  0,  0 },
-        {  0,  0,  0,  1 },
+    -- [  0  1   0 ]
+    -- [ -1  0  -1 ] * localNormals = (X, Y, Z) -> (-Y, X, -Y)
+    -- [  0  0   0 ]
+    local localForwards = {
+        localNormals[5], localNormals[1], localNormals[5],
+        localNormals[2], localNormals[4], localNormals[2],
     }
-    -- Matrix(X, Y, Z) * rotateBasis = (Y, Z, X)
-    -- Vector(X, Y, Z) * rotateBasis = (Z, X, Y)
-    local rotateBasis = Matrix {
+    -- Matrix(X, Y, Z) * xyzTyzx = (Y, Z, X)
+    local xyzTyzx = Matrix {
         { 0, 0, 1, 0 },
         { 1, 0, 0, 0 },
         { 0, 1, 0, 0 },
         { 0, 0, 0, 1 },
     }
-    local rotateBasisT = rotateBasis:GetTransposed()
-    local localOriginCoefficients = {
+    -- xyzTzxy = xyzTyzx * xyzTyzx
+    -- xyzTzxy * Vector(X, Y, Z) = (Y, Z, X)
+    local xyzTzxy = xyzTyzx:GetTransposed()
+    local faceLocalOriginCoefficients = {
         vec(1, 1, 1), vec(0, 1, 1), vec(0, 1, 1),
         vec(0, 0, 1), vec(1, 0, 1), vec(0, 0, 0),
     }
@@ -375,27 +377,38 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
         vec(2, 1, 0), vec(1, 1, 0), vec(2, 1, 1),
         vec(1, 0, 0), vec(0, 0, 0), vec(1, 0, 1),
     }
-    local localToWorld = Matrix()
-    local localTextureSpaceMatrix = Matrix()
-    local localTextureSpaceInv = Matrix()
+    local worldTmodel = Matrix()
+    local absoluteuvRlocaluv = Matrix()
+    local modelUVOriginInAbsoluteUV = Vector()
     for i, prop in ipairs(staticPropInfo or {}) do
         setmetatable(prop, StaticPropMeta)
         local boundingBoxSize = prop.BoundsMax - prop.BoundsMin
-        localToWorld:SetAngles(prop.Angles)
-        localToWorld:SetTranslation(prop.Position)
-        localToWorld:SetTranslation(localToWorld * prop.BoundsMin)
+        worldTmodel:SetAngles(prop.Angles)
+        worldTmodel:SetTranslation(prop.Position)
+        worldTmodel:SetTranslation(worldTmodel * prop.BoundsMin)
         if prop.UnwrapIndex == 2 then
-            localToWorld:Mul(rotateBasis)
-            boundingBoxSize:Mul(rotateBasisT)
+            worldTmodel:Mul(xyzTyzx)
+            boundingBoxSize:Mul(xyzTzxy) -- xyzTyzx:GetTransposed()
         elseif prop.UnwrapIndex == 3 then
-            localToWorld:Mul(rotateBasisT)
-            boundingBoxSize:Mul(rotateBasis)
+            worldTmodel:Mul(xyzTzxy)
+            boundingBoxSize:Mul(xyzTyzx) -- xyzTzxy:GetTransposed()
         end
 
-        local worldToLocal = localToWorld:GetInverseTR()
-        local aabbMax = localToWorld * prop.BoundsMax
-        local aabbMin = localToWorld:GetTranslation()
-        OrderVectors(aabbMin, aabbMax)
+        local modelTworld = worldTmodel:GetInverseTR()
+        local obbHalfExtent = boundingBoxSize / 2
+        local aabbCenter = worldTmodel * obbHalfExtent
+        local aabbHalfExtent = Vector(
+            obbHalfExtent.x * math.abs(worldTmodel:GetField(1, 1)) +
+            obbHalfExtent.y * math.abs(worldTmodel:GetField(1, 2)) +
+            obbHalfExtent.z * math.abs(worldTmodel:GetField(1, 3)),
+            obbHalfExtent.x * math.abs(worldTmodel:GetField(2, 1)) +
+            obbHalfExtent.y * math.abs(worldTmodel:GetField(2, 2)) +
+            obbHalfExtent.z * math.abs(worldTmodel:GetField(2, 3)),
+            obbHalfExtent.x * math.abs(worldTmodel:GetField(3, 1)) +
+            obbHalfExtent.y * math.abs(worldTmodel:GetField(3, 2)) +
+            obbHalfExtent.z * math.abs(worldTmodel:GetField(3, 3)))
+        local aabbMax = aabbCenter + aabbHalfExtent
+        local aabbMin = aabbCenter - aabbHalfExtent
         local hammerToPixel ---@type number
         local isRotated ---@type boolean
         if CLIENT then
@@ -410,57 +423,96 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
                 -- |   v'
                 -- |   ^
                 -- v   +---> u'
-                -- u    \__local texture space
-                localTextureSpaceMatrix:SetUnpacked(
-                    0, -1, 0, uv.Offset.x + uv.Width,
-                    1,  0, 0, uv.Offset.y,
-                    0,  0, 1, uv.Offset.z,
+                -- u    \__model local uv space
+                absoluteuvRlocaluv:SetUnpacked(
+                    0, -1, 0, 0,
+                    1,  0, 0, 0,
+                    0,  0, 1, 0,
                     0,  0, 0, 1)
+                modelUVOriginInAbsoluteUV:SetUnpacked(
+                    uv.Offset.x + uv.Width, uv.Offset.y, 0)
             else
                 -- +--------> v
-                -- | local texture space
+                -- | model local uv space
                 -- |   +---> v'
                 -- v   |
                 -- u   u'
-                localTextureSpaceMatrix:SetUnpacked(
-                    1, 0, 0, uv.Offset.x,
-                    0, 1, 0, uv.Offset.y,
-                    0, 0, 1, uv.Offset.z,
-                    0, 0, 0, 1)
+                absoluteuvRlocaluv:Identity()
+                modelUVOriginInAbsoluteUV:SetUnpacked(
+                    uv.Offset.x, uv.Offset.y, 0)
             end
-            localTextureSpaceInv = localTextureSpaceMatrix:GetInverseTR()
         end
-        for j, localNormal in ipairs(localNormals) do
-            local localForward = normalToTangent * localNormal
-            local localAngle = localForward:AngleEx(localNormal)
-            local localOrigin = boundingBoxSize * localOriginCoefficients[j]
-            local width = math.abs(boundingBoxSize:Dot(localForward))
-            local height = math.abs(boundingBoxSize:Dot(-localAngle:Right()))
+        for j, faceNormalInModelSystem in ipairs(localNormals) do
+            local faceForwardInModelSystem = localForwards[j]
+            local faceAngleInModelSystem = faceForwardInModelSystem:AngleEx(faceNormalInModelSystem)
+            local faceOriginInModelSystem = boundingBoxSize * faceLocalOriginCoefficients[j]
+            local faceSizeInModelSystem = Vector(
+                math.abs(boundingBoxSize:Dot(faceForwardInModelSystem)),
+                math.abs(boundingBoxSize:Dot(faceAngleInModelSystem:Right())))
             local ps = ss.new "PaintableSurface"
             ps.AABBMax = aabbMax
             ps.AABBMin = aabbMin
-            ps.WorldToLocalGridMatrix:SetAngles(localAngle)
-            ps.WorldToLocalGridMatrix:SetTranslation(localOrigin)
-            ps.WorldToLocalGridMatrix:InvertTR()
-            ps.WorldToLocalGridMatrix:Mul(worldToLocal)
-            ps.Normal = localToWorld * localNormal - localToWorld:GetTranslation()
-            ps.Grid.Width  = math.ceil(width / ss.InkGridCellSize)
-            ps.Grid.Height = math.ceil(height / ss.InkGridCellSize)
+            ps.WorldToLocalGridMatrix:SetAngles(faceAngleInModelSystem)
+            ps.WorldToLocalGridMatrix:SetTranslation(faceOriginInModelSystem) -- modelTface
+            ps.WorldToLocalGridMatrix:InvertTR()                              -- faceTmodel
+            ps.WorldToLocalGridMatrix:Mul(modelTworld)                        -- faceTworld
+            ps.Normal = Vector(faceNormalInModelSystem)
+            ps.Normal:Rotate(worldTmodel:GetAngles())
+            ps.Grid.Width  = math.ceil(faceSizeInModelSystem.x / ss.InkGridCellSize)
+            ps.Grid.Height = math.ceil(faceSizeInModelSystem.y / ss.InkGridCellSize)
             ps.StaticPropUnwrapIndex = prop.UnwrapIndex
-            ps.MBBAngles = localToWorld:GetAngles()
-            ps.MBBOrigin = localToWorld:GetTranslation()
+            ps.MBBAngles = worldTmodel:GetAngles()
+            ps.MBBOrigin = worldTmodel:GetTranslation()
             ps.MBBSize   = boundingBoxSize
             if CLIENT then
-                local mul = boundingBoxSize * uvOffsetCoefficients[j]
-                local uvOffset = localTextureSpaceMatrix * Vector(mul.x + mul.y, mul.z)
-                ps.WorldToUVMatrix:Set(localTextureSpaceInv * ps.WorldToLocalGridMatrix)
-                ps.OffsetU  = uvOffset.x * hammerToPixel
-                ps.OffsetV  = uvOffset.y * hammerToPixel
-                ps.UVWidth  = width      * hammerToPixel
-                ps.UVHeight = height     * hammerToPixel
-                if isRotated then
-                    ps.OffsetU = ps.OffsetU - ps.UVWidth
-                end
+                -- +-------------> v
+                -- |\ <--- modelUVOriginInAbsoluteUV
+                -- | +----> v'
+                -- | | \ <--- faceUVOriginInModelSystem
+                -- | V  @==> y, v" --+
+                -- | u' |            |
+                -- V    V------------+
+                -- u    x, u"
+
+                --         modelUVOriginInAbsoluteUV
+                --         + absoluteuvRlocaluv * faceUVOrigin (in model system)
+                --                    |
+                -- +-------------> v  |    ,--- faceUVOrigin = (OffsetU, OffsetV)
+                -- |\\                |   /
+                -- | \ \             /   @=====> v" ----+ (x , y )
+                -- |  \  \          /    |              |    face local system
+                -- |   \   \       /     V              |    converted from the world
+                -- |    \    \    /      u"             | (u , v )
+                -- V     \     \ /       |              |    absolute UV
+                -- u      \      \       |              |    in the render target texture
+                --         \       \     y              | (u', v')
+                --          \        \   ^              |    model local UV
+                --           \         \ |              |    from static prop UV info
+                --            \          X=====> x -----+ (u", v")
+                --            /\  v'    /                    face local UV
+                --           /  \ ^   /                      stored to WorldToUVMatrix
+                --          /    \| / <--- faceUVOrigin (in model system)
+                --         |      *-----> u'
+                --         |
+                --      modelUVOriginInAbsoluteUV
+                local faceSizeInAbsoluteUV = absoluteuvRlocaluv * faceSizeInModelSystem
+                faceSizeInAbsoluteUV:SetUnpacked(
+                    math.abs(faceSizeInAbsoluteUV.x),
+                    math.abs(faceSizeInAbsoluteUV.y), 0)
+                local faceUVOrigin = boundingBoxSize * uvOffsetCoefficients[j]
+                faceUVOrigin:SetUnpacked(
+                    faceUVOrigin.x + faceUVOrigin.y,
+                    faceUVOrigin.z, 0) -- in model local UV
+                faceUVOrigin:Rotate(absoluteuvRlocaluv:GetAngles())
+                faceUVOrigin:Add(modelUVOriginInAbsoluteUV) -- in absolute UV
+                faceUVOrigin.x = faceUVOrigin.x - (isRotated and faceSizeInAbsoluteUV.x or 0)
+                ps.WorldToUVMatrix:Set(absoluteuvRlocaluv)
+                ps.WorldToUVMatrix:SetField(1, 4, isRotated and faceSizeInAbsoluteUV.x or 0) -- Translation X
+                ps.WorldToUVMatrix:Mul(ps.WorldToLocalGridMatrix) -- absoluteuvTlocaluv * faceTworld
+                ps.OffsetU  = faceUVOrigin.x * hammerToPixel
+                ps.OffsetV  = faceUVOrigin.y * hammerToPixel
+                ps.UVWidth  = faceSizeInAbsoluteUV.x * hammerToPixel
+                ps.UVHeight = faceSizeInAbsoluteUV.y * hammerToPixel
             end
             ss.SurfaceArray[numSurfaces + 6 * (i - 1) + j] = ps
         end
