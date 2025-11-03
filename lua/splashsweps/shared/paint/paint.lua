@@ -23,6 +23,7 @@ local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS) - 1
 
 ---Maximum angle difference allowed to paint.
 local MAX_COS = math.cos(math.rad(45))
+local MAX_COS_PROP = math.cos(math.rad(60))
 
 ---Gets AABB of incoming paint.
 ---@param pos   Vector The origin.
@@ -104,7 +105,7 @@ function ss.EnumeratePaintPositions(surf, mins, maxs, pos, ang)
                     yield(localPos, localAng:GetAngles())
                 end
             end
-        elseif ang:Up():Dot(surf.Normal) > (surf.StaticPropUnwrapIndex and 0 or MAX_COS) then
+        elseif ang:Up():Dot(surf.Normal) > (surf.StaticPropUnwrapIndex and MAX_COS_PROP or MAX_COS) then
             yield(pos, ang)
         end
     end)

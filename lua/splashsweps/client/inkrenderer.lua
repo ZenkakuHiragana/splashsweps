@@ -49,7 +49,7 @@ function ss.ClearAllInk()
     render.ClearStencil()
     render.Clear(0, 0, 0, 0)
     render.OverrideAlphaWriteEnable(false)
-    render.DrawTextureToScreen("splashsweps/debug/uvchecker")
+    -- render.DrawTextureToScreen("splashsweps/debug/uvchecker")
     render.PopRenderTarget()
 
     render.PushRenderTarget(rt.StaticTextures.Normal)
