@@ -63,17 +63,17 @@ end
 ---
 ---```text
 ---.   (1)               (2)               (3)
----. w = 2 (sx + sy)       2 (sx + sy)       2 (sx + sz)
----. h =    sx + sz           sy + sz           sy + sz
----.        sz   sx           sz   sy           sy   sz
+---. w = 2 (sx + sy)       2 (sy + sz)       2 (sx + sz)
+---. h =    sx + sz           sx + sy           sy + sz
+---.        sz   sx           sx   sy           sy   sz
 ---.      +----+----+       +----+----+       +----+----+
----.   sx | -y |    |    sy | +x |    |    sz | -x |    |
+---.   sx | -y |    |    sy | -z |    |    sz | -x |    |
 ---.      +----+----+       +----+----+       +----+----+
----.   sy | -x | -z |    sx | +y | +z |    sx | -z | -y |
+---.   sy | -x | -z |    sz | -y | -x |    sx | -z | -y |
 ---.      +----+----+       +----+----+       +----+----+
----.   sx | +y |    |    sy | -x |    |    sz | +x |    |
+---.   sx | +y |    |    sy | +z |    |    sz | +x |    |
 ---.      +----+----+       +----+----+       +----+----+
----.   sy | +x | +z |    sx | -y | -z |    sx | +z | +y |
+---.   sy | +x | +z |    sz | +y | +x |    sx | +z | +y |
 ---.      +----+----+       +----+----+       +----+----+
 ---```
 ---@param mins Vector
@@ -88,22 +88,19 @@ local function GetStaticPropUVSize(mins, maxs)
     -- Pattern 1
     local width1 = 2 * (sx + sy)
     local height1 = sx + sz
-    local wasted1 = sx
 
     -- Pattern 2
-    local width2 = 2 * (sx + sy)
-    local height2 = sy + sz
-    local wasted2 = sy
+    local width2 = 2 * (sy + sz)
+    local height2 = sx + sy
 
     -- Pattern 3
     local width3 = 2 * (sx + sz)
     local height3 = sy + sz
-    local wasted3 = sz
 
     -- Find the pattern with the smallest area
-    if wasted1 < wasted2 and wasted1 < wasted3 then
+    if sx < sy and sx < sz then
         return width1, height1, 1
-    elseif wasted2 < wasted3 then
+    elseif sy < sx and sy < sz then
         return width2, height2, 2
     else
         return width3, height3, 3

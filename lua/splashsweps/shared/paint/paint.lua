@@ -104,26 +104,7 @@ function ss.EnumeratePaintPositions(surf, mins, maxs, pos, ang)
                     yield(localPos, localAng:GetAngles())
                 end
             end
-        -- elseif surf.StaticPropUnwrapIndex then
-        --     local worldPos = pos
-        --     local worldNormal = ang:Up()
-        --     local worldToLocal = surf.WorldToLocalGridMatrix
-        --     local localPos = worldToLocal * worldPos
-        --     local localNormal = worldToLocal * worldNormal - worldToLocal:GetTranslation()
-        --     local absLocalNormal = Vector(math.abs(localNormal.x), math.abs(localNormal.y), math.abs(localNormal.z))
-        --     local isPositiveX = localNormal.x > 0
-        --     local isPositiveY = localNormal.y > 0
-        --     local isPositiveZ = localNormal.z > 0
-        --     local size = Vector(surf.MBBSize)
-        --     if surf.StaticPropUnwrapIndex == 1 then
-        --         size:SetUnpacked(size.x, size.y, size.z)
-        --     elseif surf.StaticPropUnwrapIndex == 2 then
-        --         size:SetUnpacked(size.y, size.x, size.z)
-        --     else
-        --         size:SetUnpacked(size.z, size.x, size.y)
-        --     end
-        --     yield(pos, ang)
-        elseif ang:Up():Dot(surf.Normal) > MAX_COS then
+        elseif ang:Up():Dot(surf.Normal) > (surf.StaticPropUnwrapIndex and 0 or MAX_COS) then
             yield(pos, ang)
         end
     end)
