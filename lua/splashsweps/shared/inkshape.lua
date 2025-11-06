@@ -117,5 +117,6 @@ end
 function ss.SelectRandomShape(tag, seed)
     local indices = InkShapeLists[tag]
     local name = "SplashSWEPs: Select random shape"
-    return ss.InkShapes[indices[util.SharedRandom(name, 1, #indices, seed)]]
+    local i = math.min(math.floor(util.SharedRandom(name, 1, #indices + 1, seed)), #indices)
+    return ss.InkShapes[indices[i]]
 end

@@ -46,7 +46,7 @@ SWEP.Secondary.ClipSize = -1
 SWEP.Secondary.DefaultClip = 0
 SWEP.Secondary.Ammo = "Ink"
 
-SWEP.Primary.Automatic = true
+SWEP.Primary.Automatic = false
 SWEP.Primary.Delay = 1 / 120
 
 function SWEP:Initialize()
@@ -67,12 +67,12 @@ function SWEP:PrimaryAttack()
     local radius = 80
     local pos = tr.HitPos
     local normal = tr.HitNormal
-    local right = normal:Cross(pos - tr.StartPos):GetNormalized()
+    local right = normal:Cross(tr.StartPos - pos):GetNormalized()
     local ang = right:Cross(normal):AngleEx(normal)
     debugoverlay.Axis(pos, ang, 20, 5, false)
     ss.Paint(pos, ang, Vector(radius, radius, radius * 0),
         ss.SelectRandomShape("builtin_drop").Index,
-        ss.FindInkTypeID "ColorRed" or -1)
+        ss.FindInkTypeID "ColorSeal" or -1)
     self:SetNextPrimaryFire(CurTime() + self.Primary.Delay)
 end
 
