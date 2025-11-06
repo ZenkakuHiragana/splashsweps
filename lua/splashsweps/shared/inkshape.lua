@@ -52,7 +52,7 @@ ss.struct "InkShape" {
 ---@return ss.InkShape? # the mask to be stored to.
 local function ReadPixelsFromVTF(vmt)
     ---Uncompressed texture to define the mask.
-    local path = vmt:GetString "$splashsweps_mask"
+    local path = vmt:GetString "$basetexture"
     if not path then return end
     if not path:EndsWith ".vtf" then path = path .. ".vtf" end
     if not file.Exists("materials/" .. path, "GAME") then return end
@@ -66,7 +66,7 @@ local function ReadPixelsFromVTF(vmt)
     shape.MaskTexture = path
 
     local grid = shape.Grid
-    local threshold = vmt:GetFloat "$splashsweps_maskthreshold" or 0.5
+    local threshold = vmt:GetFloat "$alphatestreference" or 0.5
     if threshold < 1 then threshold = threshold * 255 end
     for y = 0, height - 1 do
         for x = 0, width - 1 do

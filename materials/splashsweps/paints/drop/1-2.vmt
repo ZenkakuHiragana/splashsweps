@@ -1,10 +1,5 @@
 "UnlitGeneric"
 {
-    "$basetexture" "color"
-    "$alphatest" "1"
-    "$alphatestreference" "0.0859375" // = 22 / 256
-    "$vertexcolor" "1"
-
-    "$splashsweps_mask" "splashsweps/paints/drop/a2"
+    "$basetexture" "splashsweps/paints/drop/a2"
     "$splashsweps_tag" "builtin_drop"
 }

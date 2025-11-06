@@ -1,7 +1,0 @@
-"UnlitGeneric"
-{
-    "$basetexture" "splashsweps/paints/shot/n1"
-    "$alphatest" "1"
-    "$alphatestreference" "0.0859375" // = 22 / 256
-    "$vertexcolor" "1"
-}
