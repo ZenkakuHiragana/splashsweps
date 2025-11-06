@@ -148,6 +148,7 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
     matKeyValues["$basetexture"] = "splashsweps_basetexture"
     matKeyValues["$texture1"] = "splashsweps_bumpmap"
     matKeyValues["$texture3"] = "effects/flashlight001"
+    matKeyValues["$c1_y"] = ss.RenderTarget.HammerUnitsToUV
 
     ---@param self ss.PaintableCSEnt
     ---@param flags Enum.STUDIO
@@ -211,16 +212,15 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                 mdl:SetModelScale(prop.Scale or 1)
                 mdl.RenderOverride = RenderOverride
                 mdl.FadeMaxSqr = prop.FadeMax and (prop.FadeMax * prop.FadeMax)
-                mdl.Size = prop.BoundsMax - prop.BoundsMin
-                mdl.AbsoluteUV_T_LocalUV = Matrix()
-                mdl.Rotated = uv.Offset.z > 0
+                local size = prop.BoundsMax - prop.BoundsMin
+                local absoluteuvTlocaluv = Matrix()
                 if uv.Offset.z > 0 then
                     -- +--------> v
                     -- |   v'
                     -- |   ^
                     -- v   +---> u'
                     -- u    \__local texture space
-                    mdl.AbsoluteUV_T_LocalUV:SetUnpacked(
+                    absoluteuvTlocaluv:SetUnpacked(
                         0, -1, 0, uv.Offset.x + uv.Width,
                         1,  0, 0, uv.Offset.y,
                         0,  0, 1, uv.Offset.z,
@@ -231,26 +231,24 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                     -- |   +---> v'
                     -- v   |
                     -- u   u'
-                    mdl.AbsoluteUV_T_LocalUV:SetUnpacked(
+                    absoluteuvTlocaluv:SetUnpacked(
                         1, 0, 0, uv.Offset.x,
                         0, 1, 0, uv.Offset.y,
                         0, 0, 1, uv.Offset.z,
                         0, 0, 0, 1)
                 end
-                mdl.UVScale = ss.RenderTarget.HammerUnitsToUV
-                mdl.UnwrapIndex = prop.UnwrapIndex
-                mdl.WorldToLocalMatrix = mdl:GetWorldTransformMatrix()
-                mdl.WorldToLocalMatrix:SetTranslation(mdl.WorldToLocalMatrix * prop.BoundsMin)
+                local localTworld = mdl:GetWorldTransformMatrix()
+                localTworld:SetTranslation(localTworld * prop.BoundsMin)
                 if prop.UnwrapIndex == 2 then
                     -- (X, Y, Z) * xyzTyzx = (Y, Z, X)
-                    mdl.WorldToLocalMatrix:Mul(xyzTyzx)
-                    mdl.Size:Mul(xyzTzxy)
+                    localTworld:Mul(xyzTyzx)
+                    size:Mul(xyzTzxy)
                 elseif prop.UnwrapIndex == 3 then
                     -- (X, Y, Z) * xyzTzxy = (Z, X, Y)
-                    mdl.WorldToLocalMatrix:Mul(xyzTzxy)
-                    mdl.Size:Mul(xyzTyzx)
+                    localTworld:Mul(xyzTzxy)
+                    size:Mul(xyzTyzx)
                 end
-                mdl.WorldToLocalMatrix:InvertTR()
+                localTworld:InvertTR()
 
                 local matname = mdl:GetMaterials()[1]
                 local mdlmat = materialCache[matname] or Material(matname)
@@ -258,24 +256,29 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                 local params = table.Merge(matKeyValues, {
                     ["$additive"] = "0",
                     ["$texture2"] = basetexture and basetexture:GetName() or "grey",
-                    ["$c0_x"]     = mdl.Size.x,
-                    ["$c0_y"]     = mdl.Size.y,
-                    ["$c0_z"]     = mdl.Size.z,
-                    ["$c0_w"]     = mdl.UnwrapIndex,
+                    ["$c0_x"]     = size.x,
+                    ["$c0_y"]     = size.y,
+                    ["$c0_z"]     = size.z,
+                    ["$c0_w"]     = prop.UnwrapIndex,
                     ["$c1_x"]     = "0",
-                    ["$c1_y"]     = mdl.UVScale,
                 })
                 materialCache[matname] = mdlmat
                 mdl.BaseTexture = basetexture
                 mdl.Material = CreateMaterial("splashsweps/sprp" .. i, "Screenspace_General", params)
-                mdl.Material:SetMatrix("$viewprojmat", mdl.WorldToLocalMatrix)
-                mdl.Material:SetMatrix("$invviewprojmat", mdl.AbsoluteUV_T_LocalUV)
+                mdl.Material:SetMatrix("$viewprojmat", localTworld)
+                mdl.Material:SetMatrix("$invviewprojmat", absoluteuvTlocaluv)
                 params["$additive"] = "1"
                 params["$c1_x"] = "1"
                 mdl.FlashlightMaterial = CreateMaterial("splashsweps/sprpf" .. i, "Screenspace_General", params)
-                mdl.FlashlightMaterial:SetMatrix("$viewprojmat", mdl.WorldToLocalMatrix)
-                mdl.FlashlightMaterial:SetMatrix("$invviewprojmat", mdl.AbsoluteUV_T_LocalUV)
+                mdl.FlashlightMaterial:SetMatrix("$viewprojmat", localTworld)
+                mdl.FlashlightMaterial:SetMatrix("$invviewprojmat", absoluteuvTlocaluv)
                 mdl:SetMaterial("!" .. mdl.Material:GetName())
+                -- mdl.Size = size
+                -- mdl.UnwrapIndex = prop.UnwrapIndex
+                -- mdl.UVScale = ss.RenderTarget.HammerUnitsToUV
+                -- mdl.WorldToLocalMatrix = localTworld
+                -- mdl.AbsoluteUV_T_LocalUV = absoluteuvTlocaluv
+                -- mdl.BaseTexture = basetexture
                 -- mdl:SetMaterial(mat:GetName())
             end
         end
