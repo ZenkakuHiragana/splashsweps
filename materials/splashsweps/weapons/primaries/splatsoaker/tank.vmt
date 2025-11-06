@@ -7,7 +7,7 @@
     "$colortint_base" "{ 248 99 0 }"
     "$colortint_tmp" "[0 0 0]"
     "$color2" "[0.25 0.75 0.25]"
-    
+
     "$phong" "1"
     "$phongboost" "12"
     "$phongfresnelranges" "[0 0.5 1]"

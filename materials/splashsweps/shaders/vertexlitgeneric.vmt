@@ -1,0 +1,9 @@
+"VertexLitGeneric"
+{
+    // Dummy material used to pass flashlight information
+    // to custom shader's pixel shader constants.
+    "$basetexture" "null"
+    "$bumpmap"     "null-bumpmap"
+    "$phong"       "0"
+    "$alphatest"   "1"
+}

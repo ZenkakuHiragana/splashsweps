@@ -1,0 +1,46 @@
+"Screenspace_General"
+{
+    // Debug shader to visualize shader constants
+    "$pixshader" "splashsweps/debug_ps30"
+    "$vertexshader" "splashsweps/debug_vs30"
+    "$linearread_texture1" "1"
+
+    "$basetexture"  "hunter/myplastic"
+    "$texture1"     "hunter/myplastic_normal"
+    "$texture2"     "splashsweps/debug/numbers"
+    "$texture3"     "splashsweps/debug/numbers"
+
+    "$cull"         "1"
+    "$depthtest"    "1"
+    "$model"        "1"
+    "$softwareskin" "1"
+    "$vertexnormal" "1"
+    "$fix_flags2"   "529918"
+    "$viewprojmat"    "[0.25 0 0 0.0625   0 0.25 0.0 0.125   0 0 0.25 0.25   0.25 0.25 0.25 0.375]"
+    "$invviewprojmat" "[0.25 0 0 0.0625   0 0.25 0.0 0.125   0 0 0.25 0.25   0.25 0.25 0.25 0.375]"
+    "$c0_x" "0.25"
+    "$c0_y" "0"
+    "$c0_z" "0"
+    "$c0_w" "0.0625"
+    "$c1_x" "0"
+    "$c1_y" "0.25"
+    "$c1_z" "0"
+    "$c1_w" "0" // 1 to show one over constant value instead of sign(x)
+    "$c2_x" "0"
+    "$c2_y" "0"
+    "$c2_z" "0.25"
+    "$c2_w" "0.25"
+    "$c3_x" "0.25"
+    "$c3_y" "0.25"
+    "$c3_z" "0.25"
+    "$c3_w" "0" // 1 to show vertex shader constants passed from pixel shader input instead
+
+    Proxies
+    {
+        Equals
+        {
+            srcVar1     $fix_flags2
+            resultVar   $flags2
+        }
+    }
+}
