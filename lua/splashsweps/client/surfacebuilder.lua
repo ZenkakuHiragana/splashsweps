@@ -10,6 +10,7 @@ local SurfaceMeta = getmetatable(ss.new "PrecachedData.Surface")
 local UVInfoMeta = getmetatable(ss.new "PrecachedData.UVInfo")
 local VertexMeta = getmetatable(ss.new "PrecachedData.Vertex")
 local MAX_TRIANGLES = math.floor(32768 / 3) -- mesh library limitation
+local MIN_DRAW_RADIUS = 0.015 -- minimum draw radius for static props relative to ScrH()
 
 ---Construct IMesh
 ---@param surfInfo ss.PrecachedData.SurfaceInfo
@@ -141,6 +142,7 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
     local drawStaticProps = GetConVar "r_drawstaticprops"
     local materialCache = {} ---@type table<string, IMaterial>
     local matKeyValues = mat:GetKeyValues()
+    local view = Matrix()
     matKeyValues["$flags"] = nil
     matKeyValues["$flags2"] = nil
     matKeyValues["$flags_defined"] = nil
@@ -155,8 +157,15 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
     local function RenderOverride(self, flags)
         if LocalPlayer():KeyDown(IN_RELOAD) then return end
         if not drawStaticProps:GetBool() then return end
-        if self.FadeMaxSqr and self.FadeMaxSqr > 0 and
-        self:GetPos():DistToSqr(EyePos()) > self.FadeMaxSqr then return end
+        if self.FadeMaxSqr and self:GetPos():DistToSqr(EyePos()) > self.FadeMaxSqr then return end
+        view:SetTranslation(EyePos())
+        view:SetAngles(EyeAngles())
+        view:InvertTR()
+        local fov = math.rad(render.GetViewSetup().fov)
+        local z = (view * self:GetPos()).x -- projected z-position
+        local fp = ScrH() / (2 * math.tan(fov / 2)) -- focus distance in pixels
+        local r = self:GetModelRadius() * fp / z -- draw radius on the screen in pixels
+        if math.abs(r) < MIN_DRAW_RADIUS * ScrH() then return end
         -- debugoverlay.Axis(self:GetPos(), self:GetAngles(), 100, FrameTime(), true)
         -- mat:SetFloat("$c0_x", self.Size.x)
         -- mat:SetFloat("$c0_y", self.Size.y)
@@ -211,7 +220,8 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                 mdl:SetKeyValue("fademaxdist", prop.FadeMax or 0)
                 mdl:SetModelScale(prop.Scale or 1)
                 mdl.RenderOverride = RenderOverride
-                mdl.FadeMaxSqr = prop.FadeMax and (prop.FadeMax * prop.FadeMax)
+                local fadeMax = prop.FadeMax and prop.FadeMax > 0 and prop.FadeMax or false
+                mdl.FadeMaxSqr = fadeMax and (fadeMax * fadeMax)
                 local size = prop.BoundsMax - prop.BoundsMin
                 local absoluteuvTlocaluv = Matrix()
                 if uv.Offset.z > 0 then
