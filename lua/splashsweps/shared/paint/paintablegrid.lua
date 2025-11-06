@@ -284,6 +284,6 @@ end
 ---@param self ss.PaintableSurface
 function ss.ClearGrid(self)
     for i = 1, self.Grid.Width * self.Grid.Height do
-        self.Grid[i] = nil
+        self.Grid[i] = -1
     end
 end

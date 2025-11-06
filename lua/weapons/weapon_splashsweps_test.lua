@@ -46,7 +46,7 @@ SWEP.Secondary.ClipSize = -1
 SWEP.Secondary.DefaultClip = 0
 SWEP.Secondary.Ammo = "Ink"
 
-SWEP.Primary.Automatic = false
+SWEP.Primary.Automatic = true
 SWEP.Primary.Delay = 1 / 120
 
 function SWEP:Initialize()
