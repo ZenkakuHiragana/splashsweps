@@ -43,6 +43,7 @@ function ss.LoadInkMaterials()
                     ["$depthtest"] = "1",
                     ["$vertexcolor"] = "1",
                     ["$vertexalpha"] = "1",
+                    ["$alpha_blend"] = "1",
                     ["$basetexture"] = inktype.BaseTexture,
                     ["$texture1"] = inktype.Bumpmap,
                     ["$texture3"] = shape.MaskTexture,
