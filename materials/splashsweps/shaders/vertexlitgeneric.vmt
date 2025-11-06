@@ -5,4 +5,5 @@
     "$basetexture" "null"
     "$bumpmap"     "null-bumpmap"
     "$phong"       "0"
+    "$alphatest"   "1"
 }

@@ -136,12 +136,12 @@ end
 ---@param modelNames string[]
 ---@param uvInfo ss.PrecachedData.StaticProp.UVInfo[][]
 function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
-    local mat = Material "splashsweps/shaders/staticprop"
+    local templateMaterial = Material "splashsweps/shaders/staticprop"
     local dynamiclight = Material "splashsweps/shaders/phong"
     local flashlight = Material "splashsweps/shaders/vertexlitgeneric"
     local drawStaticProps = GetConVar "r_drawstaticprops"
     local materialCache = {} ---@type table<string, IMaterial>
-    local matKeyValues = mat:GetKeyValues()
+    local matKeyValues = templateMaterial:GetKeyValues()
     local view = Matrix()
     matKeyValues["$flags"] = nil
     matKeyValues["$flags2"] = nil
@@ -166,15 +166,6 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
         local fp = ScrH() / (2 * math.tan(fov / 2)) -- focus distance in pixels
         local r = self:GetModelRadius() * fp / z -- draw radius on the screen in pixels
         if math.abs(r) < MIN_DRAW_RADIUS * ScrH() then return end
-        -- debugoverlay.Axis(self:GetPos(), self:GetAngles(), 100, FrameTime(), true)
-        -- mat:SetFloat("$c0_x", self.Size.x)
-        -- mat:SetFloat("$c0_y", self.Size.y)
-        -- mat:SetFloat("$c0_z", self.Size.z)
-        -- mat:SetFloat("$c0_w", self.UnwrapIndex)
-        -- mat:SetFloat("$c1_y", self.UVScale)
-        -- mat:SetMatrix("$viewprojmat", self.WorldToLocalMatrix)
-        -- mat:SetMatrix("$invviewprojmat", self.AbsoluteUV_T_LocalUV)
-        -- mat:SetTexture("$texture2", self.BaseTexture)
         render.MaterialOverride(dynamiclight)
         self:DrawModel(flags)
         render.MaterialOverride()
@@ -182,17 +173,17 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
         self:DrawModel(flags)
         render.OverrideDepthEnable(false)
         render.RenderFlashlights(function()
-            -- mat:SetInt("$c1_x", 1)
-            -- mat:SetInt("$flags", 128)
             render.MaterialOverride(flashlight)
             self:DrawModel(flags)
-            render.MaterialOverride(self.FlashlightMaterial)
+            render.MaterialOverride(self.FlashlightMaterials[1])
+            for i, m in ipairs(self.FlashlightMaterials) do
+                render.MaterialOverrideByIndex(i - 1, m)
+            end
             render.OverrideDepthEnable(true, true)
             self:DrawModel(flags)
             render.OverrideDepthEnable(false)
+            render.MaterialOverrideByIndex()
             render.MaterialOverride()
-            -- mat:SetInt("$c1_x", 0)
-            -- mat:SetInt("$flags", 0)
         end)
     end
 
@@ -260,36 +251,34 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                 end
                 localTworld:InvertTR()
 
-                local matname = mdl:GetMaterials()[1]
-                local mdlmat = materialCache[matname] or Material(matname)
-                local basetexture = mdlmat:GetTexture "$basetexture"
                 local params = table.Merge(matKeyValues, {
-                    ["$additive"] = "0",
-                    ["$texture2"] = basetexture and basetexture:GetName() or "grey",
-                    ["$c0_x"]     = size.x,
-                    ["$c0_y"]     = size.y,
-                    ["$c0_z"]     = size.z,
-                    ["$c0_w"]     = prop.UnwrapIndex,
-                    ["$c1_x"]     = "0",
+                    ["$c0_x"] = size.x,
+                    ["$c0_y"] = size.y,
+                    ["$c0_z"] = size.z,
+                    ["$c0_w"] = prop.UnwrapIndex,
                 })
-                materialCache[matname] = mdlmat
-                mdl.BaseTexture = basetexture
-                mdl.Material = CreateMaterial("splashsweps/sprp" .. i, "Screenspace_General", params)
-                mdl.Material:SetMatrix("$viewprojmat", localTworld)
-                mdl.Material:SetMatrix("$invviewprojmat", absoluteuvTlocaluv)
-                params["$additive"] = "1"
-                params["$c1_x"] = "1"
-                mdl.FlashlightMaterial = CreateMaterial("splashsweps/sprpf" .. i, "Screenspace_General", params)
-                mdl.FlashlightMaterial:SetMatrix("$viewprojmat", localTworld)
-                mdl.FlashlightMaterial:SetMatrix("$invviewprojmat", absoluteuvTlocaluv)
-                mdl:SetMaterial("!" .. mdl.Material:GetName())
-                -- mdl.Size = size
-                -- mdl.UnwrapIndex = prop.UnwrapIndex
-                -- mdl.UVScale = ss.RenderTarget.HammerUnitsToUV
-                -- mdl.WorldToLocalMatrix = localTworld
-                -- mdl.AbsoluteUV_T_LocalUV = absoluteuvTlocaluv
-                -- mdl.BaseTexture = basetexture
-                -- mdl:SetMaterial(mat:GetName())
+                mdl.FlashlightMaterials = {} ---@type IMaterial[]
+                for j, name in ipairs(mdl:GetMaterials()) do
+                    local mdlmat = materialCache[name] or Material(name)
+                    local basetexture = mdlmat:GetTexture "$basetexture"
+
+                    params["$additive"] = "0"
+                    params["$c1_x"] = "0"
+                    local mat = CreateMaterial("splashsweps/sprp" .. i .. "-" .. j, "Screenspace_General", params)
+                    mat:SetMatrix("$viewprojmat", localTworld)
+                    mat:SetMatrix("$invviewprojmat", absoluteuvTlocaluv)
+                    mat:SetTexture("$texture2", basetexture:IsErrorTexture() and "grey" or basetexture)
+                    mdl:SetSubMaterial(j - 1, "!" .. mat:GetName())
+                    materialCache[name] = mdlmat
+
+                    params["$additive"] = "1"
+                    params["$c1_x"] = "1"
+                    mat = CreateMaterial("splashsweps/sprpf" .. i .. "-" .. j, "Screenspace_General", params)
+                    mat:SetMatrix("$viewprojmat", localTworld)
+                    mat:SetMatrix("$invviewprojmat", absoluteuvTlocaluv)
+                    mat:SetTexture("$texture2", basetexture:IsErrorTexture() and "grey" or basetexture)
+                    mdl.FlashlightMaterials[j] = mat
+                end
             end
         end
     end
