@@ -2,9 +2,10 @@
 {
     // Dummy material used to pass dynamic light information
     // to custom shader's pixel shader constants.
-    "$basetexture"           "grey"
-    "$bumpmap"               "null-bumpmap"
+    "$basetexture"            "null"
+    "$bumpmap"                "null-bumpmap"
     "$phong"                  "1"
+    "$alphatest"              "1"
     // "$phongboost"             "1"         // -> c19.w
     // "$phongfresnelranges"     "[0 0.5 1]" // -> c19.xyz
     // "$rimlight"               "1"         // required for $rimlightexponent

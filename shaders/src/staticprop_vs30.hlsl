@@ -1,4 +1,4 @@
-// #define COMPRESSED_VERTS
+#define COMPRESSED_VERTS
 
 // We're testing 2 normal compression methods
 // One compressed normals+tangents into a SHORT2 each (8 bytes total)
@@ -23,7 +23,7 @@ struct VS_INPUT {
 struct VS_OUTPUT {
     float4 pos                     : POSITION;
     float3 diffuse                 : COLOR0;
-    float2 uv                      : TEXCOORD0;
+    float4 uv_depth                : TEXCOORD0;
     float4 vWorldPos_BinormalX     : TEXCOORD1;
     float4 vWorldNormal_BinormalY  : TEXCOORD2;
     float4 vWorldTangent_BinormalZ : TEXCOORD3;
@@ -43,7 +43,7 @@ const float3 cAmbientCubeY[2] : register(c23);
 const float3 cAmbientCubeZ[2] : register(c25);
 const float4x4 cModelViewProj : register(c4);
 const float4x4 cViewProj      : register(c8);
-const float4x3 cModel[16]     : register(c48);
+const float4x3 cModel[53]     : register(c58);
 const int g_nLightCountRegister : register(i0);
 #define g_nLightCount g_nLightCountRegister.x
 LightInfo cLightInfo[4] : register(c27);
@@ -175,7 +175,7 @@ void DecompressShort2NormalTangent(
 void DecompressUByte4NormalTangent(float4 inputNormal,
     out float3 outputNormal,    // {nX, nY, nZ}
     out float4 outputTangent) { // {tX, tY, tZ, sign of binormal}
-    float fOne   = 1.0f;
+    float fOne          = 1.0f;
     float4 ztztSignBits = (inputNormal - 128.0f) < 0;                    // sign bits for zs and binormal (1 or 0)  set-less-than (slt) asm instruction
     float4 xyxyAbs      = abs(inputNormal - 128.0f) - ztztSignBits;      // 0..127
     float4 xyxySignBits = (xyxyAbs - 64.0f) < 0;                         // sign bits for xs and ys (1 or 0)
@@ -183,8 +183,8 @@ void DecompressUByte4NormalTangent(float4 inputNormal,
     outputNormal.xy     = normTan.xy;                                    // abs({nX, nY, __, __})
     outputTangent.xy    = normTan.zw;                                    // abs({tX, tY, __, __})
 
-    float4 xyxySigns    = 1 - 2*xyxySignBits;                       // Convert sign bits to signs
-    float4 ztztSigns    = 1 - 2*ztztSignBits;                       // ( [1,0] -> [-1,+1] )
+    float4 xyxySigns    = 1 - 2 * xyxySignBits;                     // Convert sign bits to signs
+    float4 ztztSigns    = 1 - 2 * ztztSignBits;                     // ( [1,0] -> [-1,+1] )
 
     outputNormal.z      = 1.0f - outputNormal.x - outputNormal.y;   // Project onto x+y+z=1
     outputNormal.xyz    = normalize(outputNormal.xyz);              // Normalize onto unit sphere
@@ -259,24 +259,6 @@ void SkinPositionNormalAndTangentSpace(
     worldTangentT = cross(worldNormal, worldTangentS) * modelTangentS.w;
 }
 
-void SkinPosition(
-    bool bSkinning, const float4 modelPos,
-    const float4 boneWeights, float4 fBoneIndices,
-    out float3 worldPos) {
-    int3 boneIndices = D3DCOLORtoUBYTE4(fBoneIndices).xyz;
-    if (bSkinning) { // skinning - always three bones
-        float4x3 mat1 = cModel[boneIndices[0]];
-        float4x3 mat2 = cModel[boneIndices[1]];
-        float4x3 mat3 = cModel[boneIndices[2]];
-        float3 weights = DecompressBoneWeights(boneWeights).xyz;
-        weights[2] = 1 - (weights[0] + weights[1]);
-        float4x3 blendMatrix = mat1 * weights[0] + mat2 * weights[1] + mat3 * weights[2];
-        worldPos = mul4x3(modelPos, blendMatrix);
-    } else {
-        worldPos = mul4x3(modelPos, cModel[0]);
-    }
-}
-
 VS_OUTPUT main(const VS_INPUT v) {
     VS_OUTPUT output;
 
@@ -301,7 +283,9 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.pos = mul(float4(worldPos, 1.0), cModelViewProj);
 #endif
 
-    output.uv = v.uv;
+    output.uv_depth.xy = v.uv;
+    output.uv_depth.z = output.pos.z;
+    output.uv_depth.w = output.pos.w;
     output.diffuse = DoLighting(worldPos, worldNormal, true);
     output.vWorldPos_BinormalX.xyz     = worldPos;
     output.vWorldNormal_BinormalY.xyz  = worldNormal;

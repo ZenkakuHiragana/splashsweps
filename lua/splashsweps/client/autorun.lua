@@ -78,12 +78,12 @@ local function LoadCache()
     ss.SurfaceHash = surfaces.SurfaceHash
     ss.HashParameters = setmetatable(cache.HashParameters, getmetatable(ss.new "PrecachedData.HashParameters"))
 
+    ss.SetupRenderTargets()
     ss.SetupHDRLighting(cache)
     ss.SetupModels(modelInfo, surfaces)
     ss.SetupSurfaces(surfaces.Surfaces)
     ss.SetupSurfacesStaticProp(cache.StaticProps, staticPropUV)
     ss.SetupStaticProps(cache.StaticProps, cache.StaticPropMDL, staticPropUV)
-    ss.SetupRenderTargets()
     ss.SetupLightmap(pngPath)
     ss.LoadInkFeatures()
     ss.LoadInkShapes()

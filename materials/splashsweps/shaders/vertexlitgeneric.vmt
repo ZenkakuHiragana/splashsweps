@@ -2,7 +2,7 @@
 {
     // Dummy material used to pass flashlight information
     // to custom shader's pixel shader constants.
-    "$basetexture" "grey"
+    "$basetexture" "null"
     "$bumpmap"     "null-bumpmap"
     "$phong"       "0"
 }

@@ -11,16 +11,5 @@
 
     "$cull"         "1"
     "$depthtest"    "1"
-    "$model"        "1"
-    "$softwareskin" "1"
     "$vertexnormal" "1"
-    "$fix_flags2"   "529918"
-    Proxies
-    {
-        Equals
-        {
-            srcVar1     $fix_flags2
-            resultVar   $flags2
-        }
-    }
 }

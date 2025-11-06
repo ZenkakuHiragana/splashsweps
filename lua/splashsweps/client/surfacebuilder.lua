@@ -140,21 +140,14 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
     local flashlight = Material "splashsweps/shaders/vertexlitgeneric"
     local drawStaticProps = GetConVar "r_drawstaticprops"
     local materialCache = {} ---@type table<string, IMaterial>
-
-    ---@param self Entity
-    ---@param flags Enum.STUDIO
-    local function RenderOverrideInternal(self, flags)
-        render.MaterialOverride(dynamiclight)
-        render.SetBlend(0)
-        self:DrawModel(flags)
-        render.SetBlend(1)
-        render.MaterialOverride()
-        render.OverrideDepthEnable(true, true)
-        render.DepthRange(0, 65534 / 65535)
-        self:DrawModel(flags)
-        render.DepthRange(0, 1)
-        render.OverrideDepthEnable(false)
-    end
+    local matKeyValues = mat:GetKeyValues()
+    matKeyValues["$flags"] = nil
+    matKeyValues["$flags2"] = nil
+    matKeyValues["$flags_defined"] = nil
+    matKeyValues["$flags_defined2"] = nil
+    matKeyValues["$basetexture"] = "splashsweps_basetexture"
+    matKeyValues["$texture1"] = "splashsweps_bumpmap"
+    matKeyValues["$texture3"] = "effects/flashlight001"
 
     ---@param self ss.PaintableCSEnt
     ---@param flags Enum.STUDIO
@@ -162,32 +155,34 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
         if LocalPlayer():KeyDown(IN_RELOAD) then return end
         if not drawStaticProps:GetBool() then return end
         if self.FadeMaxSqr and self.FadeMaxSqr > 0 and
-           self:GetPos():DistToSqr(EyePos()) > self.FadeMaxSqr then return end
-        debugoverlay.Axis(self:GetPos(), self:GetAngles(), 100, FrameTime(), true)
-        mat:SetFloat("$c0_x", self.Size.x)
-        mat:SetFloat("$c0_y", self.Size.y)
-        mat:SetFloat("$c0_z", self.Size.z)
-        mat:SetFloat("$c0_w", self.UnwrapIndex)
-        mat:SetFloat("$c1_y", self.UVScale)
-        mat:SetMatrix("$viewprojmat", self.WorldToLocalMatrix)
-        mat:SetMatrix("$invviewprojmat", self.AbsoluteUV_T_LocalUV)
-        mat:SetTexture("$texture2", self.BaseTexture)
-        RenderOverrideInternal(self, flags)
+        self:GetPos():DistToSqr(EyePos()) > self.FadeMaxSqr then return end
+        -- debugoverlay.Axis(self:GetPos(), self:GetAngles(), 100, FrameTime(), true)
+        -- mat:SetFloat("$c0_x", self.Size.x)
+        -- mat:SetFloat("$c0_y", self.Size.y)
+        -- mat:SetFloat("$c0_z", self.Size.z)
+        -- mat:SetFloat("$c0_w", self.UnwrapIndex)
+        -- mat:SetFloat("$c1_y", self.UVScale)
+        -- mat:SetMatrix("$viewprojmat", self.WorldToLocalMatrix)
+        -- mat:SetMatrix("$invviewprojmat", self.AbsoluteUV_T_LocalUV)
+        -- mat:SetTexture("$texture2", self.BaseTexture)
+        render.MaterialOverride(dynamiclight)
+        self:DrawModel(flags)
+        render.MaterialOverride()
+        render.OverrideDepthEnable(true, true)
+        self:DrawModel(flags)
+        render.OverrideDepthEnable(false)
         render.RenderFlashlights(function()
-            mat:SetFloat("$c1_x", 1)
+            -- mat:SetInt("$c1_x", 1)
+            -- mat:SetInt("$flags", 128)
             render.MaterialOverride(flashlight)
-            render.SetBlend(0)
             self:DrawModel(flags)
-            render.SetBlend(1)
-            -- render.MaterialOverride(self.FlashlightMaterial)
+            render.MaterialOverride(self.FlashlightMaterial)
+            render.OverrideDepthEnable(true, true)
+            self:DrawModel(flags)
+            render.OverrideDepthEnable(false)
             render.MaterialOverride()
-            render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_MAX)
-            render.DepthRange(0, 65534 / 65535)
-            self:DrawModel(flags)
-            render.DepthRange(0, 1)
-            render.OverrideBlend(false)
-            -- render.MaterialOverride()
-            mat:SetFloat("$c1_x", 0)
+            -- mat:SetInt("$c1_x", 0)
+            -- mat:SetInt("$flags", 0)
         end)
     end
 
@@ -256,31 +251,32 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                     mdl.Size:Mul(xyzTyzx)
                 end
                 mdl.WorldToLocalMatrix:InvertTR()
+
                 local matname = mdl:GetMaterials()[1]
                 local mdlmat = materialCache[matname] or Material(matname)
                 local basetexture = mdlmat:GetTexture "$basetexture"
-                -- local params = table.Merge(mat:GetKeyValues(), {
-                --     ["$texture2"]       = basetexture and basetexture:GetName() or "grey",
-                --     ["$c0_x"]           = mdl.Size.x,
-                --     ["$c0_y"]           = mdl.Size.y,
-                --     ["$c0_z"]           = mdl.Size.z,
-                --     ["$c0_w"]           = mdl.UnwrapIndex,
-                --     ["$c1_x"]           = "0",
-                --     ["$c1_y"]           = mdl.UVScale,
-                --     ["$viewprojmat"]    = mdl.WorldToLocalMatrix,
-                --     ["$invviewprojmat"] = mdl.AbsoluteUV_T_LocalUV,
-                -- })
-                -- materialCache[matname] = mdlmat
-                -- mdl.Material = CreateMaterial("splashsweps/sprp" .. i, "Screenspace_General", params)
-                -- mdl.Material:SetMatrix("$viewprojmat", mdl.WorldToLocalMatrix)
-                -- mdl.Material:SetMatrix("$invviewprojmat", mdl.AbsoluteUV_T_LocalUV)
-                -- mdl.FlashlightMaterial = CreateMaterial("splashsweps/sprpf" .. i, "Screenspace_General", params)
-                -- mdl.FlashlightMaterial:SetMatrix("$viewprojmat", mdl.WorldToLocalMatrix)
-                -- mdl.FlashlightMaterial:SetMatrix("$invviewprojmat", mdl.AbsoluteUV_T_LocalUV)
-                -- mdl.FlashlightMaterial:SetInt("$c1_x", 1)
-                -- mdl:SetMaterial("!" .. mdl.Material:GetName())
+                local params = table.Merge(matKeyValues, {
+                    ["$additive"] = "0",
+                    ["$texture2"] = basetexture and basetexture:GetName() or "grey",
+                    ["$c0_x"]     = mdl.Size.x,
+                    ["$c0_y"]     = mdl.Size.y,
+                    ["$c0_z"]     = mdl.Size.z,
+                    ["$c0_w"]     = mdl.UnwrapIndex,
+                    ["$c1_x"]     = "0",
+                    ["$c1_y"]     = mdl.UVScale,
+                })
+                materialCache[matname] = mdlmat
                 mdl.BaseTexture = basetexture
-                mdl:SetMaterial(mat:GetName())
+                mdl.Material = CreateMaterial("splashsweps/sprp" .. i, "Screenspace_General", params)
+                mdl.Material:SetMatrix("$viewprojmat", mdl.WorldToLocalMatrix)
+                mdl.Material:SetMatrix("$invviewprojmat", mdl.AbsoluteUV_T_LocalUV)
+                params["$additive"] = "1"
+                params["$c1_x"] = "1"
+                mdl.FlashlightMaterial = CreateMaterial("splashsweps/sprpf" .. i, "Screenspace_General", params)
+                mdl.FlashlightMaterial:SetMatrix("$viewprojmat", mdl.WorldToLocalMatrix)
+                mdl.FlashlightMaterial:SetMatrix("$invviewprojmat", mdl.AbsoluteUV_T_LocalUV)
+                mdl:SetMaterial("!" .. mdl.Material:GetName())
+                -- mdl:SetMaterial(mat:GetName())
             end
         end
     end

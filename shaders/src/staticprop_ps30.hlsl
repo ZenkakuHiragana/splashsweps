@@ -204,6 +204,27 @@ float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
         normals[4], normals[0], normals[4],
         normals[1], normals[3], normals[1],
     };
+    const float3 binormals[6] = {
+        cross(normals[0], tangents[0]), cross(normals[1], tangents[1]),
+        cross(normals[2], tangents[2]), cross(normals[3], tangents[3]),
+        cross(normals[4], tangents[4]), cross(normals[5], tangents[5]),
+    };
+    const float3x3 modelRfaces[6] = {
+        { tangents[0], binormals[0], normals[0] },
+        { tangents[1], binormals[1], normals[1] },
+        { tangents[2], binormals[2], normals[2] },
+        { tangents[3], binormals[3], normals[3] },
+        { tangents[4], binormals[4], normals[4] },
+        { tangents[5], binormals[5], normals[5] },
+    };
+    const float3x3 faceRmodels[6] = {
+        transpose(modelRfaces[0]),
+        transpose(modelRfaces[1]),
+        transpose(modelRfaces[2]),
+        transpose(modelRfaces[3]),
+        transpose(modelRfaces[4]),
+        transpose(modelRfaces[5]),
+    };
     const float3 faceOriginCoefficients[6] = {
         { 1, 1, 1 }, { 0, 1, 1 }, { 0, 1, 1 },
         { 0, 0, 1 }, { 1, 0, 1 }, { 0, 0, 0 },
@@ -230,22 +251,13 @@ float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
         faceIndex = localNormal.z < 0 ? 5 : 2;
     }
 
-    float3 faceNormalInModelSystem = normals[faceIndex];
-    float3 faceForwardInModelSystem = tangents[faceIndex];
-    float3 faceBinormalInModelSystem
-        = cross(faceNormalInModelSystem, faceForwardInModelSystem);
+    float3x3 faceRmodel = faceRmodels[faceIndex];
     float3 faceOriginInModelSystem = size * faceOriginCoefficients[faceIndex];
     float2 faceSizeInModelSystem = {
-        abs(dot(size, faceForwardInModelSystem)),
-        abs(dot(size, faceBinormalInModelSystem)),
+        abs(dot(size, tangents[faceIndex])),
+        abs(dot(size, binormals[faceIndex])),
     };
 
-    float3x3 modelRface = {
-        faceForwardInModelSystem,
-        faceBinormalInModelSystem,
-        faceNormalInModelSystem,
-    };
-    float3x3 faceRmodel = transpose(modelRface);
     float3 modelOriginInFaceSystem = mul(-faceOriginInModelSystem, faceRmodel);
     float4x4 faceTmodel = {
         { faceRmodel[0],           0.0 },
@@ -271,14 +283,20 @@ float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
 struct PS_INPUT {
     float2 pos                     : VPOS;
     float3 diffuse                 : COLOR0;
-    float2 uv                      : TEXCOORD0;
+    float4 uv_depth                : TEXCOORD0;
     float4 vWorldPos_BinormalX     : TEXCOORD1;
     float4 vWorldNormal_BinormalY  : TEXCOORD2;
     float4 vWorldTangent_BinormalZ : TEXCOORD3;
     float4 vLightAtten             : TEXCOORD4;
 };
 
-float4 main(const PS_INPUT i) : COLOR0 {
+struct PS_OUTPUT {
+    float4 color : COLOR0;
+    float  depth : DEPTH0;
+};
+
+PS_OUTPUT main(const PS_INPUT i) {
+    const float    depthRatio = 65534.0 / 65535.0;
     const float4   g_FlashlightAttenuationFactors = c22;
     const float3   g_FlashlightPos                = c23.xyz;
     const float4x4 g_FlashlightWorldToTexture = {
@@ -287,14 +305,17 @@ float4 main(const PS_INPUT i) : COLOR0 {
         c24.z, c25.z, c26.z, c27.z,
         c24.w, c25.w, c26.w, c27.w,
     };
-    PixelShaderLightInfo cLightInfo[3];
-    cLightInfo[0].color = c20;
-    cLightInfo[0].pos   = c21;
-    cLightInfo[1].color = c22;
-    cLightInfo[1].pos   = c23;
-    cLightInfo[2].color = c24;
-    cLightInfo[2].pos   = c25;
+    const PixelShaderLightInfo cLightInfo[3] = {
+        { c20, c21 },
+        { c22, c23 },
+        { c24, c25 },
+    };
 
+    PS_OUTPUT output = {
+        float4(0.0, 0.0, 0.0, 0.0),
+        // Slightly push forward to the camera to avoid Z-fighting
+        i.uv_depth.z / i.uv_depth.w * depthRatio,
+    };
     float3 vertexPos      = i.vWorldPos_BinormalX.xyz;
     float3 vertexNormal   = i.vWorldNormal_BinormalY.xyz;
     float3 vertexTangent  = i.vWorldTangent_BinormalZ.xyz;
@@ -305,7 +326,7 @@ float4 main(const PS_INPUT i) : COLOR0 {
     float2 uv     = CalculateMappedUV(vertexPos, vertexNormal);
     float4 albedo = tex2D(Albedo, uv);
     float4 normal = tex2D(Normal, uv);
-    float  alpha  = tex2D(OriginalBaseTexture, i.uv).a;
+    float  alpha  = tex2D(OriginalBaseTexture, i.uv_depth.xy).a;
     if (normal.x == 0 && normal.y == 0 && normal.z == 0) {
         normal = float4(0.5, 0.5, 1.0, 1.0);
     }
@@ -328,12 +349,14 @@ float4 main(const PS_INPUT i) : COLOR0 {
             *  step(0.0, flashlightUV.y)
             *  step(flashlightUV.x, 1.0)
             *  step(flashlightUV.y, 1.0);
-        return albedo * float4(flashlightColor, alpha);
+        output.color = albedo * float4(flashlightColor, alpha);
     }
     else {
         float3 diffuseLighting = PixelShaderDoLightingLinear(
             vertexPos, worldNormal, i.vLightAtten, 4, cLightInfo, true);
         diffuseLighting += i.diffuse;
-        return albedo * float4(diffuseLighting, alpha);
+        output.color = albedo * float4(diffuseLighting, alpha);
     }
+    return output;
+    // return output.color;
 }
