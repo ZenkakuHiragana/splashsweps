@@ -7,29 +7,7 @@ if not SplashSWEPs then
         IMesh = {},
         ---Material to draw painted ink.
         ---@type IMaterial
-        InkMeshMaterial = CreateMaterial(
-            "splashsweps_inkmesh",
-            "LightmappedGeneric", {
-                ["$basetexture"]                 = "color",
-                ["$bumpmap"]                     = "null-bumpmap",
-                ["$vertexcolor"]                 = "1",
-                ["$nolod"]                       = "1",
-                ["$alpha"]                       = "0.99609375", -- = 255 / 256,
-                ["$alphatest"]                   = "1",
-                ["$alphatestreference"]          = "0.0625",
-                ["$phong"]                       = "1",
-                ["$phongexponent"]               = "128",
-                ["$phongamount"]                 = "[1 1 1 1]",
-                ["$phongmaskcontrastbrightness"] = "[2 .7]",
-                ["$envmap"]                      = "shadertest/shadertest_env",
-                ["$envmaptint"]                  = "[1 1 1]",
-                -- ["$color"]                       = "[1 1 1]",
-                -- ["$detail"]                      = "color",
-                -- ["$detailscale"]                 = 1,
-                -- ["$detailblendmode"]             = 5,
-                -- ["$detailblendfactor"]           = 1, -- Increase this for bright ink in night maps
-            }
-        ),
+        InkMeshMaterial = Material "splashsweps/inkmesh",
     }
 end
 

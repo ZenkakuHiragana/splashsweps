@@ -1,0 +1,22 @@
+"LightmappedGeneric"
+{
+    "$basetexture"                 "splashsweps_basetexture"
+    "$bumpmap"                     "splashsweps_bumpmap"
+    "$additive"                    "0"
+    "$vertexcolor"                 "1"
+    "$nolod"                       "1"
+    "$alpha"                       "0.99609375" // = 255 / 256
+    "$alphatest"                   "1"
+    "$alphatestreference"          "0.0625"
+    "$phong"                       "1"
+    "$phongexponent"               "128"
+    "$phongamount"                 "[1 1 1 1]"
+    "$phongmaskcontrastbrightness" "[2 .7]"
+    "$envmap"                      "shadertest/shadertest_env.hdr"
+    "$envmaptint"                  "[.005 .005 .005]"
+    "$color"                       "[.05 .05 .05]"
+    // "$detail"                      "color"
+    // "$detailscale"                 1
+    // "$detailblendmode"             5
+    // "$detailblendfactor"           1 // Increase this for bright ink in night map
+}
