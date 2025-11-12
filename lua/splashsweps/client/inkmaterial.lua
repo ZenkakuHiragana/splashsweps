@@ -40,6 +40,7 @@ function ss.LoadInkMaterials()
                     ["$alpha_blend"] = "1",
                     ["$cull"] = "1",
                     ["$depthtest"] = "1",
+                    ["$linearread_texture1"] = "1",
                     ["$linearwrite"] = "1",
                     ["$softwareskin"] = "1",
                     ["$writealpha"] = "1",
