@@ -54,36 +54,46 @@ sampler Texture2 : register(s2);
 const float4 c[32] : register(c0);
 
 struct PS_INPUT {
-    float4 pos     : VPOS;
-    float2 uv      : TEXCOORD0;
-    float4 data[8] : TEXCOORD1;
+    float4 pos      : VPOS;
+    float4 uv_depth : TEXCOORD0;
+    float4 data[8]  : TEXCOORD1;
 };
 
-float4 main(const PS_INPUT i) : COLOR0 {
+struct PS_OUTPUT {
+    float4 color : COLOR0;
+    float  depth : DEPTH0;
+};
+
+PS_OUTPUT main(const PS_INPUT i) {
     const float NUM_DIVISION = 8;
-    float ix = min(floor(i.uv.x * NUM_DIVISION), NUM_DIVISION - 1);
-    float iy = min(floor(i.uv.y * 0.5 * NUM_DIVISION), NUM_DIVISION - 1);
-    float index = iy * NUM_DIVISION + ix;
-    float4 data = c[index];
+    float2 uv    = i.uv_depth.xy;
+    float  ix    = min(floor(uv.x * NUM_DIVISION), NUM_DIVISION - 1);
+    float  iy    = min(floor(uv.y * 0.5 * NUM_DIVISION), NUM_DIVISION - 1);
+    float  index = iy * NUM_DIVISION + ix;
+    float4 data  = c[index];
+    PS_OUTPUT output = {
+        float4(0.0, 0.0, 0.0, 0.0),
+        i.uv_depth.z / i.uv_depth.w,
+    };
     if (c[3].w > 0) {
         data = index < 8 ? i.data[index] : float4(0.0, 0.0, 0.0, 0.0);
     }
-    float4 albedo = tex2D(Texture2, i.uv);
+    float4 albedo = tex2D(Texture2, uv);
     albedo.rgb = 1.0 - albedo.rgb;
 
-    if (i.uv.y * 0.5 * NUM_DIVISION - iy < 0.5) {
-        if (i.uv.x * NUM_DIVISION - ix < 0.25 && i.uv.y * 0.5 * NUM_DIVISION - iy < 0.125) {
-            float u = (i.uv.x * NUM_DIVISION - ix) * 4.0;
-            float v = (i.uv.y * 0.5 * NUM_DIVISION - iy) * 8.0;
+    if (uv.y * 0.5 * NUM_DIVISION - iy < 0.5) {
+        if (uv.x * NUM_DIVISION - ix < 0.25 && uv.y * 0.5 * NUM_DIVISION - iy < 0.125) {
+            float u = (uv.x * NUM_DIVISION - ix) * 4.0;
+            float v = (uv.y * 0.5 * NUM_DIVISION - iy) * 8.0;
             u = (0.25 - (u - 0.5) * (u - 0.5)) * 4.0;
             v = (0.25 - (v - 0.5) * (v - 0.5)) * 4.0;
             if (data.r < -1 || data.r > 1 ||
                 data.g < -1 || data.g > 1 ||
                 data.b < -1 || data.b > 1) {
-                return lerp(float4(u, v, (u + v) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+                output.color = lerp(float4(u, v, (u + v) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
             }
             else if (data.r < 0 || data.g < 0 || data.b < 0) {
-                return float4(
+                output.color = float4(
                     data.r < 0 ? 1.0 : 0.0,
                     data.g < 0 ? 1.0 : 0.0,
                     data.b < 0 ? 1.0 : 0.0,
@@ -93,36 +103,37 @@ float4 main(const PS_INPUT i) : COLOR0 {
         if (-1 <= data.r && data.r <= 1 &&
             -1 <= data.g && data.g <= 1 &&
             -1 <= data.b && data.b <= 1) {
-            return lerp(float4(abs(data.rgb), 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            output.color = lerp(float4(abs(data.rgb), 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
         else if (c[1].w > 0) {
-            return lerp(float4((clamp(rcp(data.rgb), -1.0, 1.0) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            output.color = lerp(float4((clamp(rcp(data.rgb), -1.0, 1.0) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
         else {
-            return lerp(float4((sign(data.rgb) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            output.color = lerp(float4((sign(data.rgb) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
     }
     else {
-        if (i.uv.x * NUM_DIVISION - ix < 0.25 && i.uv.y * 0.5 * NUM_DIVISION - iy < 0.625) {
-            float u = (i.uv.x * NUM_DIVISION - ix) * 4.0;
-            float v = (i.uv.y * 0.5 * NUM_DIVISION - iy - 0.5) * 8.0;
+        if (uv.x * NUM_DIVISION - ix < 0.25 && uv.y * 0.5 * NUM_DIVISION - iy < 0.625) {
+            float u = (uv.x * NUM_DIVISION - ix) * 4.0;
+            float v = (uv.y * 0.5 * NUM_DIVISION - iy - 0.5) * 8.0;
             u = (0.25 - (u - 0.5) * (u - 0.5)) * 4.0;
             v = (0.25 - (v - 0.5) * (v - 0.5)) * 4.0;
             if (data.a < -1 || data.a > 1) {
-                return lerp(float4(u, v, (u + v) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+                output.color = lerp(float4(u, v, (u + v) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
             }
             else if (data.a < 0) {
-                return float4(1.0, 0.0, 0.0, 1.0);
+                output.color = float4(1.0, 0.0, 0.0, 1.0);
             }
         }
         if (-1 <= data.a && data.a <= 1) {
-            return lerp(float4(abs(data.aaa), 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            output.color = lerp(float4(abs(data.aaa), 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
         else if (c[1].w > 0) {
-            return lerp(float4((clamp(rcp(data.aaa), -1.0, 1.0) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            output.color = lerp(float4((clamp(rcp(data.aaa), -1.0, 1.0) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
         else {
-            return lerp(float4((sign(data.aaa) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            output.color = lerp(float4((sign(data.aaa) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
     }
+    return output;
 }

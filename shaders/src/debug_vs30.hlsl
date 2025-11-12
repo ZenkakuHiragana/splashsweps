@@ -73,9 +73,9 @@ struct VS_INPUT {
 };
 
 struct VS_OUTPUT {
-    float4 pos     : POSITION;
-    float2 uv      : TEXCOORD0;
-    float4 data[8] : TEXCOORD1;
+    float4 pos      : POSITION;
+    float4 uv_depth : TEXCOORD0;
+    float4 data[8]  : TEXCOORD1;
 };
 
 VS_OUTPUT main(const VS_INPUT v) {
@@ -87,7 +87,8 @@ VS_OUTPUT main(const VS_INPUT v) {
     };
     VS_OUTPUT output;
     output.pos = mul(float4(v.pos, 1.0), cModelViewProj);
-    output.uv  = v.uv;
+    output.uv_depth.xy  = v.uv;
+    output.uv_depth.zw = output.pos.zw;
     for (int i = 0; i < 8; ++i) {
         output.data[i] = c[i + 56];
     }
