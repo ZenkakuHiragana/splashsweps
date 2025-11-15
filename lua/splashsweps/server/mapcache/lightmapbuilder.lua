@@ -1,285 +1,249 @@
+--!owner "Nanashi"
+--!optimize 2
+--!nocheck
 
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
 
-local clamp    = math.Clamp
-local round    = math.Round
-local band     = bit.band
-local bor      = bit.bor
-local lshift   = bit.lshift
-local rshift   = bit.rshift
-local tonumber = tonumber
+local band = bit.band
 
-local NUM_CHANNELS = 4
-local MARGIN_IN_LUXELS = 1
+-- From public/bspflags.h
+local SURF_NOLIGHT = 0x0004
 
----Picks up width and height of all surfaces from their lightmap info and packs them to an array.
----@param faces ss.Binary.BSP.FACES[]
----@param surfaces ss.PrecachedData.Surface[]
----@return ss.Rectangle[]
-local function CreateRectangles(faces, surfaces)
-    local out = {} ---@type ss.Rectangle[]
-    for _, surf in ipairs(surfaces) do
-        local faceIndex = surf.FaceLumpIndex
-        local rawFace = faces[faceIndex]
-        if rawFace.lightOffset >= 0 then
-            local widthInLuxels = rawFace.lightmapTextureSizeInLuxels[1]
-            local heightInLuxels = rawFace.lightmapTextureSizeInLuxels[2]
-            local width = widthInLuxels + 1 + MARGIN_IN_LUXELS * 2
-            local height = heightInLuxels + 1 + MARGIN_IN_LUXELS * 2
-            out[#out + 1] = ss.MakeRectangle(width, height, 0, 0, surf)
+-- From public\materialsystem\imaterial.h
+local MATERIAL_VAR2_LIGHTING_BUMPED_LIGHTMAP = 8 -- (1 << 3)
+
+---@class ss.LightmapMaterial
+---@field Name string
+---@field EnumID integer
+---@field NeedsBumpedLightmaps boolean
+ss.struct "LightmapMaterial" {
+    Name = "",
+    EnumID = 0,
+    NeedsBumpedLightmaps = false,
+}
+
+---@param mat IMaterial
+---@param enumID integer
+---@return ss.LightmapMaterial
+local function CreateLightmapMaterial(mat, enumID)
+    local lm = ss.new "LightmapMaterial"
+    lm.Name = mat:GetName()
+    lm.EnumID = enumID
+    lm.NeedsBumpedLightmaps = band(mat:GetInt "$flags2", MATERIAL_VAR2_LIGHTING_BUMPED_LIGHTMAP) ~= 0
+    return lm
+end
+
+---A wrapper for a BSP face to cache its properties for sorting.
+---@class ss.LightmapFace
+---@field FaceIndex integer
+---@field Face ss.Binary.BSP.FACES
+---@field TexInfo ss.Binary.BSP.TEXINFO
+---@field Material ss.LightmapMaterial
+---@field HasLightmap boolean
+---@field HasLightStyles boolean
+---@field Area integer
+ss.struct "LightmapFace" {
+    FaceIndex = 0,
+    Face = ss.new "Binary.BSP.FACES",
+    TexInfo = ss.new "Binary.BSP.TEXINFO",
+    Material = ss.new "LightmapMaterial",
+    HasLightmap = false,
+    HasLightStyles = false,
+    Area = 0,
+}
+
+---@param faceIndex integer
+---@param face ss.Binary.BSP.FACES
+---@param texinfo ss.Binary.BSP.TEXINFO
+---@param material ss.LightmapMaterial
+---@return ss.LightmapFace
+function ss.NewLightmapFace(faceIndex, face, texinfo, material)
+    local self = ss.new "LightmapFace"
+    self.FaceIndex = faceIndex
+    self.Face = face
+    self.TexInfo = texinfo
+    self.Material = material
+
+    self.HasLightmap = band(texinfo.flags, SURF_NOLIGHT) == 0 and face.lightOffset >= 0
+    self.HasLightStyles = false -- Check face.styles
+    for i = 1, 4 do
+        if face.styles[i] ~= 0 and face.styles[i] ~= 255 then
+            self.HasLightStyles = true
+            break
         end
     end
 
-    return out
+    self.Area = face.lightmapTextureSizeInLuxels[1] * face.lightmapTextureSizeInLuxels[2]
+
+    return self
 end
 
----2^k = POWER_OF_TWO[k]
-local POWER_OF_TWO = { [0] = 1, 2, 4, 8, 16, 32, 64, 128 }
-
----= math.floor(math.log(x, 2))
----@param x integer
----@return integer k = math.floor(math.log(x, 2))
-local function floorlog2(x)
-    local k = 0
-    if band(x, 0xF0) ~= 0 then x = rshift(x, 4) k = k + 4 end
-    if band(x, 0x0C) ~= 0 then x = rshift(x, 2) k = k + 2 end
-    if band(x, 0x02) ~= 0 then return               k + 1 end
-    return k
-end
-
----Converts x = a * 2^b to Float16 representation.
----@param a integer from 0x00 to 0xFF
----@param b integer from -128 to +127
----@return integer F Float16 representation
-local function to16F(a, b)
-    if a == 0 then return 0x0000 end
-    local k = floorlog2(a)
-    local exp = k + b - 2 -- -2 means overbright factor = x0.25
-    if exp > 15 then -- +Infinity
-        return 0x7C00
-    elseif exp > -15 then -- Normal numbers
-        return bor(
-           lshift(exp + 15, 10),
-           band(lshift(a - POWER_OF_TWO[k], 10 - k), 0x03FF))
-    else -- Subnormal numbers
-        exp = b + 24
-        return exp > 0
-           and band(lshift(a, exp), 0x03FF)
-           or  band(rshift(a, exp), 0x03FF)
+---Sorts faces for lightmap packing, mimicking the engine's LightmapLess function.
+---@param a ss.LightmapFace
+---@param b ss.LightmapFace
+---@return boolean
+local function lightmapLess(a, b)
+    -- 1. We want lightmapped surfaces to show up first
+    if a.HasLightmap ~= b.HasLightmap then
+        return a.HasLightmap
     end
+
+    -- 2. Then sort by material enumeration ID
+    if a.Material.EnumID ~= b.Material.EnumID then
+        return a.Material.EnumID < b.Material.EnumID
+    end
+
+    -- 3. We want Lightstyled surfaces to show up first
+    if a.HasLightStyles ~= b.HasLightStyles then
+        return a.HasLightStyles
+    end
+
+    -- 4. Then sort by lightmap area for better packing... (big areas first)
+    return a.Area > b.Area
 end
 
----ColorRGBExp32 to RGB161616F
----@param r integer
----@param g integer
----@param b integer
----@param exp integer
----@return integer r
----@return integer g
----@return integer b
-local function GetRGB16F(r, g, b, exp)
-    if exp > 127 then exp = exp - 256 end
-    return to16F(r, exp), to16F(g, exp), to16F(b, exp)
-end
+---Generates lightmap packing information for all faces in a BSP.
+---@param bsp ss.RawBSPResults
+---@param isHDR boolean
+---@return table<integer, {page: integer, x: integer, y: integer, sortID: integer}>
+function ss.BuildLightmapInfo(bsp, isHDR)
+    print("    Generating lightmap info (" .. (isHDR and "HDR" or "LDR") .. ")...")
+    local faces = isHDR and bsp.FACES_HDR or bsp.FACES
+    if not faces or #faces == 0 then return {} end
 
----@param bitmap  integer[]
----@param size    integer
----@param rect    ss.Rectangle
----@param rawFace ss.Binary.BSP.FACES
----@param samples string
-local function UpdateBitmap(bitmap, size, rect, rawFace, samples)
-    local x0, y0 = rect.left, rect.bottom
-    local sw = rawFace.lightmapTextureSizeInLuxels[1] + 1
-    local sh = rawFace.lightmapTextureSizeInLuxels[2] + 1
-    local sampleOffset = rawFace.lightOffset
-    local bitmapOffset = x0 + y0 * size
-    for y = 1, rect.height do
-        for x = 1, rect.width do
-            local sx, sy = x - MARGIN_IN_LUXELS, y - MARGIN_IN_LUXELS
-            if rect.istall == (sw > sh) then
-                sx, sy = sy, sx ---@type number, number
-            end
-            sx = clamp(sx, 1, sw) - 1
-            sy = clamp(sy, 1, sh) - 1
-            local sampleIndex =  (sx + sy * sw) * 4 + (sampleOffset or 0) + 1
-            local r, g, b = GetRGB16F(samples:byte(sampleIndex, sampleIndex + 3))
-            local bitmapIndex = (bitmapOffset + x - 1 + (y - 1) * size) * NUM_CHANNELS
-            bitmap[bitmapIndex + 1] = r
-            bitmap[bitmapIndex + 2] = g
-            bitmap[bitmapIndex + 3] = b
-            if NUM_CHANNELS == 4 then
-                bitmap[bitmapIndex + 4] = 0x3C00 -- +1.0 in Float16
-            end
+    local texInfos = bsp.TEXINFO
+    local texData = bsp.TEXDATA
+    local texStringTable = bsp.TEXDATA_STRING_TABLE
+    local texStrings = bsp.TEXDATA_STRING_DATA
+
+    -- Create a lookup table for material enumeration IDs, sorted alphabetically
+    -- to match the engine's CMaterialDict iteration.
+    local materialNames = game.GetWorld():GetMaterials()
+    table.sort(materialNames)
+    local materialEnum = {} ---@type table<string, integer>
+    for i, name in ipairs(materialNames) do
+        materialEnum[name] = i
+    end
+
+    -- Pre-cache materials to avoid expensive lookups
+    ---@type table<string, ss.LightmapMaterial>
+    local materialsCache = {}
+    local function getCachedMaterial(name)
+        if not materialsCache[name] then
+            local mat = Material(name)
+            if not IsValid(mat) then return nil end
+            local enumID = materialEnum[name] or 0
+            materialsCache[name] = CreateLightmapMaterial(mat, enumID)
         end
-    end
-end
-
----@param bsp ss.RawBSPResults
----@param packer ss.RectanglePacker
----@param ishdr boolean
----@return integer[]
-local function GenerateBitmap(bsp, packer, ishdr)
-    local bitmap = {}
-    local size = packer.maxsize
-    local samples = ishdr and bsp.LIGHTING_HDR or bsp.LIGHTING
-    local faces = ishdr and bsp.FACES_HDR or bsp.FACES
-    if not samples then return {} end
-    for _, index in ipairs(packer.results) do
-        local rect = packer.rects[index]
-        local surf = rect.tag ---@type ss.PrecachedData.Surface
-        local faceIndex = surf.FaceLumpIndex
-        local rawFace = faces[faceIndex]
-        UpdateBitmap(bitmap, size, rect, rawFace, samples)
+        return materialsCache[name]
     end
 
-    return bitmap
-end
-
----@param bsp ss.RawBSPResults
----@param packer ss.RectanglePacker
----@param ishdr boolean
-local function WriteLightmapUV(bsp, packer, ishdr)
-    local size = packer.maxsize
-    local faces = ishdr and bsp.FACES_HDR or bsp.FACES
-    local rawTexInfo = bsp.TEXINFO
-    for _, index in ipairs(packer.results) do
-        local rect = packer.rects[index]
-        local surf = rect.tag ---@type ss.PrecachedData.Surface
-        local faceIndex = surf.FaceLumpIndex
-        local rawFace = faces[faceIndex]
-        local s0, t0 = rect.left + 1, rect.bottom + 1
-        local sw = rawFace.lightmapTextureSizeInLuxels[1] + 1
-        local sh = rawFace.lightmapTextureSizeInLuxels[2] + 1
-        surf.LightmapWidth = sw / size
-        surf.LightmapHeight = sh / size
-        if rawFace.dispInfo >= 0 then
-            for _, v in ipairs(surf.Vertices) do
-                local s = v.LightmapSamplePoint.x * sw
-                local t = v.LightmapSamplePoint.y * sh
-                if rect.istall == (sw > sh) then
-                    s, t = t, s ---@type number, number
-                end
-                v.LightmapUV.x = (s + s0) / size
-                v.LightmapUV.y = (t + t0) / size
-            end
-        else
-            local texInfo = rawTexInfo[rawFace.texInfo + 1]
-            local basisS = texInfo.lightmapVecS
-            local basisT = texInfo.lightmapVecT
-            local offsetS = texInfo.lightmapOffsetS
-            local offsetT = texInfo.lightmapOffsetT
-            local minsInLuxelsS = rawFace.lightmapTextureMinsInLuxels[1]
-            local minsInLuxelsT = rawFace.lightmapTextureMinsInLuxels[2]
-            for _, v in ipairs(surf.Vertices) do
-                local s = basisS:Dot(v.Translation) + offsetS - minsInLuxelsS
-                local t = basisT:Dot(v.Translation) + offsetT - minsInLuxelsT
-                if rect.istall == (sw > sh) then
-                    s, t = t, s ---@type number, number
-                end
-                v.LightmapUV.x = (s + s0) / size
-                v.LightmapUV.y = (t + t0) / size
-            end
-        end
-    end
-end
-
----Builds RGBA16161616F VTF binary with given width and height.
----@param size integer
----@param data integer[]
----@param ishdr boolean
-local function WriteBinary(size, data, ishdr)
-    ---@type ss.Binary.VTF.Header
-    local header = {
-        signature          = "VTF\x00",
-        version            = { 7, 2 },
-        headerSize         = 0x50,
-        width              = size,
-        height             = size,
-        flags              = 0,
-        frames             = 1,
-        firstFrame         = 0,
-        padding0           = "\x00\x00\x00\x00",
-        reflectivity       = ss.vector_one,
-        padding1           = "\x00\x00\x00\x00",
-        bumpmapScale       = 1.0,
-        highResImageFormat = 0x18, -- IMAGE_FORMAT_RGBA16161616F
-        mipmapCount        = 1,
-        lowResImageFormat  = -1,
-        lowResImageWidth   = 0,
-        lowResImageHeight  = 0,
-        depth              = 1,
-        padding2           = "\x00\x00\x00",
-        numResources       = 0,
-        padding3           = "\x00\x00\x00\x00\x00\x00\x00\x00",
-    }
-    local fmt = "splashsweps/%s_%s.vtf"
-    local path = fmt:format(game.GetMap(), ishdr and "hdr" or "ldr")
-    local f = file.Open(path, "wb", "DATA")
-    ss.WriteStructureToFile(f, "VTF.Header", header)
-    for i = 1, size * size * NUM_CHANNELS do
-        f:WriteUShort(data[i] or 0x0000)
-    end
-    f:Close()
-end
-
----Finds light_environment entity in the ENTITIES lump and fetches directional light info.
----@param bsp ss.RawBSPResults
----@param cache ss.PrecachedData
-function ss.FindLightEnvironment(bsp, cache)
-    for _, entities in ipairs(bsp.ENTITIES) do
-        for k in entities:gmatch "{[^}]+}" do
-            if k:find "light_environment" then
-                local t = util.KeyValuesToTable("\"-\" " .. k)
-                if t.classname == "light_environment" then
-                    local lightScaleHDR = t._lightscalehdr
-                    local lightColor    = t._light:Split " "
-                    local lightColorHDR = t._lighthdr and t._lighthdr:Split " " or {}
-                    local nlightColor = {} ---@type number[]
-                    local nlightColorHDR = {} ---@type number[]
-                    for i = 1, 4 do
-                        nlightColor[i] = tonumber(lightColor[i])
-                        nlightColorHDR[i] = tonumber(lightColorHDR[i])
-                        if not nlightColorHDR[i] or nlightColorHDR[i] < 0 then
-                            nlightColorHDR[i] = nlightColor[i]
-                        end
-                    end
-                    print(string.format("    light_environment found:\n"
-                        .. "        lightColor    = [%s %s %s %s]\n"
-                        .. "        lightColorHDR = [%s %s %s %s]\n"
-                        .. "        lightScaleHDR = %s",
-                        lightColor[1], lightColor[2], lightColor[3], lightColor[4],
-                        lightColorHDR[1], lightColorHDR[2], lightColorHDR[3], lightColorHDR[4],
-                        lightScaleHDR))
-                    cache.DirectionalLight.Color    = Color(unpack(nlightColor))
-                    cache.DirectionalLight.ColorHDR = Color(unpack(nlightColorHDR))
-                    cache.DirectionalLight.ScaleHDR = tonumber(lightScaleHDR) or 1
-                    return
+    -- Create a list of face objects with all necessary info for sorting
+    ---@type ss.LightmapFace[]
+    local sortableFaces = {}
+    for i = 1, #faces do
+        local face = faces[i]
+        local texinfo = texInfos[face.texInfo + 1]
+        if texinfo then
+            local texdata = texData[texinfo.texData + 1]
+            local nameOffset = texStringTable[texdata.nameStringTableID + 1]
+            if nameOffset and texStrings[nameOffset + 1] then
+                local matName = texStrings[nameOffset + 1]
+                local material = getCachedMaterial(matName)
+                if material then
+                    sortableFaces[#sortableFaces + 1] = ss.NewLightmapFace(i, face, texinfo, material)
                 end
             end
         end
     end
-end
 
----Sets up lightmap info for the cache.
----@param bsp ss.RawBSPResults
----@param surfaces ss.PrecachedData.Surface[]
----@param ishdr boolean
-function ss.BuildLightmapCache(bsp, surfaces, ishdr)
-    local t0 = SysTime()
-    print "Packing lightmap..."
-    local rects = CreateRectangles(ishdr and bsp.FACES_HDR or bsp.FACES, surfaces)
-    local elapsed = round((SysTime() - t0) * 1000, 2)
-    print("    Collected surfaces in " .. elapsed .. " ms.")
-    if #rects > 0 then
-        t0 = SysTime()
-        local packer = ss.MakeRectanglePacker(rects):packall()
-        local bitmap = GenerateBitmap(bsp, packer, ishdr) or {}
-        WriteLightmapUV(bsp, packer, ishdr)
-        WriteBinary(packer.maxsize, bitmap, ishdr)
-        for _, surf in ipairs(surfaces) do  surf.FaceLumpIndex = nil end
-        elapsed = round((SysTime() - t0) * 1000, 2)
-        print("    Packed " .. (ishdr and "HDR" or "LDR") .. " lightmap in " .. elapsed .. " ms.")
+    -- Sort the faces
+    table.sort(sortableFaces, lightmapLess)
+
+    -- Initialize packers and result table
+    local packers = { ss.NewSkylinePacker(0, 512, 256) }
+    ---@type table<integer, {page: integer, x: integer, y: integer, sortID: integer}>
+    local faceLightmapInfo = {}
+    local numSortIDs = 0
+    local currentMaterialName = ""
+    local firstMaterial = true
+
+    -- Loop through sorted faces and pack them
+    for _, faceInfo in ipairs(sortableFaces) do
+        if not faceInfo.HasLightmap then
+            goto continue
+        end
+
+        local face = faceInfo.Face
+        local material = faceInfo.Material
+
+        -- Material change logic from CMatLightmaps::AllocateLightmap
+        if currentMaterialName ~= material.Name then
+            -- When material changes, collapse all but the last packer
+            for i = #packers - 1, 1, -1 do
+                table.remove(packers, i)
+            end
+
+            if not firstMaterial then
+                ss.SkylinePacker_IncrementSortId(packers[1])
+                numSortIDs = numSortIDs + 1
+            end
+
+            currentMaterialName = material.Name
+            firstMaterial = false
+        end
+
+        -- Calculate allocation size
+        local width = face.lightmapTextureSizeInLuxels[1] + 1
+        local height = face.lightmapTextureSizeInLuxels[2] + 1
+        local allocWidth = material.NeedsBumpedLightmaps and (width * 4) or width
+        local allocHeight = height
+
+        -- Try to pack into existing pages for this material group
+        local packed = false
+        local pageBaseIndex = numSortIDs
+        for i, packer in ipairs(packers) do
+            local success, x, y = ss.SkylinePacker_AddBlock(packer, allocWidth, allocHeight)
+            if success then
+                ---@cast x -?
+                ---@cast y -?
+                faceLightmapInfo[faceInfo.FaceIndex] = {
+                    page = pageBaseIndex + i - 1,
+                    x = x,
+                    y = y,
+                    sortID = ss.SkylinePacker_GetSortId(packer)
+                }
+                packed = true
+                break
+            end
+        end
+
+        if not packed then
+            -- Failed to fit, create a new page/packer for this material group
+            local newPacker = ss.NewSkylinePacker(ss.SkylinePacker_GetSortId(packers[1]), 512, 256)
+            local success, x, y = ss.SkylinePacker_AddBlock(newPacker, allocWidth, allocHeight)
+            if success then
+                ---@cast x -?
+                ---@cast y -?
+                packers[#packers + 1] = newPacker
+                faceLightmapInfo[faceInfo.FaceIndex] = {
+                    page = pageBaseIndex + #packers - 1,
+                    x = x,
+                    y = y,
+                    sortID = ss.SkylinePacker_GetSortId(newPacker)
+                }
+            else
+                -- This should not happen if the block is smaller than the page
+                print("WARNING: Lightmap block for material " .. material.Name .. " is too large to fit in a new page!")
+            end
+        end
+
+        ::continue::
     end
+
+    -- TODO: Handle last page resizing. For now, we assume all pages are max size.
+
+    return faceLightmapInfo
 end

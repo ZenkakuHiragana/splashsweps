@@ -26,6 +26,7 @@ include "splashsweps/server/mapcache/lightmapbuilder.lua"
 include "splashsweps/server/mapcache/surfacebuilder.lua"
 include "splashsweps/server/mapcache/uvbuilder.lua"
 include "splashsweps/server/packer/packer.lua"
+include "splashsweps/server/packer/skylinepacker.lua"
 include "splashsweps/server/packer/structures.lua"
 
 ---@class ss

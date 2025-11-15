@@ -241,6 +241,9 @@ ss.struct "PrecachedData.DisplacementTriangle" (setmetatable({
 ---@field TransformPaintGrid ss.PrecachedData.MatrixTransform Transforms world coordinates into the serverside paint grid coordinates.
 ---@field LightmapHeight     number   The height of this surface in lightmap texture in luxels.
 ---@field LightmapWidth      number   The width of this surface in lightmap texture in luxels.
+---@field LightmapPage       integer? The lightmap page index this surface belongs to.
+---@field LightmapX          integer? The X coordinate of the top-left corner of the lightmap in the page.
+---@field LightmapY          integer? The Y coordinate of the top-left corner of the lightmap in the page.
 ---@field MBBAngles          Angle    The angle of minimum (oriented) bounding box.
 ---@field MBBOrigin          Vector   The origin of minimum (oriented) bounding box.
 ---@field MBBSize            Vector   The size of minimum (oriented) bounding box in their local coordinates.
@@ -262,6 +265,9 @@ ss.struct "PrecachedData.Surface" (setmetatable({
     ss.new "PrecachedData.MatrixTransform",
     0,
     0,
+    nil,
+    nil,
+    nil,
     Angle(),
     Vector(),
     Vector(),
@@ -278,15 +284,18 @@ ss.struct "PrecachedData.Surface" (setmetatable({
     TransformPaintGrid = 3,
     LightmapHeight     = 4,
     LightmapWidth      = 5,
-    MBBAngles          = 6,
-    MBBOrigin          = 7,
-    MBBSize            = 8,
-    PaintGridHeight    = 9,
-    PaintGridWidth     = 10,
-    UVInfo             = 11,
-    Vertices           = 12,
-    TriangleHash       = 13,
-    Triangles          = 14,
+    LightmapPage       = 6,
+    LightmapX          = 7,
+    LightmapY          = 8,
+    MBBAngles          = 9,
+    MBBOrigin          = 10,
+    MBBSize            = 11,
+    PaintGridHeight    = 12,
+    PaintGridWidth     = 13,
+    UVInfo             = 14,
+    Vertices           = 15,
+    TriangleHash       = 16,
+    Triangles          = 17,
     __index            = indexer,
     __newindex         = newindexer,
 }))
