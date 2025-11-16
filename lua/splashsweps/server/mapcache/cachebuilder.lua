@@ -175,39 +175,21 @@ function ss.BuildMapCache()
     do
         collectgarbage "collect"
         local hdr, whdr = ss.BuildSurfaceCache(bsp, cache.ModelsHDR, true)
-        local lightmapInfo = ss.BuildLightmapInfo(bsp, true)
-        for _, surface in ipairs(hdr.Surfaces) do
-            local indexInLump = surface.FaceLumpIndex ---@cast indexInLump -?
-            local info = lightmapInfo[indexInLump]
-            if info then
-                surface.LightmapPage = info.page
-                surface.LightmapX = info.x
-                surface.LightmapY = info.y
-            end
-        end
         cache.SurfacesWaterHDR = whdr
         ss.BuildUVCache(hdr, cache.StaticPropHDR, staticPropRectangles)
         ss.BuildDisplacementHash(hdr.Surfaces)
+        ss.BuildLightmapInfo(bsp, true, hdr.Surfaces)
         ss.BuildSurfaceHash(hdr.Surfaces, cache.ModelsHDR[1].FaceIndices, cache.StaticProps, hdr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_hdr.json", game.GetMap()), util.Compress(util.TableToJSON(hdr)))
     end
 
     do
         collectgarbage "collect"
-        local lightmapInfo = ss.BuildLightmapInfo(bsp, false)
         local ldr, wldr = ss.BuildSurfaceCache(bsp, cache.ModelsLDR, false)
-        for _, surface in ipairs(ldr.Surfaces) do
-            local indexInLump = surface.FaceLumpIndex ---@cast indexInLump -?
-            local info = lightmapInfo[indexInLump]
-            if info then
-                surface.LightmapPage = info.page
-                surface.LightmapX = info.x
-                surface.LightmapY = info.y
-            end
-        end
         cache.SurfacesWaterLDR = wldr
         ss.BuildUVCache(ldr, cache.StaticPropLDR, staticPropRectangles)
         ss.BuildDisplacementHash(ldr.Surfaces)
+        ss.BuildLightmapInfo(bsp, false, ldr.Surfaces)
         ss.BuildSurfaceHash(ldr.Surfaces, cache.ModelsLDR[1].FaceIndices, cache.StaticProps, ldr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_ldr.json", game.GetMap()), util.Compress(util.TableToJSON(ldr)))
     end

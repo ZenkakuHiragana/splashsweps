@@ -12,7 +12,7 @@ local band = bit.band
 local SURF_NOLIGHT = 0x0004
 
 -- From public\materialsystem\imaterial.h
-local MATERIAL_VAR2_LIGHTING_BUMPED_LIGHTMAP = 8 -- (1 << 3)
+local FLAGS2_BUMPED_LIGHTMAP = 8 -- (1 << 3)
 
 ---@class ss.LightmapMaterial
 ---@field Name string
@@ -23,17 +23,6 @@ ss.struct "LightmapMaterial" {
     EnumID = 0,
     NeedsBumpedLightmaps = false,
 }
-
----@param mat IMaterial
----@param enumID integer
----@return ss.LightmapMaterial
-local function CreateLightmapMaterial(mat, enumID)
-    local lm = ss.new "LightmapMaterial"
-    lm.Name = mat:GetName()
-    lm.EnumID = enumID
-    lm.NeedsBumpedLightmaps = band(mat:GetInt "$flags2", MATERIAL_VAR2_LIGHTING_BUMPED_LIGHTMAP) ~= 0
-    return lm
-end
 
 ---A wrapper for a BSP face to cache its properties for sorting.
 ---@class ss.LightmapFace
@@ -56,29 +45,24 @@ ss.struct "LightmapFace" {
 
 ---@param faceIndex integer
 ---@param face ss.Binary.BSP.FACES
----@param texinfo ss.Binary.BSP.TEXINFO
+---@param texInfo ss.Binary.BSP.TEXINFO
 ---@param material ss.LightmapMaterial
 ---@return ss.LightmapFace
-function ss.NewLightmapFace(faceIndex, face, texinfo, material)
-    local self = ss.new "LightmapFace"
+ss.ctor "LightmapFace" (function (self, faceIndex, face, texInfo, material)
     self.FaceIndex = faceIndex
     self.Face = face
-    self.TexInfo = texinfo
+    self.TexInfo = texInfo
     self.Material = material
-
-    self.HasLightmap = band(texinfo.flags, SURF_NOLIGHT) == 0 and face.lightOffset >= 0
+    self.HasLightmap = band(texInfo.flags, SURF_NOLIGHT) == 0 and face.lightOffset >= 0
     self.HasLightStyles = false -- Check face.styles
+    self.Area = face.lightmapTextureSizeInLuxels[1] * face.lightmapTextureSizeInLuxels[2]
     for i = 1, 4 do
         if face.styles[i] ~= 0 and face.styles[i] ~= 255 then
             self.HasLightStyles = true
             break
         end
     end
-
-    self.Area = face.lightmapTextureSizeInLuxels[1] * face.lightmapTextureSizeInLuxels[2]
-
-    return self
-end
+end)
 
 ---Sorts faces for lightmap packing, mimicking the engine's LightmapLess function.
 ---@param a ss.LightmapFace
@@ -107,8 +91,8 @@ end
 ---Generates lightmap packing information for all faces in a BSP.
 ---@param bsp ss.RawBSPResults
 ---@param isHDR boolean
----@return table<integer, {page: integer, x: integer, y: integer, sortID: integer}>
-function ss.BuildLightmapInfo(bsp, isHDR)
+---@param surfaces ss.PrecachedData.Surface[]
+function ss.BuildLightmapInfo(bsp, isHDR, surfaces)
     print("    Generating lightmap info (" .. (isHDR and "HDR" or "LDR") .. ")...")
     local faces = isHDR and bsp.FACES_HDR or bsp.FACES
     if not faces or #faces == 0 then return {} end
@@ -135,7 +119,12 @@ function ss.BuildLightmapInfo(bsp, isHDR)
             local mat = Material(name)
             if not IsValid(mat) then return nil end
             local enumID = materialEnum[name] or 0
-            materialsCache[name] = CreateLightmapMaterial(mat, enumID)
+            local isBumped = band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0
+            materialsCache[name] = {
+                Name = mat:GetName(),
+                EnumID = enumID,
+                NeedsBumpedLightmaps = isBumped,
+            }
         end
         return materialsCache[name]
     end
@@ -153,7 +142,7 @@ function ss.BuildLightmapInfo(bsp, isHDR)
                 local matName = texStrings[nameOffset + 1]
                 local material = getCachedMaterial(matName)
                 if material then
-                    sortableFaces[#sortableFaces + 1] = ss.NewLightmapFace(i, face, texinfo, material)
+                    sortableFaces[#sortableFaces + 1] = ss.new "LightmapFace" (i, face, texinfo, material)
                 end
             end
         end
@@ -163,7 +152,7 @@ function ss.BuildLightmapInfo(bsp, isHDR)
     table.sort(sortableFaces, lightmapLess)
 
     -- Initialize packers and result table
-    local packers = { ss.NewSkylinePacker(0, 512, 256) }
+    local packers = { ss.MakeSkylinePacker(0, 512, 256) }
     ---@type table<integer, {page: integer, x: integer, y: integer, sortID: integer}>
     local faceLightmapInfo = {}
     local numSortIDs = 0
@@ -172,78 +161,83 @@ function ss.BuildLightmapInfo(bsp, isHDR)
 
     -- Loop through sorted faces and pack them
     for _, faceInfo in ipairs(sortableFaces) do
-        if not faceInfo.HasLightmap then
-            goto continue
-        end
+        if faceInfo.HasLightmap then
+            local face = faceInfo.Face
+            local material = faceInfo.Material
 
-        local face = faceInfo.Face
-        local material = faceInfo.Material
+            -- Material change logic from CMatLightmaps::AllocateLightmap
+            if currentMaterialName ~= material.Name then
+                -- When material changes, collapse all but the last packer
+                for i = #packers - 1, 1, -1 do
+                    table.remove(packers, i)
+                end
 
-        -- Material change logic from CMatLightmaps::AllocateLightmap
-        if currentMaterialName ~= material.Name then
-            -- When material changes, collapse all but the last packer
-            for i = #packers - 1, 1, -1 do
-                table.remove(packers, i)
+                if not firstMaterial then
+                    ---Increments the sort ID of the packer.
+                    packers[1].SortID = packers[1].SortID + 1
+                    numSortIDs = numSortIDs + 1
+                end
+
+                currentMaterialName = material.Name
+                firstMaterial = false
             end
 
-            if not firstMaterial then
-                ss.SkylinePacker_IncrementSortId(packers[1])
-                numSortIDs = numSortIDs + 1
+            -- Calculate allocation size
+            local width = face.lightmapTextureSizeInLuxels[1] + 1
+            local height = face.lightmapTextureSizeInLuxels[2] + 1
+            local allocWidth = material.NeedsBumpedLightmaps and (width * 4) or width
+            local allocHeight = height
+
+            -- Try to pack into existing pages for this material group
+            local packed = false
+            local pageBaseIndex = numSortIDs
+            for i, packer in ipairs(packers) do
+                local success, x, y = packer:AddBlock(allocWidth, allocHeight)
+                if success then
+                    ---@cast x -?
+                    ---@cast y -?
+                    faceLightmapInfo[faceInfo.FaceIndex] = {
+                        page = pageBaseIndex + i - 1,
+                        x = x,
+                        y = y,
+                        sortID = packer.SortID
+                    }
+                    packed = true
+                    break
+                end
             end
 
-            currentMaterialName = material.Name
-            firstMaterial = false
-        end
-
-        -- Calculate allocation size
-        local width = face.lightmapTextureSizeInLuxels[1] + 1
-        local height = face.lightmapTextureSizeInLuxels[2] + 1
-        local allocWidth = material.NeedsBumpedLightmaps and (width * 4) or width
-        local allocHeight = height
-
-        -- Try to pack into existing pages for this material group
-        local packed = false
-        local pageBaseIndex = numSortIDs
-        for i, packer in ipairs(packers) do
-            local success, x, y = ss.SkylinePacker_AddBlock(packer, allocWidth, allocHeight)
-            if success then
-                ---@cast x -?
-                ---@cast y -?
-                faceLightmapInfo[faceInfo.FaceIndex] = {
-                    page = pageBaseIndex + i - 1,
-                    x = x,
-                    y = y,
-                    sortID = ss.SkylinePacker_GetSortId(packer)
-                }
-                packed = true
-                break
+            if not packed then
+                -- Failed to fit, create a new page/packer for this material group
+                local newPacker = ss.MakeSkylinePacker(packers[1].SortID, 512, 256)
+                local success, x, y = newPacker:AddBlock(allocWidth, allocHeight)
+                if success then
+                    ---@cast x -?
+                    ---@cast y -?
+                    packers[#packers + 1] = newPacker
+                    faceLightmapInfo[faceInfo.FaceIndex] = {
+                        page = pageBaseIndex + #packers - 1,
+                        x = x,
+                        y = y,
+                        sortID = newPacker.SortID
+                    }
+                else
+                    -- This should not happen if the block is smaller than the page
+                    print("WARNING: Lightmap block for material " .. material.Name .. " is too large to fit in a new page!")
+                end
             end
         end
-
-        if not packed then
-            -- Failed to fit, create a new page/packer for this material group
-            local newPacker = ss.NewSkylinePacker(ss.SkylinePacker_GetSortId(packers[1]), 512, 256)
-            local success, x, y = ss.SkylinePacker_AddBlock(newPacker, allocWidth, allocHeight)
-            if success then
-                ---@cast x -?
-                ---@cast y -?
-                packers[#packers + 1] = newPacker
-                faceLightmapInfo[faceInfo.FaceIndex] = {
-                    page = pageBaseIndex + #packers - 1,
-                    x = x,
-                    y = y,
-                    sortID = ss.SkylinePacker_GetSortId(newPacker)
-                }
-            else
-                -- This should not happen if the block is smaller than the page
-                print("WARNING: Lightmap block for material " .. material.Name .. " is too large to fit in a new page!")
-            end
-        end
-
-        ::continue::
     end
 
     -- TODO: Handle last page resizing. For now, we assume all pages are max size.
 
-    return faceLightmapInfo
+    for _, surf in ipairs(surfaces) do
+        local indexInLump = surf.FaceLumpIndex ---@cast indexInLump -?
+        local info = faceLightmapInfo[indexInLump]
+        if info then
+            surf.LightmapPage = info.page
+            surf.LightmapX = info.x
+            surf.LightmapY = info.y
+        end
+    end
 end
