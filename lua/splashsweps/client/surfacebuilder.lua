@@ -3,6 +3,7 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local copy = Material "pp/copy"
 local ModelInfoMeta = getmetatable(ss.new "PrecachedData.ModelInfo")
 local StaticPropMeta = getmetatable(ss.new "PrecachedData.StaticProp")
 local StaticPropUVMeta = getmetatable(ss.new "PrecachedData.StaticProp.UVInfo")
@@ -17,72 +18,88 @@ local MIN_DRAW_RADIUS = 0.015 -- minimum draw radius for static props relative t
 ---@param modelInfo ss.PrecachedData.ModelInfo
 ---@param modelIndex integer
 local function BuildInkMesh(surfInfo, modelInfo, modelIndex)
-    local NumMeshTriangles = modelInfo.NumTriangles
-    print("SplashSWEPs: Total mesh triangles = ", NumMeshTriangles)
-
-    local meshindex = 1
+    local meshIndex = 0
+    local faceIndex = 1
     local meshTable = ss.IMesh[modelIndex]
-    for _ = 1, math.ceil(NumMeshTriangles / MAX_TRIANGLES) do
-        meshTable[#meshTable + 1] = Mesh(ss.InkMeshMaterial)
-    end
-
-    -- Building MeshVertex
-    if #meshTable == 0 then return end
-    mesh.Begin(meshTable[meshindex], MATERIAL_TRIANGLES, math.min(NumMeshTriangles, MAX_TRIANGLES))
-    local function ContinueMesh()
-        if mesh.VertexCount() < MAX_TRIANGLES * 3 then return end
-        mesh.End()
-        mesh.Begin(meshTable[meshindex + 1], MATERIAL_TRIANGLES,
-        math.min(NumMeshTriangles - MAX_TRIANGLES * meshindex, MAX_TRIANGLES))
-        meshindex = meshindex + 1
-    end
-
     local rtIndex = #ss.RenderTarget.Resolutions
     local scale = surfInfo.UVScales[rtIndex]
     local worldToUV = Matrix()
     worldToUV:SetScale(ss.vector_one * scale)
-    for _, faceIndex in ipairs(modelInfo.FaceIndices) do
-        local surf = setmetatable(surfInfo.Surfaces[faceIndex], SurfaceMeta)
-        local info = setmetatable(surf.UVInfo[rtIndex], UVInfoMeta)
-        local uvOrigin = Vector(info.OffsetU, info.OffsetV)
-        worldToUV:SetAngles(info.Angle)
-        worldToUV:SetTranslation(info.Translation * scale + uvOrigin)
-        for i, v in ipairs(surf.Vertices) do
-            setmetatable(v, VertexMeta)
-            local position = v.Translation
-            local normal = v.Angle:Up()
-            local tangent = v.Angle:Forward()
-            local binormal = -v.Angle:Right()
-            local s,  t  = v.LightmapUV.x, v.LightmapUV.y -- Lightmap UV
-            local uv = worldToUV * position
-            local w = normal:Cross(tangent):Dot(binormal) >= 0 and 1 or -1
-            if v.DisplacementOrigin then
-                uv = worldToUV * v.DisplacementOrigin
+    for meshID, count in ipairs(surfInfo.VertexCounts) do
+        local numMeshesToAdd = math.ceil(count / MAX_TRIANGLES)
+        if numMeshesToAdd > 0 then
+            for _ = 1, numMeshesToAdd do
+                meshTable[#meshTable + 1] = {
+                    LightmapTexture = nil,
+                    BrushBumpmap = nil,
+                    Mesh = Mesh(ss.InkMeshMaterial),
+                }
             end
-            mesh.Normal(normal)
-            mesh.UserData(tangent.x, tangent.y, tangent.z, w)
-            mesh.TangentS(tangent * w)  -- These functions actually DO something
-            mesh.TangentT(binormal) -- in terms of bumpmap for LightmappedGeneric
-            mesh.Position(position)
-            mesh.TexCoord(0, uv.y, uv.x)
-            if t < 1 then
-                mesh.TexCoord(1, s, t)
-                mesh.Color(255, 255, 255, 255)
-            else
-                mesh.TexCoord(1, 1, 1)
-                local sample = render.GetLightColor(position)
-                local r = math.Round(sample.x ^ (1 / 2.2) / 2 * 255)
-                local g = math.Round(sample.y ^ (1 / 2.2) / 2 * 255)
-                local b = math.Round(sample.z ^ (1 / 2.2) / 2 * 255)
-                mesh.Color(r, g, b, 255)
+
+            meshIndex = meshIndex + 1 ---@type integer
+            mesh.Begin(meshTable[meshIndex].Mesh, MATERIAL_TRIANGLES, math.min(count, MAX_TRIANGLES))
+            local function ContinueMesh()
+                if mesh.VertexCount() < MAX_TRIANGLES * 3 then return end
+                mesh.End()
+                mesh.Begin(meshTable[meshIndex + 1].Mesh, MATERIAL_TRIANGLES,
+                math.min(count - MAX_TRIANGLES * meshIndex, MAX_TRIANGLES))
+                meshIndex = meshIndex + 1
             end
-            mesh.AdvanceVertex()
-            if (i - 1) % 3 == 2 then
-                ContinueMesh()
+
+            local surf = setmetatable(surfInfo.Surfaces[faceIndex], SurfaceMeta)
+            while surf.MeshID and surf.MeshID + 1 == meshID do
+                if not meshTable[meshIndex].LightmapTexture and surf.LightmapPage then
+                    copy:SetTexture("$basetexture", string.format("[lightmap%d]", surf.LightmapPage))
+                    meshTable[meshIndex].LightmapTexture = copy:GetTexture "$basetexture"
+                    meshTable[meshIndex].BrushBumpmap = surf.Bumpmap
+                end
+                local info = setmetatable(surf.UVInfo[rtIndex], UVInfoMeta)
+                local uvOrigin = Vector(info.OffsetU, info.OffsetV)
+                worldToUV:SetAngles(info.Angle)
+                worldToUV:SetTranslation(info.Translation * scale + uvOrigin)
+                for i, v in ipairs(surf.Vertices) do
+                    setmetatable(v, VertexMeta)
+                    local position = v.Translation
+                    local normal = v.Angle:Up()
+                    local tangent = v.Angle:Forward()
+                    local binormal = -v.Angle:Right()
+                    local s,  t  = v.LightmapUV.x, v.LightmapUV.y -- Lightmap UV
+                    local uv = worldToUV * position
+                    local w = normal:Cross(tangent):Dot(binormal) >= 0 and 1 or -1
+                    if v.DisplacementOrigin then
+                        uv = worldToUV * v.DisplacementOrigin
+                    end
+                    mesh.Normal(normal)
+                    mesh.UserData(tangent.x, tangent.y, tangent.z, w)
+                    mesh.TangentS(tangent * w)  -- These functions actually DO something
+                    mesh.TangentT(binormal) -- in terms of bumpmap for LightmappedGeneric
+                    mesh.Position(position)
+                    mesh.TexCoord(0, uv.y, uv.x)
+                    if t < 1 then
+                        mesh.TexCoord(1, s, t)
+                        mesh.Color(255, 255, 255, 255)
+                    else
+                        mesh.TexCoord(1, 1, 1)
+                        local sample = render.GetLightColor(position)
+                        local r = math.Round(sample.x ^ (1 / 2.2) / 2 * 255)
+                        local g = math.Round(sample.y ^ (1 / 2.2) / 2 * 255)
+                        local b = math.Round(sample.z ^ (1 / 2.2) / 2 * 255)
+                        mesh.Color(r, g, b, 255)
+                    end
+                    mesh.AdvanceVertex()
+                    if (i - 1) % 3 == 2 then
+                        ContinueMesh()
+                    end
+                end
+
+                faceIndex = faceIndex + 1
+                surf = setmetatable(surfInfo.Surfaces[faceIndex] or {}, SurfaceMeta)
             end
+            mesh.End()
         end
     end
-    mesh.End()
+
+    print("SplashSWEPs: Total mesh triangles = ", modelInfo.NumTriangles)
 end
 
 ---Adjusts light intensity of ink mesh material from HDR info.
@@ -99,8 +116,8 @@ function ss.SetupHDRLighting(cache)
     end
 
     local value = ss.vector_one * intensity / 4096
-    ss.InkMeshMaterial:SetVector("$color", value)
-    ss.InkMeshMaterial:SetVector("$envmaptint", value / 16)
+    -- ss.InkMeshMaterial:SetVector("$color", value)
+    -- ss.InkMeshMaterial:SetVector("$envmaptint", value / 16)
 end
 
 ---Reads through BSP models which includes the worldspawn and brush entities and constructs IMeshes from them.

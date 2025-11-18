@@ -49,6 +49,11 @@ ss.struct "IHasMBB" {
 ---@field AABBMin                Vector           AABB minimum of this surface in world coordinates.
 ---@field Normal                 Vector           Normal vector of this surface.
 ---@field Grid                   ss.PaintableGrid Represents serverside "canvas" for this surface to manage collision detection against painted ink.
+---@field LightmapHeight         number           The height of this surface in lightmap texture in luxels.
+---@field LightmapWidth          number           The width of this surface in lightmap texture in luxels.
+---@field LightmapTexture        string           The name of lightmap texture.
+---@field LightmapX              integer          The u-coordinate of left-top corner of this surface in luxels.
+---@field LightmapY              integer          The v-coordinate of left-top corner of this surface in luxels.
 ---@field StaticPropUnwrapIndex  integer?         Determines how this static prop surfaces are unwrapped.
 ---@field TriangleHash           table<integer, integer[]>? Hash table to lookup triangles of a displacement.
 ---@field Triangles              ss.DisplacementTriangle[]? Array of triangles of a displacement.
@@ -63,6 +68,11 @@ ss.struct "PaintableSurface" "IHasMBB" {
     AABBMin = Vector(),
     Normal = Vector(),
     Grid = ss.new "PaintableGrid",
+    LightmapWidth  = 1,
+    LightmapHeight = 1,
+    LightmapTexture = "",
+    LightmapX = 0,
+    LightmapY = 0,
     StaticPropUnwrapIndex = nil,
     TriangleHash = nil,
     Triangles = nil,
@@ -134,6 +144,13 @@ function ss.SetupSurfaces(surfaces)
         ps.MBBAngles = surf.MBBAngles
         ps.MBBOrigin = surf.MBBOrigin
         ps.MBBSize = surf.MBBSize
+        if surf.LightmapPage then
+            ps.LightmapTexture = string.format("[lightmap%d]", surf.LightmapPage)
+            ps.LightmapX = surf.LightmapX
+            ps.LightmapY = surf.LightmapY
+            ps.LightmapWidth = surf.LightmapWidth
+            ps.LightmapHeight = surf.LightmapHeight
+        end
         ps.TriangleHash = surf.TriangleHash
         ps.Triangles = surf.Triangles and {}
         for _, v in ipairs(surf.Vertices) do setmetatable(v, VertexMeta) end

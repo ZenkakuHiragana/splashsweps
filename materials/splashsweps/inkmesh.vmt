@@ -14,7 +14,7 @@
     "$phongmaskcontrastbrightness" "[2 .7]"
     "$envmap"                      "shadertest/shadertest_env.hdr"
     "$envmaptint"                  "[.005 .005 .005]"
-    "$color"                       "[.05 .05 .05]"
+    "$color"                       "[1 1 1]"
     // "$detail"                      "color"
     // "$detailscale"                 1
     // "$detailblendmode"             5

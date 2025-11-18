@@ -42,7 +42,7 @@ This is a Garry's Mod addon and does not have a traditional build process.
     *   **Class Definition:** Do not use metatable-based class definition. Define structures using `ss.struct` and instantiate defined classes using `ss.new`. The class name in lua annotation should begin with `ss.` and the class name as the argument of `ss.struct` and `ss.new` should have no `ss.` prefix. Class methods (fields storing a function) should not be used.
     *   **File Inclusion:** Do not `include` in the middle of files. All includes should be placed in autorun.lua with alphabetical order.
     *   **Typing:** If you define and initialize an empty table as a local variable, write a type hint with `---@type` annotation to indicate what it will store.
-    *   Diagnose Lua files using `lua-language-server --configpath .vscode/config-sv.lua --check path/to/lua/to/check.lua` and resolve the warnings as possible as you can. if you are editing clientside code, use the `--configpath .vscode/config-cl.lua` instead.
+    *   Diagnose Lua files using `lua-language-server --configpath .vscode/config-sv.lua --check .` and resolve the warnings as possible as you can. if you are editing clientside code, use the `--configpath .vscode/config-cl.lua` instead.
 *   **References:**
     *   All GMOD Lua APIs are defined under .vscode folder. Make sure you don't write undefined functions using these files.
     *   If you are still unsure, visit https://wiki.facepunch.com/gmod to search necessary information.

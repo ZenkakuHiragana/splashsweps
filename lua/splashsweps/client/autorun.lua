@@ -3,7 +3,7 @@ if not SplashSWEPs then
     ---@class ss
     SplashSWEPs = {
         ---List of IMeshes to render the painted ink.
-        ---@type { BrushEntity: Entity?, [integer]: IMesh }[]
+        ---@type { BrushEntity: Entity?, [integer]: { BrushBumpmap: string?, LightmapTexture: ITexture?, Mesh: IMesh }}[]
         IMesh = {},
         ---Material to draw painted ink.
         ---@type IMaterial

@@ -25,15 +25,14 @@ end
 ---@param self ss.SkylinePacker
 ---@param width integer
 ---@param height integer
----@return boolean success
 ---@return integer? x
 ---@return integer? y
 local function AddBlock(self, width, height)
     local bestX = -1
+    local outerX = 1
     local outerMinY = self.MaxHeight
     local lastX = self.MaxWidth - width
     local lastMaxYVal = -2
-    local outerX = 1
 
     while outerX <= lastX + 1 do
         if self.Wavefront[outerX] == lastMaxYVal then
@@ -49,16 +48,11 @@ local function AddBlock(self, width, height)
         end
     end
 
-    if bestX == -1 then
-        return false
-    end
+    if bestX == -1 then return end
 
     local returnX = bestX - 1
     local returnY = outerMinY + 1
-
-    if returnY + height >= self.MaxHeight - 1 then
-        return false
-    end
+    if returnY + height >= self.MaxHeight - 1 then return end
 
     if returnY + height > self.MinHeight then
         self.MinHeight = returnY + height
@@ -69,7 +63,7 @@ local function AddBlock(self, width, height)
     end
 
     self.AreaUsed = self.AreaUsed + width * height
-    return true, returnX, returnY
+    return returnX, returnY
 end
 
 ---Creates a new image packer.

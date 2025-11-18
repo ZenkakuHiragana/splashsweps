@@ -573,9 +573,9 @@ local function BuildFromBrushFace(bsp, rawFace)
     if texName:find "tools/" then return end
 
     local texMaterial  = GetMaterial(texName)
-    local surfaceProp = texMaterial:GetString "$surfaceprop" or ""
+    local surfaceProp  = texMaterial:GetString "$surfaceprop" or ""
     local surfaceIndex = util.GetSurfaceIndex(surfaceProp)
-    local surfaceData = util.GetSurfaceData(surfaceIndex) or {}
+    local surfaceData  = util.GetSurfaceData(surfaceIndex) or {}
     if surfaceData.material == MAT_GRATE then return end
 
     -- Collect geometrical information
@@ -627,6 +627,7 @@ local function BuildFromBrushFace(bsp, rawFace)
 
         SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
         CalculateTriangleComponents(surf)
+        surf.Bumpmap = texMaterial:GetString "$bumpmap"
         return surf, tobool(isWater)
     else
         local surf = ss.new "PrecachedData.Surface"
@@ -656,25 +657,18 @@ local function BuildFromBrushFace(bsp, rawFace)
             SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
         end
 
+        surf.Bumpmap = texMaterial:GetString "$bumpmap"
         return surf, tobool(isWater)
     end
 end
 
 ---Extract surfaces from parsed BSP structures.
 ---@param bsp ss.RawBSPResults
----@param modelCache ss.PrecachedData.ModelInfo[]
 ---@param ishdr boolean
 ---@return ss.PrecachedData.SurfaceInfo surf
 ---@return ss.PrecachedData.Surface[] water
-function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
+function ss.BuildSurfaceCache(bsp, ishdr)
     local t0 = SysTime()
-    local modelIndices = {} ---@type integer[] Face index --> model index
-    for modelIndex, lump in ipairs(bsp.MODELS) do
-        for i = 1, lump.numFaces do
-            modelIndices[lump.firstFace + i] = modelIndex
-        end
-    end
-
     local surfInfo = ss.new "PrecachedData.SurfaceInfo"
     local surf = surfInfo.Surfaces
     local water = {} ---@type ss.PrecachedData.Surface[]
@@ -688,11 +682,6 @@ function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
             else
                 s.FaceLumpIndex = i
                 surf[#surf + 1] = s
-
-                local modelIndex = modelIndices[i]
-                local modelInfo = modelCache[modelIndex]
-                modelInfo.FaceIndices[#modelInfo.FaceIndices + 1] = #surf
-                modelInfo.NumTriangles = modelInfo.NumTriangles + #s.Vertices / 3
             end
         end
     end

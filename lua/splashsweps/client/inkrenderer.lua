@@ -4,10 +4,13 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+local copy = Material "pp/copy"
 local gray = Material "grey" :GetTexture "$basetexture"
 local CVarWireframe = GetConVar "mat_wireframe"
 local CVarMinecraft = GetConVar "mat_showlowresimage"
 local function DrawMesh()
+    local currentBumpmap = nil ---@type string
+    local currentLightmap = nil ---@type string
     for _, model in ipairs(ss.IMesh) do -- Draw ink surface
         local ent = model.BrushEntity
         if not ent or IsValid(ent) then
@@ -16,7 +19,15 @@ local function DrawMesh()
             end
 
             for _, m in ipairs(model) do
-                m:Draw()
+                -- if m.BrushBumpmap and currentBumpmap ~= m.BrushBumpmap then
+                --     currentBumpmap = m.BrushBumpmap
+                --     -- ss.InkMeshMaterial:SetTexture("$texture3", m.BrushBumpmap)
+                -- end
+                if m.LightmapTexture and currentLightmap ~= m.LightmapTexture:GetName() then
+                    currentLightmap = m.LightmapTexture:GetName() ---@cast currentLightmap -?
+                    render.SetLightmapTexture(m.LightmapTexture)
+                end
+                m.Mesh:Draw()
             end
 
             if IsValid(ent) then
@@ -49,7 +60,7 @@ function ss.ClearAllInk()
     render.ClearStencil()
     render.Clear(0, 0, 0, 0)
     render.OverrideAlphaWriteEnable(false)
-    -- render.DrawTextureToScreen("splashsweps/debug/uvchecker")
+    render.DrawTextureToScreen("splashsweps/debug/uvchecker")
     render.PopRenderTarget()
 
     render.PushRenderTarget(rt.StaticTextures.Normal)

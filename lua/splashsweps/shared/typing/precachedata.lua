@@ -238,12 +238,14 @@ ss.struct "PrecachedData.DisplacementTriangle" (setmetatable({
 ---@class ss.PrecachedData.Surface
 ---@field AABBMax            Vector   Maximum component of all vertices in world coordinates.
 ---@field AABBMin            Vector   Minimum component of all vertices in world coordinates.
+---@field Bumpmap            string?  The bumpmap texture name of this surface, if any.
 ---@field TransformPaintGrid ss.PrecachedData.MatrixTransform Transforms world coordinates into the serverside paint grid coordinates.
 ---@field LightmapHeight     number   The height of this surface in lightmap texture in luxels.
 ---@field LightmapWidth      number   The width of this surface in lightmap texture in luxels.
 ---@field LightmapPage       integer? The lightmap page index this surface belongs to.
 ---@field LightmapX          integer? The X coordinate of the top-left corner of the lightmap in the page.
 ---@field LightmapY          integer? The Y coordinate of the top-left corner of the lightmap in the page.
+---@field MeshID             integer  Indicates the group of IMeshes the surface belongs to.
 ---@field MBBAngles          Angle    The angle of minimum (oriented) bounding box.
 ---@field MBBOrigin          Vector   The origin of minimum (oriented) bounding box.
 ---@field MBBSize            Vector   The size of minimum (oriented) bounding box in their local coordinates.
@@ -262,12 +264,14 @@ ss.struct "PrecachedData.DisplacementTriangle" (setmetatable({
 ss.struct "PrecachedData.Surface" (setmetatable({
     ss.vector_one * -math.huge,
     ss.vector_one * math.huge,
+    nil,
     ss.new "PrecachedData.MatrixTransform",
     0,
     0,
     nil,
     nil,
     nil,
+    0,
     Angle(),
     Vector(),
     Vector(),
@@ -281,21 +285,24 @@ ss.struct "PrecachedData.Surface" (setmetatable({
 }, {
     AABBMax            = 1,
     AABBMin            = 2,
-    TransformPaintGrid = 3,
-    LightmapHeight     = 4,
-    LightmapWidth      = 5,
-    LightmapPage       = 6,
-    LightmapX          = 7,
-    LightmapY          = 8,
-    MBBAngles          = 9,
-    MBBOrigin          = 10,
-    MBBSize            = 11,
-    PaintGridHeight    = 12,
-    PaintGridWidth     = 13,
-    UVInfo             = 14,
-    Vertices           = 15,
-    TriangleHash       = 16,
-    Triangles          = 17,
+    Bumpmap            = 3,
+    TransformPaintGrid = 4,
+    LightmapHeight     = 5,
+    LightmapWidth      = 6,
+    LightmapPage       = 7,
+    LightmapX          = 8,
+    LightmapY          = 9,
+    MeshID             = 10,
+    MBBAngles          = 11,
+    MBBOrigin          = 12,
+    MBBSize            = 13,
+    PaintGridHeight    = 14,
+    PaintGridWidth     = 15,
+    UVInfo             = 16,
+    Vertices           = 17,
+    TriangleHash       = 18,
+    Triangles          = 19,
+    FaceLumpIndex      = 20,
     __index            = indexer,
     __newindex         = newindexer,
 }))
@@ -316,19 +323,22 @@ ss.struct "MinimapAreaBounds" (setmetatable({
 
 ---Array of paintable surfaces stored as JSON file.
 ---@class ss.PrecachedData.SurfaceInfo
----@field Surfaces    ss.PrecachedData.Surface[]
----@field SurfaceHash table<integer, integer[]> = `ss.SurfaceHash`
----@field UVScales    number[] Render target size index -> Hammer units to UV multiplier
+---@field Surfaces     ss.PrecachedData.Surface[]
+---@field SurfaceHash  table<integer, integer[]> = `ss.SurfaceHash`
+---@field UVScales     number[]  Render target size index -> Hammer units to UV multiplier
+---@field VertexCounts integer[] MeshID --> total number of vertices
 ss.struct "PrecachedData.SurfaceInfo" (setmetatable({
     {},
     {},
     {},
+    {},
 }, {
-    Surfaces    = 1,
-    SurfaceHash = 2,
-    UVScales    = 3,
-    __index     = indexer,
-    __newindex  = newindexer,
+    Surfaces     = 1,
+    SurfaceHash  = 2,
+    UVScales     = 3,
+    VertexCounts = 4,
+    __index      = indexer,
+    __newindex   = newindexer,
 }))
 
 ---@class ss.PrecachedData.HashParameters
