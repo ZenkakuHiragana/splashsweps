@@ -13,8 +13,8 @@ local function GetMaxY(self, firstX, width)
     local maxY = -1
     local maxYIndex = 0
     for x = firstX, firstX + width - 1 do
-        if self.Wavefront[x] >= maxY then
-            maxY = self.Wavefront[x]
+        if self.Wavefront[x + 1] >= maxY then
+            maxY = self.Wavefront[x + 1]
             maxYIndex = x
         end
     end
@@ -29,13 +29,13 @@ end
 ---@return integer? y
 local function AddBlock(self, width, height)
     local bestX = -1
-    local outerX = 1
+    local outerX = 0
     local outerMinY = self.MaxHeight
     local lastX = self.MaxWidth - width
     local lastMaxYVal = -2
 
-    while outerX <= lastX + 1 do
-        if self.Wavefront[outerX] == lastMaxYVal then
+    while outerX <= lastX do
+        if self.Wavefront[outerX + 1] == lastMaxYVal then
             outerX = outerX + 1
         else
             local maxY, maxYIndex = GetMaxY(self, outerX, width)
@@ -50,7 +50,7 @@ local function AddBlock(self, width, height)
 
     if bestX == -1 then return end
 
-    local returnX = bestX - 1
+    local returnX = bestX
     local returnY = outerMinY + 1
     if returnY + height >= self.MaxHeight - 1 then return end
 
@@ -59,7 +59,7 @@ local function AddBlock(self, width, height)
     end
 
     for x = bestX, bestX + width - 1 do
-        self.Wavefront[x] = outerMinY + height
+        self.Wavefront[x + 1] = outerMinY + height
     end
 
     self.AreaUsed = self.AreaUsed + width * height

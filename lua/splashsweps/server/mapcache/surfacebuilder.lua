@@ -627,7 +627,6 @@ local function BuildFromBrushFace(bsp, rawFace)
 
         SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
         CalculateTriangleComponents(surf)
-        surf.Bumpmap = texMaterial:GetString "$bumpmap"
         return surf, tobool(isWater)
     else
         local surf = ss.new "PrecachedData.Surface"
@@ -657,7 +656,6 @@ local function BuildFromBrushFace(bsp, rawFace)
             SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
         end
 
-        surf.Bumpmap = texMaterial:GetString "$bumpmap"
         return surf, tobool(isWater)
     end
 end
@@ -731,6 +729,6 @@ function ss.BuildStaticPropCache(bsp, cache)
     cache.StaticProps = results
     cache.StaticPropHDR = uvinfo
     cache.StaticPropLDR = ss.deepcopy(uvinfo) or {}
-    cache.StaticPropMDL = bsp.sprp.name
+    cache.StaticPropMDL = bsp.sprp.name or {}
     print("    Collected info for " .. #results .. " static props.")
 end

@@ -67,16 +67,18 @@ end
 
 ---Generates look-up table for spatial partitioning to find surfaces faster.
 ---@param surfaces    ss.PrecachedData.Surface[]    The source array.
----@param faceIndices integer[]                     Indices of the worldspawn surfaces.
+---@param faceIndices integer[][]                   Indices of the worldspawn surfaces.
 ---@param staticProps ss.PrecachedData.StaticProp[] List of static props.
 ---@param hash        table<integer, integer[]>     The output hash table.
 function ss.BuildSurfaceHash(surfaces, faceIndices, staticProps, hash)
     print("Constructing spatial hash table for paintable surfaces...")
-    for _, i in ipairs(faceIndices) do
-        local s = surfaces[i]
-        for h in hashpairs(s.AABBMin, s.AABBMax) do
-            hash[h] = hash[h] or {}
-            hash[h][#hash[h] + 1] = i
+    for _, indices in ipairs(faceIndices) do
+        for _, i in ipairs(indices) do
+            local s = surfaces[i]
+            for h in hashpairs(s.AABBMin, s.AABBMax) do
+                hash[h] = hash[h] or {}
+                hash[h][#hash[h] + 1] = i
+            end
         end
     end
 

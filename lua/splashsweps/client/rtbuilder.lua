@@ -105,9 +105,9 @@ function ss.SetupRenderTargets()
         RTFLAGS.NORMAL,
         CREATERENDERTARGETFLAGS_HDR,
         IMAGE_FORMAT_RGBA8888)
-    ss.InkMeshMaterial:SetTexture("$basetexture", rt.StaticTextures.Albedo)
-    ss.InkMeshMaterial:SetTexture("$bumpmap", rt.StaticTextures.Normal)
-    ss.InkMeshMaterial:SetUndefined("$detail") -- Unused for now
+    -- ss.InkMeshMaterial:SetTexture("$basetexture", rt.StaticTextures.Albedo)
+    -- ss.InkMeshMaterial:SetTexture("$bumpmap", rt.StaticTextures.Normal)
+    -- ss.InkMeshMaterial:SetUndefined("$detail") -- Unused for now
     rt.HammerUnitsToPixels = rt.HammerUnitsToUV * rtSize
     ss.ClearAllInk()
 end
@@ -115,8 +115,19 @@ end
 local copy = Material "pp/copy"
 
 ---Loads lightmap texture and places it.
----@param path string The path to VTF to set to IMaterial:SetTexture.
-function ss.SetupLightmap(path)
-    copy:SetTexture("$basetexture", path)
-    ss.RenderTarget.StaticTextures.Lightmap = copy:GetTexture "$basetexture"
+---@param page integer Number of lightmap page
+---@param width integer
+---@param height integer
+---@return ITexture
+function ss.CreateLightmapRT(page, width, height)
+    local ishdr = render.GetHDREnabled()
+    local fmt = ishdr and "splashsweps_lightmap_hdr_%d_%s" or "splashsweps_lightmap_%d_%s"
+    return GetRenderTargetEx(
+        fmt:format(page, game.GetMap()),
+        width, height,
+        RT_SIZE_NO_CHANGE,
+        MATERIAL_RT_DEPTH_NONE,
+        RTFLAGS.ALBEDO,
+        CREATERENDERTARGETFLAGS_HDR,
+        ishdr and IMAGE_FORMAT_RGBA16161616F or IMAGE_FORMAT_RGBA8888)
 end

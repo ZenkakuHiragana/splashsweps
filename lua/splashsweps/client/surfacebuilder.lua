@@ -3,7 +3,7 @@
 local ss = SplashSWEPs
 if not ss then return end
 
-local copy = Material "pp/copy"
+ss.Lightmaps = ss.Lightmaps or {}
 local ModelInfoMeta = getmetatable(ss.new "PrecachedData.ModelInfo")
 local StaticPropMeta = getmetatable(ss.new "PrecachedData.StaticProp")
 local StaticPropUVMeta = getmetatable(ss.new "PrecachedData.StaticProp.UVInfo")
@@ -16,43 +16,54 @@ local MIN_DRAW_RADIUS = 0.015 -- minimum draw radius for static props relative t
 ---Construct IMesh
 ---@param surfInfo ss.PrecachedData.SurfaceInfo
 ---@param modelInfo ss.PrecachedData.ModelInfo
----@param modelIndex integer
-local function BuildInkMesh(surfInfo, modelInfo, modelIndex)
-    local meshIndex = 0
-    local faceIndex = 1
-    local meshTable = ss.IMesh[modelIndex]
+---@param meshTable ss.RenderBatch
+local function BuildInkMesh(surfInfo, modelInfo, meshTable)
+    local meshIndex = 1
     local rtIndex = #ss.RenderTarget.Resolutions
     local scale = surfInfo.UVScales[rtIndex]
     local worldToUV = Matrix()
     worldToUV:SetScale(ss.vector_one * scale)
-    for meshID, count in ipairs(surfInfo.VertexCounts) do
+    for indexToMeshID, count in ipairs(modelInfo.TriangleCounts) do
+        local meshID = modelInfo.MeshSortIDs[indexToMeshID] - 1
         local numMeshesToAdd = math.ceil(count / MAX_TRIANGLES)
         if numMeshesToAdd > 0 then
             for _ = 1, numMeshesToAdd do
+                local page = surfInfo.LightmapPages[meshID]
+                local isLast = page == surfInfo.NumLightmapPages
+                local width = isLast and surfInfo.LastLightmapPageWidth or 512
+                local height = isLast and surfInfo.LastLightmapPageHeight or 256
+                local rt = page and ss.CreateLightmapRT(page, width, height)
+                local mat = page and CreateMaterial(
+                    string.format("splashsweps_lightmap_%d_%s", page, game.GetMap()),
+                    "UnlitGeneric", {
+                        ["$basetexture"] = string.format("\\[lightmap%d]", page),
+                    })
+                if page then
+                    ss.Lightmaps[page] = {
+                        RT = rt,
+                        Tex = mat:GetTexture "$basetexture",
+                    }
+                end
                 meshTable[#meshTable + 1] = {
-                    LightmapTexture = nil,
-                    BrushBumpmap = nil,
+                    LightmapTexture = page and mat:GetTexture "$basetexture",
+                    LightmapTextureRT = rt,
+                    BrushBumpmap = surfInfo.Bumpmaps[meshID],
                     Mesh = Mesh(ss.InkMeshMaterial),
                 }
             end
 
-            meshIndex = meshIndex + 1 ---@type integer
             mesh.Begin(meshTable[meshIndex].Mesh, MATERIAL_TRIANGLES, math.min(count, MAX_TRIANGLES))
             local function ContinueMesh()
                 if mesh.VertexCount() < MAX_TRIANGLES * 3 then return end
                 mesh.End()
-                mesh.Begin(meshTable[meshIndex + 1].Mesh, MATERIAL_TRIANGLES,
-                math.min(count - MAX_TRIANGLES * meshIndex, MAX_TRIANGLES))
+                mesh.Begin(
+                    meshTable[meshIndex + 1].Mesh, MATERIAL_TRIANGLES,
+                    math.min(count - MAX_TRIANGLES * meshIndex, MAX_TRIANGLES))
                 meshIndex = meshIndex + 1
             end
 
-            local surf = setmetatable(surfInfo.Surfaces[faceIndex], SurfaceMeta)
-            while surf.MeshID and surf.MeshID + 1 == meshID do
-                if not meshTable[meshIndex].LightmapTexture and surf.LightmapPage then
-                    copy:SetTexture("$basetexture", string.format("[lightmap%d]", surf.LightmapPage))
-                    meshTable[meshIndex].LightmapTexture = copy:GetTexture "$basetexture"
-                    meshTable[meshIndex].BrushBumpmap = surf.Bumpmap
-                end
+            for _, faceIndex in ipairs(modelInfo.FaceIndices[indexToMeshID]) do
+                local surf = setmetatable(surfInfo.Surfaces[faceIndex], SurfaceMeta)
                 local info = setmetatable(surf.UVInfo[rtIndex], UVInfoMeta)
                 local uvOrigin = Vector(info.OffsetU, info.OffsetV)
                 worldToUV:SetAngles(info.Angle)
@@ -91,15 +102,11 @@ local function BuildInkMesh(surfInfo, modelInfo, modelIndex)
                         ContinueMesh()
                     end
                 end
-
-                faceIndex = faceIndex + 1
-                surf = setmetatable(surfInfo.Surfaces[faceIndex] or {}, SurfaceMeta)
             end
             mesh.End()
+            meshIndex = meshIndex + 1
         end
     end
-
-    print("SplashSWEPs: Total mesh triangles = ", modelInfo.NumTriangles)
 end
 
 ---Adjusts light intensity of ink mesh material from HDR info.
@@ -137,15 +144,127 @@ function ss.SetupModels(modelInfo, surfInfo)
         local modelName = ent:GetModel() or ""
         local i = tonumber(modelName:sub(2))
         if i and 0 < i and i <= #modelInfo then
-            ss.IMesh[i + 1].BrushEntity = ent
+            ss.RenderBatches[i + 1].BrushEntity = ent
         end
     end)
 
     for i, info in ipairs(modelInfo) do
-        ss.IMesh[i] = { BrushEntity = entities[i - 1] }
+        ss.RenderBatches[i] = { BrushEntity = entities[i - 1] }
         setmetatable(info, ModelInfoMeta)
-        BuildInkMesh(surfInfo, info, i)
+        BuildInkMesh(surfInfo, info, ss.RenderBatches[i])
     end
+
+    -- local width = 200
+    -- local height = 100
+    -- local meshVertices = {
+    --     {
+    --         pos = Vector( 0,   0,    0 ),
+    --         u  = 0, v  = 0,
+    --         u1 = 0, v1 = 0,
+    --         u2 = 0.125, v2 = -0.125,
+    --         u3 = 0, v3 = 0,
+    --         u4 = 0, v4 = 0,
+    --         u5 = 0, v5 = 0,
+    --         u6 = 0, v6 = 0,
+    --         u7 = 0, v7 = 0,
+    --         normal   = Vector(1, 0, 0),
+    --         tangent  = Vector(0, 1, 0),
+    --         binormal = Vector(0, 0, 1),
+    --         color    = (Vector(1, 1, 1) * 0.25):ToColor(),
+    --     },
+    --     {
+    --         pos = Vector( 0, width,    0 ),
+    --         u  = 1, v  = 0,
+    --         u1 = 1, v1 = 0,
+    --         u2 = -0.125, v2 = -0.125,
+    --         u3 = 1, v3 = 0,
+    --         u4 = 1, v4 = 0,
+    --         u5 = 1, v5 = 0,
+    --         u6 = 1, v6 = 0,
+    --         u7 = 1, v7 = 0,
+    --         normal   = Vector(1, 0, 0),
+    --         tangent  = Vector(0, 1, 0),
+    --         binormal = Vector(0, 0, 1),
+    --         color    = (Vector(1, 2, 1) * 0.25):ToColor(),
+    --     },
+    --     {
+    --         pos = Vector( 0, width, -height ),
+    --         u  = 1, v  = 1,
+    --         u1 = 1, v1 = 1,
+    --         u2 = -0.125, v2 = 0.125,
+    --         u3 = 1, v3 = 1,
+    --         u4 = 1, v4 = 1,
+    --         u5 = 1, v5 = 1,
+    --         u6 = 1, v6 = 1,
+    --         u7 = 1, v7 = 1,
+    --         normal   = Vector(1, 0, 0),
+    --         tangent  = Vector(0, 1, 0),
+    --         binormal = Vector(0, 0, 1),
+    --         color    = (Vector(1, 2, 2) * 0.25):ToColor(),
+    --     },
+    --     {
+    --         pos = Vector( 0,   0, -height ),
+    --         u  = 0, v  = 1,
+    --         u1 = 0, v1 = 1,
+    --         u2 = 0.125, v2 = 0.125,
+    --         u3 = 0, v3 = 1,
+    --         u4 = 0, v4 = 1,
+    --         u5 = 0, v5 = 1,
+    --         u6 = 0, v6 = 1,
+    --         u7 = 0, v7 = 1,
+    --         normal   = Vector(1, 0, 0),
+    --         tangent  = Vector(0, 1, 0),
+    --         binormal = Vector(0, 0, 1),
+    --         color    = (Vector(1, 1, 2) * 0.25):ToColor(),
+    --     },
+    -- }
+
+    -- local meshTriangles = {
+    --     meshVertices[1],
+    --     meshVertices[2],
+    --     meshVertices[3],
+    --     meshVertices[1],
+    --     meshVertices[3],
+    --     meshVertices[4],
+
+    --     meshVertices[1 + 4],
+    --     meshVertices[2 + 4],
+    --     meshVertices[3 + 4],
+    --     meshVertices[1 + 4],
+    --     meshVertices[3 + 4],
+    --     meshVertices[4 + 4],
+
+    --     meshVertices[1 + 8],
+    --     meshVertices[2 + 8],
+    --     meshVertices[3 + 8],
+    --     meshVertices[1 + 8],
+    --     meshVertices[3 + 8],
+    --     meshVertices[4 + 8],
+    -- }
+    -- local meshHint = Material "debug/debuglightmap"
+    -- if GlobalMesh then GlobalMesh:Destroy() end
+    -- ss.GlobalMesh = Mesh(meshHint)
+    -- mesh.Begin( ss.GlobalMesh, MATERIAL_TRIANGLES, #meshTriangles / 3 )
+    --     for _, vertex in pairs( meshTriangles ) do
+    --         mesh.Position( vertex.pos or vector_origin )
+    --         -- Texture coordinates go to channel 0
+    --         mesh.TexCoord( 0, vertex.u or 0, vertex.v or 0 )
+    --         -- Lightmap texture coordinates go to channel 1
+    --         mesh.TexCoord( 1, vertex.u1 or 0, vertex.v1 or 0 )
+    --         mesh.TexCoord( 2, vertex.u2 or 0, vertex.v2 or 0 )
+    --         mesh.TexCoord( 3, vertex.u3 or 0, vertex.v3 or 0 )
+    --         mesh.TexCoord( 4, vertex.u4 or 0, vertex.v4 or 0 )
+    --         mesh.TexCoord( 5, vertex.u5 or 0, vertex.v5 or 0 )
+    --         mesh.TexCoord( 6, vertex.u6 or 0, vertex.v6 or 0 )
+    --         mesh.TexCoord( 7, vertex.u7 or 0, vertex.v7 or 0 )
+    --         mesh.Normal( vertex.normal or Vector(0, 0, 1) )
+    --         mesh.TangentS( vertex.tangent or Vector(1, 0, 0) )
+    --         mesh.TangentT( vertex.binormal or Vector(0, 1, 0) )
+    --         mesh.Specular( 192 / 255, 168 / 255, 0, 1.0 )
+    --         mesh.UserData( 0.2, 0.8, 0.9, 1.0 )
+    --         mesh.AdvanceVertex()
+    --     end
+    -- mesh.End()
 end
 
 ---Builds render override functions of static props.

@@ -1,10 +1,20 @@
 
 if not SplashSWEPs then
+    ---@class ss.MeshData
+    ---@field Mesh IMesh The IMesh object to render this part of surfaces.
+    ---@field BrushBumpmap string? Name of $bumpmap texture under the surfaces if any.
+    ---@field LightmapTexture ITexture? The lightmap texture for this part of surfaces.
+    ---@field LightmapTextureRT ITexture? The lightmap texture for this part of surfaces.
+
+    ---@class ss.RenderBatch
+    ---@field BrushEntity Entity? The brush entity tied to this mesh, if any.
+    ---@field [integer] ss.MeshData List of meshes to render this model.
+
     ---@class ss
     SplashSWEPs = {
         ---List of IMeshes to render the painted ink.
-        ---@type { BrushEntity: Entity?, [integer]: { BrushBumpmap: string?, LightmapTexture: ITexture?, Mesh: IMesh }}[]
-        IMesh = {},
+        ---@type ss.RenderBatch[]
+        RenderBatches = {},
         ---Material to draw painted ink.
         ---@type IMaterial
         InkMeshMaterial = Material "splashsweps/inkmesh",
@@ -22,12 +32,8 @@ include "splashsweps/client/surfacebuilder.lua"
 local ss = SplashSWEPs
 local function LoadCache()
     local cachePath = string.format("splashsweps/%s.json", game.GetMap())
-    local pngldrPath = string.format("../data/splashsweps/%s_ldr.vtf", game.GetMap())
-    local pnghdrPath = string.format("../data/splashsweps/%s_hdr.vtf", game.GetMap())
     local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
     local hdrPath = string.format("splashsweps/%s_hdr.json", game.GetMap())
-    local pngldrExists = file.Exists(pngldrPath:sub(9), "DATA")
-    local pnghdrExists = file.Exists(pnghdrPath:sub(9), "DATA")
     local ldrExists = file.Exists(ldrPath, "DATA")
     local hdrExists = file.Exists(hdrPath, "DATA")
     local cache = util.JSONToTable(util.Decompress(file.Read(cachePath) or "") or "", true) ---@type ss.PrecachedData?
@@ -36,12 +42,11 @@ local function LoadCache()
 
     local ishdr = false
     if render.GetHDREnabled() then
-        ishdr = hdrExists and pnghdrExists
+        ishdr = hdrExists
     else
-        ishdr = not (ldrExists and pngldrExists)
+        ishdr = not ldrExists
     end
 
-    local pngPath = ishdr and pnghdrPath or pngldrPath
     local surfacePath = ishdr and hdrPath or ldrPath
     local modelInfo = ishdr and cache.ModelsHDR or cache.ModelsLDR
     local staticPropUV = ishdr and cache.StaticPropHDR or cache.StaticPropLDR
@@ -62,7 +67,6 @@ local function LoadCache()
     ss.SetupSurfaces(surfaces.Surfaces)
     ss.SetupSurfacesStaticProp(cache.StaticProps, staticPropUV)
     ss.SetupStaticProps(cache.StaticProps, cache.StaticPropMDL, staticPropUV)
-    ss.SetupLightmap(pngPath)
     ss.LoadInkFeatures()
     ss.LoadInkShapes()
     ss.LoadInkTypes()

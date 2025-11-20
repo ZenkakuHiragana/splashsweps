@@ -30,10 +30,14 @@ ss.struct "SortableLightmapInfo.Surface" {
 ---@field MaxLightmapPage integer
 ---@field MinLightmapPage integer
 ---@field NeedsBumpedLightmaps boolean
+---@field Bumpmap string? Value of $bumpmap
+---@field Bumpmap2 string? Value of $bumpmap2
 ss.struct "SortableLightmapInfo.Material" {
     MaxLightmapPage = 0,
     MinLightmapPage = 0,
     NeedsBumpedLightmaps = false,
+    Bumpmap = nil,
+    Bumpmap2 = nil,
 }
 
 ---Sorts faces for lightmap packing, mimicking the engine's LightmapLess function.
@@ -51,17 +55,13 @@ local function lightmapLess(a, b)
         return a.MaterialID < b.MaterialID
     end
 
-    -- 3. We want Lightstyled surfaces to show up first
+    -- 3. We want NON-lightstyled surfaces to show up first
     if a.HasLightStyles ~= b.HasLightStyles then
-        return a.HasLightStyles
+        return b.HasLightStyles
     end
 
     -- 4. Then sort by lightmap area for better packing... (big areas first)
-    if a.Area ~= b.Area then
-        return a.Area > b.Area
-    end
-
-    return a.FaceIndex < b.FaceIndex
+    return a.Area > b.Area
 end
 
 ---Gets the minimum required dimensions for the packed image.
@@ -98,12 +98,11 @@ end
 
 ---Generates lightmap packing information for all faces in a BSP.
 ---@param bsp ss.RawBSPResults
----@param isHDR boolean
+---@param ishdr boolean
 ---@param surfaceInfo ss.PrecachedData.SurfaceInfo
----@param modelCache ss.PrecachedData.ModelInfo[]
-function ss.BuildLightmapInfo(bsp, isHDR, surfaceInfo, modelCache)
-    print("    Generating lightmap info (" .. (isHDR and "HDR" or "LDR") .. ")...")
-    local faces = isHDR and bsp.FACES_HDR or bsp.FACES
+function ss.BuildLightmapInfo(bsp, ishdr, surfaceInfo)
+    print("    Generating lightmap info (" .. (ishdr and "HDR" or "LDR") .. ")...")
+    local faces = ishdr and bsp.FACES_HDR or bsp.FACES
     if not faces or #faces == 0 then return end
 
     local MAX_LIGHTMAP_WIDTH  = 512
@@ -113,78 +112,125 @@ function ss.BuildLightmapInfo(bsp, isHDR, surfaceInfo, modelCache)
     local rawTexDict   = bsp.TEXDATA_STRING_TABLE
     local rawTexIndex  = bsp.TexDataStringTableToIndex
     local rawTexString = bsp.TEXDATA_STRING_DATA
+    local rawSamples   = ishdr and bsp.LIGHTING_HDR or bsp.LIGHTING
+    local power2 ---@type number[]
 
-    -- Create a lookup table for material enumeration IDs, sorted alphabetically
-    -- to match the engine's CMaterialDict iteration.
-    local materialNames = table.Copy(rawTexString)
-    table.sort(materialNames)
-    local materialIDs = table.Flip(materialNames)
+    -- FIXME: Enumeration IDs vary among sessions!!!
+    --        Simulate the global symbol table to fix this!!!
+    -- Create a lookup table for material enumeration IDs,
+    -- which seems the same as the order in the BSP.
+    local materialIDs = table.Flip(rawTexString)
 
     -- Create a list of material tied to min/max lightmap pages
     ---@type ss.SortableLightmapInfo.Material[]
     local materialInfo = {}
-    for i, name in ipairs(materialNames) do
+    for i, name in ipairs(rawTexString) do
         local mat = Material(name)
         if mat and not mat:IsError() then
             local isBumped = band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0
             materialInfo[i] = {
-                MaxLightmapPage = 0,
-                MinLightmapPage = 0,
+                MaxLightmapPage = -1,
+                MinLightmapPage = -1,
                 NeedsBumpedLightmaps = isBumped,
+                Bumpmap = mat:GetString "$bumpmap",
+                Bumpmap2 = mat:GetString "$bumpmap2",
             }
         end
     end
 
     -- Create a list of face objects with all necessary info for sorting
-    ---@type ss.SortableLightmapInfo.Surface[]
-    local sortableFaces = {}
+    local sortableFaces = ss.CreateRBTree(lightmapLess)
     for i, rawFace in ipairs(faces) do
-        local texInfo    = rawTexInfo[rawFace.texInfo + 1]
-        local texData    = rawTexData[texInfo.texData + 1]
-        local texOffset  = rawTexDict[texData.nameStringTableID + 1]
-        local texIndex   = rawTexIndex[texOffset]
-        local texName    = rawTexString[texIndex]
-        local materialID = materialIDs[texName] or 0
-        local t = { ---@type ss.SortableLightmapInfo.Surface
-            Area = rawFace.lightmapTextureSizeInLuxels[1] * rawFace.lightmapTextureSizeInLuxels[2],
+        local texInfo     = rawTexInfo[rawFace.texInfo + 1]
+        local texData     = rawTexData[texInfo.texData + 1]
+        local texOffset   = rawTexDict[texData.nameStringTableID + 1]
+        local texIndex    = rawTexIndex[texOffset]
+        local texName     = rawTexString[texIndex]
+        local materialID  = materialIDs[texName] or 0
+        local lightOffset = rawFace.lightOffset + 1
+        local lightStyles = rawFace.styles
+        local width       = rawFace.lightmapTextureSizeInLuxels[1]
+        local height      = rawFace.lightmapTextureSizeInLuxels[2]
+        local area        = width * height
+        local t = {
+            Area = area,
             FaceIndex = i,
-            HasLightmap = band(texInfo.flags, SURF_NOLIGHT) == 0 and rawFace.lightOffset >= 0,
-            HasLightStyles = false, -- Check face.styles
+            HasLightmap = band(texInfo.flags, SURF_NOLIGHT) == 0 and
+                          lightOffset > 0 and area > 0,
+            HasLightStyles = lightStyles[1] ~= 0 and
+                             lightStyles[1] ~= 255 or
+                             lightStyles[2] ~= 255,
             MaterialID = materialID,
         }
-        for j = 1, 4 do
-            if rawFace.styles[j] ~= 0 and rawFace.styles[j] ~= 255 then
-                t.HasLightStyles = true
-                break
+        -- CheckSurfaceLighting
+        if t.HasLightStyles then
+            if not power2 then
+                power2 = {}
+                for exp = 0, 255 do
+                    power2[exp] = math.pow(2, exp - 128)
+                end
             end
-        end
-        sortableFaces[#sortableFaces + 1] = t
-    end
 
-    -- Sort the faces
-    table.sort(sortableFaces, lightmapLess)
+            local minLightValue = 1 / 1023
+            local maxLightmapIndex = 1
+            local offset = (width + 1) * (height + 1)
+            if materialInfo[materialID].NeedsBumpedLightmaps then
+                offset = offset * 4
+            end
+
+            while lightStyles[maxLightmapIndex + 1] and lightStyles[maxLightmapIndex + 1] ~= 255 do
+                maxLightmapIndex = maxLightmapIndex + 1
+            end
+
+            for j = maxLightmapIndex, 0, -1 do
+                local maxLength = -1
+                local maxR, maxG, maxB ---@type number, number, number
+                for k = 0, offset - 1 do
+                    local ptr = lightOffset + ((j - 1) * offset + k) * 4
+                    local r, g, b, e = rawSamples:byte(ptr, ptr + 3)
+                    local length = r * r + g * g + b * b
+                    if length > maxLength then
+                        maxLength = length
+                        -- TexLightToLinear
+                        maxR = r * power2[e]
+                        maxG = g * power2[e]
+                        maxB = b * power2[e]
+                    end
+                end
+                if maxR < minLightValue and maxG < minLightValue and maxB < minLightValue then
+                    maxLightmapIndex = maxLightmapIndex - 1
+                end
+            end
+
+            t.HasLightStyles = maxLightmapIndex > 1
+        end
+        sortableFaces:Insert(t)
+    end
 
     -- Initialize packers and result table
     local initialSortID = 1
-    local packers = { ss.MakeSkylinePacker(
-        initialSortID, MAX_LIGHTMAP_WIDTH, MAX_LIGHTMAP_HEIGHT) }
+    local packers = {
+        ss.MakeSkylinePacker(
+            initialSortID,
+            MAX_LIGHTMAP_WIDTH,
+            MAX_LIGHTMAP_HEIGHT)
+    }
 
     ---Face lump index --> lightmap info
-    ---@type { x: integer, y: integer, sortID: integer }[]
+    ---@type { x: integer, y: integer, sortID: integer, mat: ss.SortableLightmapInfo.Material }[]
     local faceLightmapInfo = {}
-    ---Sort ID --> material, lightmap page
-    ---@type integer[]
-    local sortIDToLightmapPage = {}
     local numSortIDs = 1
     local numLightmapPages = 0
     local currentMaterialID = nil ---@type integer
+    local currentWhiteLightmapMaterialID = nil ---@type integer
+    surfaceInfo.LightmapPages[1] = 0
 
     -- Loop through sorted faces and pack them
-    for _, faceInfo in ipairs(sortableFaces) do
+    for faceInfo in sortableFaces:Pairs() do
+        local face = faces[faceInfo.FaceIndex]
+        local mat  = materialInfo[faceInfo.MaterialID]
         if faceInfo.HasLightmap then
-            local face = faces[faceInfo.FaceIndex]
-            local mat = materialInfo[faceInfo.MaterialID]
-            local width = face.lightmapTextureSizeInLuxels[1] + 1
+            local width  = face.lightmapTextureSizeInLuxels[1] + 1
             local height = face.lightmapTextureSizeInLuxels[2] + 1
             if mat.NeedsBumpedLightmaps then width = width * 4 end
 
@@ -194,8 +240,11 @@ function ss.BuildLightmapInfo(bsp, isHDR, surfaceInfo, modelCache)
                 packers = { packers[#packers] }
                 if currentMaterialID then
                     ---Increments the sort ID of the packer.
-                    packers[1].SortID = packers[1].SortID + 1
                     numSortIDs = numSortIDs + 1
+                    packers[1].SortID = packers[1].SortID + 1
+                    surfaceInfo.LightmapPages[numSortIDs] = numLightmapPages
+                    surfaceInfo.Bumpmaps[numSortIDs] = mat.Bumpmap
+                    surfaceInfo.Bumpmaps2[numSortIDs] = mat.Bumpmap2
                 end
 
                 currentMaterialID = faceInfo.MaterialID
@@ -204,67 +253,62 @@ function ss.BuildLightmapInfo(bsp, isHDR, surfaceInfo, modelCache)
             end
 
             -- Try to pack into existing pages for this material group
-            local packed = false
+            local x ---@type integer?
+            local y ---@type integer?
+            local packedSortID = nil ---@type integer?
             for _, packer in ipairs(packers) do
-                local x, y = packer:AddBlock(width, height)
+                x, y = packer:AddBlock(width, height)
                 if x and y then
-                    packed = true
-                    sortIDToLightmapPage[packer.SortID] = numLightmapPages
-                    faceLightmapInfo[faceInfo.FaceIndex] = {
-                        x = x,
-                        y = y,
-                        sortID = packer.SortID,
-                    }
+                    packedSortID = packer.SortID
                     break
                 end
             end
 
-            if not packed then
-                -- Failed to fit, create a new page/packer for this material group
-                local newPacker = ss.MakeSkylinePacker(
-                    packers[1].SortID + 1, MAX_LIGHTMAP_WIDTH, MAX_LIGHTMAP_HEIGHT)
-                local x, y = newPacker:AddBlock(width, height)
+            -- Failed to fit, create a new page/packer for this material group
+            if not packedSortID then
+                numSortIDs = numSortIDs + 1
+                numLightmapPages = numLightmapPages + 1
+                surfaceInfo.LightmapPages[numSortIDs] = numLightmapPages
+                surfaceInfo.Bumpmaps[numSortIDs] = mat.Bumpmap
+                surfaceInfo.Bumpmaps2[numSortIDs] = mat.Bumpmap2
+                packers[#packers + 1] = ss.MakeSkylinePacker(
+                    numSortIDs, MAX_LIGHTMAP_WIDTH, MAX_LIGHTMAP_HEIGHT)
+                x, y = packers[#packers]:AddBlock(width, height)
                 if x and y then
-                    numSortIDs = numSortIDs + 1
-                    numLightmapPages = numLightmapPages + 1
-                    packers[#packers + 1] = newPacker
                     mat.MaxLightmapPage = numLightmapPages
-                    sortIDToLightmapPage[newPacker.SortID] = numLightmapPages
-                    faceLightmapInfo[faceInfo.FaceIndex] = {
-                        x = x,
-                        y = y,
-                        sortID = newPacker.SortID,
-                    }
-                else
-                    -- This should not happen if the block is smaller than the page
-                    print("WARNING: Lightmap block for material "
-                        .. materialNames[faceInfo.MaterialID]
-                        .. " is too large to fit in a new page!")
+                    packedSortID = packers[#packers].SortID
                 end
             end
+
+            faceLightmapInfo[faceInfo.FaceIndex] = {
+                x = x or 0,
+                y = y or 0,
+                sortID = packedSortID or 0,
+                mat = mat,
+            }
+        elseif not currentMaterialID and currentWhiteLightmapMaterialID ~= faceInfo.MaterialID then
+            if not currentMaterialID and not currentWhiteLightmapMaterialID then
+                numSortIDs = numSortIDs + 1
+            end
+            currentWhiteLightmapMaterialID = faceInfo.MaterialID
+            -- mat.NeedsWhiteLightmap = true
         end
     end
 
+    local lastPageWidth, lastPageHeight = GetMinimumDimensions(packers[#packers])
     for _, surf in ipairs(surfaceInfo.Surfaces) do
         local indexInLump = surf.FaceLumpIndex ---@cast indexInLump -?
         local info = faceLightmapInfo[indexInLump]
+        surf.MeshSortID = info and info.sortID or 0
         if info then
             local face = faces[indexInLump]
             local texInfo = rawTexInfo[face.texInfo + 1]
             local width = face.lightmapTextureSizeInLuxels[1] + 1
             local height = face.lightmapTextureSizeInLuxels[2] + 1
-            surf.LightmapPage = sortIDToLightmapPage[info.sortID]
-            surf.LightmapX = info.x
-            surf.LightmapY = info.y
-            surf.LightmapWidth = width
-            surf.LightmapHeight = height
-            surf.MeshID = info.sortID
-
-            local pageWidth = MAX_LIGHTMAP_WIDTH
-            local pageHeight = MAX_LIGHTMAP_WIDTH
-            if surf.LightmapPage == numLightmapPages then
-                pageWidth, pageHeight = GetMinimumDimensions(packers[#packers])
-            end
+            local page = surfaceInfo.LightmapPages[info.sortID]
+            local isLastPage = page == numLightmapPages
+            local pageWidth = isLastPage and lastPageWidth or MAX_LIGHTMAP_WIDTH
+            local pageHeight = isLastPage and lastPageHeight or MAX_LIGHTMAP_HEIGHT
             if face.dispInfo >= 0 then
                 for _, v in ipairs(surf.Vertices) do
                     local s = v.LightmapSamplePoint.x * width
@@ -289,22 +333,7 @@ function ss.BuildLightmapInfo(bsp, isHDR, surfaceInfo, modelCache)
         end
     end
 
-    table.sort(surfaceInfo.Surfaces, function(a, b) return a.MeshID < b.MeshID end)
-    local modelIndices = {} ---@type integer[] Face index --> model index
-    for modelIndex, lump in ipairs(bsp.MODELS) do
-        for i = 1, lump.numFaces do
-            modelIndices[lump.firstFace + i] = modelIndex
-        end
-    end
-
-    for i = 1, numSortIDs + 1 do surfaceInfo.VertexCounts[i] = 0 end
-    for i, surf in ipairs(surfaceInfo.Surfaces) do
-        local id = surf.MeshID + 1 -- 1 is reserved for non-lightmapped surfaces
-        surfaceInfo.VertexCounts[id]
-            = surfaceInfo.VertexCounts[id] + #surf.Vertices
-        local modelIndex = modelIndices[surf.FaceLumpIndex]
-        local modelInfo = modelCache[modelIndex]
-        modelInfo.FaceIndices[#modelInfo.FaceIndices + 1] = i
-        modelInfo.NumTriangles = modelInfo.NumTriangles + #surf.Vertices
-    end
+    surfaceInfo.NumLightmapPages = numLightmapPages
+    surfaceInfo.LastLightmapPageWidth = lastPageWidth
+    surfaceInfo.LastLightmapPageHeight = lastPageHeight
 end

@@ -19,13 +19,16 @@ if not SplashSWEPs then
 end
 
 include "splashsweps/shared/autorun.lua"
+include "splashsweps/server/session.lua"
 include "splashsweps/server/playerconnection.lua"
+include "splashsweps/server/mapcache/associationbuilder.lua"
 include "splashsweps/server/mapcache/bsploader.lua"
 include "splashsweps/server/mapcache/cachebuilder.lua"
 include "splashsweps/server/mapcache/lightmapbuilder.lua"
 include "splashsweps/server/mapcache/surfacebuilder.lua"
 include "splashsweps/server/mapcache/uvbuilder.lua"
 include "splashsweps/server/packer/packer.lua"
+include "splashsweps/server/packer/rbtree.lua"
 include "splashsweps/server/packer/skylinepacker.lua"
 include "splashsweps/server/packer/structures.lua"
 
