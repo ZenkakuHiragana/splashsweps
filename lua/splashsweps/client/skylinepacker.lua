@@ -66,6 +66,38 @@ local function AddBlock(self, width, height)
     return returnX, returnY
 end
 
+---Gets the minimum required dimensions for the packed image.
+---@param self ss.SkylinePacker
+---@return integer width
+---@return integer height
+local function GetMinimumDimensions(self)
+    ---@param n integer
+    ---@return integer
+    local function ceilPow2(n)
+        n = n - 1
+        n = bit.bor(n, bit.rshift(n, 1))
+        n = bit.bor(n, bit.rshift(n, 2))
+        n = bit.bor(n, bit.rshift(n, 4))
+        n = bit.bor(n, bit.rshift(n, 8))
+        n = bit.bor(n, bit.rshift(n, 16))
+        return n + 1
+    end
+
+    -- In the source code, it seems to get aspect ratio from HardwareConfig()->MaxTextureAspectRatio()
+    -- but I will just hardcode it to 8 for now.
+    local MAX_ASPECT_RATIO = 8
+
+    local width = ceilPow2(self.MaxWidth)
+    local height = ceilPow2(self.MinHeight)
+
+    local aspect = width / height
+    if aspect > MAX_ASPECT_RATIO then
+        height = width / MAX_ASPECT_RATIO
+    end
+
+    return width, height
+end
+
 ---Creates a new image packer.
 ---@param sortID integer
 ---@param maxWidth integer
@@ -81,6 +113,7 @@ function ss.MakeSkylinePacker(sortID, maxWidth, maxHeight)
         AreaUsed = 0,
         SortID = sortID,
         AddBlock = AddBlock,
+        GetMinimumDimensions = GetMinimumDimensions,
     }
 
     for i = 1, t.MaxWidth do

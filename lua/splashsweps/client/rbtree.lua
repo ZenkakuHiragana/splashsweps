@@ -157,7 +157,7 @@ function ss.CreateRBTree(lessFunc)
     }
 
     ---Inserts a new element into the tree.
-    ---@param data ss.SortableLightmapInfo.Surface
+    ---@param data ss.PrecachedData.LightmapInfo
     function tree:Insert(data)
         local parent = nil
         local current = self.root
@@ -196,7 +196,7 @@ function ss.CreateRBTree(lessFunc)
     end
 
     ---Returns an iterator for inorder traversal.
-    ---@return fun(): ss.SortableLightmapInfo.Surface?
+    ---@return fun(): ss.PrecachedData.LightmapInfo?
     function tree:Pairs()
         local function firstInorder(node)
             if not node then return nil end

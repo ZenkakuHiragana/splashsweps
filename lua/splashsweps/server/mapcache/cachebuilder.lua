@@ -158,12 +158,9 @@ function ss.BuildMapCache()
     cache.CacheVersion  = 1 -- TODO: Better versioning
     cache.MapCRC        = tonumber(mapCRC) or 0
     cache.MinimapBounds = BuildMinimapBounds(bsp)
+    cache.NumModels     = #bsp.MODELS
     ss.BuildStaticPropCache(bsp, cache)
     findLightEnvironment(bsp, cache)
-    for i = 1, #bsp.MODELS do
-        cache.ModelsHDR[i] = ss.new "PrecachedData.ModelInfo"
-        cache.ModelsLDR[i] = ss.new "PrecachedData.ModelInfo"
-    end
 
     local staticPropRectangles = {} ---@type Vector[]
     for i, prop in ipairs(cache.StaticProps) do
@@ -178,9 +175,8 @@ function ss.BuildMapCache()
         cache.SurfacesWaterHDR = whdr
         ss.BuildUVCache(hdr, cache.StaticPropHDR, staticPropRectangles)
         ss.BuildDisplacementHash(hdr.Surfaces)
-        ss.BuildLightmapInfo(bsp, true, hdr)
-        ss.BuildModelSurfaceAssociation(bsp, hdr, cache.ModelsHDR)
-        ss.BuildSurfaceHash(hdr.Surfaces, cache.ModelsHDR[1].FaceIndices, cache.StaticProps, hdr.SurfaceHash)
+        ss.BuildLightmapInfo(bsp, true, hdr, cache)
+        ss.BuildSurfaceHash(hdr.Surfaces, cache.StaticProps, hdr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_hdr.json", game.GetMap()), util.Compress(util.TableToJSON(hdr)))
     end
 
@@ -190,9 +186,8 @@ function ss.BuildMapCache()
         cache.SurfacesWaterLDR = wldr
         ss.BuildUVCache(ldr, cache.StaticPropLDR, staticPropRectangles)
         ss.BuildDisplacementHash(ldr.Surfaces)
-        ss.BuildLightmapInfo(bsp, false, ldr)
-        ss.BuildModelSurfaceAssociation(bsp, ldr, cache.ModelsLDR)
-        ss.BuildSurfaceHash(ldr.Surfaces, cache.ModelsLDR[1].FaceIndices, cache.StaticProps, ldr.SurfaceHash)
+        ss.BuildLightmapInfo(bsp, false, ldr, cache)
+        ss.BuildSurfaceHash(ldr.Surfaces, cache.StaticProps, ldr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_ldr.json", game.GetMap()), util.Compress(util.TableToJSON(ldr)))
     end
 

@@ -482,7 +482,9 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
             subdivision[i]:Mul(subdivisionMatrix)
             deformed[i] = subdivision[i] + dispVert.vec * dispVert.dist
             angles[i] = dispVert.vec:Angle()
-            uv[i] = Vector(u, v)
+            uv[i] = Vector(
+                u * (rawFace.lightmapTextureSizeInLuxels[1] + 1),
+                v * (rawFace.lightmapTextureSizeInLuxels[2] + 1))
 
             if ui > 0 then
                 local previous = deformed[i - 1]
@@ -545,7 +547,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
         surf.Vertices[i] = ss.new "PrecachedData.Vertex"
         surf.Vertices[i].Angle = angles[t]
         surf.Vertices[i].Translation = deformed[t]
-        surf.Vertices[i].LightmapSamplePoint = uv[t]
+        surf.Vertices[i].LightmapUV = uv[t]
         surf.Vertices[i].DisplacementOrigin = subdivision[t]
     end
 
@@ -647,6 +649,14 @@ local function BuildFromBrushFace(bsp, rawFace)
             surf.Vertices[i] = ss.new "PrecachedData.Vertex"
             surf.Vertices[i].Translation:Set(filteredVertices[t])
             surf.Vertices[i].Angle:Set(angle)
+            surf.Vertices[i].LightmapUV.x = filteredVertices[t]:Dot(texInfo.lightmapVecS)
+                + texInfo.lightmapOffsetS
+                - rawFace.lightmapTextureMinsInLuxels[1]
+                + 0.5
+            surf.Vertices[i].LightmapUV.y = filteredVertices[t]:Dot(texInfo.lightmapVecT)
+                + texInfo.lightmapOffsetT
+                - rawFace.lightmapTextureMinsInLuxels[2]
+                + 0.5
         end
 
         if not isWater then
@@ -671,6 +681,13 @@ function ss.BuildSurfaceCache(bsp, ishdr)
     local surf = surfInfo.Surfaces
     local water = {} ---@type ss.PrecachedData.Surface[]
     local lump = ishdr and bsp.FACES_HDR or bsp.FACES or {}
+    local faceIndexToModelIndex = {} ---@type integer[]
+    for i, mdl in ipairs(bsp.MODELS) do
+        for j = mdl.firstFace + 1, mdl.firstFace + mdl.numFaces do
+            faceIndexToModelIndex[j] = i
+        end
+    end
+
     print("Generating inkable surfaces for " .. (ishdr and "HDR" or "LDR") .. "...")
     for i, face in ipairs(lump) do
         local s, iswater = BuildFromBrushFace(bsp, face)
@@ -679,6 +696,7 @@ function ss.BuildSurfaceCache(bsp, ishdr)
                 water[#water + 1] = s
             else
                 s.FaceLumpIndex = i
+                s.ModelIndex = faceIndexToModelIndex[i]
                 surf[#surf + 1] = s
             end
         end

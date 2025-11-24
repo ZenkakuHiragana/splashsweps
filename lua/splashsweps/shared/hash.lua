@@ -67,14 +67,12 @@ end
 
 ---Generates look-up table for spatial partitioning to find surfaces faster.
 ---@param surfaces    ss.PrecachedData.Surface[]    The source array.
----@param faceIndices integer[][]                   Indices of the worldspawn surfaces.
 ---@param staticProps ss.PrecachedData.StaticProp[] List of static props.
 ---@param hash        table<integer, integer[]>     The output hash table.
-function ss.BuildSurfaceHash(surfaces, faceIndices, staticProps, hash)
+function ss.BuildSurfaceHash(surfaces, staticProps, hash)
     print("Constructing spatial hash table for paintable surfaces...")
-    for _, indices in ipairs(faceIndices) do
-        for _, i in ipairs(indices) do
-            local s = surfaces[i]
+    for i, s in ipairs(surfaces) do
+        if s.ModelIndex == 1 then
             for h in hashpairs(s.AABBMin, s.AABBMax) do
                 hash[h] = hash[h] or {}
                 hash[h][#hash[h] + 1] = i
@@ -207,6 +205,7 @@ function ss.BuildDisplacementHash(surfaces)
         if surf.Triangles then
             surf.TriangleHash = {}
             local v = surf.Vertices
+            local maxHash = -1
             for i, t in ipairs(surf.Triangles) do
                 local v1 = v[t.Index].Translation
                 local v2 = v[t.Index + 1].Translation
@@ -220,8 +219,16 @@ function ss.BuildDisplacementHash(surfaces)
                     max(v1.y, v2.y, v3.y),
                     max(v1.z, v2.z, v3.z))
                 for h in hashpairsAABB(mins, maxs, surf.AABBMin, surf.AABBMax) do
-                    surf.TriangleHash[h] = surf.TriangleHash[h] or {}
-                    surf.TriangleHash[h][#surf.TriangleHash[h] + 1] = i
+                    surf.TriangleHash[h + 1] = surf.TriangleHash[h + 1] or {}
+                    surf.TriangleHash[h + 1][#surf.TriangleHash[h + 1] + 1] = i
+                    maxHash = math.max(h + 1, maxHash)
+                end
+            end
+
+            -- Make it sequential to avoid storing keys to the JSON
+            for i = 1, maxHash do
+                if not surf.TriangleHash[i] then
+                    surf.TriangleHash[i] = {}
                 end
             end
         end
@@ -240,7 +247,7 @@ function ss.CollectDisplacementTriangles(displacement, mins, maxs)
     return wrap(function()
         local hasSeenThisTriangle = {} ---@type table<integer, true>
         for h in hashpairsAABB(mins, maxs, displacement.AABBMin, displacement.AABBMax) do
-            for _, i in ipairs(displacement.TriangleHash[h] or {}) do
+            for _, i in ipairs(displacement.TriangleHash[h + 1] or {}) do
                 if not hasSeenThisTriangle[i] then
                     hasSeenThisTriangle[i] = true
                     local t = displacement.Triangles[i]

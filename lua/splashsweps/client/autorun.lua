@@ -25,7 +25,10 @@ include "splashsweps/shared/autorun.lua"
 include "splashsweps/client/inkmaterial.lua"
 include "splashsweps/client/inkrenderer.lua"
 include "splashsweps/client/paintablesurface.lua"
+include "splashsweps/client/rbtree.lua"
 include "splashsweps/client/rtbuilder.lua"
+include "splashsweps/client/session.lua"
+include "splashsweps/client/skylinepacker.lua"
 include "splashsweps/client/surfacebuilder.lua"
 
 ---@class ss
@@ -48,7 +51,6 @@ local function LoadCache()
     end
 
     local surfacePath = ishdr and hdrPath or ldrPath
-    local modelInfo = ishdr and cache.ModelsHDR or cache.ModelsLDR
     local staticPropUV = ishdr and cache.StaticPropHDR or cache.StaticPropLDR
     local waterSurfaces = ishdr and cache.SurfacesWaterHDR or cache.SurfacesWaterLDR
 
@@ -63,7 +65,7 @@ local function LoadCache()
 
     ss.SetupRenderTargets()
     ss.SetupHDRLighting(cache)
-    ss.SetupModels(modelInfo, surfaces)
+    ss.SetupModels(surfaces, cache.NumModels, cache.MaterialNames)
     ss.SetupSurfaces(surfaces.Surfaces)
     ss.SetupSurfacesStaticProp(cache.StaticProps, staticPropUV)
     ss.SetupStaticProps(cache.StaticProps, cache.StaticPropMDL, staticPropUV)
