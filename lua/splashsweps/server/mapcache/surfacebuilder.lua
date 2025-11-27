@@ -483,8 +483,8 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
             deformed[i] = subdivision[i] + dispVert.vec * dispVert.dist
             angles[i] = dispVert.vec:Angle()
             uv[i] = Vector(
-                u * (rawFace.lightmapTextureSizeInLuxels[1] + 1),
-                v * (rawFace.lightmapTextureSizeInLuxels[2] + 1))
+                u * rawFace.lightmapTextureSizeInLuxels[1] + 0.5,
+                v * rawFace.lightmapTextureSizeInLuxels[2] + 0.5)
 
             if ui > 0 then
                 local previous = deformed[i - 1]

@@ -78,7 +78,7 @@ function ss.ClearAllInk()
     render.PopRenderTarget()
 end
 
-hook.Add("PostDrawTranslucentRenderables", "SplashSWEPs: Draw ink", DrawMeshes)
+hook.Add("PreDrawTranslucentRenderables", "SplashSWEPs: Draw ink", DrawMeshes)
 
 -- local m = Matrix()
 -- local meshHint = Material "debug/debuglightmap"

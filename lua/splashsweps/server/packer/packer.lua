@@ -219,6 +219,7 @@ function ss.MakeRectanglePacker(rectangles)
     ---                   |
     ---```
     ---@param origin ss.LinkedListCell
+    ---@return boolean merged indicates if baseline was merged
     function t:fillline(origin)
         -- If the previous one exists,
         -- and it is higher than the current,
@@ -233,8 +234,14 @@ function ss.MakeRectanglePacker(rectangles)
         local hbase = origin.value.height
         local hbefore = before and before.value.height
         local hafter = after and after.value.height
-        if hbefore and hbefore >= hbase and not (
-            hafter and hbefore >= hafter and hafter >= hbase) then ---@cast before -?
+        local can_merge_before = hbefore and hbefore >= hbase
+        local can_merge_after = hafter and hafter >= hbase
+        if can_merge_before and can_merge_after then
+            can_merge_after = hbefore >= hafter
+            can_merge_before = hbefore < hafter
+        end
+
+        if can_merge_before then ---@cast before -?
             before.value.length = before.value.length + origin.value.length
             before.value.height = hbefore
             origin:remove()
@@ -243,8 +250,7 @@ function ss.MakeRectanglePacker(rectangles)
         --                  +----------
         --         |        |
         --         +--------+
-        elseif hafter and hafter >= hbase and not (
-            hbefore and hafter >= hbefore and hbefore >= hbase) then ---@cast after -?
+        elseif can_merge_after then ---@cast after -?
             after.value.offset = after.value.offset - origin.value.length
             after.value.length = after.value.length + origin.value.length
             after.value.height = hafter
@@ -262,6 +268,8 @@ function ss.MakeRectanglePacker(rectangles)
             before.value.height = hbefore
             after:remove()
         end
+
+        return can_merge_before or can_merge_after or false
     end
 
     ---Finds the best-fit rectangle for given length.  
@@ -309,7 +317,9 @@ function ss.MakeRectanglePacker(rectangles)
                 prefer_y = true
             else
                 prefer_y = false
-                self:fillline(x)
+                if not self:fillline(x) then
+                    return x, -1, false, is_y -- Should not happen if logic is correct, but for safety
+                end
             end
         end
     end
@@ -564,7 +574,7 @@ function ss.MakeRectanglePacker(rectangles)
 
     ---Find the best-fit baseline to place given rectangle index ri.
     ---@param ri integer
-    ---@return ss.LinkedListCell
+    ---@return ss.LinkedListCell?
     ---@return boolean
     function t:findbaseline(ri)
         local prefer_y = false -- Which axis do we prefer if both are considered as candidate?
@@ -578,7 +588,9 @@ function ss.MakeRectanglePacker(rectangles)
                 prefer_y = true
             else
                 prefer_y = false
-                self:fillline(x)
+                if not self:fillline(x) then
+                    return nil, false
+                end
             end
         end
     end
@@ -612,7 +624,7 @@ function ss.MakeRectanglePacker(rectangles)
         line.value.height = line.value.height - rheight
         line.value.rectangle = nil
         local newline, new_y = self:findbaseline(i)
-        if newline.value.height + rwidth < h then
+        if newline and newline.value.height + rwidth < h then
             local offset = newline.value.offset
             local height = newline.value.height
             if new_y ~= is_y then r:rotate() end

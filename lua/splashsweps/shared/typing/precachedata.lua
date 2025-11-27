@@ -276,7 +276,7 @@ ss.struct "PrecachedData.Surface" (setmetatable({
 
 ---A wrapper for a BSP face to cache its properties for sorting.
 ---@class ss.PrecachedData.LightmapInfo
----@field MaterialIndex  integer  Index to material names in game.GetWorld():GetMaterials()
+---@field MaterialIndex  integer  Index to material names in ss.PrecachedData.MaterialNames
 ---@field FaceIndex      integer? Index to the PrecachedData.Surface array. nil if it does not correspond to paintable surface array.
 ---@field HasLightmap    integer? nil = false, 1 = true
 ---@field HasLightStyles integer? nil = false, 1 = true

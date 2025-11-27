@@ -4,6 +4,10 @@ local ss = SplashSWEPs
 if not ss then return end
 
 local band = bit.band
+local byte = string.byte
+local Clamp = math.Clamp
+local floor = math.floor
+local pow = math.pow
 
 -- From public/bspflags.h
 local SURF_NOLIGHT = 0x0400
@@ -27,9 +31,10 @@ function ss.BuildLightmapInfo(bsp, ishdr, surfaceInfo, cache)
     local rawTexIndex  = bsp.TexDataStringTableToIndex
     local rawTexString = bsp.TEXDATA_STRING_DATA
     local rawSamples   = ishdr and bsp.LIGHTING_HDR or bsp.LIGHTING
-    local power2 ---@type number[]
     local materialIDs = {} ---@type table<string, integer>
     local needsBumpedLightmaps = {} ---@type boolean[]
+    local power2 ---@type number[]
+    local linearToScreen ---@type number[]
     for i, texName in ipairs(rawTexString) do
         local sanitized = texName:lower():StripExtension():gsub("\\", "/")
         local mat = Material(sanitized)
@@ -68,16 +73,26 @@ function ss.BuildLightmapInfo(bsp, ishdr, surfaceInfo, cache)
         t.MaterialIndex = materialID
         t.Width = hasLightmap and width + 1 or 0
         t.Height = hasLightmap and height + 1 or 0
+
         -- CheckSurfaceLighting
-        if t.HasLightStyles then
+        if t.HasLightmap and t.HasLightStyles then
             if not power2 then
                 power2 = {}
-                for exp = 0, 255 do
-                    power2[exp] = math.pow(2, exp - 128)
+                for exp = 1, 128 do
+                    power2[exp] = pow(2, exp - 1)
+                end
+                for exp = 129, 256 do
+                    power2[exp] = pow(2, exp - 256 - 1)
+                end
+
+                linearToScreen = {}
+                for j = 1, 1024 do
+                    linearToScreen[j] = Clamp(floor(
+                        255 * pow((j - 1) / 1023, 1 / 2.2)), 0, 255)
                 end
             end
 
-            local minLightValue = 1 / 1023
+            local minLightValue = 1
             local maxLightmapIndex = 1
             local offset = (width + 1) * (height + 1)
             if needsBumpedLightmaps[materialID] then
@@ -89,27 +104,38 @@ function ss.BuildLightmapInfo(bsp, ishdr, surfaceInfo, cache)
                 maxLightmapIndex = maxLightmapIndex + 1
             end
 
-            for j = maxLightmapIndex, 1, -1 do
+            for j = maxLightmapIndex, 2, -1 do
                 local maxLength = -1
                 local maxR, maxG, maxB ---@type number, number, number
                 for k = 0, offset - 1 do
                     local ptr = lightOffset + ((j - 1) * offset + k) * 4
-                    local r, g, b, e = rawSamples:byte(ptr, ptr + 3)
+                    local r, g, b, e = byte(rawSamples, ptr, ptr + 3)
+                    -- TexLightToLinear
+                    r = r * power2[e + 1]
+                    g = g * power2[e + 1]
+                    b = b * power2[e + 1]
                     local length = r * r + g * g + b * b
                     if length > maxLength then
                         maxLength = length
-                        -- TexLightToLinear
-                        maxR = r * power2[e]
-                        maxG = g * power2[e]
-                        maxB = b * power2[e]
+                        maxR = r
+                        maxG = g
+                        maxB = b
                     end
                 end
-                if maxR < minLightValue and maxG < minLightValue and maxB < minLightValue then
-                    maxLightmapIndex = maxLightmapIndex - 1
+
+                if maxR and maxG and maxB then
+                    maxR = linearToScreen[Clamp(floor(maxR * 1023), 0, 1023) + 1]
+                    maxG = linearToScreen[Clamp(floor(maxG * 1023), 0, 1023) + 1]
+                    maxB = linearToScreen[Clamp(floor(maxB * 1023), 0, 1023) + 1]
+                    if maxR <= minLightValue and maxG <= minLightValue and maxB <= minLightValue then
+                        maxLightmapIndex = maxLightmapIndex - 1
+                    end
                 end
             end
 
-            t.HasLightStyles = maxLightmapIndex > 1 and 1 or nil
+            if maxLightmapIndex == 1 then
+                t.HasLightStyles = nil
+            end
         end
         surfaceInfo.Lightmaps[i] = t
     end
