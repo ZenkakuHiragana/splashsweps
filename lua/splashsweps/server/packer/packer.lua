@@ -232,8 +232,8 @@ function ss.MakeRectanglePacker(rectangles)
         --         +--------+
         local before, after = origin.before, origin.after
         local hbase = origin.value.height
-        local hbefore = before and before.value.height
-        local hafter = after and after.value.height
+        local hbefore = before and before.value.height ---@cast hbefore -?
+        local hafter = after and after.value.height ---@cast hafter -?
         local can_merge_before = hbefore and hbefore >= hbase
         local can_merge_after = hafter and hafter >= hbase
         if can_merge_before and can_merge_after then

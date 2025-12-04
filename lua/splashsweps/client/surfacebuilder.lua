@@ -88,7 +88,9 @@ local function BuildInkMesh(surfaceInfo, renderBatches, materialsInMap)
         end
 
         -- 4. Then sort by lightmap area for better packing... (big areas first)
-        return (a.Width - 1) * (a.Height - 1) > (b.Width - 1) * (b.Height - 1)
+        local aArea = (a.Width - 1) * (a.Height - 1)
+        local bArea = (b.Width - 1) * (b.Height - 1)
+        return aArea > bArea
     end
 
     ---Assigns enumeration ID to materials in the map,
@@ -298,7 +300,7 @@ local function BuildInkMesh(surfaceInfo, renderBatches, materialsInMap)
         end
     end
 
-    for _, infoArray in ipairs(meshConstructionInfo) do
+    for _, infoArray in pairs(meshConstructionInfo) do
         table.sort(infoArray, function(a, b) return a.SortID < b.SortID end)
     end
 
@@ -306,7 +308,7 @@ local function BuildInkMesh(surfaceInfo, renderBatches, materialsInMap)
     local scale = surfaceInfo.UVScales[rtIndex]
     local worldToUV = Matrix()
     worldToUV:SetScale(ss.vector_one * scale)
-    for modelIndex, meshInfoArray in ipairs(meshConstructionInfo) do
+    for modelIndex, meshInfoArray in pairs(meshConstructionInfo) do
         local meshIndex = 1
         local renderBatch = renderBatches[modelIndex]
         for _, meshInfo in ipairs(meshInfoArray) do
@@ -343,10 +345,9 @@ local function BuildInkMesh(surfaceInfo, renderBatches, materialsInMap)
                 local function ContinueMesh()
                     if mesh.VertexCount() < MAX_TRIANGLES * 3 then return end
                     mesh.End()
-                    mesh.Begin(
-                        renderBatch[meshIndex + 1].Mesh, MATERIAL_TRIANGLES,
-                        math.min(count - MAX_TRIANGLES * meshIndex, MAX_TRIANGLES))
                     meshIndex = meshIndex + 1
+                    count = math.max(count - MAX_TRIANGLES, 0)
+                    mesh.Begin(renderBatch[meshIndex].Mesh, MATERIAL_TRIANGLES, math.min(count, MAX_TRIANGLES))
                 end
 
                 for _, faceIndex in ipairs(meshInfo.FaceIndices) do

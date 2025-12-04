@@ -74,18 +74,16 @@ local function GetMinimumDimensions(self)
     ---@param n integer
     ---@return integer
     local function ceilPow2(n)
-        n = n - 1
-        n = bit.bor(n, bit.rshift(n, 1))
-        n = bit.bor(n, bit.rshift(n, 2))
-        n = bit.bor(n, bit.rshift(n, 4))
-        n = bit.bor(n, bit.rshift(n, 8))
-        n = bit.bor(n, bit.rshift(n, 16))
-        return n + 1
+        local retval = 1
+        while retval < n do
+            retval = bit.lshift(retval, 1)
+        end
+        return retval
     end
 
     -- In the source code, it seems to get aspect ratio from HardwareConfig()->MaxTextureAspectRatio()
     -- but I will just hardcode it to 8 for now.
-    local MAX_ASPECT_RATIO = 8
+    local MAX_ASPECT_RATIO = 16
 
     local width = ceilPow2(self.MaxWidth)
     local height = ceilPow2(self.MinHeight)

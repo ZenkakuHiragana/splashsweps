@@ -12,7 +12,7 @@ local function DrawMesh()
     local currentLightmap = nil ---@type string
     for _, model in ipairs(ss.RenderBatches) do -- Draw ink surface
         local ent = model.BrushEntity
-        if not ent or IsValid(ent) then
+        if #model > 0 and (not ent or IsValid(ent)) then
             if IsValid(ent) then ---@cast ent -?
                 cam.PushModelMatrix(ent:GetWorldTransformMatrix())
             end

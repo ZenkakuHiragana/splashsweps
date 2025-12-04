@@ -572,7 +572,6 @@ local function BuildFromBrushFace(bsp, rawFace)
     local texOffset    = rawTexDict[texData.nameStringTableID + 1]
     local texIndex     = rawTexIndex[texOffset]
     local texName      = rawTexString[texIndex]:lower()
-    if texName:find "tools/" then return end
 
     local texMaterial  = GetMaterial(texName)
     local surfaceProp  = texMaterial:GetString "$surfaceprop" or ""
@@ -607,7 +606,10 @@ local function BuildFromBrushFace(bsp, rawFace)
     -- Check if it's valid to add to polygon list
     if #filteredVertices < 3 then return end
     local isDisplacement = rawFace.dispInfo >= 0
-    local isWater = texName:find "water"
+    local isWater = bit.band(texInfo.flags, SURF_WARP) ~= 0
+        or texMaterial:GetShader() == "Water"
+        or surfaceProp == "water"
+        or surfaceProp == "slime"
     local angle = normal:Angle()
     angle:RotateAroundAxis(angle:Right(), -90) -- Make sure the up vector is the normal
     assert(normal:GetNormalized():Dot(angle:Up()) > 0.999)
