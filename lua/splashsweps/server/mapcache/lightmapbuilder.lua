@@ -12,6 +12,7 @@ local pow = math.pow
 
 -- From public/bspflags.h
 local SURF_NOLIGHT = 0x0400
+local SURF_BUMPLIGHT = 0x0800
 
 -- From public\materialsystem\imaterial.h
 local FLAGS2_BUMPED_LIGHTMAP = 8 -- (1 << 3)
@@ -64,7 +65,7 @@ function ss.BuildLightmapInfo(bsp, ishdr, surfaceInfo, cache)
         local width       = rawFace.lightmapTextureSizeInLuxels[1]
         local height      = rawFace.lightmapTextureSizeInLuxels[2]
         local nolight     = band(texInfo.flags, SURF_NOLIGHT) > 0 or
-            ((width == 0 or height == 0) and not (rawSamples and #rawSamples > 0))
+            ((width == 0 or height == 0) and lightOffset <= 0)
         local hasLightmap = not nolight
         local t          = ss.new "PrecachedData.LightmapInfo"
         t.FaceIndex      = faceLumpIndexToSurfaceInfoIndex[i]
@@ -226,7 +227,7 @@ function ss.BuildLightmapInfo(bsp, ishdr, surfaceInfo, cache)
         if maxLightmapIndex >= 2 then
             local minLightValue = 1
             local offset = (width + 1) * (height + 1)
-            if needsBumpedLightmaps[materialID] then
+            if band(texInfo.flags, SURF_BUMPLIGHT) > 0 then
                 offset = offset * 4
             end
 

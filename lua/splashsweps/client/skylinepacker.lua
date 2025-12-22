@@ -28,6 +28,12 @@ end
 ---@return integer? x
 ---@return integer? y
 local function AddBlock(self, width, height)
+    -- If we've already determined that a block this big couldn't fit
+    -- then blow off checking again...
+    if width >= self.MaxBlockWidth and height >= self.MaxBlockHeight then
+        return
+    end
+
     local bestX = -1
     local outerX = 0
     local outerMinY = self.MaxHeight
@@ -48,11 +54,28 @@ local function AddBlock(self, width, height)
         end
     end
 
-    if bestX == -1 then return end
+    if bestX == -1 then
+        -- If we failed to add it, remember the block size that failed
+        -- *only if both dimensions are smaller*!!
+        -- Just because a 1x10 block failed, doesn't mean a 10x1 block will fail
+        if width <= self.MaxBlockWidth and height <= self.MaxBlockHeight then
+            self.MaxBlockWidth = width
+            self.MaxBlockHeight = height
+        end
+
+        return
+    end
 
     local returnX = bestX
     local returnY = outerMinY + 1
-    if returnY + height >= self.MaxHeight - 1 then return end
+    if returnY + height >= self.MaxHeight - 1 then
+        if width <= self.MaxBlockWidth and height <= self.MaxBlockHeight then
+            self.MaxBlockWidth = width
+            self.MaxBlockHeight = height
+        end
+
+        return
+    end
 
     if returnY + height > self.MinHeight then
         self.MinHeight = returnY + height
@@ -107,6 +130,8 @@ function ss.MakeSkylinePacker(sortID, maxWidth, maxHeight)
         Wavefront = {}, ---@type integer[]
         MaxWidth = maxWidth,
         MaxHeight = maxHeight,
+        MaxBlockWidth = maxWidth + 1,
+        MaxBlockHeight = maxHeight + 1,
         MinHeight = -1,
         AreaUsed = 0,
         SortID = sortID,
