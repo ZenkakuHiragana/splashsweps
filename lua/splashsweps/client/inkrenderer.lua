@@ -8,8 +8,7 @@ local gray = Material "grey" :GetTexture "$basetexture"
 local CVarWireframe = GetConVar "mat_wireframe"
 local CVarMinecraft = GetConVar "mat_showlowresimage"
 local function DrawMesh()
-    local currentBumpmap = nil ---@type ITexture
-    local currentLightmap = nil ---@type string
+    local currentMaterial = nil ---@type IMaterial?
     for _, model in ipairs(ss.RenderBatches) do -- Draw ink surface
         local ent = model.BrushEntity
         if #model > 0 and (not ent or IsValid(ent)) then
@@ -18,13 +17,9 @@ local function DrawMesh()
             end
 
             for _, m in ipairs(model) do
-                -- if m.BrushBumpmap and currentBumpmap ~= m.BrushBumpmap then
-                --     currentBumpmap = m.BrushBumpmap
-                --     -- ss.InkMeshMaterial:SetTexture("$texture3", m.BrushBumpmap)
-                -- end
-                if m.LightmapTexture and currentLightmap ~= m.LightmapTexture:GetName() then
-                    currentLightmap = m.LightmapTexture:GetName() ---@cast currentLightmap -?
-                    render.SetLightmapTexture(m.LightmapTextureRT)
+                if currentMaterial ~= m.Material then
+                    render.SetMaterial(m.Material)
+                    currentMaterial = m.Material
                 end
                 m.Mesh:Draw()
             end
@@ -41,14 +36,6 @@ local function DrawMeshes(bDrawingDepth, bDrawingSkybox)
     -- if ss.GetOption "hideink" then return end
     if LocalPlayer():KeyDown(IN_RELOAD) then return end
     if bDrawingSkybox or CVarWireframe:GetBool() or CVarMinecraft:GetBool() then return end
-    for i, t in pairs(ss.Lightmaps) do
-        if t.RT and t.Tex then
-            render.PushRenderTarget(t.RT)
-            render.DrawTextureToScreen(t.Tex)
-            render.PopRenderTarget()
-        end
-    end
-    render.SetMaterial(ss.InkMeshMaterial)
     render.DepthRange(0, 65534 / 65535)
     DrawMesh()
     render.RenderFlashlights(DrawMesh)
@@ -66,7 +53,7 @@ function ss.ClearAllInk()
     render.ClearStencil()
     render.Clear(0, 0, 0, 0)
     render.OverrideAlphaWriteEnable(false)
-    render.DrawTextureToScreen("splashsweps/debug/uvchecker")
+    render.DrawTextureToScreen("white")
     render.PopRenderTarget()
 
     render.PushRenderTarget(rt.StaticTextures.Normal)

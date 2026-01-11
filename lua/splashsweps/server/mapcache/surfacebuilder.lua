@@ -471,7 +471,8 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
     local deformed    = {} ---@type Vector[]
     local subdivision = {} ---@type Vector[]
     local triangles   = {} ---@type integer[] Indices of triangle mesh
-    local uv          = {} ---@type Vector[] Fractional values used in lightmap sampling
+    local bumpmapuv   = {} ---@type Vector[]
+    local lightmapuv  = {} ---@type Vector[] Fractional values used in lightmap sampling
     for vi = 0, power - 1 do
         for ui = 0, power - 1 do
             local i = ui + vi * power + 1
@@ -482,7 +483,8 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
             subdivision[i]:Mul(subdivisionMatrix)
             deformed[i] = subdivision[i] + dispVert.vec * dispVert.dist
             angles[i] = dispVert.vec:Angle()
-            uv[i] = Vector(
+            bumpmapuv[i] = Vector(u, v)
+            lightmapuv[i] = Vector(
                 u * rawFace.lightmapTextureSizeInLuxels[1] + 0.5,
                 v * rawFace.lightmapTextureSizeInLuxels[2] + 0.5)
 
@@ -547,7 +549,8 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
         surf.Vertices[i] = ss.new "PrecachedData.Vertex"
         surf.Vertices[i].Angle = angles[t]
         surf.Vertices[i].Translation = deformed[t]
-        surf.Vertices[i].LightmapUV = uv[t]
+        surf.Vertices[i].BumpmapUV = bumpmapuv[t]
+        surf.Vertices[i].LightmapUV = lightmapuv[t]
         surf.Vertices[i].DisplacementOrigin = subdivision[t]
     end
 
@@ -651,6 +654,8 @@ local function BuildFromBrushFace(bsp, rawFace)
             surf.Vertices[i] = ss.new "PrecachedData.Vertex"
             surf.Vertices[i].Translation:Set(filteredVertices[t])
             surf.Vertices[i].Angle:Set(angle)
+            surf.Vertices[i].BumpmapUV.x = (filteredVertices[t]:Dot(texInfo.textureVecS) + texInfo.textureOffsetS) / texData.width
+            surf.Vertices[i].BumpmapUV.y = (filteredVertices[t]:Dot(texInfo.textureVecT) + texInfo.textureOffsetT) / texData.height
             surf.Vertices[i].LightmapUV.x = filteredVertices[t]:Dot(texInfo.lightmapVecS)
                 + texInfo.lightmapOffsetS
                 - rawFace.lightmapTextureMinsInLuxels[1]

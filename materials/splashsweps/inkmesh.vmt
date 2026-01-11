@@ -1,6 +1,6 @@
 "LightmappedGeneric"
 {
-    "$basetexture"                 "white"
+    "$basetexture"                 "splashsweps_basetexture"
     "$bumpmap"                     "splashsweps_bumpmap"
     "$vertexcolor"                 "1"
     "$nolod"                       "1"

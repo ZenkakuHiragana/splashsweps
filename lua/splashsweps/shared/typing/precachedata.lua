@@ -28,18 +28,20 @@ end
 ---@field Angle               Angle   Normal, tangent, and bitangent vector.
 ---@field Translation         Vector  The position.
 ---@field LightmapUV          Vector  Relative Lightmap UV values in luxels.
+---@field BumpmapUV           Vector  Bumpmap UV coordinates of the original face.
 ---@field DisplacementOrigin  Vector? The point that this displacement point was made from.
 ss.struct "PrecachedData.Vertex" (setmetatable({
     Angle(),
     Vector(),
     Vector(),
-    nil,
+    Vector(),
     nil,
 }, {
     Angle              = 1,
     Translation        = 2,
     LightmapUV         = 3,
-    DisplacementOrigin = 4,
+    BumpmapUV          = 4,
+    DisplacementOrigin = 5,
     __index            = indexer,
     __newindex         = newindexer,
 }))
@@ -276,26 +278,23 @@ ss.struct "PrecachedData.Surface" (setmetatable({
 
 ---A wrapper for a BSP face to cache its properties for sorting.
 ---@class ss.PrecachedData.LightmapInfo
----@field MaterialIndex  integer  Index to material names in ss.PrecachedData.MaterialNames
----@field FaceIndex      integer? Index to the PrecachedData.Surface array. nil if it does not correspond to paintable surface array.
----@field HasLightmap    integer? nil = false, 1 = true
----@field HasLightStyles integer? nil = false, 1 = true
----@field Width          integer? Width of the lightmap in luxels.
----@field Height         integer? Height of the lightmap in luxels.
+---@field MaterialIndex integer  Index to material names in ss.PrecachedData.MaterialNames
+---@field HasLightmap   integer? nil = false, 1 = true, 2 = also has light styles
+---@field Width         integer? Width of the lightmap in luxels.
+---@field Height        integer? Height of the lightmap in luxels.
+---@field FaceIndex     integer? Index to the PrecachedData.Surface array. nil if it does not correspond to paintable surface array.
 ss.struct "PrecachedData.LightmapInfo" (setmetatable({
     0,
     nil,
     nil,
     nil,
     nil,
-    nil,
 }, {
-    FaceIndex      = 1,
-    MaterialIndex  = 2,
-    HasLightmap    = 3,
-    HasLightStyles = 4,
-    Width          = 5,
-    Height         = 6,
+    MaterialIndex  = 1,
+    HasLightmap    = 2,
+    Width          = 3,
+    Height         = 4,
+    FaceIndex      = 5,
     __index        = indexer,
     __newindex     = newindexer,
 }))

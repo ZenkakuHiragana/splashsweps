@@ -1,10 +1,8 @@
 
 if not SplashSWEPs then
     ---@class ss.MeshData
-    ---@field Mesh IMesh The IMesh object to render this part of surfaces.
-    ---@field BrushBumpmap string? Name of $bumpmap texture under the surfaces if any.
-    ---@field LightmapTexture ITexture? The lightmap texture for this part of surfaces.
-    ---@field LightmapTextureRT ITexture? The lightmap texture for this part of surfaces.
+    ---@field Material IMaterial The material to draw this mesh.
+    ---@field Mesh     IMesh     The IMesh object to render this part of surfaces.
 
     ---@class ss.RenderBatch
     ---@field BrushEntity Entity? The brush entity tied to this mesh, if any.
@@ -15,9 +13,6 @@ if not SplashSWEPs then
         ---List of IMeshes to render the painted ink.
         ---@type ss.RenderBatch[]
         RenderBatches = {},
-        ---Material to draw painted ink.
-        ---@type IMaterial
-        InkMeshMaterial = Material "splashsweps/inkmesh",
     }
 end
 
