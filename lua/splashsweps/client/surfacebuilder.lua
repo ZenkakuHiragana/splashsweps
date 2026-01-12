@@ -355,14 +355,18 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             ["$tcsize1"]             = "2",
                             ["$tcsize2"]             = "2",
                             ["$tcsize3"]             = "2",
-                            ["$c0_x"]                = 0.5,   -- Ink normal blend factor
+                            ["$c0_x"]                = 0.75,  -- Ink normal blend factor
                             ["$c0_y"]                = 1,     -- $envmap enabled
                             ["$c0_z"]                = 0.125, -- Fresnel factor
-                            ["$c0_w"]                = 0.125, -- $envmap strength
-                            ["$c1_x"]                = 1,     -- $envmaptint R
-                            ["$c1_y"]                = 1,     -- $envmaptint G
-                            ["$c1_z"]                = 1,     -- $envmaptint B
+                            ["$c0_w"]                = 0.5,   -- $envmap strength
+                            ["$c1_x"]                = 0.125, -- $envmaptint R
+                            ["$c1_y"]                = 0.125, -- $envmaptint G
+                            ["$c1_z"]                = 0.125, -- $envmaptint B
                             ["$c1_w"]                = 1,
+                            ["$c2_x"]                = 1,     -- $phong enabled
+                            ["$c2_y"]                = 64,    -- $phongexponent
+                            ["$c2_z"]                = 0.5,   -- $phong strength
+                            ["$c2_w"]                = 0.75,  -- $phong minimum fresnel value
                         })
                     local matf = CreateMaterial(
                         string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),

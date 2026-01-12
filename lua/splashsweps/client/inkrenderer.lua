@@ -9,6 +9,8 @@ local CVarMinecraft = GetConVar "mat_showlowresimage"
 ---@param isnormal boolean True this is NOT the flashlight rendering
 local function DrawMesh(isnormal)
     local currentMaterial = nil ---@type IMaterial?
+    local sunInfo = util.GetSunInfo()
+    local sunDirection = sunInfo and sunInfo.direction or Vector(0, 0.3, 0.954)
     for _, model in ipairs(ss.RenderBatches) do -- Draw ink surface
         local ent = model.BrushEntity
         if #model > 0 and (not ent or IsValid(ent)) then
@@ -21,6 +23,9 @@ local function DrawMesh(isnormal)
                 if currentMaterial ~= mat then
                     render.SetMaterial(mat)
                     currentMaterial = mat
+                    mat:SetFloat("$c3_x", sunDirection.x)
+                    mat:SetFloat("$c3_y", sunDirection.y)
+                    mat:SetFloat("$c3_z", sunDirection.z)
                 end
                 (isnormal and m.Mesh or m.MeshFlashlight):Draw()
             end
