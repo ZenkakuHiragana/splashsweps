@@ -2,7 +2,9 @@
 if not SplashSWEPs then
     ---@class ss.MeshData
     ---@field Material IMaterial The material to draw this mesh.
-    ---@field Mesh     IMesh     The IMesh object to render this part of surfaces.
+    ---@field MaterialFlashlight IMaterial The material to draw flashlight rendering.
+    ---@field Mesh IMesh The IMesh object to render this part of surfaces.
+    ---@field MeshFlashlight IMesh The IMesh object to render flashlight part of this surface.
 
     ---@class ss.RenderBatch
     ---@field BrushEntity Entity? The brush entity tied to this mesh, if any.

@@ -68,9 +68,8 @@ ss.struct "SurfaceBuilder.MeshConstructionInfo" {
 
 ---Construct IMesh
 ---@param surfaceInfo ss.PrecachedData.SurfaceInfo
----@param renderBatches ss.RenderBatch[]
 ---@param materialsInMap string[]
-local function BuildInkMesh(surfaceInfo, renderBatches, materialsInMap)
+local function BuildInkMesh(surfaceInfo, materialsInMap)
     ---Sorts faces for lightmap packing, mimicking the engine's LightmapLess function.
     ---@param a ss.PrecachedData.LightmapInfo
     ---@param b ss.PrecachedData.LightmapInfo
@@ -318,7 +317,16 @@ local function BuildInkMesh(surfaceInfo, renderBatches, materialsInMap)
     worldToUV:SetScale(ss.vector_one * scale)
     for modelIndex, meshInfoArray in pairs(meshConstructionInfo) do
         local meshIndex = 1
-        local renderBatch = renderBatches[modelIndex]
+        local renderBatch = ss.RenderBatches[modelIndex]
+        ---@class ss.SurfaceBuilder.MeshVertexPack
+        ---@field Normal Vector
+        ---@field TangentS Vector
+        ---@field TangentT Vector
+        ---@field Position Vector
+        ---@field U        number[]
+        ---@field V        number[]
+        ---@field W        integer
+        local meshData = {} ---@type ss.SurfaceBuilder.MeshVertexPack[][]
         for _, meshInfo in ipairs(meshInfoArray) do
             local sortID = meshInfo.SortID
             local count = meshInfo.TriangleCount
@@ -343,22 +351,32 @@ local function BuildInkMesh(surfaceInfo, renderBatches, materialsInMap)
                             ["$cull"]                = "1",
                             ["$depthtest"]           = "1",
                             ["$vertexnormal"]        = "1",
-                            ["$tcsize0"]             = "4",
-                            ["$tcsize1"]             = "3",
+                            ["$tcsize0"]             = "2",
+                            ["$tcsize1"]             = "2",
+                            ["$tcsize2"]             = "2",
+                            ["$tcsize3"]             = "2",
+                        })
+                    local matf = CreateMaterial(
+                        string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
+                        "LightmappedGeneric", {
+                            ["$basetexture"] = "white",
+                            ["$bumpmap"]     = bumpmapTextureName,
                         })
                     renderBatch[#renderBatch + 1] = {
                         Material = mat,
+                        MaterialFlashlight = matf,
                         Mesh = Mesh(mat),
+                        MeshFlashlight = Mesh(matf),
                     }
                 end
 
-                mesh.Begin(renderBatch[meshIndex].Mesh, MATERIAL_TRIANGLES, math.min(count, MAX_TRIANGLES))
+                meshData[meshIndex] = {}
+                local vertIndex = 1
                 local function ContinueMesh()
-                    if mesh.VertexCount() < MAX_TRIANGLES * 3 then return end
-                    mesh.End()
+                    if vertIndex - 1 < MAX_TRIANGLES * 3 then return end
                     meshIndex = meshIndex + 1
-                    count = math.max(count - MAX_TRIANGLES, 0)
-                    mesh.Begin(renderBatch[meshIndex].Mesh, MATERIAL_TRIANGLES, math.min(count, MAX_TRIANGLES))
+                    vertIndex = 1
+                    meshData[meshIndex] = {}
                 end
 
                 for _, faceIndex in ipairs(meshInfo.FaceIndices) do
@@ -378,33 +396,55 @@ local function BuildInkMesh(surfaceInfo, renderBatches, materialsInMap)
                         if v.DisplacementOrigin then
                             uv = worldToUV * v.DisplacementOrigin
                         end
-                        mesh.Normal(normal)
-                        mesh.UserData(tangent.x, tangent.y, tangent.z, w)
-                        mesh.TangentS(tangent * w) -- These functions actually DO something
-                        mesh.TangentT(binormal)    -- in terms of bumpmap for LightmappedGeneric
-                        mesh.Position(position)
-                        -- Ink UV + World geometry bumpmap UV
-                        mesh.TexCoord(0, uv.y, uv.x, v.BumpmapUV.x, v.BumpmapUV.y)
-                        if t < 1 then
-                            mesh.TexCoord(1, s, t, bumpmapOffsets[faceIndex], 0)
-                            mesh.Color(255, 255, 255, 255)
-                        else
-                            mesh.TexCoord(1, 1, 1, 0, 0)
-                            local sample = render.GetLightColor(position)
-                            local r = math.Round(sample.x ^ (1 / 2.2) / 2 * 255)
-                            local g = math.Round(sample.y ^ (1 / 2.2) / 2 * 255)
-                            local b = math.Round(sample.z ^ (1 / 2.2) / 2 * 255)
-                            mesh.Color(r, g, b, 255)
-                        end
-                        mesh.AdvanceVertex()
+
+                        meshData[meshIndex][vertIndex] = {
+                            Normal = normal,
+                            TangentS = tangent,
+                            TangentT = binormal,
+                            Position = position,
+                            U = { uv.y, s, bumpmapOffsets[faceIndex], v.BumpmapUV.x },
+                            V = { uv.x, t, 0,                         v.BumpmapUV.y },
+                            W = w,
+                        }
+                        vertIndex = vertIndex + 1
                         if (i - 1) % 3 == 2 then
                             ContinueMesh()
                         end
                     end
                 end
-                mesh.End()
                 meshIndex = meshIndex + 1
             end
+        end
+
+        for i, vertices in ipairs(meshData) do
+            mesh.Begin(renderBatch[i].Mesh, MATERIAL_TRIANGLES, #vertices / 3)
+            for _, v in ipairs(vertices) do
+                mesh.Normal(v.Normal)
+                mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, v.W)
+                mesh.TangentS(v.TangentS * v.W)
+                mesh.TangentT(v.TangentT)
+                mesh.Position(v.Position)
+                mesh.TexCoord(0, v.U[1], v.V[1])
+                mesh.TexCoord(1, v.U[2], v.V[2])
+                mesh.TexCoord(2, v.U[3], v.V[3])
+                mesh.TexCoord(3, v.U[4], v.V[4])
+                mesh.AdvanceVertex()
+            end
+            mesh.End()
+
+            mesh.Begin(renderBatch[i].MeshFlashlight, MATERIAL_TRIANGLES, #vertices / 3)
+            for _, v in ipairs(vertices) do
+                mesh.Normal(v.Normal)
+                mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, v.W)
+                mesh.TangentS(v.TangentS * v.W)
+                mesh.TangentT(v.TangentT)
+                mesh.Position(v.Position)
+                mesh.TexCoord(0, v.U[4], v.V[4]) -- Correctly bind geometry's bumpmap UV
+                mesh.TexCoord(1, v.U[2], v.V[2])
+                mesh.TexCoord(2, v.U[3], v.V[3])
+                mesh.AdvanceVertex()
+            end
+            mesh.End()
         end
     end
 end
@@ -453,7 +493,7 @@ function ss.SetupModels(surfaceInfo, numModels, materialNames)
         ss.RenderBatches[i] = { BrushEntity = entities[i - 1] }
     end
 
-    BuildInkMesh(surfaceInfo, ss.RenderBatches, materialNames)
+    BuildInkMesh(surfaceInfo, materialNames)
 end
 
 ---Builds render override functions of static props.

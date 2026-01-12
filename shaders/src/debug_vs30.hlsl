@@ -63,6 +63,10 @@
 // c60 cModel[0] column 2
 // c61 cModel[0] column 3
 
+#define cFogParams c[16]
+#define cFogMaxDensity cFogParams.z
+#define cAmbientCubeX1 c[21]
+
 const float4 c[128] : register(c0);
 struct VS_INPUT {
     float3 pos     : POSITION0;
@@ -89,8 +93,9 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.pos = mul(float4(v.pos, 1.0), cModelViewProj);
     output.uv_depth.xy  = v.uv;
     output.uv_depth.zw = output.pos.zw;
+    const int VERTEX_CONST_OFFSET = 52;
     for (int i = 0; i < 8; ++i) {
-        output.data[i] = c[i + 56];
+        output.data[i] = c[i + VERTEX_CONST_OFFSET];
     }
     return output;
 }

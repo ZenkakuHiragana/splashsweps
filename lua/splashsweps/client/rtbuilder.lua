@@ -47,16 +47,14 @@ local RTFLAGS = {
         TEXTUREFLAGS.NOLOD,
         TEXTUREFLAGS.ALL_MIPS,
         TEXTUREFLAGS.RENDERTARGET,
-        TEXTUREFLAGS.NODEPTHBUFFER
-    ),
+        TEXTUREFLAGS.NODEPTHBUFFER),
     NORMAL = bit.bor(
         TEXTUREFLAGS.NORMAL,
         TEXTUREFLAGS.NOMIP,
         TEXTUREFLAGS.NOLOD,
         TEXTUREFLAGS.ALL_MIPS,
         TEXTUREFLAGS.RENDERTARGET,
-        TEXTUREFLAGS.NODEPTHBUFFER
-    ),
+        TEXTUREFLAGS.NODEPTHBUFFER),
 }
 
 if not ss.RenderTarget then
@@ -66,7 +64,6 @@ if not ss.RenderTarget then
         StaticTextures = {
             Albedo = nil, ---@type ITexture
             Normal = nil, ---@type ITexture
-            Lightmap = nil, ---@type ITexture
         },
         ---List of render target resolutions available.
         Resolutions = {
@@ -105,9 +102,6 @@ function ss.SetupRenderTargets()
         RTFLAGS.NORMAL,
         CREATERENDERTARGETFLAGS_HDR,
         IMAGE_FORMAT_RGBA8888)
-    -- ss.InkMeshMaterial:SetTexture("$basetexture", rt.StaticTextures.Albedo)
-    -- ss.InkMeshMaterial:SetTexture("$bumpmap", rt.StaticTextures.Normal)
-    -- ss.InkMeshMaterial:SetUndefined("$detail") -- Unused for now
     rt.HammerUnitsToPixels = rt.HammerUnitsToUV * rtSize
     ss.ClearAllInk()
 end

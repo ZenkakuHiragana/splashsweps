@@ -2,10 +2,10 @@
 // Based on LightmappedGeneric pixel shader with bumped lightmaps
 
 // Samplers
-sampler InkAlbedoSampler   : register(s0); // $basetexture - Ink albedo RenderTarget
-sampler InkBumpmapSampler  : register(s1); // $texture1 - Ink bumpmap RenderTarget
-sampler LightmapSampler    : register(s2); // $texture2 - Lightmap
-sampler WorldBumpmapSampler: register(s3); // $texture3 - World geometry bumpmap
+sampler InkAlbedoSampler    : register(s0); // $basetexture - Ink albedo RenderTarget
+sampler InkBumpmapSampler   : register(s1); // $texture1 - Ink bumpmap RenderTarget
+sampler LightmapSampler     : register(s2); // $texture2 - Lightmap
+sampler WorldBumpmapSampler : register(s3); // $texture3 - World geometry bumpmap
 
 const float4 c0 : register(c0);
 #define g_InkNormalBlendAlpha c0.x;
@@ -13,7 +13,11 @@ const float4 c0 : register(c0);
 // Constants
 const float4 g_EyePos : register(c1); // $c1 - xyz: eye position
 
-static const float g_TintValuesAndLightmapScale = 4.5947934199881400271945077871117; // 2 ^ 2.2
+const float4 HDRParams : register(c30);
+#define g_TonemapScale  HDRParams.x
+#define g_LightmapScale HDRParams.y
+#define g_EnvmapScale   HDRParams.z
+#define g_GammaScale    HDRParams.w // = TonemapScale ^ (1 / 2.2)
 
 // Bumped lightmap basis vectors (same as LightmappedGeneric)
 static const float3 bumpBasis[3] = {
@@ -82,18 +86,18 @@ float4 main(PS_INPUT i) : COLOR {
             + dp.z * lightmapColor3;
 
         float sum = dot(dp, float3(1.0, 1.0, 1.0));
-        diffuseLighting *= g_TintValuesAndLightmapScale / max(sum, 0.001);
+        diffuseLighting *= g_LightmapScale / max(sum, 0.001);
     }
     else {
         float3 lightmapColor1 = tex2D(LightmapSampler, i.lightmapUV1And2.xy).rgb;
-        diffuseLighting = lightmapColor1 * g_TintValuesAndLightmapScale;
+        diffuseLighting = lightmapColor1 * g_LightmapScale;
     }
 
     // Apply vertex color (modulation)
     float3 albedo = inkAlbedoSample.rgb; // * i.vertexColor.rgb;
 
     // Final color
-    float3 result = albedo * diffuseLighting;
+    float3 result = albedo * diffuseLighting * g_TonemapScale;
 
     return float4(result, inkAlbedoSample.a);
 }

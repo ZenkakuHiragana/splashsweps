@@ -4,8 +4,10 @@
 struct VS_INPUT {
     float3 vPos              : POSITION;
     float4 vNormal           : NORMAL;
-    float4 vBaseTexCoord     : TEXCOORD0; // xy: Ink UV, zw: World bumpmap UV
-    float3 vLightmapTexCoord : TEXCOORD1; // Lightmap UV + Bumped lightmap offset (z)
+    float2 vBaseTexCoord     : TEXCOORD0; // xy: Ink UV
+    float2 vLightmapTexCoord : TEXCOORD1; // Lightmap UV
+    float2 vLightmapOffset   : TEXCOORD2; // Bumpmapped lightmap offset
+    float2 vWorldBumpCoord   : TEXCOORD3; // World bumpmap UV
     float3 vTangentS         : TANGENT;
     float3 vTangentT         : BINORMAL;
     float4 vColor            : COLOR0;
@@ -52,18 +54,19 @@ VS_OUTPUT main(const VS_INPUT v) {
     o.tangentSpaceTranspose[2] = worldNormal;
 
     // Pack texture coordinates
-    o.inkUV_worldBumpUV = v.vBaseTexCoord;
+    o.inkUV_worldBumpUV.xy = v.vBaseTexCoord;
+    o.inkUV_worldBumpUV.zw = v.vWorldBumpCoord;
 
-    if (v.vLightmapTexCoord.z > 0) {
-        o.lightmapUV1And2.xy     = v.vLightmapTexCoord.xy + float2(v.vLightmapTexCoord.z, 0.0);
-        float2 lightmapTexCoord2 = o.lightmapUV1And2.xy   + float2(v.vLightmapTexCoord.z, 0.0);
-        float2 lightmapTexCoord3 = lightmapTexCoord2      + float2(v.vLightmapTexCoord.z, 0.0);
+    if (v.vLightmapOffset.x > 0) {
+        o.lightmapUV1And2.xy     = v.vLightmapTexCoord  + v.vLightmapOffset;
+        float2 lightmapTexCoord2 = o.lightmapUV1And2.xy + v.vLightmapOffset;
+        float2 lightmapTexCoord3 = lightmapTexCoord2    + v.vLightmapOffset;
         o.lightmapUV1And2.wz = lightmapTexCoord2.xy; // reversed component order
         o.lightmapUV3.xy = lightmapTexCoord3;
         o.lightmapUV3.z = 1.0;
     }
     else {
-        o.lightmapUV1And2.xy = v.vLightmapTexCoord.xy;
+        o.lightmapUV1And2.xy = v.vLightmapTexCoord;
     }
 
     // Vertex color
