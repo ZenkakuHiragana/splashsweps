@@ -4,7 +4,6 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
-local FlashlightCopyMaterial = Material "splashsweps/shaders/lightmappedgeneric"
 local CVarWireframe = GetConVar "mat_wireframe"
 local CVarMinecraft = GetConVar "mat_showlowresimage"
 ---@param isnormal boolean True this is NOT the flashlight rendering
@@ -56,7 +55,7 @@ function ss.ClearAllInk()
     render.ClearStencil()
     render.Clear(0, 0, 0, 0)
     render.OverrideAlphaWriteEnable(false)
-    render.DrawTextureToScreen("white")
+    render.DrawTextureToScreen("grey")
     render.PopRenderTarget()
 
     render.PushRenderTarget(rt.StaticTextures.Normal)

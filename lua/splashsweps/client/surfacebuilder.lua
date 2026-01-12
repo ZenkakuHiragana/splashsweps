@@ -337,13 +337,14 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                     local bumpmapTextureName = lightmapInfo.Details[sortID].Bumpmap
                     local mat = CreateMaterial(
                         string.format("splashsweps_mesh_%d_%s", sortID, game.GetMap()),
-                        "Screenspace_General", {
+                        "Screenspace_General_8tex", {
                             ["$vertexshader"]        = "splashsweps/inkmesh_vs30",
                             ["$pixshader"]           = "splashsweps/inkmesh_ps30",
                             ["$basetexture"]         = ss.RenderTarget.StaticTextures.Albedo:GetName(),
                             ["$texture1"]            = ss.RenderTarget.StaticTextures.Normal:GetName(),
                             ["$texture2"]            = lightmapTextureName,
                             ["$texture3"]            = bumpmapTextureName,
+                            ["$texture4"]            = "shadertest/shadertest_env.hdr",
                             ["$linearread_texture1"] = "1",
                             ["$linearread_texture2"] = "1",
                             ["$linearread_texture3"] = "1",
@@ -354,6 +355,14 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             ["$tcsize1"]             = "2",
                             ["$tcsize2"]             = "2",
                             ["$tcsize3"]             = "2",
+                            ["$c0_x"]                = 0.5,   -- Ink normal blend factor
+                            ["$c0_y"]                = 1,     -- $envmap enabled
+                            ["$c0_z"]                = 0.125, -- Fresnel factor
+                            ["$c0_w"]                = 0.125, -- $envmap strength
+                            ["$c1_x"]                = 1,     -- $envmaptint R
+                            ["$c1_y"]                = 1,     -- $envmaptint G
+                            ["$c1_z"]                = 1,     -- $envmaptint B
+                            ["$c1_w"]                = 1,
                         })
                     local matf = CreateMaterial(
                         string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
@@ -446,24 +455,6 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
             mesh.End()
         end
     end
-end
-
----Adjusts light intensity of ink mesh material from HDR info.
----@param cache ss.PrecachedData
-function ss.SetupHDRLighting(cache)
-    setmetatable(cache.DirectionalLight, getmetatable(ss.new "PrecachedData.DirectionalLight"))
-    local intensity = 128
-    local color = cache.DirectionalLight.Color
-    if color then -- If there is light_environment
-        local lightIntensity = Vector(color.r, color.g, color.b):Dot(ss.GrayScaleFactor) / 255
-        local brightness = color.a
-        local scale = cache.DirectionalLight.ScaleHDR
-        intensity = intensity + lightIntensity * brightness * scale
-    end
-
-    local value = ss.vector_one * intensity / 4096
-    -- ss.InkMeshMaterial:SetVector("$color", value)
-    -- ss.InkMeshMaterial:SetVector("$envmaptint", value / 16)
 end
 
 ---Reads through BSP models which includes the worldspawn and brush entities and constructs IMeshes from them.

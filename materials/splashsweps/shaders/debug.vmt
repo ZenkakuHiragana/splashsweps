@@ -12,10 +12,10 @@
 
     "$cull"         "1"
     "$depthtest"    "1"
-    "$model"        "1"
-    "$softwareskin" "1"
+    // "$model"        "1"
+    // "$softwareskin" "1"
     "$vertexnormal" "1"
-    "$fix_flags2"   "529918"
+    // "$fix_flags2"   "529918"
     "$viewprojmat"    "[0.25 0 0 0.0625   0 0.25 0.0 0.125   0 0 0.25 0.25   0.25 0.25 0.25 0.375]"
     "$invviewprojmat" "[0.25 0 0 0.0625   0 0.25 0.0 0.125   0 0 0.25 0.25   0.25 0.25 0.25 0.375]"
     "$c0_x" "0.25" // negative value to show texture samplers instead
@@ -33,14 +33,14 @@
     "$c3_x" "0.25"
     "$c3_y" "0.25"
     "$c3_z" "0.25"
-    "$c3_w" "0" // 1 to show vertex shader constants passed from pixel shader input instead
+    "$c3_w" "1" // 1 to show vertex shader constants passed from pixel shader input instead
 
-    Proxies
-    {
-        Equals
-        {
-            srcVar1     $fix_flags2
-            resultVar   $flags2
-        }
-    }
+    // Proxies
+    // {
+    //     Equals
+    //     {
+    //         srcVar1     $fix_flags2
+    //         resultVar   $flags2
+    //     }
+    // }
 }

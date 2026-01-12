@@ -2,19 +2,16 @@
 // Based on LightmappedGeneric vertex shader
 
 struct VS_INPUT {
-    float3 vPos              : POSITION;
-    float4 vNormal           : NORMAL;
-    float2 vBaseTexCoord     : TEXCOORD0; // xy: Ink UV
-    float2 vLightmapTexCoord : TEXCOORD1; // Lightmap UV
-    float2 vLightmapOffset   : TEXCOORD2; // Bumpmapped lightmap offset
-    float2 vWorldBumpCoord   : TEXCOORD3; // World bumpmap UV
-    float3 vTangentS         : TANGENT;
-    float3 vTangentT         : BINORMAL;
-    float4 vColor            : COLOR0;
+    float3 pos              : POSITION;
+    float3 normal           : NORMAL0;
+    float2 baseTexCoord     : TEXCOORD0; // xy: Ink UV
+    float2 lightmapTexCoord : TEXCOORD1; // Lightmap UV
+    float2 lightmapOffset   : TEXCOORD2; // Bumpmapped lightmap offset
+    float2 worldBumpCoord   : TEXCOORD3; // World bumpmap UV
 };
 
 struct VS_OUTPUT {
-    float4   projPos               : POSITION;
+    float4   pos                   : POSITION;
     float4   inkUV_worldBumpUV     : TEXCOORD0; // xy: ink albedo UV, zw: world bumpmap UV
     float4   lightmapUV1And2       : TEXCOORD1; // xy: lightmap UV, zw: bumpmapped lightmap UV (1)
     float4   lightmapUV3           : TEXCOORD2; // xy: bumpmapped lightmap UV (2)
@@ -24,53 +21,40 @@ struct VS_OUTPUT {
 };
 
 const float4x4 cModelViewProj : register(c4);
-const float4x4 cModel[1]      : register(c58);
-
-// Decompress vertex normal
-void DecompressVertex_Normal(float4 inputNormal, out float3 outputNormal) {
-    outputNormal = inputNormal.xyz * 2.0 - 1.0;
-}
+const float4x4 cViewProj      : register(c8);
+const float4x3 cModel[1]      : register(c58);
 
 VS_OUTPUT main(const VS_INPUT v) {
-    VS_OUTPUT o = (VS_OUTPUT)0;
-
-    // Decompress normal
-    float3 vObjNormal;
-    DecompressVertex_Normal(v.vNormal, vObjNormal);
+    VS_OUTPUT output = (VS_OUTPUT)0;
 
     // Transform position
-    float3 worldPos = mul(float4(v.vPos, 1.0), cModel[0]).xyz;
-    o.projPos = mul(float4(v.vPos, 1.0), cModelViewProj);
-    o.worldPos_projPosZ = float4(worldPos, o.projPos.z);
+    output.pos = mul(float4(v.pos, 1.0), cModelViewProj);
+    output.worldPos_projPosZ = float4(v.pos, output.pos.z);
 
-    // Transform normal and tangent to world space
-    float3 worldNormal   = mul(vObjNormal,  (float3x3)cModel[0]);
-    float3 worldTangentS = mul(v.vTangentS, (float3x3)cModel[0]);
-    float3 worldTangentT = mul(v.vTangentT, (float3x3)cModel[0]);
+    // Choose an arbitrary vector that is not parallel to the normal
+    float3 up = abs(v.normal.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(0.0, 1.0, 0.0);
+    float3 tangent = normalize(cross(up, v.normal));
 
     // Build tangent space transpose matrix for normal mapping
-    o.tangentSpaceTranspose[0] = worldTangentS;
-    o.tangentSpaceTranspose[1] = worldTangentT;
-    o.tangentSpaceTranspose[2] = worldNormal;
+    output.tangentSpaceTranspose[0] = tangent;
+    output.tangentSpaceTranspose[1] = normalize(cross(v.normal, tangent));
+    output.tangentSpaceTranspose[2] = v.normal;
 
     // Pack texture coordinates
-    o.inkUV_worldBumpUV.xy = v.vBaseTexCoord;
-    o.inkUV_worldBumpUV.zw = v.vWorldBumpCoord;
+    output.inkUV_worldBumpUV.xy = v.baseTexCoord;
+    output.inkUV_worldBumpUV.zw = v.worldBumpCoord;
 
-    if (v.vLightmapOffset.x > 0) {
-        o.lightmapUV1And2.xy     = v.vLightmapTexCoord  + v.vLightmapOffset;
-        float2 lightmapTexCoord2 = o.lightmapUV1And2.xy + v.vLightmapOffset;
-        float2 lightmapTexCoord3 = lightmapTexCoord2    + v.vLightmapOffset;
-        o.lightmapUV1And2.wz = lightmapTexCoord2.xy; // reversed component order
-        o.lightmapUV3.xy = lightmapTexCoord3;
-        o.lightmapUV3.z = 1.0;
+    if (v.lightmapOffset.x > 0) {
+        output.lightmapUV1And2.xy     = v.lightmapTexCoord  + v.lightmapOffset;
+        float2 lightmapTexCoord2 = output.lightmapUV1And2.xy + v.lightmapOffset;
+        float2 lightmapTexCoord3 = lightmapTexCoord2    + v.lightmapOffset;
+        output.lightmapUV1And2.wz = lightmapTexCoord2.xy; // reversed component order
+        output.lightmapUV3.xy = lightmapTexCoord3;
+        output.lightmapUV3.z = 1.0;
     }
     else {
-        o.lightmapUV1And2.xy = v.vLightmapTexCoord;
+        output.lightmapUV1And2.xy = v.lightmapTexCoord;
     }
 
-    // Vertex color
-    o.vertexColor = v.vColor;
-
-    return o;
+    return output;
 }

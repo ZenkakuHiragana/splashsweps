@@ -61,7 +61,6 @@ local function LoadCache()
     ss.HashParameters = setmetatable(cache.HashParameters, getmetatable(ss.new "PrecachedData.HashParameters"))
 
     ss.SetupRenderTargets()
-    ss.SetupHDRLighting(cache)
     ss.SetupModels(surfaces, cache.NumModels, cache.MaterialNames)
     ss.SetupSurfaces(surfaces.Surfaces)
     ss.SetupSurfacesStaticProp(cache.StaticProps, staticPropUV)

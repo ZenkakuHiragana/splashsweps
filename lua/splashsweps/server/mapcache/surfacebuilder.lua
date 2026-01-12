@@ -353,9 +353,12 @@ local function CalculateTriangleComponents(surf)
         --  = t1 - t3   /        |
         --      <---  +----------+
         --            t1         t3
-        local t1 = surf.Vertices[i].Translation
-        local t2 = surf.Vertices[i + 1].Translation
-        local t3 = surf.Vertices[i + 2].Translation
+        local v1 = surf.Vertices[i]
+        local v2 = surf.Vertices[i + 1]
+        local v3 = surf.Vertices[i + 2]
+        local t1 = v1.Translation
+        local t2 = v2.Translation
+        local t3 = v3.Translation
         local forward = t2 - t3
         local another = t1 - t3
         local angle = forward:AngleEx(forward:Cross(another))
@@ -391,6 +394,9 @@ local function CalculateTriangleComponents(surf)
         WorldToLocalRotation:Set(DisplacementOriginRotation * WorldToLocalRotation)
         t.WorldToLocalGridRotation:Set(WorldToLocalRotation:GetAngles())
 
+        v1.Angle = angle
+        v2.Angle = angle
+        v3.Angle = angle
         surf.Triangles[#surf.Triangles + 1] = t
     end
 end
@@ -467,7 +473,6 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
     local lengthIntegratedU = {} ---@type number[]
     local lengthIntegratedV = {} ---@type number[]
 
-    local angles      = {} ---@type Angle[]
     local deformed    = {} ---@type Vector[]
     local subdivision = {} ---@type Vector[]
     local triangles   = {} ---@type integer[] Indices of triangle mesh
@@ -482,7 +487,6 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
             subdivision[i] = Vector(u, (1 - u) * v, u * v)
             subdivision[i]:Mul(subdivisionMatrix)
             deformed[i] = subdivision[i] + dispVert.vec * dispVert.dist
-            angles[i] = dispVert.vec:Angle()
             bumpmapuv[i] = Vector(u, v)
             lightmapuv[i] = Vector(
                 u * rawFace.lightmapTextureSizeInLuxels[1] + 0.5,
@@ -547,7 +551,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
     vertices[4] = subdivision[power]
     for i, t in ipairs(triangles) do
         surf.Vertices[i] = ss.new "PrecachedData.Vertex"
-        surf.Vertices[i].Angle = angles[t]
+        -- surf.Vertices[i].Angle = Angle() -- Determined later
         surf.Vertices[i].Translation = deformed[t]
         surf.Vertices[i].BumpmapUV = bumpmapuv[t]
         surf.Vertices[i].LightmapUV = lightmapuv[t]
