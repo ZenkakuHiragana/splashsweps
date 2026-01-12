@@ -8,22 +8,29 @@ sampler LightmapSampler   : register(s2); // $texture2 - Lightmap
 sampler GeometorySampler  : register(s3); // $texture3 - World geometry bumpmap
 samplerCUBE EnvmapSampler : register(s4); // $texture4 - Environment map (cubemap)
 
-const float4 c0 : register(c0);
-#define g_InkNormalBlendAlpha c0.x
-#define g_EnvmapEnabled       c0.y
-#define g_FresnelReflection   c0.z
-#define g_EnvmapStrength      c0.w
+#define g_EnvmapEnabled
+#define g_PhongEnabled
+#define g_RimEnabled
+#define g_FakeAOEnabled
 
 // Constants
-const float4 g_EnvmapTint : register(c1);  // xyz: envmap tint color
-
+const float4 c0 : register(c0);
+const float4 c1 : register(c1);
 const float4 c2 : register(c2);
-#define g_PhongEnabled  c2.x
-#define g_PhongExponent c2.y
-#define g_PhongStrength c2.z
-#define g_PhongFresnel  c2.w
+const float4 c3 : register(c3);
 
-const float4 g_SunDirection : register(c3); // xyz: the sun direction
+#define g_EnvmapTint          c0.xyz
+#define g_InkNormalBlendAlpha c0.w
+#define g_EnvmapFresnel       c1.x
+#define g_EnvmapStrength      c1.y
+#define g_PhongFresnel        c1.z
+#define g_PhongStrength       c1.w
+#define g_RimExponent         c2.x   // 2-6 recommended
+#define g_RimStrength         c2.y   // 0.1-0.5 recommended
+#define g_RimBoost            c2.z   // How much bumpiness affects rim (0-1)
+#define g_Unused              c2.w
+#define g_SunDirection        c3.xyz // in world space
+#define g_PhongExponent       c3.w
 
 const float4 g_EyePos     : register(c10); // xyz: eye position
 const float4 HDRParams    : register(c30);
@@ -74,6 +81,55 @@ float3 ApplyFresnel(float3 specularNormal, float3 tangentViewDir) {
     phongFresnel = phongFresnel * (1.0 - g_PhongFresnel) + g_PhongFresnel;
     return g_PhongStrength * phongFresnel * g_LightmapScale;
 }
+
+// Calculate rim lighting - highlights edges and reveals bumps from all angles
+float CalcRimLight(float3 normal, float3 viewDir, float exponent, float bumpInfluence) {
+    float nDotV = dot(normal, viewDir);
+
+    // Basic rim: bright at edges (where nDotV is low)
+    float rim = 1.0 - saturate(nDotV);
+    rim = pow(rim, exponent);
+
+    // Add variation based on normal deviation from flat
+    // This makes bumps visible even when facing away from light
+    float3 flatNormal = float3(0.0, 0.0, 1.0);
+    float normalDeviation = 1.0 - saturate(dot(normal, flatNormal));
+
+    // Boost rim where normal differs from flat (shows bumps)
+    rim += normalDeviation * bumpInfluence * rim;
+
+    return saturate(rim);
+}
+
+// Fake AO / Cavity Shadow - darkens concave areas based on normal
+// This creates depth by adding shadows instead of highlights
+float CalcFakeAO(float3 normal, float3 lightDir) {
+    // Hardcoded parameters (adjust these to taste)
+    static const float CAVITY_STRENGTH = 1;    // Overall strength
+    static const float CAVITY_POWER    = 0.75; // Controls falloff sharpness
+
+    float3 flatNormal = float3(0.0, 0.0, 1.0);
+
+    // 1. Normal deviation from flat - areas that aren't facing "up" get darker
+    //    This darkens slopes and areas where bumpmap causes tilting
+    float normalDeviation = 1.0 - saturate(dot(normal, flatNormal));
+
+    // 2. Cavity detection - areas facing away from light get darker
+    //    Use the passed light direction (or average of bump basis)
+    float nDotL = dot(normal, lightDir);
+    float cavityFromLight = saturate(-nDotL * 0.5 + 0.5); // Remap [-1,1] to darkening factor
+
+    // 3. Combine factors - use the stronger of the two
+    float cavity = max(normalDeviation, cavityFromLight * 0.5);
+
+    // Apply power curve for sharper transitions
+    cavity = pow(cavity, CAVITY_POWER);
+
+    // Return as multiplier (1.0 = no darkening, 0.0 = full black)
+    // We only partially apply the effect based on strength
+    return saturate(1.0 - (cavity * CAVITY_STRENGTH));
+}
+
 
 float4 main(PS_INPUT i) : COLOR {
     // Sample ink albedo
@@ -126,6 +182,7 @@ float4 main(PS_INPUT i) : COLOR {
 
     float3 diffuseLighting = float3(0.0, 0.0, 0.0);
     float3 phongSpecular = float3(0.0, 0.0, 0.0);
+    float3 lightmapColorForRim = float3(0.0, 0.0, 0.0);
 
     bool hasBumpedLightmap = i.lightmapUV3.z > 0;
     if (hasBumpedLightmap) {
@@ -149,8 +206,11 @@ float4 main(PS_INPUT i) : COLOR {
         float sum = dot(dp, float3(1.0, 1.0, 1.0));
         diffuseLighting *= g_LightmapScale / max(sum, 0.001);
 
+        // Average lightmap color for rim lighting
+        lightmapColorForRim = (lightmapColor1 + lightmapColor2 + lightmapColor3) / 3.0;
+
         // Phong specular from bumped lightmap directions
-        if (g_PhongEnabled > 0.0) {
+#ifdef g_PhongEnabled
             float exponent = max(g_PhongExponent, 1.0);
 
             // Calculate specular for each lightmap direction (in tangent space)
@@ -166,52 +226,73 @@ float4 main(PS_INPUT i) : COLOR {
 
             // Apply Fresnel for rim highlights
             phongSpecular *= ApplyFresnel(specularNormal, tangentViewDir);
-        }
+#endif
     }
     else {
         // Non-bumpmapped surface: single lightmap sample
         float3 lightmapColor = tex2D(LightmapSampler, i.lightmapUV1And2.xy).rgb;
         diffuseLighting = lightmapColor * g_LightmapScale;
+        lightmapColorForRim = lightmapColor;
 
         // Phong for non-bumpmapped surfaces using default light direction
-        if (g_PhongEnabled > 0.0) {
+#ifdef g_PhongEnabled
             float exponent = max(g_PhongExponent, 1.0);
 
             // Use specularNormal which includes ink bumpmap
-            float spec = CalcBlinnPhongSpec(specularNormal, g_SunDirection.xyz, tangentViewDir, exponent);
+            float spec = CalcBlinnPhongSpec(specularNormal, g_SunDirection, tangentViewDir, exponent);
 
             // Use lightmap intensity as light color (halves it because it looks too shiny)
             phongSpecular = spec * lightmapColor * 0.5;
 
             // Apply Fresnel for rim highlights
             phongSpecular *= ApplyFresnel(specularNormal, tangentViewDir);
-        }
+#endif
     }
 
-    // Diffuse component
+    // Rim lighting - reveals bumps from all angles
+    float3 rimLighting = float3(0.0, 0.0, 0.0);
+#ifdef g_RimEnabled
+        float rimExponent = max(g_RimExponent, 1.0);
+        float rimValue = CalcRimLight(specularNormal, tangentViewDir, rimExponent, g_RimBoost);
+
+        // Use lightmap color as rim light color (slightly desaturated for subtle effect)
+        float3 rimColor = lerp(lightmapColorForRim, float3(1.0, 1.0, 1.0), 0.3);
+        rimLighting = rimValue * rimColor * g_RimStrength * g_LightmapScale;
+#endif
+
+#ifdef g_FakeAOEnabled
+    // Fake AO / Cavity Shadow - darkens concave areas for depth
+    // Use upward direction in tangent space as primary "light" for AO
+    float3 aoLightDir = float3(0.0, 0.0, 1.0);
+    float fakeAO = CalcFakeAO(specularNormal, aoLightDir);
+#else
+    const float fakeAO = 1.0;
+#endif
+
+    // Diffuse component with fake AO applied
     float3 albedo = inkAlbedoSample.rgb;
-    float3 diffuseComponent = albedo * diffuseLighting;
+    float3 diffuseComponent = albedo * diffuseLighting * fakeAO;
 
     // Envmap specular component
     float3 envmapSpecular = float3(0.0, 0.0, 0.0);
-    if (g_EnvmapEnabled > 0.0) {
+#ifdef g_EnvmapEnabled
         // Calculate reflection vector
         float3 reflectVect = CalcReflectionVector(worldSpaceSpecNormal, eyeVect);
 
         // Fresnel factor (Schlick approximation)
         float fresnel = 1.0 - saturate(dot(worldSpaceSpecNormal, eyeVect));
         fresnel = pow(fresnel, 5.0);
-        fresnel = fresnel * (1.0 - g_FresnelReflection) + g_FresnelReflection;
+        fresnel = fresnel * (1.0 - g_EnvmapFresnel) + g_EnvmapFresnel;
 
         // Sample environment map
         float3 envmapColor = texCUBE(EnvmapSampler, reflectVect).rgb;
 
         // Apply envmap contribution
-        envmapSpecular = envmapColor * g_EnvmapTint.rgb * fresnel * g_EnvmapStrength * g_EnvmapScale;
-    }
+        envmapSpecular = envmapColor * g_EnvmapTint * fresnel * g_EnvmapStrength * g_EnvmapScale;
+#endif
 
     // Final color
-    float3 result = diffuseComponent + phongSpecular + envmapSpecular;
+    float3 result = diffuseComponent + phongSpecular + rimLighting + envmapSpecular;
 
     return float4(result * g_TonemapScale, inkAlbedoSample.a);
 }

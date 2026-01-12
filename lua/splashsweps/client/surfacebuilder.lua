@@ -355,18 +355,19 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             ["$tcsize1"]             = "2",
                             ["$tcsize2"]             = "2",
                             ["$tcsize3"]             = "2",
-                            ["$c0_x"]                = 0.75,  -- Ink normal blend factor
-                            ["$c0_y"]                = 1,     -- $envmap enabled
-                            ["$c0_z"]                = 0.125, -- Fresnel factor
-                            ["$c0_w"]                = 0.5,   -- $envmap strength
-                            ["$c1_x"]                = 0.125, -- $envmaptint R
-                            ["$c1_y"]                = 0.125, -- $envmaptint G
-                            ["$c1_z"]                = 0.125, -- $envmaptint B
-                            ["$c1_w"]                = 1,
-                            ["$c2_x"]                = 1,     -- $phong enabled
-                            ["$c2_y"]                = 64,    -- $phongexponent
-                            ["$c2_z"]                = 0.5,   -- $phong strength
-                            ["$c2_w"]                = 0.75,  -- $phong minimum fresnel value
+                            ["$c0_x"]                = 0.125, -- $envmaptint R
+                            ["$c0_y"]                = 0.125, -- $envmaptint G
+                            ["$c0_z"]                = 0.125, -- $envmaptint B
+                            ["$c0_w"]                = 0.75,  -- Ink normal blend factor
+                            ["$c1_x"]                = 0.125, -- $envmap fresnel factor
+                            ["$c1_y"]                = 0.5,   -- $envmap strength
+                            ["$c1_z"]                = 0.75,  -- $phong fresnel factor
+                            ["$c1_w"]                = 0.5,   -- $phong strength
+                            ["$c2_x"]                = 4,     -- $rimexponent
+                            ["$c2_y"]                = 0.05,  -- $rimstrength
+                            ["$c2_z"]                = 1,     -- $rimboost
+                            ["$c2_w"]                = 0,     -- unused
+                            ["$c3_w"]                = 64,    -- $phongexponent
                         })
                     local matf = CreateMaterial(
                         string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
