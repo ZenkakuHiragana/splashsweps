@@ -3,7 +3,6 @@
 local ss = SplashSWEPs
 if not ss then return end
 
-ss.Lightmaps = ss.Lightmaps or {}
 local LightmapInfoMeta = getmetatable(ss.new "PrecachedData.LightmapInfo")
 local StaticPropMeta = getmetatable(ss.new "PrecachedData.StaticProp")
 local StaticPropUVMeta = getmetatable(ss.new "PrecachedData.StaticProp.UVInfo")
@@ -11,7 +10,7 @@ local SurfaceMeta = getmetatable(ss.new "PrecachedData.Surface")
 local UVInfoMeta = getmetatable(ss.new "PrecachedData.UVInfo")
 local VertexMeta = getmetatable(ss.new "PrecachedData.Vertex")
 local MAX_TRIANGLES = math.floor(32768 / 3) -- mesh library limitation
-local MIN_DRAW_RADIUS = 0.015 -- minimum draw radius for static props relative to ScrH()
+local MIN_DRAW_RADIUS = 0.01 * 0.01 -- Squared minimum draw radius for static props relative to ScrH()
 
 ---@class ss.SurfaceBuilder.MaterialInfo
 ---@field NeedsBumpedLightmaps boolean
@@ -529,27 +528,22 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
         local fov = math.rad(render.GetViewSetup().fov)
         local z = (view * self:GetPos()).x          -- projected z-position
         local fp = ScrH() / (2 * math.tan(fov / 2)) -- focus distance in pixels
-        local r = self:GetModelRadius() * fp / z    -- draw radius on the screen in pixels
-        if math.abs(r) < MIN_DRAW_RADIUS * ScrH() then return end
+        local r = self.ModelLengthSqr * fp * fp / (z * z)     -- draw radius on the screen in pixels
+        local minRadius = MIN_DRAW_RADIUS * ScrH() * ScrH()
+        if r < minRadius then return end
         render.MaterialOverride(dynamiclight)
         self:DrawModel(flags)
         render.MaterialOverride()
         render.OverrideDepthEnable(true, true)
+        render.DepthRange(0, 65534 / 65535)
         self:DrawModel(flags)
         render.OverrideDepthEnable(false)
-        render.RenderFlashlights(function()
-            render.MaterialOverride(flashlight)
-            self:DrawModel(flags)
-            render.MaterialOverride(self.FlashlightMaterials[1])
-            for i, m in ipairs(self.FlashlightMaterials) do
-                render.MaterialOverrideByIndex(i - 1, m)
-            end
-            render.OverrideDepthEnable(true, true)
-            self:DrawModel(flags)
-            render.OverrideDepthEnable(false)
-            render.MaterialOverrideByIndex()
-            render.MaterialOverride()
-        end)
+        render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD)
+        render.MaterialOverride(flashlight)
+        render.RenderFlashlights(function() self:DrawModel(flags) end)
+        render.OverrideBlend(false)
+        render.MaterialOverride()
+        render.DepthRange(0, 1)
     end
 
     -- Matrix(X, Y, Z) * xyzTyzx = (Y, Z, X)
@@ -577,7 +571,9 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                 mdl:SetModelScale(prop.Scale or 1)
                 mdl.RenderOverride = RenderOverride
                 local fadeMax = prop.FadeMax and prop.FadeMax > 0 and prop.FadeMax or false
+                local mins, maxs = mdl:GetModelBounds()
                 mdl.FadeMaxSqr = fadeMax and (fadeMax * fadeMax)
+                mdl.ModelLengthSqr = mins:DistToSqr(maxs)
                 local size = prop.BoundsMax - prop.BoundsMin
                 local absoluteuvTlocaluv = Matrix()
                 if uv.Offset.z > 0 then
@@ -620,29 +616,18 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                     ["$c0_x"] = size.x,
                     ["$c0_y"] = size.y,
                     ["$c0_z"] = size.z,
+                    ["$c1_x"] = 0,
                     ["$c0_w"] = prop.UnwrapIndex,
                 })
-                mdl.FlashlightMaterials = {} ---@type IMaterial[]
                 for j, name in ipairs(mdl:GetMaterials()) do
                     local mdlmat = materialCache[name] or Material(name)
                     local basetexture = mdlmat:GetTexture "$basetexture"
-
-                    params["$additive"] = "0"
-                    params["$c1_x"] = "0"
                     local mat = CreateMaterial("splashsweps/sprp" .. i .. "-" .. j, "Screenspace_General", params)
                     mat:SetMatrix("$viewprojmat", localTworld)
                     mat:SetMatrix("$invviewprojmat", absoluteuvTlocaluv)
                     mat:SetTexture("$texture2", basetexture:IsErrorTexture() and "grey" or basetexture)
                     mdl:SetSubMaterial(j - 1, "!" .. mat:GetName())
                     materialCache[name] = mdlmat
-
-                    params["$additive"] = "1"
-                    params["$c1_x"] = "1"
-                    mat = CreateMaterial("splashsweps/sprpf" .. i .. "-" .. j, "Screenspace_General", params)
-                    mat:SetMatrix("$viewprojmat", localTworld)
-                    mat:SetMatrix("$invviewprojmat", absoluteuvTlocaluv)
-                    mat:SetTexture("$texture2", basetexture:IsErrorTexture() and "grey" or basetexture)
-                    mdl.FlashlightMaterials[j] = mat
                 end
             end
         end

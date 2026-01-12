@@ -57,6 +57,12 @@ const float4 g_EyePos : register(c10);
 const float4 cFlashlightColor : register(c28);
 #define flFlashlightNoLambertValue cFlashlightColor.w
 
+const float4 HDRParams : register(c30);
+#define g_TonemapScale  HDRParams.x
+#define g_LightmapScale HDRParams.y
+#define g_EnvmapScale   HDRParams.z
+#define g_GammaScale    HDRParams.w // = TonemapScale ^ (1 / 2.2)
+
 // Taken from common_flashlight_fxc.h
 float RemapNormalizedValClamped(float val, float A, float B) {
     return saturate((val - A) / (B - A));
@@ -295,7 +301,7 @@ struct PS_OUTPUT {
     float  depth : DEPTH0;
 };
 
-PS_OUTPUT main(const PS_INPUT i) {
+float4 main(const PS_INPUT i) : COLOR0 {
     const float    depthRatio = 65534.0 / 65535.0;
     const float4   g_FlashlightAttenuationFactors = c22;
     const float3   g_FlashlightPos                = c23.xyz;
@@ -357,6 +363,6 @@ PS_OUTPUT main(const PS_INPUT i) {
         diffuseLighting += i.diffuse;
         output.color = albedo * float4(diffuseLighting, alpha);
     }
-    return output;
-    // return output.color;
+
+    return output.color * g_TonemapScale;
 }

@@ -69,18 +69,3 @@ function ss.ClearAllInk()
 end
 
 hook.Add("PreDrawTranslucentRenderables", "SplashSWEPs: Draw ink", DrawMeshes)
-
--- local m = Matrix()
--- local meshHint = Material "debug/debuglightmap"
--- hook.Add("PostDrawTranslucentRenderables", "test", function()
---     m:SetAngles(EyeAngles())
---     m:Rotate(Angle(0, 180, 0))
---     for i, v in pairs(ss.Lightmaps) do
---         m:SetTranslation(EyePos() + EyeAngles():Forward() * 400 + EyeAngles():Right() * 200 + EyeAngles():Up() * (230 - i * 102))
---         cam.PushModelMatrix(m)
---         render.SetMaterial(meshHint)
---         render.SetLightmapTexture(v.RT)
---         ss.GlobalMesh:Draw()
---         cam.PopModelMatrix()
---     end
--- end)
