@@ -317,11 +317,6 @@ float4 main(const PS_INPUT i) : COLOR0 {
         { c24, c25 },
     };
 
-    PS_OUTPUT output = {
-        float4(0.0, 0.0, 0.0, 0.0),
-        // Slightly push forward to the camera to avoid Z-fighting
-        i.uv_depth.z / i.uv_depth.w * depthRatio,
-    };
     float3 vertexPos      = i.vWorldPos_BinormalX.xyz;
     float3 vertexNormal   = i.vWorldNormal_BinormalY.xyz;
     float3 vertexTangent  = i.vWorldTangent_BinormalZ.xyz;
@@ -339,30 +334,8 @@ float4 main(const PS_INPUT i) : COLOR0 {
     float3 tangentSpaceNormal = normal.xyz * 2.0 - 1.0;
     float3 worldNormal = Vec3TangentToWorldNormalized(
         tangentSpaceNormal, vertexNormal, vertexTangent, vertexBinormal);
-    if (c1.x > 0.5) {
-        float3 vEyeDir = normalize(g_EyePos.xyz - vertexPos);
-        float3 vLightDir = normalize(g_FlashlightPos.xyz - vertexPos);
-        float4 flashlightSpacePos = mul(float4(vertexPos, 1.0), g_FlashlightWorldToTexture);
-        float3 flashlightUV = flashlightSpacePos.xyz / flashlightSpacePos.w;
-        float3 flashlightColor = DoFlashlight(
-            g_FlashlightPos.xyz, vertexPos, flashlightSpacePos,
-            worldNormal, g_FlashlightAttenuationFactors.xyz,
-            g_FlashlightAttenuationFactors.w, FlashlightSampler);
-        float3 flashlightSpecular = flashlightColor * SpecularLight(worldNormal, vLightDir, g_fSpecExp, vEyeDir);
-        flashlightColor += flashlightSpecular;
-        flashlightColor
-            *= step(0.0, flashlightUV.x)
-            *  step(0.0, flashlightUV.y)
-            *  step(flashlightUV.x, 1.0)
-            *  step(flashlightUV.y, 1.0);
-        output.color = albedo * float4(flashlightColor, alpha);
-    }
-    else {
-        float3 diffuseLighting = PixelShaderDoLightingLinear(
-            vertexPos, worldNormal, i.vLightAtten, 4, cLightInfo, true);
-        diffuseLighting += i.diffuse;
-        output.color = albedo * float4(diffuseLighting, alpha);
-    }
-
-    return output.color * g_TonemapScale;
+    float3 diffuseLighting = PixelShaderDoLightingLinear(
+        vertexPos, worldNormal, i.vLightAtten, 4, cLightInfo, true);
+    diffuseLighting += i.diffuse;
+    return albedo * float4(diffuseLighting, alpha) * g_TonemapScale;
 }
