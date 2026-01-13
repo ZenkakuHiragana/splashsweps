@@ -332,9 +332,11 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
             local numMeshesToAdd = math.ceil(count / MAX_TRIANGLES)
             if numMeshesToAdd > 0 then
                 for _ = 1, numMeshesToAdd do
-                    local page = lightmapInfo.Details[sortID].LightmapPage
+                    local info = lightmapInfo.Details[sortID]
+                    local page = info.LightmapPage
                     local lightmapTextureName = page and string.format("\\[lightmap%d]", page) or "white"
-                    local bumpmapTextureName = lightmapInfo.Details[sortID].Bumpmap
+                    local bumpmapTextureName = info.Bumpmap
+                    local bump = info.IsBumpmapped and 1 or 0
                     local mat = CreateMaterial(
                         string.format("splashsweps_mesh_%d_%s", sortID, game.GetMap()),
                         "Screenspace_General_8tex", {
@@ -342,12 +344,15 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             ["$pixshader"]           = "splashsweps/inkmesh_ps30",
                             ["$basetexture"]         = ss.RenderTarget.StaticTextures.Albedo:GetName(),
                             ["$texture1"]            = ss.RenderTarget.StaticTextures.Normal:GetName(),
-                            ["$texture2"]            = lightmapTextureName,
-                            ["$texture3"]            = bumpmapTextureName,
+                            ["$texture2"]            = ss.RenderTarget.StaticTextures.PseudoPBR:GetName(),
+                            ["$texture3"]            = lightmapTextureName,
                             ["$texture4"]            = "shadertest/shadertest_env.hdr",
+                            ["$texture5"]            = bumpmapTextureName,
                             ["$linearread_texture1"] = "1",
                             ["$linearread_texture2"] = "1",
                             ["$linearread_texture3"] = "1",
+                            ["$linearread_texture4"] = "1",
+                            ["$linearread_texture5"] = "1",
                             ["$cull"]                = "1",
                             ["$depthtest"]           = "1",
                             ["$vertexnormal"]        = "1",
@@ -355,19 +360,11 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             ["$tcsize1"]             = "2",
                             ["$tcsize2"]             = "2",
                             ["$tcsize3"]             = "2",
-                            ["$c0_x"]                = 0.125, -- $envmaptint R
-                            ["$c0_y"]                = 0.125, -- $envmaptint G
-                            ["$c0_z"]                = 0.125, -- $envmaptint B
-                            ["$c0_w"]                = 0.75,  -- Ink normal blend factor
-                            ["$c1_x"]                = 0.125, -- $envmap fresnel factor
-                            ["$c1_y"]                = 0.5,   -- $envmap strength
-                            ["$c1_z"]                = 0.75,  -- $phong fresnel factor
-                            ["$c1_w"]                = 0.5,   -- $phong strength
-                            ["$c2_x"]                = 4,     -- $rimexponent
-                            ["$c2_y"]                = 0.05,  -- $rimstrength
-                            ["$c2_z"]                = 1,     -- $rimboost
-                            ["$c2_w"]                = 0,     -- unused
-                            ["$c3_w"]                = 64,    -- $phongexponent
+                            ["$c0_x"]                = 0,     -- Sun direction x
+                            ["$c0_y"]                = 0.3,   -- Sun direction y
+                            ["$c0_z"]                = 0.954, -- Sun direction z
+                            ["$c0_w"]                = 0.5,   -- Ink normal blend factor
+                            ["$c1_x"]                = bump,  -- Indicates if having bumped lightmaps
                         })
                     local matf = CreateMaterial(
                         string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),

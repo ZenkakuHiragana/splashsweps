@@ -23,9 +23,11 @@ local function DrawMesh(isnormal)
                 if currentMaterial ~= mat then
                     render.SetMaterial(mat)
                     currentMaterial = mat
-                    mat:SetFloat("$c3_x", sunDirection.x)
-                    mat:SetFloat("$c3_y", sunDirection.y)
-                    mat:SetFloat("$c3_z", sunDirection.z)
+                    if isnormal then -- This is not needed when rendering flashlights
+                        mat:SetFloat("$c0_x", sunDirection.x)
+                        mat:SetFloat("$c0_y", sunDirection.y)
+                        mat:SetFloat("$c0_z", sunDirection.z)
+                    end
                 end
                 (isnormal and m.Mesh or m.MeshFlashlight):Draw()
             end
@@ -58,12 +60,19 @@ function ss.ClearAllInk()
     render.OverrideAlphaWriteEnable(true, true)
     render.ClearDepth()
     render.ClearStencil()
-    render.Clear(0, 0, 0, 0)
+    render.Clear(64, 64, 128, 255)
     render.OverrideAlphaWriteEnable(false)
-    render.DrawTextureToScreen("grey")
     render.PopRenderTarget()
 
     render.PushRenderTarget(rt.StaticTextures.Normal)
+    render.OverrideAlphaWriteEnable(true, true)
+    render.ClearDepth()
+    render.ClearStencil()
+    render.Clear(128, 128, 255, 255)
+    render.OverrideAlphaWriteEnable(false)
+    render.PopRenderTarget()
+
+    render.PushRenderTarget(rt.StaticTextures.PseudoPBR)
     render.OverrideAlphaWriteEnable(true, true)
     render.ClearDepth()
     render.ClearStencil()

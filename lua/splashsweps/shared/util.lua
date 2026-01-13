@@ -10,7 +10,7 @@ ss.eps = 1e-16
 ss.vector_one = Vector(1, 1, 1)
 
 ---Perform dot product to make any color monotone
-ss.GrayScaleFactor = Vector(.298912, .586611, .114478)
+ss.GrayScaleFactor = Vector(0.2126, 0.7152, 0.0722)
 
 ---Assert but this states that the error was thrown by this addon.
 ---@generic T

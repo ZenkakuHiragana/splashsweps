@@ -78,6 +78,7 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     net.SendToServer()
 end)
 
+net.Receive("SplashSWEPs: Clear all ink", function() ss.ClearAllInk() end)
 net.Receive("SplashSWEPs: Refresh players table", function()
     local playersReady = net.ReadTable()
     table.Empty(ss.PlayersReady)

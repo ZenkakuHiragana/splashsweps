@@ -40,6 +40,7 @@ local TEXTUREFLAGS = {
 local RTNAMES = {
     ALBEDO = "splashsweps_basetexture",
     NORMAL = "splashsweps_bumpmap",
+    PBR    = "splashsweps_pbr",
 }
 local RTFLAGS = {
     ALBEDO = bit.bor(
@@ -55,6 +56,12 @@ local RTFLAGS = {
         TEXTUREFLAGS.ALL_MIPS,
         TEXTUREFLAGS.RENDERTARGET,
         TEXTUREFLAGS.NODEPTHBUFFER),
+    PBR = bit.bor(
+        TEXTUREFLAGS.NOMIP,
+        TEXTUREFLAGS.NOLOD,
+        TEXTUREFLAGS.ALL_MIPS,
+        TEXTUREFLAGS.RENDERTARGET,
+        TEXTUREFLAGS.NODEPTHBUFFER),
 }
 
 if not ss.RenderTarget then
@@ -62,8 +69,9 @@ if not ss.RenderTarget then
     ss.RenderTarget = {
         ---Render targets for static part of the world.
         StaticTextures = {
-            Albedo = nil, ---@type ITexture
-            Normal = nil, ---@type ITexture
+            Albedo    = nil, ---@type ITexture
+            Normal    = nil, ---@type ITexture
+            PseudoPBR = nil ---@type ITexture
         },
         ---List of render target resolutions available.
         Resolutions = {
@@ -102,26 +110,14 @@ function ss.SetupRenderTargets()
         RTFLAGS.NORMAL,
         CREATERENDERTARGETFLAGS_HDR,
         IMAGE_FORMAT_RGBA8888)
+    rt.StaticTextures.PseudoPBR = GetRenderTargetEx(
+        RTNAMES.PBR,
+        rtSize, rtSize,
+        RT_SIZE_LITERAL,
+        MATERIAL_RT_DEPTH_NONE,
+        RTFLAGS.PBR,
+        CREATERENDERTARGETFLAGS_HDR,
+        IMAGE_FORMAT_RGBA8888)
     rt.HammerUnitsToPixels = rt.HammerUnitsToUV * rtSize
     ss.ClearAllInk()
-end
-
-local copy = Material "pp/copy"
-
----Loads lightmap texture and places it.
----@param page integer Number of lightmap page
----@param width integer
----@param height integer
----@return ITexture
-function ss.CreateLightmapRT(page, width, height)
-    local ishdr = render.GetHDREnabled()
-    local fmt = ishdr and "splashsweps_lightmap_hdr_%d_%s" or "splashsweps_lightmap_%d_%s"
-    return GetRenderTargetEx(
-        fmt:format(page, game.GetMap()),
-        width, height,
-        RT_SIZE_NO_CHANGE,
-        MATERIAL_RT_DEPTH_NONE,
-        RTFLAGS.ALBEDO,
-        CREATERENDERTARGETFLAGS_HDR,
-        ishdr and IMAGE_FORMAT_RGBA16161616F or IMAGE_FORMAT_RGBA8888)
 end

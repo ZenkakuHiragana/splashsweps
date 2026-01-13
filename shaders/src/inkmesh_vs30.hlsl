@@ -17,7 +17,6 @@ struct VS_OUTPUT {
     float4   lightmapUV3           : TEXCOORD2; // xy: bumpmapped lightmap UV (2)
     float4   worldPos_projPosZ     : TEXCOORD3;
     float3x3 tangentSpaceTranspose : TEXCOORD4; // TEXCOORD4, 5, 6
-    float4   vertexColor           : COLOR0;
 };
 
 const float4x4 cModelViewProj : register(c4);
@@ -45,12 +44,12 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.inkUV_worldBumpUV.zw = v.worldBumpCoord;
 
     if (v.lightmapOffset.x > 0) {
-        output.lightmapUV1And2.xy     = v.lightmapTexCoord  + v.lightmapOffset;
-        float2 lightmapTexCoord2 = output.lightmapUV1And2.xy + v.lightmapOffset;
-        float2 lightmapTexCoord3 = lightmapTexCoord2    + v.lightmapOffset;
-        output.lightmapUV1And2.wz = lightmapTexCoord2.xy; // reversed component order
-        output.lightmapUV3.xy = lightmapTexCoord3;
-        output.lightmapUV3.z = 1.0;
+        float2 lightmapTexCoord1  = v.lightmapTexCoord + v.lightmapOffset;
+        float2 lightmapTexCoord2  = lightmapTexCoord1  + v.lightmapOffset;
+        float2 lightmapTexCoord3  = lightmapTexCoord2  + v.lightmapOffset;
+        output.lightmapUV1And2.xy = lightmapTexCoord1;
+        output.lightmapUV1And2.zw = lightmapTexCoord2;
+        output.lightmapUV3.xy     = lightmapTexCoord3;
     }
     else {
         output.lightmapUV1And2.xy = v.lightmapTexCoord;

@@ -18,12 +18,14 @@ local InkTypeIdentifierToIndex = locals.InkTypeIdentifierToIndex
 ---@field Features    string[] List of features this type of ink will have.
 ---@field BaseTexture string   The albedo texture to render this ink type.
 ---@field Bumpmap     string   The normal texture to render this ink type.
+---@field PBRTexture  string   Texture to describe material parameters.
 ss.struct "InkType" {
     Index = 0,
     Identifier = "",
     Features = {},
     BaseTexture = "",
     Bumpmap = "",
+    PBRTexture = "",
 }
 
 ---JSON scheme for ink type definition.
@@ -32,6 +34,7 @@ ss.struct "InkType" {
 ---@field features?    string[] List of features this type of ink will have.
 ---@field basetexture? string   The albedo texture to render this ink type.
 ---@field bumpmap?     string   The normal texture to render this ink type.
+---@field pbrtexture?  string   Texture to describe material parameters.
 
 ---Converts ink type identifier (string) into internal index.
 ---@param identifier string
@@ -59,6 +62,7 @@ function ss.LoadInkTypes()
                 inktype.Features = json.features or {}
                 inktype.BaseTexture = json.basetexture or "debug/debugempty"
                 inktype.Bumpmap = json.bumpmap or "null-bumpmap"
+                inktype.PBRTexture = json.pbrtexture or "grey"
                 ss.InkTypes[inktypeCount] = inktype
                 InkTypeIdentifierToIndex[name] = inktypeCount
             end
