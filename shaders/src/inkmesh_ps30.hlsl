@@ -75,7 +75,6 @@ float CalcBlinnPhongSpec(float3 normal, float3 lightDir, float3 viewDir, float e
 }
 
 float3 ApplyFresnel(float3 specularNormal, float3 tangentViewDir) {
-    // Apply Fresnel for rim highlights
     float nDotV = saturate(dot(specularNormal, tangentViewDir));
     float phongFresnel = pow(1.0 - nDotV, 5.0);
     phongFresnel = phongFresnel * (1.0 - g_PhongFresnel) + g_PhongFresnel;
@@ -99,6 +98,21 @@ float CalcRimLight(float3 normal, float3 viewDir, float exponent, float bumpInfl
     rim += normalDeviation * bumpInfluence * rim;
 
     return saturate(rim);
+}
+
+float3 FetchGeometryNormal(float2 uv) {
+    // Sample world bumpmap
+    float3 geometryNormal = tex2D(GeometorySampler, uv).xyz;
+    geometryNormal *= 2.0;
+    geometryNormal -= 1.0;
+
+    // Handle missing world bumpmap (default to flat normal)
+    bool noWorldBump =
+        geometryNormal.x == -1.0 &&
+        geometryNormal.y == -1.0 &&
+        geometryNormal.z == -1.0;
+    if (noWorldBump) return float3(0.0, 0.0, 1.0);
+    return geometryNormal;
 }
 
 // Fake AO / Cavity Shadow - darkens concave areas based on normal
@@ -141,32 +155,12 @@ float4 main(PS_INPUT i) : COLOR {
     // Sample ink bumpmap (tangent space normal)
     float4 inkNormalSample = tex2D(InkBumpmapSampler, i.inkUV_worldBumpUV.xy);
     float3 inkNormal = inkNormalSample.xyz * 2.0 - 1.0;
-
-    // Sample world bumpmap
-    float3 geometoryNormal = tex2D(GeometorySampler, i.inkUV_worldBumpUV.zw).xyz;
-    geometoryNormal *= 2.0;
-    geometoryNormal -= 1.0;
-
-    // Handle missing world bumpmap (default to flat normal)
-    bool noWorldBump =
-        geometoryNormal.x == -1.0 &&
-        geometoryNormal.y == -1.0 &&
-        geometoryNormal.z == -1.0;
-    if (noWorldBump) {
-        geometoryNormal = float3(0.0, 0.0, 1.0);
-    }
+    float3 geometryNormal = FetchGeometryNormal(i.inkUV_worldBumpUV.zw);
 
     // Blend ink and world normals based on ink alpha
     float inkAlpha = inkNormalSample.a * g_InkNormalBlendAlpha;
-    float3 blendedNormal = BlendNormals(geometoryNormal, inkNormal, inkAlpha);
-
-    // Blend factor of ink/world normals for specular
-    float specularInkBlend = inkAlpha;
-    float3 specularNormal = BlendNormals(geometoryNormal, inkNormal, specularInkBlend);
-
-    // Transform blended normal to world space
+    float3 blendedNormal = BlendNormals(geometryNormal, inkNormal, inkAlpha);
     float3 worldSpaceNormal = normalize(mul(blendedNormal, i.tangentSpaceTranspose));
-    float3 worldSpaceSpecNormal = normalize(mul(specularNormal, i.tangentSpaceTranspose));
 
     // Calculate view direction (for specular)
     float3 worldVertToEyeVector = g_EyePos.xyz - i.worldPos_projPosZ.xyz;
@@ -176,9 +170,7 @@ float4 main(PS_INPUT i) : COLOR {
     float3 tangentViewDir = float3(
         dot(eyeVect, i.tangentSpaceTranspose[0]),
         dot(eyeVect, i.tangentSpaceTranspose[1]),
-        dot(eyeVect, i.tangentSpaceTranspose[2])
-    );
-    tangentViewDir = normalize(tangentViewDir);
+        dot(eyeVect, i.tangentSpaceTranspose[2]));
 
     float3 diffuseLighting = float3(0.0, 0.0, 0.0);
     float3 phongSpecular = float3(0.0, 0.0, 0.0);
@@ -214,9 +206,9 @@ float4 main(PS_INPUT i) : COLOR {
             float exponent = max(g_PhongExponent, 1.0);
 
             // Calculate specular for each lightmap direction (in tangent space)
-            float spec1 = CalcBlinnPhongSpec(specularNormal, bumpBasis[0], tangentViewDir, exponent);
-            float spec2 = CalcBlinnPhongSpec(specularNormal, bumpBasis[1], tangentViewDir, exponent);
-            float spec3 = CalcBlinnPhongSpec(specularNormal, bumpBasis[2], tangentViewDir, exponent);
+            float spec1 = CalcBlinnPhongSpec(blendedNormal, bumpBasis[0], tangentViewDir, exponent);
+            float spec2 = CalcBlinnPhongSpec(blendedNormal, bumpBasis[1], tangentViewDir, exponent);
+            float spec3 = CalcBlinnPhongSpec(blendedNormal, bumpBasis[2], tangentViewDir, exponent);
 
             // Weight by lightmap intensity and diffuse factor
             phongSpecular
@@ -225,7 +217,7 @@ float4 main(PS_INPUT i) : COLOR {
                 + spec3 * lightmapColor3 * dp.z;
 
             // Apply Fresnel for rim highlights
-            phongSpecular *= ApplyFresnel(specularNormal, tangentViewDir);
+            phongSpecular *= ApplyFresnel(blendedNormal, tangentViewDir);
 #endif
     }
     else {
@@ -237,15 +229,13 @@ float4 main(PS_INPUT i) : COLOR {
         // Phong for non-bumpmapped surfaces using default light direction
 #ifdef g_PhongEnabled
             float exponent = max(g_PhongExponent, 1.0);
-
-            // Use specularNormal which includes ink bumpmap
-            float spec = CalcBlinnPhongSpec(specularNormal, g_SunDirection, tangentViewDir, exponent);
+            float spec = CalcBlinnPhongSpec(blendedNormal, g_SunDirection, tangentViewDir, exponent);
 
             // Use lightmap intensity as light color (halves it because it looks too shiny)
             phongSpecular = spec * lightmapColor * 0.5;
 
             // Apply Fresnel for rim highlights
-            phongSpecular *= ApplyFresnel(specularNormal, tangentViewDir);
+            phongSpecular *= ApplyFresnel(blendedNormal, tangentViewDir);
 #endif
     }
 
@@ -253,7 +243,7 @@ float4 main(PS_INPUT i) : COLOR {
     float3 rimLighting = float3(0.0, 0.0, 0.0);
 #ifdef g_RimEnabled
         float rimExponent = max(g_RimExponent, 1.0);
-        float rimValue = CalcRimLight(specularNormal, tangentViewDir, rimExponent, g_RimBoost);
+        float rimValue = CalcRimLight(blendedNormal, tangentViewDir, rimExponent, g_RimBoost);
 
         // Use lightmap color as rim light color (slightly desaturated for subtle effect)
         float3 rimColor = lerp(lightmapColorForRim, float3(1.0, 1.0, 1.0), 0.3);
@@ -264,7 +254,7 @@ float4 main(PS_INPUT i) : COLOR {
     // Fake AO / Cavity Shadow - darkens concave areas for depth
     // Use upward direction in tangent space as primary "light" for AO
     float3 aoLightDir = float3(0.0, 0.0, 1.0);
-    float fakeAO = CalcFakeAO(specularNormal, aoLightDir);
+    float fakeAO = CalcFakeAO(blendedNormal, aoLightDir);
 #else
     const float fakeAO = 1.0;
 #endif
@@ -277,10 +267,10 @@ float4 main(PS_INPUT i) : COLOR {
     float3 envmapSpecular = float3(0.0, 0.0, 0.0);
 #ifdef g_EnvmapEnabled
         // Calculate reflection vector
-        float3 reflectVect = CalcReflectionVector(worldSpaceSpecNormal, eyeVect);
+        float3 reflectVect = CalcReflectionVector(worldSpaceNormal, eyeVect);
 
         // Fresnel factor (Schlick approximation)
-        float fresnel = 1.0 - saturate(dot(worldSpaceSpecNormal, eyeVect));
+        float fresnel = 1.0 - saturate(dot(worldSpaceNormal, eyeVect));
         fresnel = pow(fresnel, 5.0);
         fresnel = fresnel * (1.0 - g_EnvmapFresnel) + g_EnvmapFresnel;
 
