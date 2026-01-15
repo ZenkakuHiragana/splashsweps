@@ -363,7 +363,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             ["$c0_x"]                = 0,     -- Sun direction x
                             ["$c0_y"]                = 0.3,   -- Sun direction y
                             ["$c0_z"]                = 0.954, -- Sun direction z
-                            ["$c0_w"]                = 0.5,   -- Ink normal blend factor
+                            ["$c0_w"]                = 0.75,  -- Ink normal blend factor
                             ["$c1_x"]                = bump,  -- Indicates if having bumped lightmaps
                         })
                     local matf = CreateMaterial(
