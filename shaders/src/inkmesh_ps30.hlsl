@@ -83,12 +83,12 @@ void FetchInkMaterial(
     out float metallic,
     out float roughness,
     out float ambientOcclusion,
-    out float unused) {
+    out float specularMask) {
     float4 materialSample = tex2D(InkMaterialSampler, uv);
     metallic         = materialSample.r;
     roughness        = materialSample.g;
     ambientOcclusion = materialSample.b;
-    unused           = materialSample.a;
+    specularMask     = materialSample.a;
 }
 
 // Samples bumpmap pixel from painted ink and scales it to [-1, 1] range
@@ -122,10 +122,10 @@ float4 main(PS_INPUT i) : COLOR {
 
     // Sample the other necessary info
     float inkNormalAlpha;
-    float metallic, roughness, ambientOcclusion, unused;
+    float metallic, roughness, ambientOcclusion, specularMask;
     float3 inkNormal, geometryNormal;
     FetchInkNormal(i.inkUV_worldBumpUV.xy, inkNormal, inkNormalAlpha);
-    FetchInkMaterial(i.inkUV_worldBumpUV.xy, metallic, roughness, ambientOcclusion, unused);
+    FetchInkMaterial(i.inkUV_worldBumpUV.xy, metallic, roughness, ambientOcclusion, specularMask);
     FetchGeometryNormal(i.inkUV_worldBumpUV.zw, geometryNormal);
 
     // Blend ink and world normals
@@ -194,6 +194,7 @@ float4 main(PS_INPUT i) : COLOR {
     phongSpecular = mul(lightDirectionDifferences * spec, lightmapColors);
     phongSpecular *= CalcFresnel(tangentSpaceNormal, tangentViewDir, phongFresnel);
     phongSpecular *= ambientOcclusion;
+    phongSpecular *= specularMask;
     phongSpecular *= g_LightmapScale;
     result += phongSpecular;
 #endif
@@ -213,6 +214,7 @@ float4 main(PS_INPUT i) : COLOR {
     float3 rimLighting = mul(lightDirectionDifferences, lightmapColors);
     rimLighting = lerp(rimLighting, albedo, metallic);
     rimLighting *= min(rimScale, RIMLIGHT_MAX_SCALE);
+    rimLighting *= specularMask;
     rimLighting *= g_LightmapScale;
     result += rimLighting;
 #endif
@@ -230,6 +232,7 @@ float4 main(PS_INPUT i) : COLOR {
     envmapSpecular *= CalcFresnel(worldSpaceNormal, eyeDirection, envmapFresnel);
     envmapSpecular *= envmapScale;
     envmapSpecular *= ambientOcclusion;
+    envmapSpecular *= specularMask;
     envmapSpecular *= g_LightmapScale;
     result += envmapSpecular;
 #endif
