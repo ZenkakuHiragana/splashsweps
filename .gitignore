@@ -30,3 +30,6 @@ lua/do.lua
 
 # Don't sync compiled shaders created for auto-reload workaround
 shaders/fxc/splashsweps/[0-9]*_*.vcs
+
+# Don't sync AI generated temporary files
+.gemini

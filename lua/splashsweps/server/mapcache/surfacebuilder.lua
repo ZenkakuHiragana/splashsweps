@@ -353,9 +353,12 @@ local function CalculateTriangleComponents(surf)
         --  = t1 - t3   /        |
         --      <---  +----------+
         --            t1         t3
-        local t1 = surf.Vertices[i].Translation
-        local t2 = surf.Vertices[i + 1].Translation
-        local t3 = surf.Vertices[i + 2].Translation
+        local v1 = surf.Vertices[i]
+        local v2 = surf.Vertices[i + 1]
+        local v3 = surf.Vertices[i + 2]
+        local t1 = v1.Translation
+        local t2 = v2.Translation
+        local t3 = v3.Translation
         local forward = t2 - t3
         local another = t1 - t3
         local angle = forward:AngleEx(forward:Cross(another))
@@ -391,6 +394,9 @@ local function CalculateTriangleComponents(surf)
         WorldToLocalRotation:Set(DisplacementOriginRotation * WorldToLocalRotation)
         t.WorldToLocalGridRotation:Set(WorldToLocalRotation:GetAngles())
 
+        v1.Angle = angle
+        v2.Angle = angle
+        v3.Angle = angle
         surf.Triangles[#surf.Triangles + 1] = t
     end
 end
@@ -467,11 +473,11 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
     local lengthIntegratedU = {} ---@type number[]
     local lengthIntegratedV = {} ---@type number[]
 
-    local angles      = {} ---@type Angle[]
     local deformed    = {} ---@type Vector[]
     local subdivision = {} ---@type Vector[]
     local triangles   = {} ---@type integer[] Indices of triangle mesh
-    local uv          = {} ---@type Vector[] Fractional values used in lightmap sampling
+    local bumpmapuv   = {} ---@type Vector[]
+    local lightmapuv  = {} ---@type Vector[] Fractional values used in lightmap sampling
     for vi = 0, power - 1 do
         for ui = 0, power - 1 do
             local i = ui + vi * power + 1
@@ -481,8 +487,10 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
             subdivision[i] = Vector(u, (1 - u) * v, u * v)
             subdivision[i]:Mul(subdivisionMatrix)
             deformed[i] = subdivision[i] + dispVert.vec * dispVert.dist
-            angles[i] = dispVert.vec:Angle()
-            uv[i] = Vector(u, v)
+            bumpmapuv[i] = Vector(u, v)
+            lightmapuv[i] = Vector(
+                u * rawFace.lightmapTextureSizeInLuxels[1] + 0.5,
+                v * rawFace.lightmapTextureSizeInLuxels[2] + 0.5)
 
             if ui > 0 then
                 local previous = deformed[i - 1]
@@ -543,9 +551,10 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
     vertices[4] = subdivision[power]
     for i, t in ipairs(triangles) do
         surf.Vertices[i] = ss.new "PrecachedData.Vertex"
-        surf.Vertices[i].Angle = angles[t]
+        -- surf.Vertices[i].Angle = Angle() -- Determined later
         surf.Vertices[i].Translation = deformed[t]
-        surf.Vertices[i].LightmapSamplePoint = uv[t]
+        surf.Vertices[i].BumpmapUV = bumpmapuv[t]
+        surf.Vertices[i].LightmapUV = lightmapuv[t]
         surf.Vertices[i].DisplacementOrigin = subdivision[t]
     end
 
@@ -570,12 +579,11 @@ local function BuildFromBrushFace(bsp, rawFace)
     local texOffset    = rawTexDict[texData.nameStringTableID + 1]
     local texIndex     = rawTexIndex[texOffset]
     local texName      = rawTexString[texIndex]:lower()
-    if texName:find "tools/" then return end
 
     local texMaterial  = GetMaterial(texName)
-    local surfaceProp = texMaterial:GetString "$surfaceprop" or ""
+    local surfaceProp  = texMaterial:GetString "$surfaceprop" or ""
     local surfaceIndex = util.GetSurfaceIndex(surfaceProp)
-    local surfaceData = util.GetSurfaceData(surfaceIndex) or {}
+    local surfaceData  = util.GetSurfaceData(surfaceIndex) or {}
     if surfaceData.material == MAT_GRATE then return end
 
     -- Collect geometrical information
@@ -605,7 +613,10 @@ local function BuildFromBrushFace(bsp, rawFace)
     -- Check if it's valid to add to polygon list
     if #filteredVertices < 3 then return end
     local isDisplacement = rawFace.dispInfo >= 0
-    local isWater = texName:find "water"
+    local isWater = bit.band(texInfo.flags, SURF_WARP) ~= 0
+        or texMaterial:GetShader() == "Water"
+        or surfaceProp == "water"
+        or surfaceProp == "slime"
     local angle = normal:Angle()
     angle:RotateAroundAxis(angle:Right(), -90) -- Make sure the up vector is the normal
     assert(normal:GetNormalized():Dot(angle:Up()) > 0.999)
@@ -647,6 +658,16 @@ local function BuildFromBrushFace(bsp, rawFace)
             surf.Vertices[i] = ss.new "PrecachedData.Vertex"
             surf.Vertices[i].Translation:Set(filteredVertices[t])
             surf.Vertices[i].Angle:Set(angle)
+            surf.Vertices[i].BumpmapUV.x = (filteredVertices[t]:Dot(texInfo.textureVecS) + texInfo.textureOffsetS) / texData.width
+            surf.Vertices[i].BumpmapUV.y = (filteredVertices[t]:Dot(texInfo.textureVecT) + texInfo.textureOffsetT) / texData.height
+            surf.Vertices[i].LightmapUV.x = filteredVertices[t]:Dot(texInfo.lightmapVecS)
+                + texInfo.lightmapOffsetS
+                - rawFace.lightmapTextureMinsInLuxels[1]
+                + 0.5
+            surf.Vertices[i].LightmapUV.y = filteredVertices[t]:Dot(texInfo.lightmapVecT)
+                + texInfo.lightmapOffsetT
+                - rawFace.lightmapTextureMinsInLuxels[2]
+                + 0.5
         end
 
         if not isWater then
@@ -662,23 +683,22 @@ end
 
 ---Extract surfaces from parsed BSP structures.
 ---@param bsp ss.RawBSPResults
----@param modelCache ss.PrecachedData.ModelInfo[]
 ---@param ishdr boolean
 ---@return ss.PrecachedData.SurfaceInfo surf
 ---@return ss.PrecachedData.Surface[] water
-function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
+function ss.BuildSurfaceCache(bsp, ishdr)
     local t0 = SysTime()
-    local modelIndices = {} ---@type integer[] Face index --> model index
-    for modelIndex, lump in ipairs(bsp.MODELS) do
-        for i = 1, lump.numFaces do
-            modelIndices[lump.firstFace + i] = modelIndex
-        end
-    end
-
     local surfInfo = ss.new "PrecachedData.SurfaceInfo"
     local surf = surfInfo.Surfaces
     local water = {} ---@type ss.PrecachedData.Surface[]
     local lump = ishdr and bsp.FACES_HDR or bsp.FACES or {}
+    local faceIndexToModelIndex = {} ---@type integer[]
+    for i, mdl in ipairs(bsp.MODELS) do
+        for j = mdl.firstFace + 1, mdl.firstFace + mdl.numFaces do
+            faceIndexToModelIndex[j] = i
+        end
+    end
+
     print("Generating inkable surfaces for " .. (ishdr and "HDR" or "LDR") .. "...")
     for i, face in ipairs(lump) do
         local s, iswater = BuildFromBrushFace(bsp, face)
@@ -687,12 +707,8 @@ function ss.BuildSurfaceCache(bsp, modelCache, ishdr)
                 water[#water + 1] = s
             else
                 s.FaceLumpIndex = i
+                s.ModelIndex = faceIndexToModelIndex[i]
                 surf[#surf + 1] = s
-
-                local modelIndex = modelIndices[i]
-                local modelInfo = modelCache[modelIndex]
-                modelInfo.FaceIndices[#modelInfo.FaceIndices + 1] = #surf
-                modelInfo.NumTriangles = modelInfo.NumTriangles + #s.Vertices / 3
             end
         end
     end
@@ -742,6 +758,6 @@ function ss.BuildStaticPropCache(bsp, cache)
     cache.StaticProps = results
     cache.StaticPropHDR = uvinfo
     cache.StaticPropLDR = ss.deepcopy(uvinfo) or {}
-    cache.StaticPropMDL = bsp.sprp.name
+    cache.StaticPropMDL = bsp.sprp.name or {}
     print("    Collected info for " .. #results .. " static props.")
 end

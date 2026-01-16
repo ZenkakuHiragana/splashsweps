@@ -3,132 +3,489 @@
 local ss = SplashSWEPs
 if not ss then return end
 
-local ModelInfoMeta = getmetatable(ss.new "PrecachedData.ModelInfo")
+local LightmapInfoMeta = getmetatable(ss.new "PrecachedData.LightmapInfo")
 local StaticPropMeta = getmetatable(ss.new "PrecachedData.StaticProp")
 local StaticPropUVMeta = getmetatable(ss.new "PrecachedData.StaticProp.UVInfo")
 local SurfaceMeta = getmetatable(ss.new "PrecachedData.Surface")
 local UVInfoMeta = getmetatable(ss.new "PrecachedData.UVInfo")
 local VertexMeta = getmetatable(ss.new "PrecachedData.Vertex")
 local MAX_TRIANGLES = math.floor(32768 / 3) -- mesh library limitation
-local MIN_DRAW_RADIUS = 0.015 -- minimum draw radius for static props relative to ScrH()
+local MIN_DRAW_RADIUS = 0.01 * 0.01 -- Squared minimum draw radius for static props relative to ScrH()
+
+---@class ss.SurfaceBuilder.MaterialInfo
+---@field NeedsBumpedLightmaps boolean
+---@field Bumpmap string? Value of $bumpmap
+---@field Bumpmap2 string? Value of $bumpmap2
+ss.struct "SurfaceBuilder.MaterialInfo" {
+    NeedsBumpedLightmaps = false,
+    Bumpmap = nil,
+    Bumpmap2 = nil,
+}
+
+---Stores pakced lightmap information for each SortID.
+---@class ss.SurfaceBuilder.LightmapPackDetails
+---@field Bumpmap        string    $bumpmap  that this kind of surfaces uses.
+---@field Bumpmap2       string    $bumpmap2 that this kind of surfaces uses (WorldVertexTransition).
+---@field FaceIndices    integer[] Array of index to surfaces that belong to this SortID.
+---@field FaceLightmaps  Vector[]  Packed lightmap details for each face corresponding to FaceIndices.
+---@field IsBumpmapped   boolean   Indicates if this lightmap has bumpmapped samples.
+---@field LightmapPage   integer   Assigned lightmap page for this SortID.
+---@field LightmapWidths integer[] Array of width of lightmap corresponding to FaceIndices.
+---@field TriangleCount  integer   Total number of triangles of this SortID.
+ss.struct "SurfaceBuilder.LightmapPackDetails" {
+    Bumpmap = "",
+    Bumpmap2 = "",
+    FaceIndices = {},
+    FaceLightmaps = {},
+    IsBumpmapped = false,
+    LightmapPage = 0,
+    LightmapWidths = {},
+    TriangleCount = 0,
+}
+
+---@class ss.SurfaceBuilder.LightmapPackResult
+---@field Details ss.SurfaceBuilder.LightmapPackDetails[]
+---@field MaxLightmapIndex integer
+---@field LastLightmapWidth integer
+---@field LastLightmapHeight integer
+ss.struct "SurfaceBuilder.LightmapPackResult" {
+    Details = {},
+    MaxLightmapIndex = 0,
+    LastLightmapWidth = 0,
+    LastLightmapHeight = 0,
+}
+
+---@class ss.SurfaceBuilder.MeshConstructionInfo
+---@field FaceIndices   integer[]
+---@field SortID        integer
+---@field TriangleCount integer
+ss.struct "SurfaceBuilder.MeshConstructionInfo" {
+    FaceIndices = {},
+    SortID = 0,
+    TriangleCount = 0,
+}
 
 ---Construct IMesh
----@param surfInfo ss.PrecachedData.SurfaceInfo
----@param modelInfo ss.PrecachedData.ModelInfo
----@param modelIndex integer
-local function BuildInkMesh(surfInfo, modelInfo, modelIndex)
-    local NumMeshTriangles = modelInfo.NumTriangles
-    print("SplashSWEPs: Total mesh triangles = ", NumMeshTriangles)
+---@param surfaceInfo ss.PrecachedData.SurfaceInfo
+---@param materialsInMap string[]
+local function BuildInkMesh(surfaceInfo, materialsInMap)
+    ---Sorts faces for lightmap packing, mimicking the engine's LightmapLess function.
+    ---@param a ss.PrecachedData.LightmapInfo
+    ---@param b ss.PrecachedData.LightmapInfo
+    ---@return boolean
+    local function lightmapLess(a, b)
+        -- 1. We want lightmapped surfaces to show up first
+        local hasLightmapA = tobool(a.HasLightmap)
+        local hasLightmapB = tobool(b.HasLightmap)
+        if hasLightmapA ~= hasLightmapB then
+            return hasLightmapA
+        end
 
-    local meshindex = 1
-    local meshTable = ss.IMesh[modelIndex]
-    for _ = 1, math.ceil(NumMeshTriangles / MAX_TRIANGLES) do
-        meshTable[#meshTable + 1] = Mesh(ss.InkMeshMaterial)
+        -- 2. Then sort by material enumeration ID
+        if a.MaterialIndex ~= b.MaterialIndex then
+            return a.MaterialIndex < b.MaterialIndex
+        end
+
+        -- 3. We want NON-lightstyled surfaces to show up first
+        local hasLightStylesA = a.HasLightmap and a.HasLightmap > 1 or false
+        local hasLightStylesB = b.HasLightmap and b.HasLightmap > 1 or false
+        if hasLightStylesA ~= hasLightStylesB then
+            return not hasLightStylesA
+        end
+
+        -- 4. Then sort by lightmap area for better packing... (big areas first)
+        local aArea = (a.Width or 0) * (a.Height or 0)
+        local bArea = (b.Width or 0) * (b.Height or 0)
+        return aArea > bArea
     end
 
-    -- Building MeshVertex
-    if #meshTable == 0 then return end
-    mesh.Begin(meshTable[meshindex], MATERIAL_TRIANGLES, math.min(NumMeshTriangles, MAX_TRIANGLES))
-    local function ContinueMesh()
-        if mesh.VertexCount() < MAX_TRIANGLES * 3 then return end
-        mesh.End()
-        mesh.Begin(meshTable[meshindex + 1], MATERIAL_TRIANGLES,
-        math.min(NumMeshTriangles - MAX_TRIANGLES * meshindex, MAX_TRIANGLES))
-        meshindex = meshindex + 1
+    ---Assigns enumeration ID to materials in the map,
+    ---considering the global string table in the engine.
+    ---@return string[] enumeratedMaterials
+    ---@return integer[] enumerationIDToArrayIndex
+    local function enumerateMaterials()
+        local materialNames = materialsInMap ---@type string[]
+        local enumerationIDToArrayIndex = {} ---@type integer[]
+        if not ss.IsFirstRunInSession() then
+            materialNames = util.JSONToTable( ---@type string[]
+                file.Read("splashsweps/material-names.json", "DATA") or "") or {}
+            local materialNameAsKey = table.Flip(materialNames)
+            for _, str in ipairs(materialsInMap) do
+                if not materialNameAsKey[str] then
+                    materialNames[#materialNames + 1] = str
+                end
+            end
+        end
+
+        local materialsInMapFlip = table.Flip(materialsInMap)
+        for enumerationID, str in ipairs(materialNames) do
+            enumerationIDToArrayIndex[enumerationID] = materialsInMapFlip[str]
+        end
+
+        file.Write("splashsweps/material-names.json", util.TableToJSON(materialNames))
+        return materialNames, enumerationIDToArrayIndex
+    end
+
+    local MAX_LIGHTMAP_WIDTH  = 512
+    local MAX_LIGHTMAP_HEIGHT = 256
+    ---@param materialInfo ss.SurfaceBuilder.MaterialInfo[]
+    ---@param enumerationIDToArrayIndex integer[]
+    ---@return ss.SurfaceBuilder.LightmapPackResult lightmapInfo
+    local function packLightmaps(materialInfo, enumerationIDToArrayIndex)
+        ---SortID --> Pakced lightmap details
+        ---@type ss.SurfaceBuilder.LightmapPackResult
+        local lightmapInfo = {
+            Details = {},
+            MaxLightmapIndex = 0,
+            LastLightmapWidth = 0,
+            LastLightmapHeight = 0,
+        }
+
+        local numSortIDs = 0
+        local currentMaterialID = nil ---@type integer
+        local currentWhiteLightmapMaterialID = nil ---@type integer
+        local packers = {
+            ss.MakeSkylinePacker(numSortIDs, MAX_LIGHTMAP_WIDTH, MAX_LIGHTMAP_HEIGHT)
+        }
+
+        -- Loop through sorted faces and pack them
+        local sortableFaces = ss.CreateRBTree(lightmapLess)
+        local arrayIndexToEnumerationID = table.Flip(enumerationIDToArrayIndex)
+        for _, t in ipairs(surfaceInfo.Lightmaps) do
+            setmetatable(t, LightmapInfoMeta)
+            t.MaterialIndex = arrayIndexToEnumerationID[t.MaterialIndex]
+            sortableFaces:Insert(t)
+        end
+
+        for faceInfo in sortableFaces:Pairs() do
+            local enumerationID = faceInfo.MaterialIndex
+            if faceInfo.HasLightmap then
+                local width  = faceInfo.Width + 1
+                local height = faceInfo.Height + 1
+                local mat    = materialInfo[enumerationID]
+                if mat.NeedsBumpedLightmaps then width = width * 4 end
+
+                -- Material change logic from CMatLightmaps::AllocateLightmap
+                if currentMaterialID ~= enumerationID then
+                    -- When material changes, collapse all but the last
+                    packers = { packers[#packers] }
+                    ---Increments the sort ID of the packer.
+                    numSortIDs = numSortIDs + 1
+                    packers[1].SortID = packers[1].SortID + 1
+                    lightmapInfo.Details[numSortIDs] = {
+                        Bumpmap = mat.Bumpmap,
+                        Bumpmap2 = mat.Bumpmap2,
+                        FaceIndices = {},
+                        FaceLightmaps = {},
+                        IsBumpmapped = mat.NeedsBumpedLightmaps,
+                        LightmapPage = lightmapInfo.MaxLightmapIndex,
+                        LightmapWidths = {},
+                        TriangleCount = 0,
+                    }
+
+                    currentMaterialID = enumerationID
+                end
+
+                -- Try to pack into existing pages for this material group
+                local x ---@type integer?
+                local y ---@type integer?
+                local packedSortID = nil ---@type integer?
+                for _, packer in ipairs(packers) do
+                    x, y = packer:AddBlock(width, height)
+                    if x and y then
+                        packedSortID = packer.SortID
+                        break
+                    end
+                end
+
+                -- Failed to fit, create a new page/packer for this material group
+                if not packedSortID then
+                    numSortIDs = numSortIDs + 1
+                    lightmapInfo.MaxLightmapIndex = lightmapInfo.MaxLightmapIndex + 1
+                    packers[#packers + 1] = ss.MakeSkylinePacker(
+                        numSortIDs, MAX_LIGHTMAP_WIDTH, MAX_LIGHTMAP_HEIGHT)
+                    x, y = packers[#packers]:AddBlock(width, height)
+                    packedSortID = numSortIDs
+                    lightmapInfo.Details[numSortIDs] = {
+                        Bumpmap = mat.Bumpmap,
+                        Bumpmap2 = mat.Bumpmap2,
+                        FaceIndices = {},
+                        FaceLightmaps = {},
+                        IsBumpmapped = mat.NeedsBumpedLightmaps,
+                        LightmapPage = lightmapInfo.MaxLightmapIndex,
+                        LightmapWidths = {},
+                        TriangleCount = 0,
+                    }
+                end
+
+                ---@cast x -?
+                ---@cast y -?
+                if faceInfo.FaceIndex then
+                    local faceIndices = lightmapInfo.Details[packedSortID].FaceIndices
+                    local faceLightmaps = lightmapInfo.Details[packedSortID].FaceLightmaps
+                    local lightmapWidths = lightmapInfo.Details[packedSortID].LightmapWidths
+                    faceIndices[#faceIndices + 1] = faceInfo.FaceIndex
+                    faceLightmaps[#faceLightmaps + 1] = Vector(x, y)
+                    lightmapWidths[#lightmapWidths + 1] = faceInfo.Width + 1
+                end
+            elseif not currentMaterialID and currentWhiteLightmapMaterialID ~= enumerationID then
+                if not currentMaterialID and not currentWhiteLightmapMaterialID then
+                    numSortIDs = numSortIDs + 1
+                end
+                currentWhiteLightmapMaterialID = enumerationID
+            end
+        end
+
+        lightmapInfo.LastLightmapWidth,
+        lightmapInfo.LastLightmapHeight
+            = packers[#packers]:GetMinimumDimensions()
+        return lightmapInfo
+    end
+
+    local FLAGS2_BUMPED_LIGHTMAP = 8 -- (1 << 3)
+    local materialNames, enumerationIDToArrayIndex = enumerateMaterials()
+    ---Enumeration ID --> material information
+    ---@type ss.SurfaceBuilder.MaterialInfo[]
+    local materialInfo = {}
+    for enumerationID, name in ipairs(materialNames) do
+        if enumerationIDToArrayIndex[enumerationID] then
+            local mat = Material(name)
+            materialInfo[enumerationID] = {
+                NeedsBumpedLightmaps = mat and not mat:IsError() and
+                    bit.band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0,
+                Bumpmap = mat and mat:GetString "$bumpmap",
+                Bumpmap2 = mat and mat:GetString "$bumpmap2",
+            }
+        end
+    end
+
+    ---Model index ---> array of mesh construction info
+    ---@type ss.SurfaceBuilder.MeshConstructionInfo[][]
+    local meshConstructionInfo   = {}
+    local sortIDsToMeshInfoIndex = {} ---@type integer[][]
+    local lightmapInfo           = packLightmaps(materialInfo, enumerationIDToArrayIndex)
+    local maxLightmapIndex       = lightmapInfo.MaxLightmapIndex
+    local lastPageWidth          = lightmapInfo.LastLightmapWidth
+    local lastPageHeight         = lightmapInfo.LastLightmapHeight
+    local bumpmapOffsets         = {} ---@type number[] faceIndex --> bumpmap offset
+    for sortID, info in ipairs(lightmapInfo.Details) do
+        for i, faceIndex in ipairs(info.FaceIndices) do
+            local surf = setmetatable(surfaceInfo.Surfaces[faceIndex], SurfaceMeta)
+            local lightmapWidth = info.LightmapWidths[i]
+            local lightmapCoordinates = info.FaceLightmaps[i]
+            local page = info.LightmapPage
+            local isLastPage = page == maxLightmapIndex
+            local pageWidth = isLastPage and lastPageWidth or MAX_LIGHTMAP_WIDTH
+            local pageHeight = isLastPage and lastPageHeight or MAX_LIGHTMAP_HEIGHT
+            bumpmapOffsets[faceIndex] = info.IsBumpmapped and lightmapWidth / pageWidth or 0
+            for _, v in ipairs(surf.Vertices) do
+                setmetatable(v, VertexMeta)
+                v.LightmapUV.x = (v.LightmapUV.x + lightmapCoordinates.x) / pageWidth
+                v.LightmapUV.y = (v.LightmapUV.y + lightmapCoordinates.y) / pageHeight
+            end
+
+            if not meshConstructionInfo[surf.ModelIndex] then
+                meshConstructionInfo[surf.ModelIndex] = {}
+                sortIDsToMeshInfoIndex[surf.ModelIndex] = {}
+            end
+
+            local meshInfoArray = meshConstructionInfo[surf.ModelIndex]
+            local meshInfoIndex = sortIDsToMeshInfoIndex[surf.ModelIndex][sortID]
+            if not meshInfoIndex then
+                meshInfoArray[#meshInfoArray + 1] = {
+                    FaceIndices = {},
+                    SortID = sortID,
+                    TriangleCount = 0,
+                }
+                sortIDsToMeshInfoIndex[surf.ModelIndex][sortID] = #meshInfoArray
+                meshInfoIndex = #meshInfoArray
+            end
+            local meshInfo = meshInfoArray[meshInfoIndex]
+            meshInfo.FaceIndices[#meshInfo.FaceIndices + 1] = faceIndex
+            meshInfo.TriangleCount = meshInfo.TriangleCount + #surf.Vertices / 3
+        end
+    end
+
+    for _, infoArray in pairs(meshConstructionInfo) do
+        table.sort(infoArray, function(a, b) return a.SortID < b.SortID end)
     end
 
     local rtIndex = #ss.RenderTarget.Resolutions
-    local scale = surfInfo.UVScales[rtIndex]
+    local scale = surfaceInfo.UVScales[rtIndex]
     local worldToUV = Matrix()
     worldToUV:SetScale(ss.vector_one * scale)
-    for _, faceIndex in ipairs(modelInfo.FaceIndices) do
-        local surf = setmetatable(surfInfo.Surfaces[faceIndex], SurfaceMeta)
-        local info = setmetatable(surf.UVInfo[rtIndex], UVInfoMeta)
-        local uvOrigin = Vector(info.OffsetU, info.OffsetV)
-        worldToUV:SetAngles(info.Angle)
-        worldToUV:SetTranslation(info.Translation * scale + uvOrigin)
-        for i, v in ipairs(surf.Vertices) do
-            setmetatable(v, VertexMeta)
-            local position = v.Translation
-            local normal = v.Angle:Up()
-            local tangent = v.Angle:Forward()
-            local binormal = -v.Angle:Right()
-            local s,  t  = v.LightmapUV.x, v.LightmapUV.y -- Lightmap UV
-            local uv = worldToUV * position
-            local w = normal:Cross(tangent):Dot(binormal) >= 0 and 1 or -1
-            if v.DisplacementOrigin then
-                uv = worldToUV * v.DisplacementOrigin
-            end
-            mesh.Normal(normal)
-            mesh.UserData(tangent.x, tangent.y, tangent.z, w)
-            mesh.TangentS(tangent * w)  -- These functions actually DO something
-            mesh.TangentT(binormal) -- in terms of bumpmap for LightmappedGeneric
-            mesh.Position(position)
-            mesh.TexCoord(0, uv.y, uv.x)
-            if t < 1 then
-                mesh.TexCoord(1, s, t)
-                mesh.Color(255, 255, 255, 255)
-            else
-                mesh.TexCoord(1, 1, 1)
-                local sample = render.GetLightColor(position)
-                local r = math.Round(sample.x ^ (1 / 2.2) / 2 * 255)
-                local g = math.Round(sample.y ^ (1 / 2.2) / 2 * 255)
-                local b = math.Round(sample.z ^ (1 / 2.2) / 2 * 255)
-                mesh.Color(r, g, b, 255)
-            end
-            mesh.AdvanceVertex()
-            if (i - 1) % 3 == 2 then
-                ContinueMesh()
+    for modelIndex, meshInfoArray in pairs(meshConstructionInfo) do
+        local meshIndex = 1
+        local renderBatch = ss.RenderBatches[modelIndex]
+        ---@class ss.SurfaceBuilder.MeshVertexPack
+        ---@field Normal Vector
+        ---@field TangentS Vector
+        ---@field TangentT Vector
+        ---@field Position Vector
+        ---@field U        number[]
+        ---@field V        number[]
+        ---@field W        integer
+        local meshData = {} ---@type ss.SurfaceBuilder.MeshVertexPack[][]
+        for _, meshInfo in ipairs(meshInfoArray) do
+            local sortID = meshInfo.SortID
+            local count = meshInfo.TriangleCount
+            local numMeshesToAdd = math.ceil(count / MAX_TRIANGLES)
+            if numMeshesToAdd > 0 then
+                for _ = 1, numMeshesToAdd do
+                    local info = lightmapInfo.Details[sortID]
+                    local page = info.LightmapPage
+                    local lightmapTextureName = page and string.format("\\[lightmap%d]", page) or "white"
+                    local bumpmapTextureName = info.Bumpmap
+                    local bump = info.IsBumpmapped and 1 or 0
+                    local mat = CreateMaterial(
+                        string.format("splashsweps_mesh_%d_%s", sortID, game.GetMap()),
+                        "Screenspace_General_8tex", {
+                            ["$vertexshader"]        = "splashsweps/inkmesh_vs30",
+                            ["$pixshader"]           = "splashsweps/inkmesh_ps30",
+                            ["$basetexture"]         = ss.RenderTarget.StaticTextures.Albedo:GetName(),
+                            ["$texture1"]            = ss.RenderTarget.StaticTextures.Normal:GetName(),
+                            ["$texture2"]            = ss.RenderTarget.StaticTextures.PseudoPBR:GetName(),
+                            ["$texture3"]            = lightmapTextureName,
+                            ["$texture4"]            = "shadertest/shadertest_env.hdr",
+                            ["$texture5"]            = bumpmapTextureName,
+                            ["$linearread_texture1"] = "1",
+                            ["$linearread_texture2"] = "1",
+                            ["$linearread_texture3"] = "1",
+                            ["$linearread_texture4"] = "1",
+                            ["$linearread_texture5"] = "1",
+                            ["$cull"]                = "1",
+                            ["$depthtest"]           = "1",
+                            ["$vertexnormal"]        = "1",
+                            ["$tcsize0"]             = "2",
+                            ["$tcsize1"]             = "2",
+                            ["$tcsize2"]             = "2",
+                            ["$tcsize3"]             = "2",
+                            ["$c0_x"]                = 0,     -- Sun direction x
+                            ["$c0_y"]                = 0.3,   -- Sun direction y
+                            ["$c0_z"]                = 0.954, -- Sun direction z
+                            ["$c0_w"]                = 0.75,  -- Ink normal blend factor
+                            ["$c1_x"]                = bump,  -- Indicates if having bumped lightmaps
+                        })
+                    local matf = CreateMaterial(
+                        string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
+                        "LightmappedGeneric", {
+                            ["$basetexture"] = "white",
+                            ["$bumpmap"]     = bumpmapTextureName,
+                        })
+                    renderBatch[#renderBatch + 1] = {
+                        Material = mat,
+                        MaterialFlashlight = matf,
+                        Mesh = Mesh(mat),
+                        MeshFlashlight = Mesh(matf),
+                    }
+                end
+
+                meshData[meshIndex] = {}
+                local vertIndex = 1
+                local function ContinueMesh()
+                    if vertIndex - 1 < MAX_TRIANGLES * 3 then return end
+                    meshIndex = meshIndex + 1
+                    vertIndex = 1
+                    meshData[meshIndex] = {}
+                end
+
+                for _, faceIndex in ipairs(meshInfo.FaceIndices) do
+                    local surf = surfaceInfo.Surfaces[faceIndex]
+                    local info = setmetatable(surf.UVInfo[rtIndex], UVInfoMeta)
+                    local uvOrigin = Vector(info.OffsetU, info.OffsetV)
+                    worldToUV:SetAngles(info.Angle)
+                    worldToUV:SetTranslation(info.Translation * scale + uvOrigin)
+                    for i, v in ipairs(surf.Vertices) do
+                        local position = v.Translation
+                        local normal = v.Angle:Up()
+                        local tangent = v.Angle:Forward()
+                        local binormal = -v.Angle:Right()
+                        local s, t = v.LightmapUV.x, v.LightmapUV.y -- Lightmap UV
+                        local uv = worldToUV * position
+                        local w = normal:Cross(tangent):Dot(binormal) >= 0 and 1 or -1
+                        if v.DisplacementOrigin then
+                            uv = worldToUV * v.DisplacementOrigin
+                        end
+
+                        meshData[meshIndex][vertIndex] = {
+                            Normal = normal,
+                            TangentS = tangent,
+                            TangentT = binormal,
+                            Position = position,
+                            U = { uv.y, s, bumpmapOffsets[faceIndex], v.BumpmapUV.x },
+                            V = { uv.x, t, 0,                         v.BumpmapUV.y },
+                            W = w,
+                        }
+                        vertIndex = vertIndex + 1
+                        if (i - 1) % 3 == 2 then
+                            ContinueMesh()
+                        end
+                    end
+                end
+                meshIndex = meshIndex + 1
             end
         end
-    end
-    mesh.End()
-end
 
----Adjusts light intensity of ink mesh material from HDR info.
----@param cache ss.PrecachedData
-function ss.SetupHDRLighting(cache)
-    setmetatable(cache.DirectionalLight, getmetatable(ss.new "PrecachedData.DirectionalLight"))
-    local intensity = 128
-    local color = cache.DirectionalLight.Color
-    if color then -- If there is light_environment
-        local lightIntensity = Vector(color.r, color.g, color.b):Dot(ss.GrayScaleFactor) / 255
-        local brightness = color.a
-        local scale = cache.DirectionalLight.ScaleHDR
-        intensity = intensity + lightIntensity * brightness * scale
-    end
+        for i, vertices in ipairs(meshData) do
+            mesh.Begin(renderBatch[i].Mesh, MATERIAL_TRIANGLES, #vertices / 3)
+            for _, v in ipairs(vertices) do
+                mesh.Normal(v.Normal)
+                mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, v.W)
+                mesh.TangentS(v.TangentS * v.W)
+                mesh.TangentT(v.TangentT)
+                mesh.Position(v.Position)
+                mesh.TexCoord(0, v.U[1], v.V[1])
+                mesh.TexCoord(1, v.U[2], v.V[2])
+                mesh.TexCoord(2, v.U[3], v.V[3])
+                mesh.TexCoord(3, v.U[4], v.V[4])
+                mesh.AdvanceVertex()
+            end
+            mesh.End()
 
-    local value = ss.vector_one * intensity / 4096
-    ss.InkMeshMaterial:SetVector("$color", value)
-    ss.InkMeshMaterial:SetVector("$envmaptint", value / 16)
+            mesh.Begin(renderBatch[i].MeshFlashlight, MATERIAL_TRIANGLES, #vertices / 3)
+            for _, v in ipairs(vertices) do
+                mesh.Normal(v.Normal)
+                mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, v.W)
+                mesh.TangentS(v.TangentS * v.W)
+                mesh.TangentT(v.TangentT)
+                mesh.Position(v.Position)
+                mesh.TexCoord(0, v.U[4], v.V[4]) -- Correctly bind geometry's bumpmap UV
+                mesh.TexCoord(1, v.U[2], v.V[2])
+                mesh.TexCoord(2, v.U[3], v.V[3])
+                mesh.AdvanceVertex()
+            end
+            mesh.End()
+        end
+    end
 end
 
 ---Reads through BSP models which includes the worldspawn and brush entities and constructs IMeshes from them.
----@param modelInfo ss.PrecachedData.ModelInfo[]
----@param surfInfo ss.PrecachedData.SurfaceInfo
-function ss.SetupModels(modelInfo, surfInfo)
+---@param surfaceInfo ss.PrecachedData.SurfaceInfo
+---@param numModels integer
+---@param materialNames string[]
+function ss.SetupModels(surfaceInfo, numModels, materialNames)
     local entities = {} ---@type Entity[]
     for _, e in ipairs(ents.GetAll()) do
         local modelName = e:GetModel() or ""
         local i = tonumber(modelName:sub(2))
-        if e ~= game.GetWorld() and i and 0 < i and i <= #modelInfo then
+        if e ~= game.GetWorld() and i and 0 < i and i <= numModels then
             entities[i] = e
         end
     end
 
-    hook.Add("OnEntityCreated", "SplashSWEPs: Check brush entities", function (ent)
+    hook.Add("OnEntityCreated", "SplashSWEPs: Check brush entities", function(ent)
         local modelName = ent:GetModel() or ""
         local i = tonumber(modelName:sub(2))
-        if i and 0 < i and i <= #modelInfo then
-            ss.IMesh[i + 1].BrushEntity = ent
+        if i and 0 < i and i <= numModels then
+            ss.RenderBatches[i + 1].BrushEntity = ent
         end
     end)
 
-    for i, info in ipairs(modelInfo) do
-        ss.IMesh[i] = { BrushEntity = entities[i - 1] }
-        setmetatable(info, ModelInfoMeta)
-        BuildInkMesh(surfInfo, info, i)
+    for i = 1, numModels do
+        ss.RenderBatches[i] = { BrushEntity = entities[i - 1] }
     end
+
+    BuildInkMesh(surfaceInfo, materialNames)
 end
 
 ---Builds render override functions of static props.
@@ -162,29 +519,24 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
         view:SetAngles(EyeAngles())
         view:InvertTR()
         local fov = math.rad(render.GetViewSetup().fov)
-        local z = (view * self:GetPos()).x -- projected z-position
+        local z = (view * self:GetPos()).x          -- projected z-position
         local fp = ScrH() / (2 * math.tan(fov / 2)) -- focus distance in pixels
-        local r = self:GetModelRadius() * fp / z -- draw radius on the screen in pixels
-        if math.abs(r) < MIN_DRAW_RADIUS * ScrH() then return end
+        local r = self.ModelLengthSqr * fp * fp / (z * z)     -- draw radius on the screen in pixels
+        local minRadius = MIN_DRAW_RADIUS * ScrH() * ScrH()
+        if r < minRadius then return end
         render.MaterialOverride(dynamiclight)
         self:DrawModel(flags)
         render.MaterialOverride()
         render.OverrideDepthEnable(true, true)
+        render.DepthRange(0, 65534 / 65535)
         self:DrawModel(flags)
         render.OverrideDepthEnable(false)
-        render.RenderFlashlights(function()
-            render.MaterialOverride(flashlight)
-            self:DrawModel(flags)
-            render.MaterialOverride(self.FlashlightMaterials[1])
-            for i, m in ipairs(self.FlashlightMaterials) do
-                render.MaterialOverrideByIndex(i - 1, m)
-            end
-            render.OverrideDepthEnable(true, true)
-            self:DrawModel(flags)
-            render.OverrideDepthEnable(false)
-            render.MaterialOverrideByIndex()
-            render.MaterialOverride()
-        end)
+        render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD)
+        render.MaterialOverride(flashlight)
+        render.RenderFlashlights(function() self:DrawModel(flags) end)
+        render.OverrideBlend(false)
+        render.MaterialOverride()
+        render.DepthRange(0, 1)
     end
 
     -- Matrix(X, Y, Z) * xyzTyzx = (Y, Z, X)
@@ -212,7 +564,9 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                 mdl:SetModelScale(prop.Scale or 1)
                 mdl.RenderOverride = RenderOverride
                 local fadeMax = prop.FadeMax and prop.FadeMax > 0 and prop.FadeMax or false
+                local mins, maxs = mdl:GetModelBounds()
                 mdl.FadeMaxSqr = fadeMax and (fadeMax * fadeMax)
+                mdl.ModelLengthSqr = mins:DistToSqr(maxs)
                 local size = prop.BoundsMax - prop.BoundsMin
                 local absoluteuvTlocaluv = Matrix()
                 if uv.Offset.z > 0 then
@@ -255,29 +609,18 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                     ["$c0_x"] = size.x,
                     ["$c0_y"] = size.y,
                     ["$c0_z"] = size.z,
+                    ["$c1_x"] = 0,
                     ["$c0_w"] = prop.UnwrapIndex,
                 })
-                mdl.FlashlightMaterials = {} ---@type IMaterial[]
                 for j, name in ipairs(mdl:GetMaterials()) do
                     local mdlmat = materialCache[name] or Material(name)
                     local basetexture = mdlmat:GetTexture "$basetexture"
-
-                    params["$additive"] = "0"
-                    params["$c1_x"] = "0"
                     local mat = CreateMaterial("splashsweps/sprp" .. i .. "-" .. j, "Screenspace_General", params)
                     mat:SetMatrix("$viewprojmat", localTworld)
                     mat:SetMatrix("$invviewprojmat", absoluteuvTlocaluv)
                     mat:SetTexture("$texture2", basetexture:IsErrorTexture() and "grey" or basetexture)
                     mdl:SetSubMaterial(j - 1, "!" .. mat:GetName())
                     materialCache[name] = mdlmat
-
-                    params["$additive"] = "1"
-                    params["$c1_x"] = "1"
-                    mat = CreateMaterial("splashsweps/sprpf" .. i .. "-" .. j, "Screenspace_General", params)
-                    mat:SetMatrix("$viewprojmat", localTworld)
-                    mat:SetMatrix("$invviewprojmat", absoluteuvTlocaluv)
-                    mat:SetTexture("$texture2", basetexture:IsErrorTexture() and "grey" or basetexture)
-                    mdl.FlashlightMaterials[j] = mat
                 end
             end
         end

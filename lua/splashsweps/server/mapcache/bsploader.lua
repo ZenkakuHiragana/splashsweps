@@ -885,6 +885,7 @@ local function readLump(bsp, header, structType)
         t = ss.ReadStructureFromFile(bsp, totalLength)
     elseif structType == "String" then
         t = ss.ReadStructureFromFile(bsp, totalLength):Split "\0"
+        if t[#t] == "" then t[#t] = nil end -- Remove the last empty string
     elseif numElements > 0 then
         for i = 1, numElements do
             t[i] = ss.ReadStructureFromFile(bsp, structType)

@@ -11,6 +11,44 @@ local vector_one = ss.vector_one
 local MaxVector = ss.MaxVector
 local MinVector = ss.MinVector
 
+---Finds light_environment entity in the ENTITIES lump and fetches directional light info.
+---@param bsp ss.RawBSPResults
+---@param cache ss.PrecachedData
+local function findLightEnvironment(bsp, cache)
+    for _, entities in ipairs(bsp.ENTITIES) do
+        for k in entities:gmatch "{[^}]+}" do
+            if k:find "light_environment" then
+                local t = util.KeyValuesToTable("\"-\" " .. k)
+                if t.classname == "light_environment" then
+                    local lightScaleHDR = t._lightscalehdr
+                    local lightColor    = t._light:Split " "
+                    local lightColorHDR = t._lighthdr and t._lighthdr:Split " " or {}
+                    local nlightColor = {} ---@type number[]
+                    local nlightColorHDR = {} ---@type number[]
+                    for i = 1, 4 do
+                        nlightColor[i] = tonumber(lightColor[i])
+                        nlightColorHDR[i] = tonumber(lightColorHDR[i])
+                        if not nlightColorHDR[i] or nlightColorHDR[i] < 0 then
+                            nlightColorHDR[i] = nlightColor[i]
+                        end
+                    end
+                    print(string.format("    light_environment found:\n"
+                        .. "        lightColor    = [%s %s %s %s]\n"
+                        .. "        lightColorHDR = [%s %s %s %s]\n"
+                        .. "        lightScaleHDR = %s",
+                        lightColor[1], lightColor[2], lightColor[3], lightColor[4],
+                        lightColorHDR[1], lightColorHDR[2], lightColorHDR[3], lightColorHDR[4],
+                        lightScaleHDR))
+                    cache.DirectionalLight.Color    = Color(unpack(nlightColor))
+                    cache.DirectionalLight.ColorHDR = Color(unpack(nlightColorHDR))
+                    cache.DirectionalLight.ScaleHDR = tonumber(lightScaleHDR) or 1
+                    return
+                end
+            end
+        end
+    end
+end
+
 ---Calculates playable areas from parsed BSP structures.
 ---@param bsp ss.RawBSPResults
 ---@return ss.MinimapAreaBounds[]
@@ -120,12 +158,9 @@ function ss.BuildMapCache()
     cache.CacheVersion  = 1 -- TODO: Better versioning
     cache.MapCRC        = tonumber(mapCRC) or 0
     cache.MinimapBounds = BuildMinimapBounds(bsp)
+    cache.NumModels     = #bsp.MODELS
     ss.BuildStaticPropCache(bsp, cache)
-    ss.FindLightEnvironment(bsp, cache)
-    for i = 1, #bsp.MODELS do
-        cache.ModelsHDR[i] = ss.new "PrecachedData.ModelInfo"
-        cache.ModelsLDR[i] = ss.new "PrecachedData.ModelInfo"
-    end
+    findLightEnvironment(bsp, cache)
 
     local staticPropRectangles = {} ---@type Vector[]
     for i, prop in ipairs(cache.StaticProps) do
@@ -136,23 +171,23 @@ function ss.BuildMapCache()
 
     do
         collectgarbage "collect"
-        local hdr, whdr = ss.BuildSurfaceCache(bsp, cache.ModelsHDR, true)
+        local hdr, whdr = ss.BuildSurfaceCache(bsp, true)
         cache.SurfacesWaterHDR = whdr
         ss.BuildUVCache(hdr, cache.StaticPropHDR, staticPropRectangles)
-        ss.BuildLightmapCache(bsp, hdr.Surfaces, true)
         ss.BuildDisplacementHash(hdr.Surfaces)
-        ss.BuildSurfaceHash(hdr.Surfaces, cache.ModelsHDR[1].FaceIndices, cache.StaticProps, hdr.SurfaceHash)
+        ss.BuildLightmapInfo(bsp, true, hdr, cache)
+        ss.BuildSurfaceHash(hdr.Surfaces, cache.StaticProps, hdr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_hdr.json", game.GetMap()), util.Compress(util.TableToJSON(hdr)))
     end
 
     do
         collectgarbage "collect"
-        local ldr, wldr = ss.BuildSurfaceCache(bsp, cache.ModelsLDR, false)
+        local ldr, wldr = ss.BuildSurfaceCache(bsp, false)
         cache.SurfacesWaterLDR = wldr
         ss.BuildUVCache(ldr, cache.StaticPropLDR, staticPropRectangles)
-        ss.BuildLightmapCache(bsp, ldr.Surfaces, false)
         ss.BuildDisplacementHash(ldr.Surfaces)
-        ss.BuildSurfaceHash(ldr.Surfaces, cache.ModelsLDR[1].FaceIndices, cache.StaticProps, ldr.SurfaceHash)
+        ss.BuildLightmapInfo(bsp, false, ldr, cache)
+        ss.BuildSurfaceHash(ldr.Surfaces, cache.StaticProps, ldr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_ldr.json", game.GetMap()), util.Compress(util.TableToJSON(ldr)))
     end
 

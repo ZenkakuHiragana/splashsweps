@@ -1,0 +1,20 @@
+{
+    "title": "Splash SWEPs",
+    "type": "weapon",
+    "tags": [
+        "fun",
+        "realism"
+    ],
+    "ignore": [
+        "**/.luarc.json",
+        ".editorconfig",
+        ".gemini",
+        ".git",
+        ".github",
+        ".luarc.json",
+        ".vscode",
+        "GEMINI.md",
+        "README.md",
+        "stylua.toml"
+    ]
+}

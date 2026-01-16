@@ -57,6 +57,12 @@ const float4 g_EyePos : register(c10);
 const float4 cFlashlightColor : register(c28);
 #define flFlashlightNoLambertValue cFlashlightColor.w
 
+const float4 HDRParams : register(c30);
+#define g_TonemapScale  HDRParams.x
+#define g_LightmapScale HDRParams.y
+#define g_EnvmapScale   HDRParams.z
+#define g_GammaScale    HDRParams.w // = TonemapScale ^ (1 / 2.2)
+
 // Taken from common_flashlight_fxc.h
 float RemapNormalizedValClamped(float val, float A, float B) {
     return saturate((val - A) / (B - A));
@@ -295,7 +301,7 @@ struct PS_OUTPUT {
     float  depth : DEPTH0;
 };
 
-PS_OUTPUT main(const PS_INPUT i) {
+float4 main(const PS_INPUT i) : COLOR0 {
     const float    depthRatio = 65534.0 / 65535.0;
     const float4   g_FlashlightAttenuationFactors = c22;
     const float3   g_FlashlightPos                = c23.xyz;
@@ -311,11 +317,6 @@ PS_OUTPUT main(const PS_INPUT i) {
         { c24, c25 },
     };
 
-    PS_OUTPUT output = {
-        float4(0.0, 0.0, 0.0, 0.0),
-        // Slightly push forward to the camera to avoid Z-fighting
-        i.uv_depth.z / i.uv_depth.w * depthRatio,
-    };
     float3 vertexPos      = i.vWorldPos_BinormalX.xyz;
     float3 vertexNormal   = i.vWorldNormal_BinormalY.xyz;
     float3 vertexTangent  = i.vWorldTangent_BinormalZ.xyz;
@@ -333,30 +334,8 @@ PS_OUTPUT main(const PS_INPUT i) {
     float3 tangentSpaceNormal = normal.xyz * 2.0 - 1.0;
     float3 worldNormal = Vec3TangentToWorldNormalized(
         tangentSpaceNormal, vertexNormal, vertexTangent, vertexBinormal);
-    if (c1.x > 0.5) {
-        float3 vEyeDir = normalize(g_EyePos.xyz - vertexPos);
-        float3 vLightDir = normalize(g_FlashlightPos.xyz - vertexPos);
-        float4 flashlightSpacePos = mul(float4(vertexPos, 1.0), g_FlashlightWorldToTexture);
-        float3 flashlightUV = flashlightSpacePos.xyz / flashlightSpacePos.w;
-        float3 flashlightColor = DoFlashlight(
-            g_FlashlightPos.xyz, vertexPos, flashlightSpacePos,
-            worldNormal, g_FlashlightAttenuationFactors.xyz,
-            g_FlashlightAttenuationFactors.w, FlashlightSampler);
-        float3 flashlightSpecular = flashlightColor * SpecularLight(worldNormal, vLightDir, g_fSpecExp, vEyeDir);
-        flashlightColor += flashlightSpecular;
-        flashlightColor
-            *= step(0.0, flashlightUV.x)
-            *  step(0.0, flashlightUV.y)
-            *  step(flashlightUV.x, 1.0)
-            *  step(flashlightUV.y, 1.0);
-        output.color = albedo * float4(flashlightColor, alpha);
-    }
-    else {
-        float3 diffuseLighting = PixelShaderDoLightingLinear(
-            vertexPos, worldNormal, i.vLightAtten, 4, cLightInfo, true);
-        diffuseLighting += i.diffuse;
-        output.color = albedo * float4(diffuseLighting, alpha);
-    }
-    return output;
-    // return output.color;
+    float3 diffuseLighting = PixelShaderDoLightingLinear(
+        vertexPos, worldNormal, i.vLightAtten, 4, cLightInfo, true);
+    diffuseLighting += i.diffuse;
+    return albedo * float4(diffuseLighting, alpha) * g_TonemapScale;
 }

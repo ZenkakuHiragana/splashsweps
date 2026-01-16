@@ -62,9 +62,12 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     collectgarbage "collect"
 end)
 
+util.AddNetworkString "SplashSWEPs: Clear all ink"
 util.AddNetworkString "SplashSWEPs: Paint"
 
 ---Clears all painted ink in the map.
 function ss.ClearAllInk()
     for _, s in ipairs(ss.SurfaceArray) do ss.ClearGrid(s) end
+    net.Start "SplashSWEPs: Clear all ink"
+    net.Broadcast()
 end

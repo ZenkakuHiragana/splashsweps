@@ -50,7 +50,7 @@
 //     cFlashlightScreenScale.z Unused
 //     cFlashlightScreenScale.w Unused
 
-sampler Texture2 : register(s2);
+sampler s[16] : register(s0);
 const float4 c[32] : register(c0);
 
 struct PS_INPUT {
@@ -64,23 +64,10 @@ struct PS_OUTPUT {
     float  depth : DEPTH0;
 };
 
-PS_OUTPUT main(const PS_INPUT i) {
+float4 OutputColor(float4 data, float2 uv, float4 albedo) {
     const float NUM_DIVISION = 8;
-    float2 uv    = i.uv_depth.xy;
-    float  ix    = min(floor(uv.x * NUM_DIVISION), NUM_DIVISION - 1);
-    float  iy    = min(floor(uv.y * 0.5 * NUM_DIVISION), NUM_DIVISION - 1);
-    float  index = iy * NUM_DIVISION + ix;
-    float4 data  = c[index];
-    PS_OUTPUT output = {
-        float4(0.0, 0.0, 0.0, 0.0),
-        i.uv_depth.z / i.uv_depth.w,
-    };
-    if (c[3].w > 0) {
-        data = index < 8 ? i.data[index] : float4(0.0, 0.0, 0.0, 0.0);
-    }
-    float4 albedo = tex2D(Texture2, uv);
-    albedo.rgb = 1.0 - albedo.rgb;
-
+    float ix = min(floor(uv.x * NUM_DIVISION), NUM_DIVISION - 1);
+    float iy = min(floor(uv.y * 0.5 * NUM_DIVISION), NUM_DIVISION - 1);
     if (uv.y * 0.5 * NUM_DIVISION - iy < 0.5) {
         if (uv.x * NUM_DIVISION - ix < 0.25 && uv.y * 0.5 * NUM_DIVISION - iy < 0.125) {
             float u = (uv.x * NUM_DIVISION - ix) * 4.0;
@@ -90,10 +77,10 @@ PS_OUTPUT main(const PS_INPUT i) {
             if (data.r < -1 || data.r > 1 ||
                 data.g < -1 || data.g > 1 ||
                 data.b < -1 || data.b > 1) {
-                output.color = lerp(float4(u, v, (u + v) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+                return lerp(float4(u, v, (u + v) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
             }
             else if (data.r < 0 || data.g < 0 || data.b < 0) {
-                output.color = float4(
+                return float4(
                     data.r < 0 ? 1.0 : 0.0,
                     data.g < 0 ? 1.0 : 0.0,
                     data.b < 0 ? 1.0 : 0.0,
@@ -103,13 +90,13 @@ PS_OUTPUT main(const PS_INPUT i) {
         if (-1 <= data.r && data.r <= 1 &&
             -1 <= data.g && data.g <= 1 &&
             -1 <= data.b && data.b <= 1) {
-            output.color = lerp(float4(abs(data.rgb), 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            return lerp(float4(abs(data.rgb), 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
         else if (c[1].w > 0) {
-            output.color = lerp(float4((clamp(rcp(data.rgb), -1.0, 1.0) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            return lerp(float4((clamp(rcp(data.rgb), -1.0, 1.0) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
         else {
-            output.color = lerp(float4((sign(data.rgb) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            return lerp(float4((sign(data.rgb) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
     }
     else {
@@ -119,21 +106,67 @@ PS_OUTPUT main(const PS_INPUT i) {
             u = (0.25 - (u - 0.5) * (u - 0.5)) * 4.0;
             v = (0.25 - (v - 0.5) * (v - 0.5)) * 4.0;
             if (data.a < -1 || data.a > 1) {
-                output.color = lerp(float4(u, v, (u + v) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+                return lerp(float4(u, v, (u + v) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
             }
             else if (data.a < 0) {
-                output.color = float4(1.0, 0.0, 0.0, 1.0);
+                return float4(1.0, 0.0, 0.0, 1.0);
             }
         }
         if (-1 <= data.a && data.a <= 1) {
-            output.color = lerp(float4(abs(data.aaa), 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            return lerp(float4(abs(data.aaa), 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
         else if (c[1].w > 0) {
-            output.color = lerp(float4((clamp(rcp(data.aaa), -1.0, 1.0) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            return lerp(float4((clamp(rcp(data.aaa), -1.0, 1.0) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
         else {
-            output.color = lerp(float4((sign(data.aaa) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
+            return lerp(float4((sign(data.aaa) + 1.0) / 2.0, 1.0), float4(albedo.rgb, 1.0), albedo.a);
         }
+    }
+}
+
+PS_OUTPUT main(const PS_INPUT i) {
+    float2 uv     = i.uv_depth.xy;
+    float4 albedo = tex2D(s[2], uv);
+    albedo.rgb = 1.0 - albedo.rgb;
+    PS_OUTPUT output = {
+        float4(0.0, 0.0, 0.0, 0.0),
+        i.uv_depth.z / i.uv_depth.w,
+    };
+
+    if (c[0].x < 0) {
+        const float NUM_DIVISION = 4;
+        float ix  = min(floor(uv.x * NUM_DIVISION), NUM_DIVISION - 1);
+        float iy  = min(floor(uv.y * NUM_DIVISION), NUM_DIVISION - 1);
+        int index = floor(iy * NUM_DIVISION + ix);
+        float u   = frac(uv.x * NUM_DIVISION);
+        float v   = frac(uv.y * NUM_DIVISION);
+             if (index == 0)  output.color = tex2D(s[0],  float2(u, v));
+        else if (index == 1)  output.color = tex2D(s[1],  float2(u, v));
+        else if (index == 2)  output.color = tex2D(s[2],  float2(u, v));
+        else if (index == 3)  output.color = tex2D(s[3],  float2(u, v));
+        else if (index == 4)  output.color = tex2D(s[4],  float2(u, v));
+        else if (index == 5)  output.color = tex2D(s[5],  float2(u, v));
+        else if (index == 6)  output.color = tex2D(s[6],  float2(u, v));
+        else if (index == 7)  output.color = tex2D(s[7],  float2(u, v));
+        else if (index == 8)  output.color = tex2D(s[8],  float2(u, v));
+        else if (index == 9)  output.color = tex2D(s[9],  float2(u, v));
+        else if (index == 10) output.color = tex2D(s[10], float2(u, v));
+        else if (index == 11) output.color = tex2D(s[11], float2(u, v));
+        else if (index == 12) output.color = tex2D(s[12], float2(u, v));
+        else if (index == 13) output.color = tex2D(s[13], float2(u, v));
+        else if (index == 14) output.color = tex2D(s[14], float2(u, v));
+        else if (index == 15) output.color = tex2D(s[15], float2(u, v));
+    }
+    else {
+        const float NUM_DIVISION = 8;
+        float  ix    = min(floor(uv.x * NUM_DIVISION), NUM_DIVISION - 1);
+        float  iy    = min(floor(uv.y * 0.5 * NUM_DIVISION), NUM_DIVISION - 1);
+        float  index = iy * NUM_DIVISION + ix;
+        float4 data  = c[index];
+        if (c[3].w > 0) {
+            data = index < 8 ? i.data[index] : float4(0.0, 0.0, 0.0, 0.0);
+        }
+        output.color = OutputColor(data, uv, albedo);
     }
     return output;
 }

@@ -4,19 +4,32 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
-local gray = Material "grey" :GetTexture "$basetexture"
 local CVarWireframe = GetConVar "mat_wireframe"
 local CVarMinecraft = GetConVar "mat_showlowresimage"
-local function DrawMesh()
-    for _, model in ipairs(ss.IMesh) do -- Draw ink surface
+---@param isnormal boolean True this is NOT the flashlight rendering
+local function DrawMesh(isnormal)
+    local currentMaterial = nil ---@type IMaterial?
+    local sunInfo = util.GetSunInfo()
+    local sunDirection = sunInfo and sunInfo.direction or Vector(0, 0.3, 0.954)
+    for _, model in ipairs(ss.RenderBatches) do -- Draw ink surface
         local ent = model.BrushEntity
-        if not ent or IsValid(ent) then
+        if #model > 0 and (not ent or IsValid(ent)) then
             if IsValid(ent) then ---@cast ent -?
                 cam.PushModelMatrix(ent:GetWorldTransformMatrix())
             end
 
             for _, m in ipairs(model) do
-                m:Draw()
+                local mat = isnormal and m.Material or m.MaterialFlashlight
+                if currentMaterial ~= mat then
+                    render.SetMaterial(mat)
+                    currentMaterial = mat
+                    if isnormal then -- This is not needed when rendering flashlights
+                        mat:SetFloat("$c0_x", sunDirection.x)
+                        mat:SetFloat("$c0_y", sunDirection.y)
+                        mat:SetFloat("$c0_z", sunDirection.z)
+                    end
+                end
+                (isnormal and m.Mesh or m.MeshFlashlight):Draw()
             end
 
             if IsValid(ent) then
@@ -30,11 +43,11 @@ local function DrawMeshes(bDrawingDepth, bDrawingSkybox)
     -- if ss.GetOption "hideink" then return end
     if LocalPlayer():KeyDown(IN_RELOAD) then return end
     if bDrawingSkybox or CVarWireframe:GetBool() or CVarMinecraft:GetBool() then return end
-    render.SetMaterial(ss.InkMeshMaterial)
-    render.SetLightmapTexture(ss.RenderTarget.StaticTextures.Lightmap or gray) -- Set custom lightmap
     render.DepthRange(0, 65534 / 65535)
-    DrawMesh()
+    DrawMesh(true)
+    render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD, BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD)
     render.RenderFlashlights(DrawMesh)
+    render.OverrideBlend(false)
     render.DepthRange(0, 1)
 end
 
@@ -47,9 +60,8 @@ function ss.ClearAllInk()
     render.OverrideAlphaWriteEnable(true, true)
     render.ClearDepth()
     render.ClearStencil()
-    render.Clear(0, 0, 0, 0)
+    render.Clear(64, 64, 128, 255)
     render.OverrideAlphaWriteEnable(false)
-    -- render.DrawTextureToScreen("splashsweps/debug/uvchecker")
     render.PopRenderTarget()
 
     render.PushRenderTarget(rt.StaticTextures.Normal)
@@ -59,6 +71,14 @@ function ss.ClearAllInk()
     render.Clear(128, 128, 255, 255)
     render.OverrideAlphaWriteEnable(false)
     render.PopRenderTarget()
+
+    render.PushRenderTarget(rt.StaticTextures.PseudoPBR)
+    render.OverrideAlphaWriteEnable(true, true)
+    render.ClearDepth()
+    render.ClearStencil()
+    render.Clear(96, 255, 255, 255)
+    render.OverrideAlphaWriteEnable(false)
+    render.PopRenderTarget()
 end
 
-hook.Add("PostDrawTranslucentRenderables", "SplashSWEPs: Draw ink", DrawMeshes)
+hook.Add("PreDrawTranslucentRenderables", "SplashSWEPs: Draw ink", DrawMeshes)

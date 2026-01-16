@@ -1,0 +1,27 @@
+{
+    "runtime": {
+        "version": "LuaJIT",
+        "nonstandardSymbol": [
+            "/**/",
+            "//",
+            "!",
+            "!=",
+            "&&",
+            "||",
+            "continue"
+        ],
+        "special": {
+            "include": "dofile"
+        }
+    },
+    "workspace": {
+        "library": [
+            "../../../.vscode/client",
+            "../../../.vscode/types",
+            "../shared"
+        ],
+        "ignoreDir": [
+            "../server"
+        ]
+    }
+}

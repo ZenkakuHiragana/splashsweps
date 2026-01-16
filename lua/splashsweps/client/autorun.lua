@@ -1,13 +1,20 @@
 
 if not SplashSWEPs then
+    ---@class ss.MeshData
+    ---@field Material IMaterial The material to draw this mesh.
+    ---@field MaterialFlashlight IMaterial The material to draw flashlight rendering.
+    ---@field Mesh IMesh The IMesh object to render this part of surfaces.
+    ---@field MeshFlashlight IMesh The IMesh object to render flashlight part of this surface.
+
+    ---@class ss.RenderBatch
+    ---@field BrushEntity Entity? The brush entity tied to this mesh, if any.
+    ---@field [integer] ss.MeshData List of meshes to render this model.
+
     ---@class ss
     SplashSWEPs = {
         ---List of IMeshes to render the painted ink.
-        ---@type { BrushEntity: Entity?, [integer]: IMesh }[]
-        IMesh = {},
-        ---Material to draw painted ink.
-        ---@type IMaterial
-        InkMeshMaterial = Material "splashsweps/inkmesh",
+        ---@type ss.RenderBatch[]
+        RenderBatches = {},
     }
 end
 
@@ -15,19 +22,18 @@ include "splashsweps/shared/autorun.lua"
 include "splashsweps/client/inkmaterial.lua"
 include "splashsweps/client/inkrenderer.lua"
 include "splashsweps/client/paintablesurface.lua"
+include "splashsweps/client/rbtree.lua"
 include "splashsweps/client/rtbuilder.lua"
+include "splashsweps/client/session.lua"
+include "splashsweps/client/skylinepacker.lua"
 include "splashsweps/client/surfacebuilder.lua"
 
 ---@class ss
 local ss = SplashSWEPs
 local function LoadCache()
     local cachePath = string.format("splashsweps/%s.json", game.GetMap())
-    local pngldrPath = string.format("../data/splashsweps/%s_ldr.vtf", game.GetMap())
-    local pnghdrPath = string.format("../data/splashsweps/%s_hdr.vtf", game.GetMap())
     local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
     local hdrPath = string.format("splashsweps/%s_hdr.json", game.GetMap())
-    local pngldrExists = file.Exists(pngldrPath:sub(9), "DATA")
-    local pnghdrExists = file.Exists(pnghdrPath:sub(9), "DATA")
     local ldrExists = file.Exists(ldrPath, "DATA")
     local hdrExists = file.Exists(hdrPath, "DATA")
     local cache = util.JSONToTable(util.Decompress(file.Read(cachePath) or "") or "", true) ---@type ss.PrecachedData?
@@ -36,14 +42,12 @@ local function LoadCache()
 
     local ishdr = false
     if render.GetHDREnabled() then
-        ishdr = hdrExists and pnghdrExists
+        ishdr = hdrExists
     else
-        ishdr = not (ldrExists and pngldrExists)
+        ishdr = not ldrExists
     end
 
-    local pngPath = ishdr and pnghdrPath or pngldrPath
     local surfacePath = ishdr and hdrPath or ldrPath
-    local modelInfo = ishdr and cache.ModelsHDR or cache.ModelsLDR
     local staticPropUV = ishdr and cache.StaticPropHDR or cache.StaticPropLDR
     local waterSurfaces = ishdr and cache.SurfacesWaterHDR or cache.SurfacesWaterLDR
 
@@ -57,12 +61,10 @@ local function LoadCache()
     ss.HashParameters = setmetatable(cache.HashParameters, getmetatable(ss.new "PrecachedData.HashParameters"))
 
     ss.SetupRenderTargets()
-    ss.SetupHDRLighting(cache)
-    ss.SetupModels(modelInfo, surfaces)
+    ss.SetupModels(surfaces, cache.NumModels, cache.MaterialNames)
     ss.SetupSurfaces(surfaces.Surfaces)
     ss.SetupSurfacesStaticProp(cache.StaticProps, staticPropUV)
     ss.SetupStaticProps(cache.StaticProps, cache.StaticPropMDL, staticPropUV)
-    ss.SetupLightmap(pngPath)
     ss.LoadInkFeatures()
     ss.LoadInkShapes()
     ss.LoadInkTypes()
@@ -76,6 +78,7 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     net.SendToServer()
 end)
 
+net.Receive("SplashSWEPs: Clear all ink", function() ss.ClearAllInk() end)
 net.Receive("SplashSWEPs: Refresh players table", function()
     local playersReady = net.ReadTable()
     table.Empty(ss.PlayersReady)

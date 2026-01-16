@@ -27,23 +27,23 @@ end
 ---@class ss.PrecachedData.Vertex
 ---@field Angle               Angle   Normal, tangent, and bitangent vector.
 ---@field Translation         Vector  The position.
----@field LightmapUV          Vector  Absolute Lightmap UV values.
----@field LightmapSamplePoint Vector? Relative X-Y coordinates to calculate lightmap UV.
+---@field LightmapUV          Vector  Relative Lightmap UV values in luxels.
+---@field BumpmapUV           Vector  Bumpmap UV coordinates of the original face.
 ---@field DisplacementOrigin  Vector? The point that this displacement point was made from.
 ss.struct "PrecachedData.Vertex" (setmetatable({
     Angle(),
     Vector(),
     Vector(),
-    nil,
+    Vector(),
     nil,
 }, {
-    Angle               = 1,
-    Translation         = 2,
-    LightmapUV          = 3,
-    LightmapSamplePoint = 4,
-    DisplacementOrigin  = 5,
-    __index             = indexer,
-    __newindex          = newindexer,
+    Angle              = 1,
+    Translation        = 2,
+    LightmapUV         = 3,
+    BumpmapUV          = 4,
+    DisplacementOrigin = 5,
+    __index            = indexer,
+    __newindex         = newindexer,
 }))
 
 ---Precached transformation matrix stored in a local file.
@@ -76,19 +76,6 @@ ss.struct "PrecachedData.DirectionalLight" (setmetatable({
     ScaleHDR = 3,
     __index    = indexer,
     __newindex = newindexer,
-}))
-
----@class ss.PrecachedData.ModelInfo
----@field FaceIndices  integer[] Indices to the LUMP_FACE array that this model contains.
----@field NumTriangles integer   Total number of triangles to construct Mesh of this model.
-ss.struct "PrecachedData.ModelInfo" (setmetatable({
-    {},
-    0,
-}, {
-    FaceIndices  = 1,
-    NumTriangles = 2,
-    __index      = indexer,
-    __newindex   = newindexer,
 }))
 
 ---Structure of UV coordinates for static props.
@@ -239,11 +226,10 @@ ss.struct "PrecachedData.DisplacementTriangle" (setmetatable({
 ---@field AABBMax            Vector   Maximum component of all vertices in world coordinates.
 ---@field AABBMin            Vector   Minimum component of all vertices in world coordinates.
 ---@field TransformPaintGrid ss.PrecachedData.MatrixTransform Transforms world coordinates into the serverside paint grid coordinates.
----@field LightmapHeight     number   The height of this surface in lightmap texture in luxels.
----@field LightmapWidth      number   The width of this surface in lightmap texture in luxels.
 ---@field MBBAngles          Angle    The angle of minimum (oriented) bounding box.
 ---@field MBBOrigin          Vector   The origin of minimum (oriented) bounding box.
 ---@field MBBSize            Vector   The size of minimum (oriented) bounding box in their local coordinates.
+---@field ModelIndex         integer  Index to model lump entry.
 ---@field PaintGridHeight    integer  The height of this surface in the serverside paint grid.
 ---@field PaintGridWidth     integer  The width of this surface in the serverside paint grid.
 ---Array of UV coordinates.
@@ -253,18 +239,17 @@ ss.struct "PrecachedData.DisplacementTriangle" (setmetatable({
 ---@field Vertices ss.PrecachedData.Vertex[]
 ---Hash table to search triangles of displacement.  
 ---= `{ [hash] = { list of indices to Triangles }}`
----@field TriangleHash       table<integer, integer[]>?
----@field Triangles          ss.PrecachedData.DisplacementTriangle[]? Array of triangles of a displacement.
----@field FaceLumpIndex      integer? Index to face lump just used to calculate lightmap UV coordinates.
+---@field TriangleHash  table<integer, integer[]>?
+---@field Triangles     ss.PrecachedData.DisplacementTriangle[]? Array of triangles of a displacement.
+---@field FaceLumpIndex integer? Index to face lump just used to calculate lightmap UV coordinates.
 ss.struct "PrecachedData.Surface" (setmetatable({
     ss.vector_one * -math.huge,
     ss.vector_one * math.huge,
     ss.new "PrecachedData.MatrixTransform",
-    0,
-    0,
     Angle(),
     Vector(),
     Vector(),
+    0,
     0,
     0,
     {},
@@ -276,19 +261,42 @@ ss.struct "PrecachedData.Surface" (setmetatable({
     AABBMax            = 1,
     AABBMin            = 2,
     TransformPaintGrid = 3,
-    LightmapHeight     = 4,
-    LightmapWidth      = 5,
-    MBBAngles          = 6,
-    MBBOrigin          = 7,
-    MBBSize            = 8,
-    PaintGridHeight    = 9,
-    PaintGridWidth     = 10,
-    UVInfo             = 11,
-    Vertices           = 12,
-    TriangleHash       = 13,
-    Triangles          = 14,
+    MBBAngles          = 4,
+    MBBOrigin          = 5,
+    MBBSize            = 6,
+    ModelIndex         = 7,
+    PaintGridHeight    = 8,
+    PaintGridWidth     = 9,
+    UVInfo             = 10,
+    Vertices           = 11,
+    TriangleHash       = 12,
+    Triangles          = 13,
+    FaceLumpIndex      = 14,
     __index            = indexer,
     __newindex         = newindexer,
+}))
+
+---A wrapper for a BSP face to cache its properties for sorting.
+---@class ss.PrecachedData.LightmapInfo
+---@field MaterialIndex integer  Index to material names in ss.PrecachedData.MaterialNames
+---@field HasLightmap   integer? nil = false, 1 = true, 2 = also has light styles
+---@field Width         integer? Width of the lightmap in luxels.
+---@field Height        integer? Height of the lightmap in luxels.
+---@field FaceIndex     integer? Index to the PrecachedData.Surface array. nil if it does not correspond to paintable surface array.
+ss.struct "PrecachedData.LightmapInfo" (setmetatable({
+    0,
+    nil,
+    nil,
+    nil,
+    nil,
+}, {
+    MaterialIndex  = 1,
+    HasLightmap    = 2,
+    Width          = 3,
+    Height         = 4,
+    FaceIndex      = 5,
+    __index        = indexer,
+    __newindex     = newindexer,
 }))
 
 ---Defines playable area in the map.
@@ -307,17 +315,20 @@ ss.struct "MinimapAreaBounds" (setmetatable({
 
 ---Array of paintable surfaces stored as JSON file.
 ---@class ss.PrecachedData.SurfaceInfo
----@field Surfaces    ss.PrecachedData.Surface[]
+---@field Lightmaps   ss.PrecachedData.LightmapInfo[] Array made from LUMP_FACES used to pack lightmaps.
+---@field Surfaces    ss.PrecachedData.Surface[] Array of paintable surfaces.
 ---@field SurfaceHash table<integer, integer[]> = `ss.SurfaceHash`
----@field UVScales    number[] Render target size index -> Hammer units to UV multiplier
+---@field UVScales    number[]  Render target size index -> Hammer units to UV multiplier
 ss.struct "PrecachedData.SurfaceInfo" (setmetatable({
     {},
     {},
     {},
+    {},
 }, {
-    Surfaces    = 1,
-    SurfaceHash = 2,
-    UVScales    = 3,
+    Lightmaps   = 1,
+    Surfaces    = 2,
+    SurfaceHash = 3,
+    UVScales    = 4,
     __index     = indexer,
     __newindex  = newindexer,
 }))
@@ -342,45 +353,46 @@ ss.struct "PrecachedData.HashParameters" (setmetatable({
 ---@class ss.PrecachedData
 ---@field CacheVersion     number
 ---@field MapCRC           integer
+---@field MaterialNames    string[] List of material names used in the map ordered by the same as TEXDATA_STRING_DATA lump.
 ---@field MinimapBounds    ss.MinimapAreaBounds[]
+---@field NumModels        integer
 ---@field DirectionalLight ss.PrecachedData.DirectionalLight
----@field ModelsHDR        ss.PrecachedData.ModelInfo[]
----@field ModelsLDR        ss.PrecachedData.ModelInfo[]
+---@field HashParameters   ss.HashParameters
 ---@field StaticProps      ss.PrecachedData.StaticProp[]
----@field StaticPropMDL    string[] List of path to models of static props.
+---@field StaticPropMDL    string[] List of paths to model of static props.
 ---@field StaticPropHDR    ss.PrecachedData.StaticProp.UVInfo[][]
 ---@field StaticPropLDR    ss.PrecachedData.StaticProp.UVInfo[][]
 ---@field SurfacesWaterHDR ss.PrecachedData.Surface[]
 ---@field SurfacesWaterLDR ss.PrecachedData.Surface[]
----@field HashParameters   ss.HashParameters
 ss.struct "PrecachedData" (setmetatable({
     -1,
     0,
     {},
+    {},
+    0,
     ss.new "PrecachedData.DirectionalLight",
-    {},
-    {},
-    {},
-    {},
-    {},
-    {},
-    {},
-    {},
     ss.new "PrecachedData.HashParameters",
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
+    {},
 }, {
     CacheVersion     = 1,
     MapCRC           = 2,
-    MinimapBounds    = 3,
-    DirectionalLight = 4,
-    ModelsHDR        = 5,
-    ModelsLDR        = 6,
-    StaticProps      = 7,
-    StaticPropMDL    = 8,
-    StaticPropHDR    = 9,
-    StaticPropLDR    = 10,
-    SurfacesWaterHDR = 11,
-    SurfacesWaterLDR = 12,
-    HashParameters   = 13,
+    MaterialNames    = 3,
+    MinimapBounds    = 4,
+    NumModels        = 5,
+    DirectionalLight = 6,
+    HashParameters   = 7,
+    StaticProps      = 8,
+    StaticPropMDL    = 9,
+    StaticPropHDR    = 10,
+    StaticPropLDR    = 11,
+    SurfacesWaterHDR = 12,
+    SurfacesWaterLDR = 13,
     __index          = indexer,
     __newindex       = newindexer,
 }))
