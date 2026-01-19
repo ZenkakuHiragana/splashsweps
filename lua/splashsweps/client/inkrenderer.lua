@@ -43,7 +43,8 @@ local function DrawMeshes(bDrawingDepth, bDrawingSkybox)
     -- if ss.GetOption "hideink" then return end
     if LocalPlayer():KeyDown(IN_RELOAD) then return end
     if bDrawingSkybox or CVarWireframe:GetBool() or CVarMinecraft:GetBool() then return end
-    render.DepthRange(0, 65534 / 65535)
+    render.UpdateScreenEffectTexture(1)
+    render.DepthRange(0, 65535 / 65536)
     DrawMesh(true)
     render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD, BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD)
     render.RenderFlashlights(DrawMesh)
@@ -56,19 +57,19 @@ function ss.ClearAllInk()
     for _, s in ipairs(ss.SurfaceArray) do ss.ClearGrid(s) end
 
     local rt = ss.RenderTarget
-    render.PushRenderTarget(rt.StaticTextures.Albedo)
+    render.PushRenderTarget(rt.StaticTextures.Additive)
     render.OverrideAlphaWriteEnable(true, true)
     render.ClearDepth()
     render.ClearStencil()
-    render.Clear(64, 64, 128, 255)
+    render.Clear(0, 0, 0, 255)
     render.OverrideAlphaWriteEnable(false)
     render.PopRenderTarget()
 
-    render.PushRenderTarget(rt.StaticTextures.Normal)
+    render.PushRenderTarget(rt.StaticTextures.Multiplicative)
     render.OverrideAlphaWriteEnable(true, true)
     render.ClearDepth()
     render.ClearStencil()
-    render.Clear(128, 128, 255, 255)
+    render.Clear(255, 255, 255, 255)
     render.OverrideAlphaWriteEnable(false)
     render.PopRenderTarget()
 
@@ -76,7 +77,15 @@ function ss.ClearAllInk()
     render.OverrideAlphaWriteEnable(true, true)
     render.ClearDepth()
     render.ClearStencil()
-    render.Clear(96, 255, 255, 255)
+    render.Clear(0, 0, 0, 128)
+    render.OverrideAlphaWriteEnable(false)
+    render.PopRenderTarget()
+
+    render.PushRenderTarget(rt.StaticTextures.Details)
+    render.OverrideAlphaWriteEnable(true, true)
+    render.ClearDepth()
+    render.ClearStencil()
+    render.Clear(0, 0, 0, 255)
     render.OverrideAlphaWriteEnable(false)
     render.PopRenderTarget()
 end

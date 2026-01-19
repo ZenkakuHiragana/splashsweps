@@ -1,4 +1,4 @@
-"Screenspace_General"
+"Screenspace_General_8Tex"
 {
     // Debug shader to visualize shader constants
     "$pixshader" "splashsweps/debug_ps30"
@@ -33,7 +33,7 @@
     "$c3_x" "0.25"
     "$c3_y" "0.25"
     "$c3_z" "0.25"
-    "$c3_w" "1" // 1 to show vertex shader constants passed from pixel shader input instead
+    "$c3_w" "0" // 1 to show vertex shader constants passed from pixel shader input instead
 
     // Proxies
     // {

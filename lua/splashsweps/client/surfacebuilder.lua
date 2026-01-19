@@ -14,32 +14,34 @@ local MIN_DRAW_RADIUS = 0.01 * 0.01 -- Squared minimum draw radius for static pr
 
 ---@class ss.SurfaceBuilder.MaterialInfo
 ---@field NeedsBumpedLightmaps boolean
+---@field NeedsFrameBuffer boolean
 ---@field Bumpmap string? Value of $bumpmap
----@field Bumpmap2 string? Value of $bumpmap2
+---@field BaseTexture string? Value of $basetexture
+---@field BumpTextureTransform string? Value of $bumptexturetransform
+---@field BaseTextureTransform string? Value of $basetexturetransform
 ss.struct "SurfaceBuilder.MaterialInfo" {
     NeedsBumpedLightmaps = false,
+    NeedsFrameBuffer = false,
     Bumpmap = nil,
-    Bumpmap2 = nil,
+    BaseTexture = nil,
+    BumpTextureTransform = nil,
+    BaseTextureTransform = nil,
 }
 
 ---Stores pakced lightmap information for each SortID.
 ---@class ss.SurfaceBuilder.LightmapPackDetails
----@field Bumpmap        string    $bumpmap  that this kind of surfaces uses.
----@field Bumpmap2       string    $bumpmap2 that this kind of surfaces uses (WorldVertexTransition).
 ---@field FaceIndices    integer[] Array of index to surfaces that belong to this SortID.
 ---@field FaceLightmaps  Vector[]  Packed lightmap details for each face corresponding to FaceIndices.
----@field IsBumpmapped   boolean   Indicates if this lightmap has bumpmapped samples.
 ---@field LightmapPage   integer   Assigned lightmap page for this SortID.
 ---@field LightmapWidths integer[] Array of width of lightmap corresponding to FaceIndices.
+---@field Material       ss.SurfaceBuilder.MaterialInfo The material bound to this surface.
 ---@field TriangleCount  integer   Total number of triangles of this SortID.
 ss.struct "SurfaceBuilder.LightmapPackDetails" {
-    Bumpmap = "",
-    Bumpmap2 = "",
     FaceIndices = {},
     FaceLightmaps = {},
-    IsBumpmapped = false,
     LightmapPage = 0,
     LightmapWidths = {},
+    Material = nil, ---@type ss.SurfaceBuilder.MaterialInfo
     TriangleCount = 0,
 }
 
@@ -173,13 +175,11 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                     numSortIDs = numSortIDs + 1
                     packers[1].SortID = packers[1].SortID + 1
                     lightmapInfo.Details[numSortIDs] = {
-                        Bumpmap = mat.Bumpmap,
-                        Bumpmap2 = mat.Bumpmap2,
                         FaceIndices = {},
                         FaceLightmaps = {},
-                        IsBumpmapped = mat.NeedsBumpedLightmaps,
                         LightmapPage = lightmapInfo.MaxLightmapIndex,
                         LightmapWidths = {},
+                        Material = mat,
                         TriangleCount = 0,
                     }
 
@@ -207,13 +207,11 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                     x, y = packers[#packers]:AddBlock(width, height)
                     packedSortID = numSortIDs
                     lightmapInfo.Details[numSortIDs] = {
-                        Bumpmap = mat.Bumpmap,
-                        Bumpmap2 = mat.Bumpmap2,
                         FaceIndices = {},
                         FaceLightmaps = {},
-                        IsBumpmapped = mat.NeedsBumpedLightmaps,
                         LightmapPage = lightmapInfo.MaxLightmapIndex,
                         LightmapWidths = {},
+                        Material = mat,
                         TriangleCount = 0,
                     }
                 end
@@ -250,12 +248,16 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
     for enumerationID, name in ipairs(materialNames) do
         if enumerationIDToArrayIndex[enumerationID] then
             local mat = Material(name)
-            materialInfo[enumerationID] = {
-                NeedsBumpedLightmaps = mat and not mat:IsError() and
-                    bit.band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0,
-                Bumpmap = mat and mat:GetString "$bumpmap",
-                Bumpmap2 = mat and mat:GetString "$bumpmap2",
-            }
+            if mat and not mat:IsError() then
+                materialInfo[enumerationID] = {
+                    NeedsBumpedLightmaps = bit.band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0,
+                    NeedsFrameBuffer = tobool(mat:GetString "$basetexture2"),
+                    Bumpmap = mat:GetString "$bumpmap",
+                    BaseTexture = mat:GetString "$basetexture",
+                    BaseTextureTransform = mat:GetString "$basetexturetransform",
+                    BumpTextureTransform = mat:GetString "$bumptransform",
+                }
+            end
         end
     end
 
@@ -269,6 +271,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
     local lastPageHeight         = lightmapInfo.LastLightmapHeight
     local bumpmapOffsets         = {} ---@type number[] faceIndex --> bumpmap offset
     for sortID, info in ipairs(lightmapInfo.Details) do
+        local mat = info.Material
         for i, faceIndex in ipairs(info.FaceIndices) do
             local surf = setmetatable(surfaceInfo.Surfaces[faceIndex], SurfaceMeta)
             local lightmapWidth = info.LightmapWidths[i]
@@ -277,7 +280,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
             local isLastPage = page == maxLightmapIndex
             local pageWidth = isLastPage and lastPageWidth or MAX_LIGHTMAP_WIDTH
             local pageHeight = isLastPage and lastPageHeight or MAX_LIGHTMAP_HEIGHT
-            bumpmapOffsets[faceIndex] = info.IsBumpmapped and lightmapWidth / pageWidth or 0
+            bumpmapOffsets[faceIndex] = mat.NeedsBumpedLightmaps and lightmapWidth / pageWidth or 0
             for _, v in ipairs(surf.Vertices) do
                 setmetatable(v, VertexMeta)
                 v.LightmapUV.x = (v.LightmapUV.x + lightmapCoordinates.x) / pageWidth
@@ -324,7 +327,6 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
         ---@field Position Vector
         ---@field U        number[]
         ---@field V        number[]
-        ---@field W        integer
         local meshData = {} ---@type ss.SurfaceBuilder.MeshVertexPack[][]
         for _, meshInfo in ipairs(meshInfoArray) do
             local sortID = meshInfo.SortID
@@ -333,26 +335,34 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
             if numMeshesToAdd > 0 then
                 for _ = 1, numMeshesToAdd do
                     local info = lightmapInfo.Details[sortID]
+                    local matinfo = info.Material
                     local page = info.LightmapPage
                     local lightmapTextureName = page and string.format("\\[lightmap%d]", page) or "white"
-                    local bumpmapTextureName = info.Bumpmap
-                    local bump = info.IsBumpmapped and 1 or 0
+                    local bumpmapTextureName = matinfo.Bumpmap
+                    local baseTextureName = matinfo.NeedsFrameBuffer
+                        and render.GetScreenEffectTexture(1):GetName() or matinfo.BaseTexture
+                    local bump = matinfo.NeedsBumpedLightmaps and 1 or 0
+                    local fb = matinfo.NeedsFrameBuffer and 1 or 0
                     local mat = CreateMaterial(
                         string.format("splashsweps_mesh_%d_%s", sortID, game.GetMap()),
                         "Screenspace_General_8tex", {
                             ["$vertexshader"]        = "splashsweps/inkmesh_vs30",
                             ["$pixshader"]           = "splashsweps/inkmesh_ps30",
-                            ["$basetexture"]         = ss.RenderTarget.StaticTextures.Albedo:GetName(),
-                            ["$texture1"]            = ss.RenderTarget.StaticTextures.Normal:GetName(),
+                            ["$basetexture"]         = ss.RenderTarget.StaticTextures.Additive:GetName(),
+                            ["$texture5"]            = ss.RenderTarget.StaticTextures.Multiplicative:GetName(),
                             ["$texture2"]            = ss.RenderTarget.StaticTextures.PseudoPBR:GetName(),
-                            ["$texture3"]            = lightmapTextureName,
-                            ["$texture4"]            = "shadertest/shadertest_env.hdr",
-                            ["$texture5"]            = bumpmapTextureName,
-                            ["$linearread_texture1"] = "1",
+                            ["$texture3"]            = ss.RenderTarget.StaticTextures.Details:GetName(),
+                            ["$texture4"]            = bumpmapTextureName,
+                            ["$texture1"]            = baseTextureName,
+                            ["$texture6"]            = lightmapTextureName,
+                            ["$texture7"]            = "shadertest/shadertest_env.hdr",
+                            ["$linearread_texture1"] = "0",
                             ["$linearread_texture2"] = "1",
                             ["$linearread_texture3"] = "1",
                             ["$linearread_texture4"] = "1",
                             ["$linearread_texture5"] = "1",
+                            ["$linearread_texture6"] = "1",
+                            ["$linearread_texture7"] = "1",
                             ["$cull"]                = "1",
                             ["$depthtest"]           = "1",
                             ["$vertexnormal"]        = "1",
@@ -360,11 +370,15 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             ["$tcsize1"]             = "2",
                             ["$tcsize2"]             = "2",
                             ["$tcsize3"]             = "2",
+                            ["$tcsize4"]             = "3",
+                            ["$tcsize5"]             = "3",
                             ["$c0_x"]                = 0,     -- Sun direction x
                             ["$c0_y"]                = 0.3,   -- Sun direction y
                             ["$c0_z"]                = 0.954, -- Sun direction z
-                            ["$c0_w"]                = 0.75,  -- Ink normal blend factor
                             ["$c1_x"]                = bump,  -- Indicates if having bumped lightmaps
+                            ["$c1_y"]                = fb,    -- Indicates if it needs frame buffer
+                            ["$viewprojmat"]         = matinfo.BaseTextureTransform,
+                            ["$invviewprojmat"]      = matinfo.BumpTextureTransform,
                         })
                     local matf = CreateMaterial(
                         string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
@@ -397,12 +411,11 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                     worldToUV:SetTranslation(info.Translation * scale + uvOrigin)
                     for i, v in ipairs(surf.Vertices) do
                         local position = v.Translation
-                        local normal = v.Angle:Up()
-                        local tangent = v.Angle:Forward()
-                        local binormal = -v.Angle:Right()
+                        local normal = v.Normal
+                        local tangent = v.Tangent
+                        local binormal = v.Binormal
                         local s, t = v.LightmapUV.x, v.LightmapUV.y -- Lightmap UV
                         local uv = worldToUV * position
-                        local w = normal:Cross(tangent):Dot(binormal) >= 0 and 1 or -1
                         if v.DisplacementOrigin then
                             uv = worldToUV * v.DisplacementOrigin
                         end
@@ -414,7 +427,6 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             Position = position,
                             U = { uv.y, s, bumpmapOffsets[faceIndex], v.BumpmapUV.x },
                             V = { uv.x, t, 0,                         v.BumpmapUV.y },
-                            W = w,
                         }
                         vertIndex = vertIndex + 1
                         if (i - 1) % 3 == 2 then
@@ -430,14 +442,14 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
             mesh.Begin(renderBatch[i].Mesh, MATERIAL_TRIANGLES, #vertices / 3)
             for _, v in ipairs(vertices) do
                 mesh.Normal(v.Normal)
-                mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, v.W)
-                mesh.TangentS(v.TangentS * v.W)
-                mesh.TangentT(v.TangentT)
+                mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, 1)
                 mesh.Position(v.Position)
                 mesh.TexCoord(0, v.U[1], v.V[1])
                 mesh.TexCoord(1, v.U[2], v.V[2])
                 mesh.TexCoord(2, v.U[3], v.V[3])
                 mesh.TexCoord(3, v.U[4], v.V[4])
+                mesh.TexCoord(4, v.TangentS.x, v.TangentS.y, v.TangentS.z)
+                mesh.TexCoord(5, v.TangentT.x, v.TangentT.y, v.TangentT.z)
                 mesh.AdvanceVertex()
             end
             mesh.End()
@@ -445,8 +457,8 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
             mesh.Begin(renderBatch[i].MeshFlashlight, MATERIAL_TRIANGLES, #vertices / 3)
             for _, v in ipairs(vertices) do
                 mesh.Normal(v.Normal)
-                mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, v.W)
-                mesh.TangentS(v.TangentS * v.W)
+                mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, 1)
+                mesh.TangentS(v.TangentS)
                 mesh.TangentT(v.TangentT)
                 mesh.Position(v.Position)
                 mesh.TexCoord(0, v.U[4], v.V[4]) -- Correctly bind geometry's bumpmap UV
@@ -498,14 +510,14 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
     local flashlight = Material "splashsweps/shaders/vertexlitgeneric"
     local drawStaticProps = GetConVar "r_drawstaticprops"
     local materialCache = {} ---@type table<string, IMaterial>
-    local matKeyValues = templateMaterial:GetKeyValues()
+    local matKeyValues = templateMaterial:GetKeyValues() ---@type table<string, string|number>
     local view = Matrix()
     matKeyValues["$flags"] = nil
     matKeyValues["$flags2"] = nil
     matKeyValues["$flags_defined"] = nil
     matKeyValues["$flags_defined2"] = nil
-    matKeyValues["$basetexture"] = "splashsweps_basetexture"
-    matKeyValues["$texture1"] = "splashsweps_bumpmap"
+    matKeyValues["$basetexture"] = "splashsweps_additive"
+    matKeyValues["$texture1"] = "splashsweps_multiplicative"
     matKeyValues["$texture3"] = "effects/flashlight001"
     matKeyValues["$c1_y"] = ss.RenderTarget.HammerUnitsToUV
 

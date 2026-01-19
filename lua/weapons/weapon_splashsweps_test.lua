@@ -46,8 +46,15 @@ SWEP.Secondary.ClipSize = -1
 SWEP.Secondary.DefaultClip = 0
 SWEP.Secondary.Ammo = "Ink"
 
-SWEP.Primary.Automatic = true
+SWEP.Primary.Automatic = false
 SWEP.Primary.Delay = 1 / 120
+
+SWEP.InkTypeIndex = 1
+SWEP.InkTypes = {
+    "ColorRed",
+    "ColorSeal",
+    "MaterialTest",
+}
 
 function SWEP:Initialize()
     self.LoopSound = CreateSound(self, "items/suitcharge1.wav")
@@ -57,6 +64,13 @@ function SWEP:OnRemove()
     if self.LoopSound:IsPlaying() then
         self.LoopSound:Stop()
     end
+end
+
+function SWEP:Reload()
+    local owner = self:GetOwner() ---@cast owner Player
+    if not owner:KeyPressed(IN_RELOAD) then return end
+    self:EmitSound("Weapon_AR2.Empty")
+    self.InkTypeIndex = self.InkTypeIndex % #self.InkTypes + 1
 end
 
 function SWEP:PrimaryAttack()
@@ -72,7 +86,7 @@ function SWEP:PrimaryAttack()
     debugoverlay.Axis(pos, ang, 20, 5, false)
     ss.Paint(pos, ang, Vector(radius, radius, radius * 0),
         ss.SelectRandomShape("builtin_drop").Index,
-        ss.FindInkTypeID "ColorSeal" or -1)
+        ss.FindInkTypeID(self.InkTypes[self.InkTypeIndex]) or -1)
     self:SetNextPrimaryFire(CurTime() + self.Primary.Delay)
 end
 

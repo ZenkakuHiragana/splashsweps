@@ -38,30 +38,22 @@ local TEXTUREFLAGS = {
     SSBUMP            = 134217728,
 }
 local RTNAMES = {
-    ALBEDO = "splashsweps_basetexture",
-    NORMAL = "splashsweps_bumpmap",
-    PBR    = "splashsweps_pbr",
+    ADDITIVE       = "splashsweps_additive",
+    MULTIPLICATIVE = "splashsweps_multiplicative",
+    PBR            = "splashsweps_pbr",
+    DETAILS        = "splashsweps_details",
 }
+local COMMON_FLAGS = bit.bor(
+    TEXTUREFLAGS.NOMIP,
+    TEXTUREFLAGS.NOLOD,
+    TEXTUREFLAGS.ALL_MIPS,
+    TEXTUREFLAGS.RENDERTARGET,
+    TEXTUREFLAGS.NODEPTHBUFFER)
 local RTFLAGS = {
-    ALBEDO = bit.bor(
-        TEXTUREFLAGS.NOMIP,
-        TEXTUREFLAGS.NOLOD,
-        TEXTUREFLAGS.ALL_MIPS,
-        TEXTUREFLAGS.RENDERTARGET,
-        TEXTUREFLAGS.NODEPTHBUFFER),
-    NORMAL = bit.bor(
-        TEXTUREFLAGS.NORMAL,
-        TEXTUREFLAGS.NOMIP,
-        TEXTUREFLAGS.NOLOD,
-        TEXTUREFLAGS.ALL_MIPS,
-        TEXTUREFLAGS.RENDERTARGET,
-        TEXTUREFLAGS.NODEPTHBUFFER),
-    PBR = bit.bor(
-        TEXTUREFLAGS.NOMIP,
-        TEXTUREFLAGS.NOLOD,
-        TEXTUREFLAGS.ALL_MIPS,
-        TEXTUREFLAGS.RENDERTARGET,
-        TEXTUREFLAGS.NODEPTHBUFFER),
+    ADDITIVE = COMMON_FLAGS,
+    MULTIPLICATIVE = COMMON_FLAGS,
+    PBR = COMMON_FLAGS,
+    DETAILS = COMMON_FLAGS,
 }
 
 if not ss.RenderTarget then
@@ -69,18 +61,19 @@ if not ss.RenderTarget then
     ss.RenderTarget = {
         ---Render targets for static part of the world.
         StaticTextures = {
-            Albedo    = nil, ---@type ITexture
-            Normal    = nil, ---@type ITexture
-            PseudoPBR = nil ---@type ITexture
+            Additive       = nil, ---@type ITexture
+            Multiplicative = nil, ---@type ITexture
+            PseudoPBR      = nil, ---@type ITexture
+            Details        = nil, ---@type ITexture
         },
         ---List of render target resolutions available.
         Resolutions = {
             2048,
             4096,
-            5792,
-            8192,
-            11586,
-            16384,
+            -- 5792,
+            -- 8192,
+            -- 11586,
+            -- 16384,
         },
         ---Conversion multiplier from hammer units to UV coordinates.
         HammerUnitsToUV = 1,
@@ -94,20 +87,20 @@ function ss.SetupRenderTargets()
     local rt = ss.RenderTarget
     local rtIndex = #ss.RenderTarget.Resolutions
     local rtSize = rt.Resolutions[rtIndex]
-    rt.StaticTextures.Albedo = GetRenderTargetEx(
-        RTNAMES.ALBEDO,
+    rt.StaticTextures.Additive = GetRenderTargetEx(
+        RTNAMES.ADDITIVE,
         rtSize, rtSize,
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
-        RTFLAGS.ALBEDO,
+        RTFLAGS.ADDITIVE,
         CREATERENDERTARGETFLAGS_HDR,
         IMAGE_FORMAT_RGBA8888)
-    rt.StaticTextures.Normal = GetRenderTargetEx(
-        RTNAMES.NORMAL,
+    rt.StaticTextures.Multiplicative = GetRenderTargetEx(
+        RTNAMES.MULTIPLICATIVE,
         rtSize, rtSize,
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
-        RTFLAGS.NORMAL,
+        RTFLAGS.MULTIPLICATIVE,
         CREATERENDERTARGETFLAGS_HDR,
         IMAGE_FORMAT_RGBA8888)
     rt.StaticTextures.PseudoPBR = GetRenderTargetEx(
@@ -116,6 +109,14 @@ function ss.SetupRenderTargets()
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
         RTFLAGS.PBR,
+        CREATERENDERTARGETFLAGS_HDR,
+        IMAGE_FORMAT_RGBA8888)
+    rt.StaticTextures.Details = GetRenderTargetEx(
+        RTNAMES.DETAILS,
+        rtSize, rtSize,
+        RT_SIZE_LITERAL,
+        MATERIAL_RT_DEPTH_NONE,
+        RTFLAGS.DETAILS,
         CREATERENDERTARGETFLAGS_HDR,
         IMAGE_FORMAT_RGBA8888)
     rt.HammerUnitsToPixels = rt.HammerUnitsToUV * rtSize

@@ -393,10 +393,6 @@ local function CalculateTriangleComponents(surf)
         WorldToLocalRotation:InvertTR()
         WorldToLocalRotation:Set(DisplacementOriginRotation * WorldToLocalRotation)
         t.WorldToLocalGridRotation:Set(WorldToLocalRotation:GetAngles())
-
-        v1.Angle = angle
-        v2.Angle = angle
-        v3.Angle = angle
         surf.Triangles[#surf.Triangles + 1] = t
     end
 end
@@ -405,8 +401,11 @@ end
 ---@param bsp ss.RawBSPResults
 ---@param rawFace ss.Binary.BSP.FACES
 ---@param vertices Vector[] The vertices of flat quadrilateral surface that will be modified in this function.
+---@param normal Vector
+---@param tangent Vector
+---@param binormal Vector
 ---@return ss.PrecachedData.Surface
-local function BuildFromDisplacement(bsp, rawFace, vertices)
+local function BuildFromDisplacement(bsp, rawFace, vertices, normal, tangent, binormal)
     -- Collect displacement info
     local surf         = ss.new "PrecachedData.Surface"
     local rawDispInfo  = bsp.DISPINFO
@@ -551,10 +550,12 @@ local function BuildFromDisplacement(bsp, rawFace, vertices)
     vertices[4] = subdivision[power]
     for i, t in ipairs(triangles) do
         surf.Vertices[i] = ss.new "PrecachedData.Vertex"
-        -- surf.Vertices[i].Angle = Angle() -- Determined later
-        surf.Vertices[i].Translation = deformed[t]
-        surf.Vertices[i].BumpmapUV = bumpmapuv[t]
-        surf.Vertices[i].LightmapUV = lightmapuv[t]
+        surf.Vertices[i].Translation:Set(deformed[t])
+        surf.Vertices[i].Normal:Set(normal)
+        surf.Vertices[i].Tangent:Set(tangent)
+        surf.Vertices[i].Binormal:Set(binormal)
+        surf.Vertices[i].BumpmapUV:Set(bumpmapuv[t])
+        surf.Vertices[i].LightmapUV:Set(lightmapuv[t])
         surf.Vertices[i].DisplacementOrigin = subdivision[t]
     end
 
@@ -592,6 +593,8 @@ local function BuildFromBrushFace(bsp, rawFace)
     local firstedge = rawFace.firstEdge + 1
     local lastedge  = rawFace.firstEdge + rawFace.numEdges
     local normal    = plane.normal
+    local tangent   = texInfo.textureVecS
+    local binormal  = texInfo.textureVecT
 
     -- Collect "raw" vertex list
     local rawVertices = {} ---@type Vector[]
@@ -622,7 +625,7 @@ local function BuildFromBrushFace(bsp, rawFace)
     assert(normal:GetNormalized():Dot(angle:Up()) > 0.999)
 
     if isDisplacement then
-        local surf = BuildFromDisplacement(bsp, rawFace, filteredVertices)
+        local surf = BuildFromDisplacement(bsp, rawFace, filteredVertices, normal, tangent, binormal)
         local mbrMatrix, mbrSize = FindMBR(filteredVertices, angle) -- For the flat mesh
         local mbbMatrix, mbbSize = FindMinimumOBB(surf.Vertices) -- For the deformed mesh
         local aabbSize = surf.AABBMax - surf.AABBMin
@@ -657,9 +660,11 @@ local function BuildFromBrushFace(bsp, rawFace)
         for i, t in ipairs(triangles) do
             surf.Vertices[i] = ss.new "PrecachedData.Vertex"
             surf.Vertices[i].Translation:Set(filteredVertices[t])
-            surf.Vertices[i].Angle:Set(angle)
-            surf.Vertices[i].BumpmapUV.x = (filteredVertices[t]:Dot(texInfo.textureVecS) + texInfo.textureOffsetS) / texData.width
-            surf.Vertices[i].BumpmapUV.y = (filteredVertices[t]:Dot(texInfo.textureVecT) + texInfo.textureOffsetT) / texData.height
+            surf.Vertices[i].Normal:Set(normal)
+            surf.Vertices[i].Tangent:Set(tangent)
+            surf.Vertices[i].Binormal:Set(binormal)
+            surf.Vertices[i].BumpmapUV.x = (filteredVertices[t]:Dot(tangent) + texInfo.textureOffsetS) / texData.width
+            surf.Vertices[i].BumpmapUV.y = (filteredVertices[t]:Dot(binormal) + texInfo.textureOffsetT) / texData.height
             surf.Vertices[i].LightmapUV.x = filteredVertices[t]:Dot(texInfo.lightmapVecS)
                 + texInfo.lightmapOffsetS
                 - rawFace.lightmapTextureMinsInLuxels[1]

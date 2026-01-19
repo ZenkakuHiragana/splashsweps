@@ -37,7 +37,7 @@ function ss.LoadInkMaterials()
                 "Screenspace_General", {
                     ["$pixshader"]           = "splashsweps/drawink_ps30",
                     ["$vertexshader"]        = "splashsweps/drawink_vs30",
-                    ["$alpha_blend"]         = "1",
+                    ["$alpha_blend"]         = "0",
                     ["$cull"]                = "1",
                     ["$depthtest"]           = "1",
                     ["$linearread_texture1"] = "1",

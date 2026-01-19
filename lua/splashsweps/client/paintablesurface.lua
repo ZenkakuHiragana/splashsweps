@@ -33,9 +33,10 @@ end)
 ---@param inktype integer The internal index of ink type.
 function ss.PaintRenderTarget(pos, angle, scale, shape, inktype)
     local rt = ss.RenderTarget
-    local albedo = rt.StaticTextures.Albedo
-    local normal = rt.StaticTextures.Normal
-    local pbr    = rt.StaticTextures.PseudoPBR
+    local add = rt.StaticTextures.Additive
+    local mul = rt.StaticTextures.Multiplicative
+    local pbr = rt.StaticTextures.PseudoPBR
+    local detail = rt.StaticTextures.Details
     local hammerUnitsToPixels = rt.HammerUnitsToPixels
 
     local gap = ss.RT_MARGIN_PIXELS / 2
@@ -55,9 +56,10 @@ function ss.PaintRenderTarget(pos, angle, scale, shape, inktype)
             -- print(uv)
             local localRotation = surf.WorldToUVMatrix * rotationMatrix
             local localAngles = localRotation:GetAngles()
-            render.PushRenderTarget(albedo, surf.OffsetV, surf.OffsetU, surf.UVHeight, surf.UVWidth)
-            render.SetRenderTargetEx(1, normal)
+            render.PushRenderTarget(add, surf.OffsetV, surf.OffsetU, surf.UVHeight, surf.UVWidth)
+            render.SetRenderTargetEx(1, mul)
             render.SetRenderTargetEx(2, pbr)
+            render.SetRenderTargetEx(3, detail)
             cam.Start2D()
             surface.DrawTexturedRectRotated(uv.y + gap, uv.x + gap, height, width, localAngles.yaw)
             cam.End2D()
