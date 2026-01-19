@@ -185,7 +185,7 @@ float4 main(PS_INPUT i) : COLOR {
     // Set up UV coordinates
     float2 inkUV = i.inkUV_worldBumpUV.xy;
     float4 inkDetail = tex2D(InkDetailSampler, inkUV);
-    clip(inkDetail.a - 0.5 / 255.0); // if inkDetail.a == 0.0, no paint here
+    clip((inkDetail.a - 0.5) / max(fwidth(inkDetail.a), 1e-4) - 0.5); // if inkDetail.a == 0.0, no paint here
 
     // Transform view direction to tangent space
     float3 eyeDirection = normalize(g_EyePos.xyz - i.worldPos_projPosZ.xyz);
