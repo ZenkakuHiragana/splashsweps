@@ -27,14 +27,14 @@ static const float THICKNESS_SCALE_SCREENSPACE = 128;
 static const float3 GrayScaleFactor = { 0.2126, 0.7152, 0.0722 };
 
 // Samplers
-sampler2D   AdditiveAndHeightMap        : register(s0);
-sampler2D   MultiplicativeAndRefraction : register(s5);
-sampler2D   InkMaterialSampler          : register(s2);
-sampler2D   InkDetailSampler            : register(s3);
-sampler2D   WallBumpmapSampler          : register(s4);
-sampler2D   WallAlbedoSampler           : register(s1);
-sampler2D   LightmapSampler             : register(s6);
-samplerCUBE EnvmapSampler               : register(s7);
+sampler AdditiveAndHeightMap        : register(s0);
+sampler MultiplicativeAndRefraction : register(s5);
+sampler InkMaterialSampler          : register(s2);
+sampler InkDetailSampler            : register(s3);
+sampler WallBumpmapSampler          : register(s4);
+sampler WallAlbedoSampler           : register(s1);
+sampler LightmapSampler             : register(s6);
+sampler EnvmapSampler               : register(s7);
 
 // If the base geometry is WorldVertexTransition,
 // the albedo sampler becomes a frame buffer
