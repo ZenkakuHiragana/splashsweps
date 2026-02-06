@@ -1,39 +1,33 @@
 {
-    "diagnostics": {
-        "disable": [
-            "deprecated"
-        ]
+    "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
+    "diagnostics.disable": [
+        "deprecated"
+    ],
+    "diagnostics.libraryFiles": "Disable",
+    "runtime.version": "LuaJIT",
+    "runtime.nonstandardSymbol": [
+        "/**/",
+        "//",
+        "!",
+        "!=",
+        "&&",
+        "||",
+        "continue"
+    ],
+    "runtime.special": {
+        "include": "dofile"
     },
-    "runtime": {
-        "version": "LuaJIT",
-        "nonstandardSymbol": [
-            "/**/",
-            "//",
-            "!",
-            "!=",
-            "&&",
-            "||",
-            "continue"
-        ],
-        "special": {
-            "include": "dofile"
-        }
-    },
-    "workspace": {
-        "library": [
-            ".vscode/client",
-            ".vscode/server",
-            ".vscode/types"
-        ],
-        "ignoreDir": [
-            ".vscode",
-            ".gemini"
-        ],
-        "checkThirdParty": false
-    },
-    "format": {
-        "defaultConfig": {
-            "keep_simple_control_block_one_line": true
-        }
+    "workspace.library": [
+        ".vscode/client",
+        ".vscode/server",
+        ".vscode/types"
+    ],
+    "workspace.ignoreDir": [
+        ".vscode",
+        ".gemini"
+    ],
+    "workspace.checkThirdParty": false,
+    "format.defaultConfig": {
+        "keep_simple_control_block_one_line": "true"
     }
 }
