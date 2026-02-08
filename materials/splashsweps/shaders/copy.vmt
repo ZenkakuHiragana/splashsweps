@@ -1,0 +1,17 @@
+"Screenspace_General"
+{
+    "$pixshader" "splashsweps/18_copy_ps30"
+    "$vertexshader" "splashsweps/18_copy_vs30"
+    "$basetexture"            "white"
+    "$alpha_blend"            "0"
+    "$alphablend"             "0"
+    "$alphatested"            "0"
+    "$copyalpha"              "1"
+    "$linearread_basetexture" "1"
+    "$linearwrite"            "1"
+    "$disable_color_writes"   "0"
+    "$writealpha"             "1"
+    "$c0_x"                   "0"
+    "$tcsize0"                "2"
+    "$tcsize1"                "4"
+}

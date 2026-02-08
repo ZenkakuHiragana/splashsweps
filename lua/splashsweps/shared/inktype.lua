@@ -13,19 +13,27 @@ local InkTypeIdentifierToIndex = locals.InkTypeIdentifierToIndex
 
 ---Ink type definition for the appearance and interactions.
 ---@class ss.InkType
----@field Index       integer  Internal index number used by networking.
----@field Identifier  string   The identifier of this type of ink as the key of ss.InkTypes.
----@field Features    string[] List of features this type of ink will have.
----@field BaseTexture string   The albedo texture to render this ink type.
----@field Bumpmap     string   The normal texture to render this ink type.
----@field PBRTexture  string   Texture to describe material parameters.
+---@field Index              integer   Internal index number used by networking.
+---@field Identifier         string    The identifier of this type of ink as the key of ss.InkTypes.
+---@field Features           string[]  List of features this type of ink will have.
+---@field BaseTexture        string    Name of $basetexture
+---@field TintTexture        string    Name of $tinttexture
+---@field DetailTexture      string    Name of $details
+---@field BaseUV             number[]? UV range (minU, minV, maxU, maxV) of $basetexture
+---@field TintUV             number[]? UV range (minU, minV, maxU, maxV) of $tinttexture
+---@field DetailUV           number[]? UV range (minU, minV, maxU, maxV) of $details
+---@field BaseAlphaHeightmap true?     $basealphaheightmap
 ss.struct "InkType" {
     Index = 0,
     Identifier = "",
     Features = {},
     BaseTexture = "",
-    Bumpmap = "",
-    PBRTexture = "",
+    TintTexture = "",
+    DetailTexture = "",
+    BaseUV = nil,
+    TintUV = nil,
+    DetailUV = nil,
+    BaseAlphaHeightmap = nil,
 }
 
 ---JSON scheme for ink type definition.
@@ -33,8 +41,8 @@ ss.struct "InkType" {
 ---@field name?        string   The identifier.
 ---@field features?    string[] List of features this type of ink will have.
 ---@field basetexture? string   The albedo texture to render this ink type.
----@field bumpmap?     string   The normal texture to render this ink type.
----@field pbrtexture?  string   Texture to describe material parameters.
+---@field tinttexture? string   Color tint texture applied to the ground.
+---@field detail?      string   Detail texture.
 
 ---Converts ink type identifier (string) into internal index.
 ---@param identifier string
@@ -46,31 +54,22 @@ end
 ---Reads all JSON files and defines all ink types used in this addon.
 function ss.LoadInkTypes()
     local inktypeCount = 0
-
-    ---@param root string The path to search from.
-    ---@param path string Same as the second argument of `file.Find`, e.g. "GAME", "DATA"
-    local function load(root, path)
-        for f in ss.IterateFilesRecursive(root, path, "*.json") do
-            ---@type ss.InkType.JSON
-            local json = util.JSONToTable(file.Read(f, path)) or {}
-            local name = string.match(json.name or "", "^[A-Za-z0-9_]+$")
-            if name then
-                inktypeCount = inktypeCount + 1
-                local inktype = ss.new "InkType"
-                inktype.Index = inktypeCount
-                inktype.Identifier = name
-                inktype.Features = json.features or {}
-                inktype.BaseTexture = json.basetexture or "debug/debugempty"
-                inktype.Bumpmap = json.bumpmap or "null-bumpmap"
-                inktype.PBRTexture = json.pbrtexture or "grey"
-                ss.InkTypes[inktypeCount] = inktype
-                InkTypeIdentifierToIndex[name] = inktypeCount
-            end
+    for f in ss.IterateFilesRecursive("materials/splashsweps/inktypes", "GAME", "*.vmt") do
+        local mat = Material(f:sub(11))
+        if mat and not mat:IsError() then
+            inktypeCount = inktypeCount + 1
+            local name = mat:GetName()
+            local inktype = ss.new "InkType"
+            inktype.Index = inktypeCount
+            inktype.Identifier = name
+            inktype.Features = (mat:GetString "$features" or ""):Split "%s+"
+            inktype.BaseTexture = mat:GetString "$basetexture" or "debug/debugempty"
+            inktype.TintTexture = mat:GetString "$tinttexture" or "null"
+            inktype.DetailTexture = mat:GetString "$detail" or "grey"
+            ss.InkTypes[inktypeCount] = inktype
+            InkTypeIdentifierToIndex[name] = inktypeCount
         end
     end
-
-    load("data_static/splashsweps/inktypes", "GAME")
-    load("splashsweps/inktypes", "DATA")
 
     ---Total number of defined ink types.
     ss.NumInkTypes = inktypeCount

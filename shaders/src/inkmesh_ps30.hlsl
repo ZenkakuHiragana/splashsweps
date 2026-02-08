@@ -27,31 +27,30 @@ static const float THICKNESS_SCALE_SCREENSPACE = 128;
 static const float3 GrayScaleFactor = { 0.2126, 0.7152, 0.0722 };
 
 // Samplers
-sampler AdditiveAndHeightMap        : register(s0);
-sampler MultiplicativeAndRefraction : register(s5);
-sampler InkMaterialSampler          : register(s2);
-sampler InkDetailSampler            : register(s3);
-sampler WallBumpmapSampler          : register(s4);
-sampler WallAlbedoSampler           : register(s1);
-sampler LightmapSampler             : register(s6);
-sampler EnvmapSampler               : register(s7);
+sampler InkMap             : register(s0);
+sampler InkDetailSampler   : register(s1);
+sampler InkDataSampler     : register(s2);
+sampler WallAlbedoSampler  : register(s3);
+sampler WallBumpmapSampler : register(s4);
+sampler LightmapSampler    : register(s5);
+sampler EnvmapSampler      : register(s6);
 
 // If the base geometry is WorldVertexTransition,
 // the albedo sampler becomes a frame buffer
 #define FrameBufferSampler WallAlbedoSampler
 
 // Constants
-const float4 c0          : register(c0);
-const float4 c1          : register(c1);
-const float4 c2          : register(c2);
-const float4 c3          : register(c3);
-const float2 RcpBaseSize : register(c4); // One over texture size
-const float2 RcpFbSize   : register(c5); // One over frame buffer size
-const float4 c6          : register(c6);
-const float4 c7          : register(c7);
-const float4 c8          : register(c8);
-const float4 c9          : register(c9);
-const float4 g_EyePos    : register(c10); // xyz: eye position
+const float4 c0            : register(c0);
+const float4 c1            : register(c1);
+const float4 c2            : register(c2);
+const float4 c3            : register(c3);
+const float2 RcpRTSize     : register(c4); // One over ink map size
+const float2 RcpDetailSize : register(c5);
+const float2 RcpDataRTSize : register(c6);
+const float2 RcpFbSize     : register(c7); // One over frame buffer size
+const float4 c8            : register(c8);
+const float4 c9            : register(c9);
+const float4 g_EyePos      : register(c10); // xyz: eye position
 const float2x4 BaseTextureTransform : register(c11);
 const float2x4 BumpTextureTransform : register(c15);
 const float4 HDRParams   : register(c30);
@@ -97,51 +96,69 @@ float3 CalcFresnel(float3 normal, float3 viewDirection, float3 f0) {
 
 // Samples additive color and height value
 void FetchAdditiveAndHeight(float2 uv, out float3 additive, out float height, out float3 normal) {
-    float4 s = tex2D(AdditiveAndHeightMap, uv);
+    float4 s = tex2D(InkMap, uv);
     additive = s.rgb;
     height   = s.a;
 
     // Additional samples to calculate tangent space normal
-    float hx = tex2D(AdditiveAndHeightMap, uv + float2(RcpBaseSize.x, 0)).a;
-    float hy = tex2D(AdditiveAndHeightMap, uv + float2(0, RcpBaseSize.y)).a;
+    float hx = tex2D(InkMap, uv + float2(RcpRTSize.x, 0)).a;
+    float hy = tex2D(InkMap, uv + float2(0, RcpRTSize.y)).a;
     float dx = hx - height;
     float dy = hy - height;
     normal = normalize(float3(-dx, -dy, 1.0));
 }
 
-// Samples multiplicative color and refraction strength
-void FetchMultiplicativeAndRefraction(float2 uv, out float3 multiplicative, out float refraction) {
-    float4 s = tex2D(MultiplicativeAndRefraction, uv);
+// Samples multiplicative color and ground depth
+void FetchMultiplicativeAndDepth(float2 uv, out float3 multiplicative, out float depth) {
+    float4 s = tex2D(InkMap, uv + float2(0.5, 0.0));
     multiplicative = s.rgb;
-    refraction     = s.a;
+    depth          = s.a;
 }
 
 // Samples lighting parameters from texture sampler
 void FetchInkMaterial(
-    float2 uv,
+    int id1,
+    int id2,
+    float idBlend,
     out float metallic,
     out float roughness,
-    out float specularMask,
-    out float inkNormalBlendFactor) {
-    float4 s = tex2D(InkMaterialSampler, uv);
-    metallic             = s.r;
-    roughness            = s.g;
-    specularMask         = s.b;
-    inkNormalBlendFactor = s.a;
+    out float specularScale,
+    out float refraction) {
+    float4 s;
+
+    s = tex2D(InkDataSampler, float2(id1, 4.0) * RcpDataRTSize);
+    metallic      = s.r;
+    roughness     = s.g;
+    specularScale = s.b;
+    refraction    = s.a;
+    s = tex2D(InkDataSampler, float2(id2, 4.0) * RcpDataRTSize);
+    metallic      = lerp(metallic,      s.r, idBlend);
+    roughness     = lerp(roughness,     s.g, idBlend);
+    specularScale = lerp(specularScale, s.b, idBlend);
+    refraction    = lerp(refraction,    s.a, idBlend);
 }
 
 // Samples detail component
 void FetchInkDetails(
-    float2 uv,
-    out float unused1,
-    out float unused2,
-    out float unused3,
-    out float miscibility) {
-    float4 s = tex2D(InkDetailSampler, uv);
-    unused1     = s.r;
-    unused2     = s.g;
-    unused3     = s.b;
-    miscibility = s.a;
+    int id1,
+    int id2,
+    float idBlend,
+    out float detailblendmode,
+    out float detailblendscale,
+    out float detailbumpscale,
+    out float bumpblendfactor) {
+    float4 s;
+
+    s = tex2D(InkDataSampler, float2(id1, 6.0) * RcpDataRTSize);
+    detailblendmode  = s.r;
+    detailblendscale = s.g;
+    detailbumpscale  = s.b;
+    bumpblendfactor  = s.a;
+    s = tex2D(InkDataSampler, float2(id2, 6.0) * RcpDataRTSize);
+    detailblendmode  = lerp(detailblendmode,  s.r, idBlend);
+    detailblendscale = lerp(detailblendscale, s.g, idBlend);
+    detailbumpscale  = lerp(detailbumpscale,  s.b, idBlend);
+    bumpblendfactor  = lerp(bumpblendfactor,  s.a, idBlend);
 }
 
 // Samples albedo and bumpmap pixel from geometry textures
@@ -181,11 +198,15 @@ void FetchGeometrySamples(
     }
 }
 
-float4 main(PS_INPUT i) : COLOR {
+float4 main(PS_INPUT i) : COLOR0 {
     // Set up UV coordinates
-    float2 inkUV = i.inkUV_worldBumpUV.xy;
-    float4 inkDetail = tex2D(InkDetailSampler, inkUV);
-    clip((inkDetail.a - 0.5) / max(fwidth(inkDetail.a), 1e-4) - 0.5); // if inkDetail.a == 0.0, no paint here
+    float2 inkUV = i.inkUV_worldBumpUV.xy * 0.5;
+    float4 inkIDs = tex2D(InkMap, inkUV + float2(0.0, 0.5));
+    int    ID1       = int(round(inkIDs.r * 255.0));
+    int    ID2       = int(round(inkIDs.g * 255.0));
+    float  idBlend   = inkIDs.b;
+    float  clipValue = ID1 > 0 || ID2 > 0;
+    clip((clipValue - 0.5) / max(fwidth(clipValue), 1e-4) - 0.5);
 
     // Transform view direction to tangent space
     float3 eyeDirection = normalize(g_EyePos.xyz - i.worldPos_projPosZ.xyz);
@@ -201,10 +222,13 @@ float4 main(PS_INPUT i) : COLOR {
     // Samples ink parameters
     float3 additive, multiplicative, inkNormal;
     float3 geometryAlbedo, geometryNormal;
-    float height, refraction, metallic, roughness, specularMask, inkNormalBlendFactor;
+    float height, depth;
+    float metallic, roughness, specularScale, refraction;
+    float detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor;
     FetchAdditiveAndHeight(inkUV, additive, height, inkNormal);
-    FetchMultiplicativeAndRefraction(inkUV, multiplicative, refraction);
-    FetchInkMaterial(inkUV, metallic, roughness, specularMask, inkNormalBlendFactor);
+    FetchMultiplicativeAndDepth(inkUV, multiplicative, depth);
+    FetchInkMaterial(ID1, ID2, idBlend, metallic, roughness, specularScale, refraction);
+    FetchInkDetails(ID1, ID2, idBlend, detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor);
 
     float  thickness = (height + 1) * THICKNESS_SCALE;
     float2 uvOffset = inkNormal.xy; // refraction by normal
@@ -233,7 +257,7 @@ float4 main(PS_INPUT i) : COLOR {
     FetchGeometrySamples(bumpUV, baseUV, lightmapColors, geometryAlbedo, geometryNormal);
 
     // Blend ink and world normals
-    float3 tangentSpaceNormal = normalize(lerp(geometryNormal, inkNormal, inkNormalBlendFactor));
+    float3 tangentSpaceNormal = normalize(lerp(geometryNormal, inkNormal, bumpblendfactor));
     float3 worldSpaceNormal = normalize(mul(tangentSpaceNormal, i.tangentSpaceTranspose));
 
     // Compute diffuse lighting factors using bumped lightmap basis
@@ -280,7 +304,7 @@ float4 main(PS_INPUT i) : COLOR {
     float3 phongSpecular = mul(lightDirectionDifferences * spec, lightmapColors);
     phongSpecular *= CalcFresnel(tangentSpaceNormal, tangentViewDir, phongFresnel);
     phongSpecular *= ambientOcclusion;
-    phongSpecular *= specularMask;
+    phongSpecular *= specularScale;
     phongSpecular *= g_LightmapScale;
     result += phongSpecular;
 #endif
@@ -300,7 +324,7 @@ float4 main(PS_INPUT i) : COLOR {
     float3 rimLighting = mul(lightDirectionDifferences, lightmapColors);
     rimLighting = lerp(rimLighting, albedo, metallic);
     rimLighting *= min(rimScale, RIMLIGHT_MAX_SCALE);
-    rimLighting *= specularMask;
+    rimLighting *= specularScale;
     rimLighting *= g_LightmapScale;
     result += rimLighting;
 #endif
@@ -318,7 +342,7 @@ float4 main(PS_INPUT i) : COLOR {
     envmapSpecular *= CalcFresnel(worldSpaceNormal, eyeDirection, envmapFresnel);
     envmapSpecular *= envmapScale;
     envmapSpecular *= ambientOcclusion;
-    envmapSpecular *= specularMask;
+    envmapSpecular *= specularScale;
     envmapSpecular *= g_LightmapScale;
     result += envmapSpecular;
 #endif

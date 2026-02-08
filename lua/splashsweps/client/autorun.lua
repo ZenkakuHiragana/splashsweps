@@ -19,9 +19,8 @@ if not SplashSWEPs then
 end
 
 include "splashsweps/shared/autorun.lua"
-include "splashsweps/client/inkmaterial.lua"
 include "splashsweps/client/inkrenderer.lua"
-include "splashsweps/client/paintablesurface.lua"
+include "splashsweps/client/inktype.lua"
 include "splashsweps/client/rbtree.lua"
 include "splashsweps/client/rtbuilder.lua"
 include "splashsweps/client/session.lua"
@@ -61,14 +60,14 @@ local function LoadCache()
     ss.HashParameters = setmetatable(cache.HashParameters, getmetatable(ss.new "PrecachedData.HashParameters"))
 
     ss.SetupRenderTargets()
+    ss.LoadInkFeatures()
+    ss.LoadInkShapes()
+    ss.LoadInkTypes()
+    ss.LoadInkTypesRT()
     ss.SetupModels(surfaces, cache.NumModels, cache.MaterialNames)
     ss.SetupSurfaces(surfaces.Surfaces)
     ss.SetupSurfacesStaticProp(cache.StaticProps, staticPropUV)
     ss.SetupStaticProps(cache.StaticProps, cache.StaticPropMDL, staticPropUV)
-    ss.LoadInkFeatures()
-    ss.LoadInkShapes()
-    ss.LoadInkTypes()
-    ss.LoadInkMaterials()
 end
 
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()

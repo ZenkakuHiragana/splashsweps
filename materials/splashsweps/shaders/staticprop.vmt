@@ -4,8 +4,8 @@
     "$vertexshader" "splashsweps/staticprop_vs30"
     "$linearread_texture1" "1"
 
-    "$basetexture" "splashsweps_basetexture"
-    "$texture1"    "splashsweps_bumpmap"
+    "$basetexture" "splashsweps_inkmap"
+    "$texture1"    "splashsweps_details"
     "$texture2"    "grey"
     "$texture3"    "effects/flashlight001"
 

@@ -53,11 +53,12 @@ ss.struct "IHasMBB" {
 ---@field TriangleHash           table<integer, integer[]>? Hash table to lookup triangles of a displacement.
 ---@field Triangles              ss.DisplacementTriangle[]? Array of triangles of a displacement.
 ---@field WorldToLocalGridMatrix VMatrix The transformation matrix to convert world coordinates into local coordinates. This does not modify scales.
----@field WorldToUVMatrix        VMatrix The transformation matrix to convert world coordinates into UV coordinates. This does not modify scales.
----@field OffsetU                number  The u-coordinate of left-top corner of this surface in UV space in pixels.
----@field OffsetV                number  The v-coordinate of left-top corner of this surface in UV space in pixels.
----@field UVWidth                number  The width of this surface in UV space in pixels.
----@field UVHeight               number  The height of this surface in UV space in pixels.
+---@field WorldToUVRow1          number[] The first row of transformation matrox to convert world position into UV space without scaling.
+---@field WorldToUVRow2          number[] The second row of transformation matrox to convert world position into UV space without scaling.
+---@field OffsetU                number  The u-coordinate of left-top corner of this surface in UV space.
+---@field OffsetV                number  The v-coordinate of left-top corner of this surface in UV space.
+---@field UVWidth                number  The width of this surface in UV space.
+---@field UVHeight               number  The height of this surface in UV space.
 ss.struct "PaintableSurface" "IHasMBB" {
     AABBMax = Vector(),
     AABBMin = Vector(),
@@ -67,7 +68,8 @@ ss.struct "PaintableSurface" "IHasMBB" {
     TriangleHash = nil,
     Triangles = nil,
     WorldToLocalGridMatrix = Matrix(),
-    WorldToUVMatrix = Matrix(),
+    WorldToUVRow1 = nil,
+    WorldToUVRow2 = nil,
     OffsetU = 0,
     OffsetV = 0,
     UVWidth = 0,
@@ -120,6 +122,7 @@ function ss.SetupSurfaces(surfaces)
     local TriangleMeta = getmetatable(ss.new "PrecachedData.DisplacementTriangle")
     local VertexMeta = getmetatable(ss.new "PrecachedData.Vertex")
     local UVInfoMeta = getmetatable(ss.new "PrecachedData.UVInfo")
+    local tempMatrix = Matrix()
     for i, surf in ipairs(surfaces) do
         setmetatable(surf, SurfaceMeta)
         setmetatable(surf.TransformPaintGrid, MatrixMeta)
@@ -159,12 +162,24 @@ function ss.SetupSurfaces(surfaces)
             local rtIndex = #ss.RenderTarget.Resolutions
             local rtSize = ss.RenderTarget.Resolutions[rtIndex]
             local uvInfo = setmetatable(surf.UVInfo[rtIndex], UVInfoMeta)
-            ps.WorldToUVMatrix:SetAngles(uvInfo.Angle)
-            ps.WorldToUVMatrix:SetTranslation(uvInfo.Translation)
-            ps.OffsetU = math.max(uvInfo.OffsetU * rtSize - ss.RT_MARGIN_PIXELS / 2, 0)
-            ps.OffsetV = math.max(uvInfo.OffsetV * rtSize - ss.RT_MARGIN_PIXELS / 2, 0)
-            ps.UVWidth = uvInfo.Width * rtSize + ss.RT_MARGIN_PIXELS
-            ps.UVHeight = uvInfo.Height * rtSize + ss.RT_MARGIN_PIXELS
+            tempMatrix:SetAngles(uvInfo.Angle)
+            tempMatrix:SetTranslation(uvInfo.Translation)
+            ps.WorldToUVRow1 = {
+                tempMatrix:GetField(1, 1),
+                tempMatrix:GetField(1, 2),
+                tempMatrix:GetField(1, 3),
+                tempMatrix:GetField(1, 4),
+            }
+            ps.WorldToUVRow2 = {
+                tempMatrix:GetField(2, 1),
+                tempMatrix:GetField(2, 2),
+                tempMatrix:GetField(2, 3),
+                tempMatrix:GetField(2, 4),
+            }
+            ps.OffsetU  = uvInfo.OffsetU - ss.RT_MARGIN_PIXELS / rtSize / 2
+            ps.OffsetV  = uvInfo.OffsetV - ss.RT_MARGIN_PIXELS / rtSize / 2
+            ps.UVWidth  = uvInfo.Width   + ss.RT_MARGIN_PIXELS / rtSize
+            ps.UVHeight = uvInfo.Height  + ss.RT_MARGIN_PIXELS / rtSize
         end
         ss.SurfaceArray[i] = ps
     end
@@ -172,8 +187,8 @@ end
 
 ---Reads a list of static props and stores them for later use.
 ---
----Each static prop has its own oriented bounding box (OBB).  
----We project the vertices of the prop onto one of the surfaces of the OBB.  
+---Each static prop has its own oriented bounding box (OBB).
+---We project the vertices of the prop onto one of the surfaces of the OBB.
 ---Then, unwrap the OBB to the UV space.
 ---
 ---First, we set up a coordinate system on the surface
@@ -193,7 +208,7 @@ end
 ---
 ---The coordinate system will be determined as follows.
 ---
----Let `X`, `Y`, and `Z` be the basis of the OBB  
+---Let `X`, `Y`, and `Z` be the basis of the OBB
 ---and `S = (sx, sy, sz)` be the size of the OBB along each basis.
 ---
 ---- Orientation of the coordinate system for each surface:
@@ -304,6 +319,7 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
     local worldTmodel = Matrix()
     local absoluteuvRlocaluv = Matrix()
     local modelUVOriginInAbsoluteUV = Vector()
+    local worldToUV = Matrix()
     for i, prop in ipairs(staticPropInfo or {}) do
         setmetatable(prop, StaticPropMeta)
         local boundingBoxSize = prop.BoundsMax - prop.BoundsMin
@@ -430,9 +446,21 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
                 faceUVOrigin:Rotate(absoluteuvRlocaluv:GetAngles())
                 faceUVOrigin:Add(modelUVOriginInAbsoluteUV) -- in absolute UV
                 faceUVOrigin.x = faceUVOrigin.x - (isRotated and faceSizeInAbsoluteUV.x or 0)
-                ps.WorldToUVMatrix:Set(absoluteuvRlocaluv)
-                ps.WorldToUVMatrix:SetField(1, 4, isRotated and faceSizeInAbsoluteUV.x or 0) -- Translation X
-                ps.WorldToUVMatrix:Mul(ps.WorldToLocalGridMatrix) -- absoluteuvTlocaluv * faceTworld
+                worldToUV:Set(absoluteuvRlocaluv)
+                worldToUV:SetField(1, 4, isRotated and faceSizeInAbsoluteUV.x or 0) -- Translation X
+                worldToUV:Mul(ps.WorldToLocalGridMatrix) -- absoluteuvTlocaluv * faceTworld
+                ps.WorldToUVRow1 = {
+                    worldToUV:GetField(1, 1),
+                    worldToUV:GetField(1, 2),
+                    worldToUV:GetField(1, 3),
+                    worldToUV:GetField(1, 4),
+                }
+                ps.WorldToUVRow2 = {
+                    worldToUV:GetField(2, 1),
+                    worldToUV:GetField(2, 2),
+                    worldToUV:GetField(2, 3),
+                    worldToUV:GetField(2, 4),
+                }
                 ps.OffsetU  = faceUVOrigin.x * hammerToPixel
                 ps.OffsetV  = faceUVOrigin.y * hammerToPixel
                 ps.UVWidth  = faceSizeInAbsoluteUV.x * hammerToPixel

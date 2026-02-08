@@ -11,12 +11,11 @@ local min = math.min
 local Round = math.Round
 local Remap = math.Remap
 local NormalizeAngle = math.NormalizeAngle
+local GetPredictionPlayer = GetPredictionPlayer
 local net_Start = net.Start
 local net_WriteUInt = net.WriteUInt
 local net_WriteInt = net.WriteInt
-
----@diagnostic disable-next-line: undefined-field
-local net_Broadcast = net.Broadcast ---@type fun()
+local net_SendOmit = net.SendOmit
 
 ---Maximum paint scale of a single drop to be networked
 local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS) - 1
@@ -120,18 +119,24 @@ end
 ---@param shape    integer The internal index of shape to paint.
 ---@param inktype  integer The internal index of ink type.
 function ss.Paint(worldPos, worldAng, scale, shape, inktype)
-    if SERVER then
-        -- Parameter limit to reduce network traffic
-        local x     = Round(worldPos.x * 0.5)
-        local y     = Round(worldPos.y * 0.5) -- -16384 to 16384, 2 step
-        local z     = Round(worldPos.z * 0.5)
-        local sx    = Round(min(scale.x, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
-        local sy    = Round(min(scale.y, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
-        local sz    = Round(min(scale.z, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
-        local pitch = Clamp(Round(NormalizeAngle(worldAng.pitch) / 180 * 128), -128, 127)
-        local yaw   = Clamp(Round(NormalizeAngle(worldAng.yaw)   / 180 * 128), -128, 127)
-        local roll  = Clamp(Round(NormalizeAngle(worldAng.roll)  / 180 * 128), -128, 127)
+    -- Parameter limit to reduce network traffic
+    local x     = Round(worldPos.x * 0.5)
+    local y     = Round(worldPos.y * 0.5) -- -16384 to 16384, 2 step
+    local z     = Round(worldPos.z * 0.5)
+    local sx    = Round(min(scale.x, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
+    local sy    = Round(min(scale.y, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
+    local sz    = Round(min(scale.z, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
+    local pitch = Clamp(Round(NormalizeAngle(worldAng.pitch) / 180 * 128), -128, 127)
+    local yaw   = Clamp(Round(NormalizeAngle(worldAng.yaw)   / 180 * 128), -128, 127)
+    local roll  = Clamp(Round(NormalizeAngle(worldAng.roll)  / 180 * 128), -128, 127)
+    worldPos:SetUnpacked(x * 2, y * 2, z * 2)
+    worldAng:SetUnpacked(
+        Remap(pitch, -128, 127, -180, 180),
+        Remap(yaw,   -128, 127, -180, 180),
+        Remap(roll,  -128, 127, -180, 180))
+    scale:SetUnpacked(sx * 2, sy * 2, sz * 2)
 
+    if SERVER then
         net_Start "SplashSWEPs: Paint"
         net_WriteUInt(inktype - 1, ss.MAX_INKTYPE_BITS) -- Ink type
         net_WriteUInt(shape - 1, ss.MAX_INKSHAPE_BITS) -- Ink shape
@@ -144,14 +149,9 @@ function ss.Paint(worldPos, worldAng, scale, shape, inktype)
         net_WriteUInt(sx, ss.MAX_INK_RADIUS_BITS) -- Scale X
         net_WriteUInt(sy, ss.MAX_INK_RADIUS_BITS) -- Scale Y
         net_WriteUInt(sz, ss.MAX_INK_RADIUS_BITS) -- Scale Z
-        net_Broadcast()
-
-        worldPos:SetUnpacked(x * 2, y * 2, z * 2)
-        worldAng:SetUnpacked(
-            Remap(pitch, -128, 127, -180, 180),
-            Remap(yaw,   -128, 127, -180, 180),
-            Remap(roll,  -128, 127, -180, 180))
-        scale:SetUnpacked(sx * 2, sy * 2, sz * 2)
+        net_SendOmit(ss.sp and NULL or GetPredictionPlayer())
+    else
+        ss.PushPaintRenderTargetQueue(worldPos, worldAng, scale, shape, inktype)
     end
 
     -- -- Bounding box for finding surfaces

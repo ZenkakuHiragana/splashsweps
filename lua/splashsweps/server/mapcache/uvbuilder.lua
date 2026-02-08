@@ -69,7 +69,7 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
                 workMatrix:SetAngles(info.Angle)
                 workMatrix:InvertTR()
                 info.Angle:Set(workMatrix:GetAngles())
-                info.Translation:Set(workMatrix:GetTranslation())
+                info.Translation:Set(workMatrix:GetTranslation() + rect.bottomleft)
             else ---@cast tag { UV: ss.PrecachedData.StaticProp.UVInfo, Rectangle: Vector }
                 local rotated = rect.istall ~= (tag.Rectangle.x < tag.Rectangle.y)
                 tag.UV.Width = width

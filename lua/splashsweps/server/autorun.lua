@@ -7,26 +7,26 @@ if not SplashSWEPs then
         ---Contains information around render targets clientside.
         RenderTarget = {
             Resolutions = {
-                2048,
-                4096,
-                5792,
-                8192,
-                11586,
-                16384,
+                1024,
+                -- 4096,
+                -- 5792,
+                -- 8192,
+                -- 11586,
+                -- 16384,
             },
         },
     }
 end
 
 include "splashsweps/shared/autorun.lua"
+include "splashsweps/shared/packer/packer.lua"
+include "splashsweps/shared/packer/structures.lua"
 include "splashsweps/server/playerconnection.lua"
 include "splashsweps/server/mapcache/bsploader.lua"
 include "splashsweps/server/mapcache/cachebuilder.lua"
 include "splashsweps/server/mapcache/lightmapbuilder.lua"
 include "splashsweps/server/mapcache/surfacebuilder.lua"
 include "splashsweps/server/mapcache/uvbuilder.lua"
-include "splashsweps/server/packer/packer.lua"
-include "splashsweps/server/packer/structures.lua"
 
 ---@class ss
 local ss = SplashSWEPs

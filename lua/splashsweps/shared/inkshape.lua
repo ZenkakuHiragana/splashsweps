@@ -11,7 +11,7 @@ end
 ---@type table<string, integer[]>
 local InkShapeLists = locals.InkShapeLists
 
----Mask array used to draw on PaintableSurface grid.  
+---Mask array used to draw on PaintableSurface grid.
 ---Access the mask value using `InkShape.Grid[y * InkShape.Width + x]`: boolean.
 ---@class ss.InkShape.Grid
 ---@field [integer]     boolean   True for filled pixel, index = y * Width + x
@@ -36,15 +36,19 @@ end)
 
 ---Defines the shape of painted ink.
 ---@class ss.InkShape
----@field Index       integer The internal index used in networking.
----@field Identifier  string  The identifier of this ink shape as the key of ss.InkShapes.
----@field MaskTexture string  Only used clientside; mask texture to create drawing materials.
----@field Grid        ss.InkShape.Grid Only used serverside; mask for drawing on PaintableSurface grid.
+---@field Index       integer          The internal index used in networking.
+---@field Identifier  string           The identifier of this ink shape as the key of ss.InkShapes.
+---@field Grid        ss.InkShape.Grid Mask for drawing on PaintableSurface grid.
+---@field MaskTexture string?          Only used clientside; mask texture to create drawing materials.
+---@field UV          number[]?        UV range (minU, minV, maxU, maxV) passed to the shader.
+---@field Channel     "R"|"G"|"B"|"A"? Determines which channel of MaskTexture to use.
 ss.struct "InkShape" {
     Index = 0,
     Identifier = "",
-    MaskTexture = "",
-    Grid = ss.new "InkShape.Grid"
+    MaskTexture = nil,
+    Grid = ss.new "InkShape.Grid",
+    UV = nil,
+    Channel = nil,
 }
 
 ---Read pixels from givem texture and stores them to the mask.
@@ -62,8 +66,10 @@ local function ReadPixelsFromVTF(vmt)
     local width = vtf.Images[1].Width
     local height = vtf.Images[1].Height
     local shape = ss.new "InkShape"
+    local VALID_CHANNELS = { R = "R", G = "G", B = "B", A = "A" }
     shape.Grid = ss.new "InkShape.Grid" (width, height)
     shape.MaskTexture = path
+    shape.Channel = VALID_CHANNELS[vmt:GetString "$channel" or "R"] or "R"
 
     local grid = shape.Grid
     local threshold = vmt:GetFloat "$alphatestreference" or 0.5
@@ -90,15 +96,13 @@ function ss.LoadInkShapes()
         if not vmt:IsError() then
             local param = vmt:GetString "$splashsweps_tag" or ""
             local tag = param:match "^[a-z0-9_]+$"
-            if tag then
-                local shape = ReadPixelsFromVTF(vmt)
-                if shape then
-                    shapeCount = shapeCount + 1
-                    shape.Index = shapeCount
-                    shape.Identifier = f:gsub("^materials/splashsweps/paints/", "")
-                    InkShapeLists[tag] = table.ForceInsert(InkShapeLists[tag], shape.Index)
-                    ss.InkShapes[shape.Index] = shape
-                end
+            local shape = ReadPixelsFromVTF(vmt)
+            if tag and shape then
+                shapeCount = shapeCount + 1
+                shape.Index = shapeCount
+                shape.Identifier = f:gsub("^materials/splashsweps/paints/", "")
+                InkShapeLists[tag] = table.ForceInsert(InkShapeLists[tag], shape.Index)
+                ss.InkShapes[shape.Index] = shape
             end
         end
     end

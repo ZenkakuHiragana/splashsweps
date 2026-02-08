@@ -2,4 +2,5 @@
 {
     "$basetexture" "splashsweps/paints/drop/a1"
     "$splashsweps_tag" "builtin_drop"
+    "$channel" "A"
 }

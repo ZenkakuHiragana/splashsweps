@@ -3,6 +3,7 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local CREATERENDERTARGETFLAGS_NONE = 0
 local TEXTUREFLAGS = {
     CLAMPS            = 4,
     NOMIP             = 256,
@@ -38,22 +39,22 @@ local TEXTUREFLAGS = {
     SSBUMP            = 134217728,
 }
 local RTNAMES = {
-    ADDITIVE       = "splashsweps_additive",
-    MULTIPLICATIVE = "splashsweps_multiplicative",
-    PBR            = "splashsweps_pbr",
-    DETAILS        = "splashsweps_details",
+    INKMAP  = "splashsweps_inkmap",
+    INKMAP2 = "splashsweps_inkmap2",
+    ALBEDO  = "splashsweps_albedo",
+    TINT    = "splashsweps_tint",
+    DETAILS = "splashsweps_details",
 }
 local COMMON_FLAGS = bit.bor(
     TEXTUREFLAGS.NOMIP,
     TEXTUREFLAGS.NOLOD,
     TEXTUREFLAGS.ALL_MIPS,
-    TEXTUREFLAGS.RENDERTARGET,
-    TEXTUREFLAGS.NODEPTHBUFFER)
+    TEXTUREFLAGS.RENDERTARGET)
 local RTFLAGS = {
-    ADDITIVE = COMMON_FLAGS,
-    MULTIPLICATIVE = COMMON_FLAGS,
-    PBR = COMMON_FLAGS,
-    DETAILS = COMMON_FLAGS,
+    INKMAP  = COMMON_FLAGS,
+    ALBEDO  = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
+    TINT    = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
+    DETAILS = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
 }
 
 if not ss.RenderTarget then
@@ -61,15 +62,17 @@ if not ss.RenderTarget then
     ss.RenderTarget = {
         ---Render targets for static part of the world.
         StaticTextures = {
-            Additive       = nil, ---@type ITexture
-            Multiplicative = nil, ---@type ITexture
-            PseudoPBR      = nil, ---@type ITexture
-            Details        = nil, ---@type ITexture
+            InkMap  = nil, ---@type ITexture
+            InkMap2 = nil, ---@type ITexture
+            Albedo  = nil, ---@type ITexture
+            Tint    = nil, ---@type ITexture
+            Details = nil, ---@type ITexture
+            Params  = nil, ---@type ITexture
         },
         ---List of render target resolutions available.
         Resolutions = {
-            2048,
-            4096,
+            1024,
+            -- 4096,
             -- 5792,
             -- 8192,
             -- 11586,
@@ -87,29 +90,37 @@ function ss.SetupRenderTargets()
     local rt = ss.RenderTarget
     local rtIndex = #ss.RenderTarget.Resolutions
     local rtSize = rt.Resolutions[rtIndex]
-    rt.StaticTextures.Additive = GetRenderTargetEx(
-        RTNAMES.ADDITIVE,
+    rt.StaticTextures.InkMap = GetRenderTargetEx(
+        RTNAMES.INKMAP,
         rtSize, rtSize,
         RT_SIZE_LITERAL,
-        MATERIAL_RT_DEPTH_NONE,
-        RTFLAGS.ADDITIVE,
-        CREATERENDERTARGETFLAGS_HDR,
+        MATERIAL_RT_DEPTH_SEPARATE,
+        RTFLAGS.INKMAP,
+        CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA8888)
-    rt.StaticTextures.Multiplicative = GetRenderTargetEx(
-        RTNAMES.MULTIPLICATIVE,
+    rt.StaticTextures.InkMap2 = GetRenderTargetEx(
+        RTNAMES.INKMAP2,
         rtSize, rtSize,
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
-        RTFLAGS.MULTIPLICATIVE,
-        CREATERENDERTARGETFLAGS_HDR,
+        RTFLAGS.INKMAP,
+        CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA8888)
-    rt.StaticTextures.PseudoPBR = GetRenderTargetEx(
-        RTNAMES.PBR,
+    rt.StaticTextures.Albedo = GetRenderTargetEx(
+        RTNAMES.ALBEDO,
         rtSize, rtSize,
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
-        RTFLAGS.PBR,
-        CREATERENDERTARGETFLAGS_HDR,
+        RTFLAGS.ALBEDO,
+        CREATERENDERTARGETFLAGS_NONE,
+        IMAGE_FORMAT_RGBA8888)
+    rt.StaticTextures.Tint = GetRenderTargetEx(
+        RTNAMES.TINT,
+        rtSize, rtSize,
+        RT_SIZE_LITERAL,
+        MATERIAL_RT_DEPTH_NONE,
+        RTFLAGS.TINT,
+        CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA8888)
     rt.StaticTextures.Details = GetRenderTargetEx(
         RTNAMES.DETAILS,
@@ -117,7 +128,7 @@ function ss.SetupRenderTargets()
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
         RTFLAGS.DETAILS,
-        CREATERENDERTARGETFLAGS_HDR,
+        CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA8888)
     rt.HammerUnitsToPixels = rt.HammerUnitsToUV * rtSize
     ss.ClearAllInk()

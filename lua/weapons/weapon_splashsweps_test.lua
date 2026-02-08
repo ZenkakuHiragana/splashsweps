@@ -51,9 +51,9 @@ SWEP.Primary.Delay = 1 / 120
 
 SWEP.InkTypeIndex = 1
 SWEP.InkTypes = {
-    "ColorRed",
-    "ColorSeal",
-    "MaterialTest",
+    "splashsweps/inktypes/color_red",
+    "splashsweps/inktypes/color_seal",
+    "splashsweps/inktypes/material_test",
 }
 
 function SWEP:Initialize()
@@ -83,10 +83,10 @@ function SWEP:PrimaryAttack()
     local normal = tr.HitNormal
     local right = normal:Cross(tr.StartPos - pos):GetNormalized()
     local ang = right:Cross(normal):AngleEx(normal)
+    local id = ss.FindInkTypeID(self.InkTypes[self.InkTypeIndex])
     debugoverlay.Axis(pos, ang, 20, 5, false)
     ss.Paint(pos, ang, Vector(radius, radius, radius * 0),
-        ss.SelectRandomShape("builtin_drop").Index,
-        ss.FindInkTypeID(self.InkTypes[self.InkTypeIndex]) or -1)
+        ss.SelectRandomShape("builtin_drop").Index, id or -1)
     self:SetNextPrimaryFire(CurTime() + self.Primary.Delay)
 end
 

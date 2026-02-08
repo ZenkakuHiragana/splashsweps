@@ -1,0 +1,9 @@
+"UnlitGeneric"
+{
+    "$basetexture" "red"
+    "$tinttexture" "white"
+    "$detail" "rubber_bump"
+    "$alpha" "0.125"
+    "$maxlayers" "4"
+    "$features" ""
+}

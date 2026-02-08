@@ -33,8 +33,8 @@ if not ss.Locals then
     ---@type ss.PaintableSurface[]
     ss.SurfaceArray = {}
 
-    ---A hash table to represent grid separation of paintable surfaces  
-    --- `= { [hash] = { i1, i2, i3, ... }, ... }`  
+    ---A hash table to represent grid separation of paintable surfaces
+    --- `= { [hash] = { i1, i2, i3, ... }, ... }`
     ---where `i` is index of `ss.SurfaceArray`
     ---@type table<integer, integer[]>
     ss.SurfaceHash = {}
@@ -59,6 +59,9 @@ ss.MAX_INK_RADIUS_BITS = 8
 ---Gap between surfaces in UV coordinates in pixels.
 ss.RT_MARGIN_PIXELS = 4
 
+---Indicates if this game is a single player game.
+ss.sp = game.SinglePlayer()
+
 include "splashsweps/shared/util.lua"
 include "splashsweps/shared/hash.lua"
 include "splashsweps/shared/struct.lua"
@@ -67,6 +70,8 @@ include "splashsweps/shared/inkshape.lua"
 include "splashsweps/shared/inktype.lua"
 include "splashsweps/shared/binary/reader.lua"
 include "splashsweps/shared/binary/writer.lua"
+include "splashsweps/shared/packer/packer.lua"
+include "splashsweps/shared/packer/structures.lua"
 include "splashsweps/shared/paint/paint.lua"
 include "splashsweps/shared/paint/paintablegrid.lua"
 include "splashsweps/shared/paint/paintablesurface.lua"
