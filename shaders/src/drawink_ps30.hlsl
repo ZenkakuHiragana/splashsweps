@@ -43,10 +43,11 @@ float4 FetchDataPixel(int id, int index) {
     return tex2Dlod(DataSampler, uv);
 }
 
-void CalculateHeight(const PS_INPUT i, float oldHeight, float heightSample,
-    float geometryPaintBias, float nodig, out float paintStrength, out float newHeight) {
+void CalculateHeight(
+    const PS_INPUT i, float oldHeight, float heightSample,
+    float4 heightParam, float geometryPaintBias, float nodig,
+    out float paintStrength, out float newHeight) {
     // Height map blend parameters
-    float4 heightParam = FetchDataPixel(paintType, ID_HEIGHT_MAXLAYERS);
     float maxHeight = heightParam.x;
     float meanHeight = heightParam.y;
     float heightScale = TO_SIGNED(heightParam.z) * 2.0 * zScale;
@@ -85,23 +86,25 @@ PS_OUTPUT AdditiveAndHeight(const PS_INPUT i, float t, float shapeMask) {
     float4 old = tex2D(InkMap, inkMapUV);
     float4 colorAlphaParam = FetchDataPixel(paintType, ID_COLOR_ALPHA);
     float4 tintParam = FetchDataPixel(paintType, ID_TINT_GEOMETRYPAINT);
+    float4 heightParam = FetchDataPixel(paintType, ID_HEIGHT_MAXLAYERS);
     float4 miscParam = FetchDataPixel(paintType, ID_MISC);
     float nodig = step(0.5, miscParam.w);
     float geometryPaintBias = tintParam.w;
     float oldHeight = TO_SIGNED(old.a);
     float heightSample = add.a;
     float paintStrength, newHeight;
-    CalculateHeight(i, oldHeight, heightSample,
+    CalculateHeight(i, oldHeight, heightSample, heightParam,
         geometryPaintBias, nodig, paintStrength, newHeight);
 
     // Basic tint by $color, $tintcolor, and $alpha
     add.rgb *= colorAlphaParam.rgb * paintStrength;
     tint.rgb *= (1.0 - colorAlphaParam.aaa) * tintParam.rgb * paintStrength;
+    float maxLayers = floor(heightParam.w * 255);
     float erase = miscParam.x;
-    float flatten = miscParam.y;
-    float3 newColor = old.rgb * tint.rgb + add.rgb * (1.0 - erase);
-    float clampedHeight = max(nodig - 1.0, lerp(newHeight, 0.0, flatten));
-    PS_OUTPUT output = { newColor.r, newColor.g, newColor.b, TO_UNSIGNED(clampedHeight), t };
+    float3 tintLimit = pow(saturate(tint.rgb), maxLayers);
+    float3 tintFade = smoothstep(tintLimit, tintLimit + 0.0625, distance(old.rgb, add.rgb));
+    float3 newColor = (old.rgb * lerp(1.0, tint.rgb, tintFade) + add.rgb * tintFade) * (1.0 - erase);
+    PS_OUTPUT output = { newColor.r, newColor.g, newColor.b, old.a + 1.0 / 255.0, t };
     return output;
 }
 
@@ -167,19 +170,23 @@ PS_OUTPUT PaintIndices(const PS_INPUT i, float t, float shapeMask) {
     float4 heightSample = tex2D(InkMap, inkMapUV + float2(0.0, -0.5));
     float4 colorAlphaParam = FetchDataPixel(paintType, ID_COLOR_ALPHA);
     float4 tintParam = FetchDataPixel(paintType, ID_TINT_GEOMETRYPAINT);
-    float nodig = step(0.5, FetchDataPixel(paintType, ID_MISC).w);
+    float4 heightParam = FetchDataPixel(paintType, ID_HEIGHT_MAXLAYERS);
+    float4 miscParam = FetchDataPixel(paintType, ID_MISC);
+    float nodig = step(0.5, miscParam.w);
     float geometryPaintBias = tintParam.w;
     float oldHeight = TO_SIGNED(old.a);
     float paintStrength, newHeight;
-    CalculateHeight(i, oldHeight, heightSample.a,
+    CalculateHeight(i, oldHeight, heightSample.a, heightParam,
         geometryPaintBias, nodig, paintStrength, newHeight);
+    float flatten = miscParam.y;
+    float clampedHeight = max(nodig - 1.0, lerp(newHeight, 0.0, flatten));
     float scale = dot(GrayScaleFactor,
-        tint.rgb * colorAlphaParam.aaa * tintParam.rgb * paintStrength);
+        tint.rgb * (1.0 - colorAlphaParam.aaa) * tintParam.rgb * paintStrength);
     PS_OUTPUT output = {
-        scale < eps ? saturate(paintType / 255) : old.r,
-        scale > 0.0 ? saturate(paintType / 255) : old.g,
-        scale < eps ? 0.0                       : saturate(1.0 - scale),
-        0.0, t,
+        scale < eps ? paintType / 255 : old.r,
+        scale > 0.0 ? paintType / 255 : old.g,
+        scale < eps ? 0.0             : saturate(1.0 - scale),
+        TO_UNSIGNED(clampedHeight), t,
     };
     return output;
 }

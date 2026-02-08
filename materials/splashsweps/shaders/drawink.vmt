@@ -1,7 +1,7 @@
 "Screenspace_General_8tex"
 {
-    "$pixshader" "splashsweps/23_drawink_ps30"
-    "$vertexshader" "splashsweps/25_drawink_vs30"
+    "$pixshader"              "splashsweps/drawink_ps30"
+    "$vertexshader"           "splashsweps/drawink_vs30"
     "$basetexture"            "splashsweps_inkmap2"
     "$texture1"               "splashsweps_params"
     "$texture2"               "splashsweps_albedo"

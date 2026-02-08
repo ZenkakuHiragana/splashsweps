@@ -1,7 +1,7 @@
 "Screenspace_General"
 {
-    "$pixshader" "splashsweps/18_copy_ps30"
-    "$vertexshader" "splashsweps/18_copy_vs30"
+    "$pixshader"              "splashsweps/copy_ps30"
+    "$vertexshader"           "splashsweps/copy_vs30"
     "$basetexture"            "white"
     "$alpha_blend"            "0"
     "$alphablend"             "0"

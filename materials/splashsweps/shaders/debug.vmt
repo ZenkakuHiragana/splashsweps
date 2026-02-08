@@ -12,9 +12,9 @@
 
     "$cull"         "1"
     "$depthtest"    "1"
+    "$vertexnormal" "1"
     // "$model"        "1"
     // "$softwareskin" "1"
-    "$vertexnormal" "1"
     // "$fix_flags2"   "529918"
     "$viewprojmat"    "[0.25 0 0 0.0625   0 0.25 0.0 0.125   0 0 0.25 0.25   0.25 0.25 0.25 0.375]"
     "$invviewprojmat" "[0.25 0 0 0.0625   0 0.25 0.0 0.125   0 0 0.25 0.25   0.25 0.25 0.25 0.375]"

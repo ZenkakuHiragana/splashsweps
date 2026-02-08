@@ -1,6 +1,6 @@
 "Screenspace_General"
 {
-    "$pixshader" "splashsweps/staticprop_ps30"
+    "$pixshader"    "splashsweps/staticprop_ps30"
     "$vertexshader" "splashsweps/staticprop_vs30"
     "$linearread_texture1" "1"
 
