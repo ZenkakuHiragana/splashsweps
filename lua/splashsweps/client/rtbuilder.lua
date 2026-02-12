@@ -51,7 +51,8 @@ local COMMON_FLAGS = bit.bor(
     TEXTUREFLAGS.ALL_MIPS,
     TEXTUREFLAGS.RENDERTARGET)
 local RTFLAGS = {
-    INKMAP  = COMMON_FLAGS,
+    -- Wish this prevents sRGB correction
+    INKMAP  = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NORMAL),
     ALBEDO  = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
     TINT    = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
     DETAILS = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
@@ -71,12 +72,9 @@ if not ss.RenderTarget then
         },
         ---List of render target resolutions available.
         Resolutions = {
-            1024,
-            -- 4096,
-            -- 5792,
-            -- 8192,
-            -- 11586,
-            -- 16384,
+            4096,
+            8192,
+            16384,
         },
         ---Conversion multiplier from hammer units to UV coordinates.
         HammerUnitsToUV = 1,
@@ -106,6 +104,8 @@ function ss.SetupRenderTargets()
         RTFLAGS.INKMAP,
         CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA8888)
+    rt.HammerUnitsToPixels = rt.HammerUnitsToUV * rtSize
+    rtSize = rtSize / 32
     rt.StaticTextures.Albedo = GetRenderTargetEx(
         RTNAMES.ALBEDO,
         rtSize, rtSize,
@@ -130,6 +130,5 @@ function ss.SetupRenderTargets()
         RTFLAGS.DETAILS,
         CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA8888)
-    rt.HammerUnitsToPixels = rt.HammerUnitsToUV * rtSize
     ss.ClearAllInk()
 end

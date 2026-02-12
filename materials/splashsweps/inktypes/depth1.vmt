@@ -1,0 +1,13 @@
+"UnlitGeneric"
+{
+    "$basetexture" "black"
+    "$tinttexture" "color/white"
+    "$heightmap" "splashsweps/inktypes/soft_a"
+    "$heightmapscale" "-0.5"
+    "$heightbaseline" "0"
+    "$geometrypaintbias" "1"
+    "$specularscale" "0"
+    "$alpha" "0"
+    "$heightonly" "1"
+    "$features" ""
+}

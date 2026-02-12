@@ -13,27 +13,19 @@ local InkTypeIdentifierToIndex = locals.InkTypeIdentifierToIndex
 
 ---Ink type definition for the appearance and interactions.
 ---@class ss.InkType
----@field Index              integer   Internal index number used by networking.
----@field Identifier         string    The identifier of this type of ink as the key of ss.InkTypes.
----@field Features           string[]  List of features this type of ink will have.
----@field BaseTexture        string    Name of $basetexture
----@field TintTexture        string    Name of $tinttexture
----@field DetailTexture      string    Name of $details
----@field BaseUV             number[]? UV range (minU, minV, maxU, maxV) of $basetexture
----@field TintUV             number[]? UV range (minU, minV, maxU, maxV) of $tinttexture
----@field DetailUV           number[]? UV range (minU, minV, maxU, maxV) of $details
----@field BaseAlphaHeightmap true?     $basealphaheightmap
+---@field Index      integer   Internal index number used by networking.
+---@field Identifier string    The identifier of this type of ink as the key of ss.InkTypes.
+---@field Features   string[]  List of features this type of ink will have.
+---@field BaseUV     number[]? UV range (minU, minV, maxU, maxV) of $basetexture
+---@field TintUV     number[]? UV range (minU, minV, maxU, maxV) of $tinttexture
+---@field DetailUV   number[]? UV range (minU, minV, maxU, maxV) of $details
 ss.struct "InkType" {
     Index = 0,
     Identifier = "",
     Features = {},
-    BaseTexture = "",
-    TintTexture = "",
-    DetailTexture = "",
     BaseUV = nil,
     TintUV = nil,
     DetailUV = nil,
-    BaseAlphaHeightmap = nil,
 }
 
 ---JSON scheme for ink type definition.
@@ -63,9 +55,6 @@ function ss.LoadInkTypes()
             inktype.Index = inktypeCount
             inktype.Identifier = name
             inktype.Features = (mat:GetString "$features" or ""):Split "%s+"
-            inktype.BaseTexture = mat:GetString "$basetexture" or "debug/debugempty"
-            inktype.TintTexture = mat:GetString "$tinttexture" or "null"
-            inktype.DetailTexture = mat:GetString "$detail" or "grey"
             ss.InkTypes[inktypeCount] = inktype
             InkTypeIdentifierToIndex[name] = inktypeCount
         end

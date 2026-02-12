@@ -32,6 +32,7 @@ end
 ---@field LightmapUV         Vector  Relative Lightmap UV values in luxels.
 ---@field BumpmapUV          Vector  Bumpmap UV coordinates of the original face.
 ---@field DisplacementOrigin Vector? The point that this displacement point was made from.
+---@field LiftThisVertex     integer? This vertex is to construct the sides of volumetric mesh.
 ss.struct "PrecachedData.Vertex" (setmetatable({
     Vector(),
     Vector(),
@@ -39,6 +40,7 @@ ss.struct "PrecachedData.Vertex" (setmetatable({
     Vector(),
     Vector(),
     Vector(),
+    nil,
     nil,
 }, {
     Translation        = 1,
@@ -48,6 +50,7 @@ ss.struct "PrecachedData.Vertex" (setmetatable({
     LightmapUV         = 5,
     BumpmapUV          = 6,
     DisplacementOrigin = 7,
+    LiftThisVertex     = 8,
     __index            = indexer,
     __newindex         = newindexer,
 }))
@@ -243,7 +246,7 @@ ss.struct "PrecachedData.DisplacementTriangle" (setmetatable({
 ---@field UVInfo ss.PrecachedData.UVInfo[]
 ---Vertices in world coordinates (x0, y0, z0) which are directly fed into mesh triangles.
 ---@field Vertices ss.PrecachedData.Vertex[]
----Hash table to search triangles of displacement.  
+---Hash table to search triangles of displacement.
 ---= `{ [hash] = { list of indices to Triangles }}`
 ---@field TriangleHash  table<integer, integer[]>?
 ---@field Triangles     ss.PrecachedData.DisplacementTriangle[]? Array of triangles of a displacement.

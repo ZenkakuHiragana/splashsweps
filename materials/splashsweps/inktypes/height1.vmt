@@ -1,0 +1,11 @@
+"UnlitGeneric"
+{
+    "$heightmap" "splashsweps/inktypes/soft_a"
+    "$basetexture" "point"
+    "$basealphaheightmap" "1"
+    "$heightmapscale" "0.25"
+    "$specularscale" "0"
+    "$heightbaseline" "0"
+    "$alpha" "1"
+    "$features" ""
+}

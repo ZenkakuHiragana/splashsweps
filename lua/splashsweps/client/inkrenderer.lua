@@ -31,6 +31,7 @@ local Queue = locals.Renderer.Queue
 local MinTime,    MaxTime    = 0, 0 --- = Queue[1].time, Queue[#Queue].time
 local NUM_REGION, NUM_VERTEX = 4, 4
 local MAX_QUEUE = math.floor(32768 / (NUM_VERTEX * NUM_REGION))
+local InkWaterMaterial = Material "splashsweps/shaders/inkmesh"
 local InkDrawMaterial = Material "splashsweps/shaders/drawink"
 local CVarWireframe = GetConVar "mat_wireframe"
 local CVarMinecraft = GetConVar "mat_showlowresimage"
@@ -39,11 +40,39 @@ local net_ReadInt = net.ReadInt
 local net_ReadUInt = net.ReadUInt
 local Vector, Angle = Vector, Angle
 
----@param isnormal boolean True this is NOT the flashlight rendering
-local function DrawMesh(isnormal)
+---@return fun(m: ss.MeshData, ent: Entity?)
+local function NormalMeshHandler()
     local currentMaterial = nil ---@type IMaterial?
-    local sunInfo = util.GetSunInfo()
-    local sunDirection = sunInfo and sunInfo.direction or Vector(0, 0.3, 0.954)
+    return function(m, ent)
+        local mat = m.Material
+        if currentMaterial ~= mat then
+            render.SetMaterial(mat)
+            currentMaterial = mat
+        end
+        m.Mesh:Draw()
+    end
+end
+
+---@return fun(m: ss.MeshData, ent: Entity?)
+local function FlashlightHandler()
+    local currentMaterial = nil ---@type IMaterial?
+    return function(m, ent)
+        local mat = m.MaterialFlashlight
+        if currentMaterial ~= mat then
+            render.SetMaterial(mat)
+            currentMaterial = mat
+        end
+        m.MeshFlashlight:Draw()
+    end
+end
+
+---@return fun(m: ss.MeshData, ent: Entity?)
+local function WaterHandler()
+    return function(m, ent) m.Mesh:Draw() end
+end
+
+---@param handler fun(m: ss.MeshData, ent: Entity?)
+local function DrawMesh(handler)
     for _, model in ipairs(ss.RenderBatches) do -- Draw ink surface
         local ent = model.BrushEntity
         if #model > 0 and (not ent or IsValid(ent)) then
@@ -52,17 +81,7 @@ local function DrawMesh(isnormal)
             end
 
             for _, m in ipairs(model) do
-                local mat = isnormal and m.Material or m.MaterialFlashlight
-                if currentMaterial ~= mat then
-                    render.SetMaterial(mat)
-                    currentMaterial = mat
-                    if isnormal then -- This is not needed when rendering flashlights
-                        mat:SetFloat("$c0_x", sunDirection.x)
-                        mat:SetFloat("$c0_y", sunDirection.y)
-                        mat:SetFloat("$c0_z", sunDirection.z)
-                    end
-                end
-                (isnormal and m.Mesh or m.MeshFlashlight):Draw()
+                handler(m, ent)
             end
 
             if IsValid(ent) then
@@ -71,6 +90,47 @@ local function DrawMesh(isnormal)
         end
     end
 end
+
+hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
+    local sunInfo = util.GetSunInfo()
+    local sunDir = sunInfo and sunInfo.direction or Vector(0, 0.3, 0.954)
+    InkWaterMaterial:SetFloat("$c0_x", sunDir.x)
+    InkWaterMaterial:SetFloat("$c0_y", sunDir.y)
+    InkWaterMaterial:SetFloat("$c0_z", sunDir.z)
+    for _, model in ipairs(ss.RenderBatches) do
+        for _, m in ipairs(model) do
+            m.Material:SetFloat("$c0_x", sunDir.x)
+            m.Material:SetFloat("$c0_y", sunDir.y)
+            m.Material:SetFloat("$c0_z", sunDir.z)
+        end
+    end
+end)
+
+hook.Add("PreDrawTranslucentRenderables", "SplashSWEPs: Draw ink",
+function(bDrawingDepth, bDrawingSkybox)
+    -- if ss.GetOption "hideink" then return end
+    if LocalPlayer():KeyDown(IN_RELOAD) then return end
+    if bDrawingSkybox or CVarWireframe:GetBool() or CVarMinecraft:GetBool() then return end
+    local rt = render.GetRenderTarget()
+    local isDrawingWater = rt and rt:GetName():find "_rt_waterref"
+    if isDrawingWater then
+        render.SetMaterial(InkWaterMaterial)
+        render.DepthRange(0, 65535 / 65536)
+        DrawMesh(WaterHandler())
+        render.DepthRange(0, 1)
+        return
+    end
+
+    render.UpdateScreenEffectTexture(1)
+    render.DepthRange(0, 65535 / 65536)
+    render.OverrideDepthEnable(true, true)
+    DrawMesh(NormalMeshHandler())
+    render.OverrideDepthEnable(false)
+    render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD, BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD)
+    render.RenderFlashlights(function() DrawMesh(FlashlightHandler()) end)
+    render.OverrideBlend(false)
+    render.DepthRange(0, 1)
+end)
 
 net.Receive("SplashSWEPs: Paint", function()
     local inktype    = net_ReadUInt(ss.MAX_INKTYPE_BITS) + 1 -- Ink type
@@ -138,26 +198,13 @@ function ss.ClearAllInk()
     render.OverrideAlphaWriteEnable(true, true)
     render.ClearDepth()
     render.ClearStencil()
-    render.Clear(0, 0, 0, 255)
+    render.Clear(0, 0, 0, 128)
     render.SetViewPort(rt:Width() / 2, 0, rt:Width() / 2, rt:Height() / 2)
-    render.Clear(255, 255, 255, 255)
+    render.Clear(255, 255, 255, 0)
     render.OverrideAlphaWriteEnable(false)
     render.PopRenderTarget()
+    ss.LoadInkTypesRT()
 end
-
-hook.Add("PreDrawTranslucentRenderables", "SplashSWEPs: Draw ink",
-function(bDrawingDepth, bDrawingSkybox)
-    -- if ss.GetOption "hideink" then return end
-    if LocalPlayer():KeyDown(IN_RELOAD) then return end
-    if bDrawingSkybox or CVarWireframe:GetBool() or CVarMinecraft:GetBool() then return end
-    render.UpdateScreenEffectTexture(1)
-    render.DepthRange(0, 65535 / 65536)
-    DrawMesh(true)
-    render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD, BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD)
-    render.RenderFlashlights(DrawMesh)
-    render.OverrideBlend(false)
-    render.DepthRange(0, 1)
-end)
 
 local mesh_Begin              = mesh.Begin
 local mesh_End                = mesh.End

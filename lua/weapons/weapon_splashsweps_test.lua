@@ -54,6 +54,8 @@ SWEP.InkTypes = {
     "splashsweps/inktypes/color_red",
     "splashsweps/inktypes/color_seal",
     "splashsweps/inktypes/material_test",
+    "splashsweps/inktypes/height1",
+    "splashsweps/inktypes/depth1",
 }
 
 function SWEP:Initialize()
@@ -71,6 +73,7 @@ function SWEP:Reload()
     if not owner:KeyPressed(IN_RELOAD) then return end
     self:EmitSound("Weapon_AR2.Empty")
     self.InkTypeIndex = self.InkTypeIndex % #self.InkTypes + 1
+    owner:ChatPrint(string.format("%d: %s", self.InkTypeIndex, self.InkTypes[self.InkTypeIndex]))
 end
 
 function SWEP:PrimaryAttack()
@@ -85,7 +88,7 @@ function SWEP:PrimaryAttack()
     local ang = right:Cross(normal):AngleEx(normal)
     local id = ss.FindInkTypeID(self.InkTypes[self.InkTypeIndex])
     debugoverlay.Axis(pos, ang, 20, 5, false)
-    ss.Paint(pos, ang, Vector(radius, radius, radius * 0),
+    ss.Paint(pos, ang, Vector(radius, radius, radius),
         ss.SelectRandomShape("builtin_drop").Index, id or -1)
     self:SetNextPrimaryFire(CurTime() + self.Primary.Delay)
 end

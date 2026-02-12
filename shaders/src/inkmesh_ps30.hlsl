@@ -22,8 +22,8 @@ static const float RIM_METALIC_MAX    = 0.0625; // Rim lighting strength at meta
 static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
-static const float THICKNESS_SCALE = 1.0e-2;
-static const float THICKNESS_SCALE_SCREENSPACE = 128;
+static const float HEIGHT_TO_HAMMER_UNITS = 32.0;
+static const float MIN_CAMERA_DIFF = 8.0;
 static const float3 GrayScaleFactor = { 0.2126, 0.7152, 0.0722 };
 
 // Samplers
@@ -59,11 +59,37 @@ const float4 HDRParams   : register(c30);
 #define g_Unused            c0.w
 #define g_HasBumpedLightmap c1.x
 #define g_NeedsFrameBuffer  c1.y   // True when WorldVertexTransition or Lightmapped_4WayBlend
+#define g_ScreenScale       c1.y   // If g_NeedsFrameBuffer > 0, it is parallax mapping scale
+#define g_Simplified        c1.z   // Simplified rendering for water reflection/refraction
 
 #define g_TonemapScale  HDRParams.x
 #define g_LightmapScale HDRParams.y
 #define g_EnvmapScale   HDRParams.z
 #define g_GammaScale    HDRParams.w // = TonemapScale ^ (1 / 2.2)
+
+// Data texture layout
+#define ID_COLOR_ALPHA        0
+#define ID_TINT_GEOMETRYPAINT 1
+#define ID_EDGE               2
+#define ID_HEIGHT_MAXLAYERS   3
+#define ID_MATERIAL_REFRACT   4
+#define ID_MISC               5
+#define ID_DETAILS_BUMPBLEND  6
+#define ID_OTHERS             7
+
+// [0.0, 1.0] --> [-1.0, +1.0]
+#define TO_SIGNED(x)   ((x) * 2.0 - 1.0)
+
+static const float4 GROUND_PROPERTIES[8] = {
+    { 1.0, 1.0, 1.0,  1.0 },
+    { 1.0, 1.0, 1.0,  0.0 },
+    { 1.0, 1.0, 1.0,  1.0 },
+    { 1.0, 1.0, 0.75, 0.5 },
+    { 0.0, 0.0, 0.0,  1.0 },
+    { 0.0, 1.0, 1.0,  1.0 },
+    { 0.0, 1.0, 1.0,  1.0 },
+    { 0.0, 0.0, 0.0,  0.0 },
+};
 
 // Bumped lightmap basis vectors (same as LightmappedGeneric) in tangent space
 static const float3x3 BumpBasis = {
@@ -74,12 +100,30 @@ static const float3x3 BumpBasis = {
 
 struct PS_INPUT {
     float2   screenPos             : VPOS;
-    float4   inkUV_worldBumpUV     : TEXCOORD0; // xy: ink albedo UV, zw: world bumpmap UV
+    float4   surfaceClipRange      : TEXCOORD0; // xy: ink map min UV, zw: ink map max UV
     float4   lightmapUV1And2       : TEXCOORD1; // xy: lightmap UV, zw: bumpmapped lightmap UV (1)
-    float4   lightmapUV3_projPosXY : TEXCOORD2; // xy: bumpmapped lightmap UV (2)
-    float4   worldPos_projPosZ     : TEXCOORD3;
-    float3x3 tangentSpaceTranspose : TEXCOORD4; // TEXCOORD4, 5, 6
+    float4   lightmapUV3_projXY    : TEXCOORD2; // xy: bumpmapped lightmap UV (2), zw: projected position XY
+    float4   inkUV_worldBumpUV     : TEXCOORD3; // xy: ink albedo UV, zw: world bumpmap UV
+    float4   worldPos_projPosZ     : TEXCOORD4; // xyz: world position, w: projected position Z
+    float4   worldBinormalTangentX : TEXCOORD5; // xyz: world binormal, w: world tangent X
+    float4   worldNormalTangentY   : TEXCOORD6; // xyz: world normal, w: world tangent Y
+    float4   inkTangentXYZWorldZ   : TEXCOORD7; // xyz: ink tangent, w: world tangent Z
+    float4   inkBinormalMeshLift   : TEXCOORD8; // xyz: ink binormal, w: mesh lift amount
+    float4   unused                : TEXCOORD9;
 };
+
+float4 FetchDataPixel(int id, int index) {
+    if (id == 0) {
+        return GROUND_PROPERTIES[index];
+    }
+    else {
+        return tex2Dlod(InkDataSampler, float4(
+            (id    - 0.5) * RcpDataRTSize.x,
+            (index + 0.5) * RcpDataRTSize.y,
+            0.0,
+            0.0));
+    }
+}
 
 // Blinn-Phong specular calculation
 float CalcBlinnPhongSpec(float3 normal, float3 lightDir, float3 viewDir, float exponent) {
@@ -94,15 +138,21 @@ float3 CalcFresnel(float3 normal, float3 viewDirection, float3 f0) {
     return lerp(f0, float3(1.0, 1.0, 1.0), pow(1.0 - nDotV, 5.0));
 }
 
+// Samples only height value to apply parallax effect to the ink
+float FetchHeight(float2 uv) {
+    return TO_SIGNED(tex2Dlod(InkMap, float4(uv, 0.0, 0.0)).a);
+}
+
 // Samples additive color and height value
 void FetchAdditiveAndHeight(float2 uv, out float3 additive, out float height, out float3 normal) {
-    float4 s = tex2D(InkMap, uv);
+    float4 uv4 = { uv, 0.0, 0.0 };
+    float4 s = tex2Dlod(InkMap, uv4);
     additive = s.rgb;
-    height   = s.a;
+    height   = TO_SIGNED(s.a);
 
     // Additional samples to calculate tangent space normal
-    float hx = tex2D(InkMap, uv + float2(RcpRTSize.x, 0)).a;
-    float hy = tex2D(InkMap, uv + float2(0, RcpRTSize.y)).a;
+    float hx = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(RcpRTSize.x, 0, 0.0, 0.0)).a);
+    float hy = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(0, RcpRTSize.y, 0.0, 0.0)).a);
     float dx = hx - height;
     float dy = hy - height;
     normal = normalize(float3(-dx, -dy, 1.0));
@@ -110,7 +160,7 @@ void FetchAdditiveAndHeight(float2 uv, out float3 additive, out float height, ou
 
 // Samples multiplicative color and ground depth
 void FetchMultiplicativeAndDepth(float2 uv, out float3 multiplicative, out float depth) {
-    float4 s = tex2D(InkMap, uv + float2(0.5, 0.0));
+    float4 s = tex2Dlod(InkMap, float4(uv.x + 0.5, uv.y, 0.0, 0.0));
     multiplicative = s.rgb;
     depth          = s.a;
 }
@@ -126,12 +176,12 @@ void FetchInkMaterial(
     out float refraction) {
     float4 s;
 
-    s = tex2D(InkDataSampler, float2(id1, 4.0) * RcpDataRTSize);
+    s = FetchDataPixel(id1, ID_MATERIAL_REFRACT);
     metallic      = s.r;
     roughness     = s.g;
     specularScale = s.b;
     refraction    = s.a;
-    s = tex2D(InkDataSampler, float2(id2, 4.0) * RcpDataRTSize);
+    s = FetchDataPixel(id2, ID_MATERIAL_REFRACT);
     metallic      = lerp(metallic,      s.r, idBlend);
     roughness     = lerp(roughness,     s.g, idBlend);
     specularScale = lerp(specularScale, s.b, idBlend);
@@ -149,12 +199,12 @@ void FetchInkDetails(
     out float bumpblendfactor) {
     float4 s;
 
-    s = tex2D(InkDataSampler, float2(id1, 6.0) * RcpDataRTSize);
+    s = FetchDataPixel(id1, ID_DETAILS_BUMPBLEND);
     detailblendmode  = s.r;
     detailblendscale = s.g;
     detailbumpscale  = s.b;
     bumpblendfactor  = s.a;
-    s = tex2D(InkDataSampler, float2(id2, 6.0) * RcpDataRTSize);
+    s = FetchDataPixel(id2, ID_DETAILS_BUMPBLEND);
     detailblendmode  = lerp(detailblendmode,  s.r, idBlend);
     detailblendscale = lerp(detailblendscale, s.g, idBlend);
     detailbumpscale  = lerp(detailbumpscale,  s.b, idBlend);
@@ -163,14 +213,14 @@ void FetchInkDetails(
 
 // Samples albedo and bumpmap pixel from geometry textures
 void FetchGeometrySamples(
-    float2 bumpUV,
-    float2 baseUV,
+    float2 bumpUV, float2 bumpUVddx, float2 bumpUVddy,
+    float2 baseUV, float2 baseUVddx, float2 baseUVddy,
     float3x3 lightmapColors,
     out float3 geometryAlbedo,
     out float3 geometryNormal) {
     // Sample world bumpmap
     float2 uv = mul(BumpTextureTransform, float4(bumpUV, 1.0, 1.0));
-    geometryNormal = tex2D(WallBumpmapSampler, uv).rgb;
+    geometryNormal = tex2Dgrad(WallBumpmapSampler, uv, bumpUVddx, bumpUVddy).rgb;
     geometryNormal *= 2.0;
     geometryNormal -= 1.0;
 
@@ -183,7 +233,8 @@ void FetchGeometrySamples(
     }
 
     if (g_NeedsFrameBuffer) {
-        float4 frameBufferSample = tex2D(FrameBufferSampler, baseUV) / (g_TonemapScale * g_LightmapScale);
+        float4 frameBufferSample = tex2Dgrad(FrameBufferSampler, baseUV, baseUVddx, baseUVddy);
+        frameBufferSample /= g_TonemapScale * g_LightmapScale;
         float3 lightDirectionDifferences = hasNoBump
             ? float3(1.0, 0.0, 0.0)
             : float3(saturate(dot(geometryNormal, BumpBasis[0])),
@@ -194,71 +245,174 @@ void FetchGeometrySamples(
     }
     else {
         uv = mul(BaseTextureTransform, float4(baseUV, 1.0, 1.0));
-        geometryAlbedo = tex2D(WallAlbedoSampler, uv).rgb;
+        geometryAlbedo = tex2Dgrad(WallAlbedoSampler, uv, baseUVddx, baseUVddy).rgb;
     }
 }
 
-float4 main(PS_INPUT i) : COLOR0 {
-    // Set up UV coordinates
-    float2 inkUV = i.inkUV_worldBumpUV.xy * 0.5;
-    float4 inkIDs = tex2D(InkMap, inkUV + float2(0.0, 0.5));
-    int    ID1       = int(round(inkIDs.r * 255.0));
-    int    ID2       = int(round(inkIDs.g * 255.0));
-    float  idBlend   = inkIDs.b;
-    float  clipValue = ID1 > 0 || ID2 > 0;
-    clip((clipValue - 0.5) / max(fwidth(clipValue), 1e-4) - 0.5);
+// Steep Parallax Occlusion Mapping
+float2 ApplyParallaxEffect(const PS_INPUT i, float3 eyeDir) {
+    const float HEIGHT_RANGE        = +1.0 - (-1.0);
+    const float PIXELS_PER_STEP_RCP = rcp(16.0);
+    const float MIN_LAYERS          = 2.0;
+    const float MAX_LAYERS          = 512.0;
+    const int   NUM_BINARY_SEARCHES = 8;
 
-    // Transform view direction to tangent space
-    float3 eyeDirection = normalize(g_EyePos.xyz - i.worldPos_projPosZ.xyz);
-    float3 tangentViewDir = mul(i.tangentSpaceTranspose, eyeDirection);
-
-    // Sample 3 directional lightmaps
-    float3x3 lightmapColors = {
-        tex2D(LightmapSampler, i.lightmapUV1And2.xy).rgb,
-        tex2D(LightmapSampler, i.lightmapUV1And2.zw).rgb,
-        tex2D(LightmapSampler, i.lightmapUV3_projPosXY.xy).rgb,
+    float2 inkUV   = i.inkUV_worldBumpUV.xy;
+    float  uvPerPx = max(length(fwidth(inkUV)), 1e-8);
+    float3x3 tangentSpaceInk = {
+        i.inkBinormalMeshLift.xyz,
+        i.inkTangentXYZWorldZ.xyz, // Swapped!
+        i.worldNormalTangentY.xyz,
     };
 
+    // Ink UV difference at height of HEIGHT_TO_HAMMER_UNITS
+    float3 inkSpaceViewDir = mul(tangentSpaceInk, eyeDir);
+    float2 parallaxVecInk = inkSpaceViewDir.xy / max(inkSpaceViewDir.z, 1e-3);
+    parallaxVecInk *= HEIGHT_TO_HAMMER_UNITS;
+    parallaxVecInk *= 0.5;
+
+    // Hammer unit change at maximum height change
+    // Samples initial height and apply parallax effect for ink
+    float maxParallaxOffset = length(parallaxVecInk) * HEIGHT_RANGE;
+    float numLayers = clamp(round(maxParallaxOffset
+        / uvPerPx * PIXELS_PER_STEP_RCP), MIN_LAYERS, MAX_LAYERS);
+    float2 previousUV;
+    float2 initialUV = inkUV + parallaxVecInk * (1 - i.inkBinormalMeshLift.w / HEIGHT_TO_HAMMER_UNITS);
+    float  fractionStep = rcp(numLayers);
+    float  currentInkHeight = 0.0, currentRayHeight = 1.0;
+    float  previousInkHeight, previousRayHeight;
+    for (int j = 0; j <= MAX_LAYERS; j++) {
+        if (j > (int)numLayers) break;
+        float fraction = (float)j / numLayers;
+        previousInkHeight = currentInkHeight;
+        previousRayHeight = currentRayHeight;
+        previousUV = inkUV;
+        inkUV = initialUV - parallaxVecInk * HEIGHT_RANGE * fraction;
+        inkUV = clamp(inkUV, i.surfaceClipRange.xy, i.surfaceClipRange.zw);
+        currentInkHeight = FetchHeight(inkUV);
+        currentRayHeight = lerp(1.0, -1.0, fraction);
+        if (currentInkHeight > currentRayHeight) {
+            //   parallaxVec  / tangentViewDir
+            //   -------->  /
+            //  +---------+- previousRayHeight
+            //  |       / ||
+            //  * - _ /   VV previousHeightLeft
+            // /\   / ' - *
+            // || /       |
+            // |+---------+- currentRayHeight
+            // L------------ currentHeightExceeds
+            [unroll]
+            for (int k = 0; k < NUM_BINARY_SEARCHES; k++) {
+                fractionStep *= 0.5;
+                if (currentInkHeight > currentRayHeight) {
+                    fraction -= fractionStep;
+                } else {
+                    fraction += fractionStep;
+                }
+                previousInkHeight = currentInkHeight;
+                previousRayHeight = currentRayHeight;
+                previousUV = inkUV;
+                inkUV = initialUV - parallaxVecInk * HEIGHT_RANGE * fraction;
+                inkUV = clamp(inkUV, i.surfaceClipRange.xy, i.surfaceClipRange.zw);
+                currentInkHeight = FetchHeight(inkUV);
+                currentRayHeight = lerp(1.0, -1.0, fraction);
+            }
+            float previousHeightLeft = previousRayHeight - previousInkHeight;
+            float currentHeightExceeds = currentInkHeight - currentRayHeight;
+            float parallaxRefinement = currentHeightExceeds / (previousHeightLeft + currentHeightExceeds);
+            inkUV = lerp(inkUV, previousUV, parallaxRefinement);
+            inkUV = clamp(inkUV, i.surfaceClipRange.xy, i.surfaceClipRange.zw);
+            break;
+        }
+    }
+    return inkUV;
+}
+
+float4 main(PS_INPUT i) : COLOR0 {
+    float3 eyeDir  = normalize(g_EyePos.xyz - i.worldPos_projPosZ.xyz);
+    float2 inkUV   = g_Simplified ? i.inkUV_worldBumpUV.xy : ApplyParallaxEffect(i, eyeDir);
+    float2 pixelUV = (floor((inkUV + float2(0.0, 0.5)) / RcpRTSize) + 0.5) * RcpRTSize;
+    float4 inkIDs  = tex2Dlod(InkMap, float4(pixelUV, 0.0, 0.0));
+    float  ID1     = round(inkIDs.r * 255.0);
+    float  ID2     = round(inkIDs.g * 255.0);
+    float  idBlend = inkIDs.b;
+    float2 bumpUVd[2] = {
+        ddx(i.inkUV_worldBumpUV.zw),
+        ddy(i.inkUV_worldBumpUV.zw),
+    };
+    float2 baseUVd[2] = {
+        g_HasBumpedLightmap ? float2(RcpFbSize.x, 0.0) : bumpUVd[0],
+        g_HasBumpedLightmap ? float2(0.0, RcpFbSize.y) : bumpUVd[1],
+    };
+    clip(floor(ID1 + ID2 + idBlend) - 0.5);
+
     // Samples ink parameters
-    float3 additive, multiplicative, inkNormal;
-    float3 geometryAlbedo, geometryNormal;
-    float height, depth;
-    float metallic, roughness, specularScale, refraction;
+    float metallic, roughness, specularScale, refraction, height, depth;
     float detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor;
+    float3 additive, multiplicative, inkNormal;
     FetchAdditiveAndHeight(inkUV, additive, height, inkNormal);
+    clip(saturate(height) * HEIGHT_TO_HAMMER_UNITS - i.inkBinormalMeshLift.w);
+
     FetchMultiplicativeAndDepth(inkUV, multiplicative, depth);
     FetchInkMaterial(ID1, ID2, idBlend, metallic, roughness, specularScale, refraction);
     FetchInkDetails(ID1, ID2, idBlend, detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor);
 
-    float  thickness = (height + 1) * THICKNESS_SCALE;
-    float2 uvOffset = inkNormal.xy; // refraction by normal
-    uvOffset += tangentViewDir.xy / max(tangentViewDir.z, 1e-3) * thickness; // parallax effect
-    uvOffset *= refraction;
+    float3 worldTangent = {
+        i.worldBinormalTangentX.w,
+        i.worldNormalTangentY.w,
+        i.inkTangentXYZWorldZ.w
+    };
+    float3x3 tangentSpaceTranspose = {
+        worldTangent,
+        i.worldBinormalTangentX.xyz,
+        i.worldNormalTangentY.xyz,
+    };
+    float3 tangentViewDir = mul(tangentSpaceTranspose, eyeDir);
+    float2 parallaxVec = tangentViewDir.xy / max(tangentViewDir.z, 1e-3);
+    float2 uvDepthParallax = parallaxVec * depth * HEIGHT_TO_HAMMER_UNITS * 0;
+    float2 uvRefraction = inkNormal.xy * refraction;
+    uvRefraction += parallaxVec * height * HEIGHT_TO_HAMMER_UNITS * refraction;
 
+    float2 uvOffset = uvDepthParallax * uvRefraction;
     float2 bumpUV = i.inkUV_worldBumpUV.zw + uvOffset;
     float2 baseUV = bumpUV;
-    if (g_NeedsFrameBuffer) {
+    if (g_NeedsFrameBuffer > 0.0) {
         float2 du = ddx(uvOffset);
         float2 dv = ddy(uvOffset);
         float det = du.x * dv.y - dv.x * du.y;
         det = rcp(det + (det < 0 ? -1e-7 : 1e-7));
         float2 su = float2( dv.y, -du.y) * det;
         float2 sv = float2(-dv.x,  du.x) * det;
-        float3 meshNormal = i.tangentSpaceTranspose[2];
-        float meshAngleFactor = dot(meshNormal, eyeDirection);
+        float3 meshNormal = i.worldNormalTangentY.xyz;
+        float meshAngleFactor = dot(meshNormal, eyeDir);
+        float screenDepth = max(i.worldPos_projPosZ.w, 1e-3);
         float2 pixelOffset = uvOffset.x * su + uvOffset.y * sv;
         pixelOffset *= step(0, meshAngleFactor); // disable if not facing at all
-        pixelOffset *= rcp(max(i.worldPos_projPosZ.w, 1e-3)); // fade by distance
-        pixelOffset *= THICKNESS_SCALE_SCREENSPACE;
+        pixelOffset *= rcp(float2(length(worldTangent), length(i.worldBinormalTangentX.xyz)));
+        pixelOffset *= rcp(screenDepth);
+        pixelOffset *= g_ScreenScale;
         float2 finalUV = (i.screenPos - pixelOffset) * RcpFbSize;
         float2 fade = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.55, finalUV);
         baseUV = lerp(i.screenPos * RcpFbSize, finalUV, fade);
     }
-    FetchGeometrySamples(bumpUV, baseUV, lightmapColors, geometryAlbedo, geometryNormal);
+
+    // Sample 3 directional lightmaps
+    float3x3 lightmapColors = {
+        tex2D(LightmapSampler, i.lightmapUV1And2.xy).rgb,
+        tex2D(LightmapSampler, i.lightmapUV1And2.zw).rgb,
+        tex2D(LightmapSampler, i.lightmapUV3_projXY.xy).rgb,
+    };
+
+    // Sample geometry albedo and normal
+    float3 geometryAlbedo, geometryNormal;
+    FetchGeometrySamples(
+        bumpUV, bumpUVd[0], bumpUVd[1],
+        baseUV, baseUVd[0], baseUVd[1],
+        lightmapColors, geometryAlbedo, geometryNormal);
 
     // Blend ink and world normals
     float3 tangentSpaceNormal = normalize(lerp(geometryNormal, inkNormal, bumpblendfactor));
-    float3 worldSpaceNormal = normalize(mul(tangentSpaceNormal, i.tangentSpaceTranspose));
+    float3 worldSpaceNormal = normalize(mul(tangentSpaceNormal, tangentSpaceTranspose));
 
     // Compute diffuse lighting factors using bumped lightmap basis
     float3 lightDirectionDifferences;
@@ -296,11 +450,11 @@ float4 main(PS_INPUT i) : COLOR0 {
     if (g_HasBumpedLightmap) {
         float3 strength = mul(GrayScaleFactor, lightmapColors);
         float3 fakeTangentLightDir = mul(strength, BumpBasis);
-        float3 fakeWorldLightDir = mul(fakeTangentLightDir, i.tangentSpaceTranspose);
+        float3 fakeWorldLightDir = mul(fakeTangentLightDir, tangentSpaceTranspose);
         phongLightDir = lerp(g_SunDirection, fakeWorldLightDir, saturate(strength));
     }
 
-    float spec = CalcBlinnPhongSpec(worldSpaceNormal, phongLightDir, eyeDirection, phongExponent);
+    float spec = CalcBlinnPhongSpec(worldSpaceNormal, phongLightDir, eyeDir, phongExponent);
     float3 phongSpecular = mul(lightDirectionDifferences * spec, lightmapColors);
     phongSpecular *= CalcFresnel(tangentSpaceNormal, tangentViewDir, phongFresnel);
     phongSpecular *= ambientOcclusion;
@@ -310,9 +464,9 @@ float4 main(PS_INPUT i) : COLOR0 {
 #endif
 
 #ifdef g_RimEnabled
-    float3 worldMeshNormal = i.tangentSpaceTranspose[2];
+    float3 worldMeshNormal = i.worldNormalTangentY.xyz;
     float rimExponent = lerp(RIM_EXPONENT_MIN, RIM_EXPONENT_MAX, roughness);
-    float rimNormalDotViewDir = saturate(dot(worldMeshNormal, eyeDirection));
+    float rimNormalDotViewDir = saturate(dot(worldMeshNormal, eyeDir));
     float rimScale = saturate(pow(1.0 - rimNormalDotViewDir, rimExponent));
     rimScale *= lerp(RIM_METALIC_MIN, RIM_METALIC_MAX, metallic);
     rimScale *= lerp(RIM_ROUGHNESS_MIN, RIM_ROUGHNESS_MAX, roughness);
@@ -332,14 +486,14 @@ float4 main(PS_INPUT i) : COLOR0 {
 #ifdef g_EnvmapEnabled
     // Envmap specular component
     float3 envmapFresnel  = lerp(FRESNEL_MIN, albedo, metallic);
-    float3 envmapReflect  = -reflect(eyeDirection, worldSpaceNormal);
+    float3 envmapReflect  = -reflect(eyeDir, worldSpaceNormal);
     float3 envmapSpecular = texCUBE(EnvmapSampler, envmapReflect).rgb;
 
     // Apply envmap contribution
     float  envmapScale  = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, roughness * roughness);
     float3 envmapAlbedo = lerp(float3(1.0, 1.0, 1.0), albedo, metallic);
     envmapSpecular *= envmapAlbedo;
-    envmapSpecular *= CalcFresnel(worldSpaceNormal, eyeDirection, envmapFresnel);
+    envmapSpecular *= CalcFresnel(worldSpaceNormal, eyeDir, envmapFresnel);
     envmapSpecular *= envmapScale;
     envmapSpecular *= ambientOcclusion;
     envmapSpecular *= specularScale;

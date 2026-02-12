@@ -145,5 +145,11 @@ function New-One() {
     }
 }
 
-New-One("vs")
-New-One("ps")
+if ($baseShaderType -eq "vs") {
+    New-One("vs")
+    New-One("ps")
+}
+else {
+    New-One("ps")
+    New-One("vs")
+}

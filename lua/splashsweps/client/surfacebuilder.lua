@@ -321,6 +321,10 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
         table.sort(infoArray, function(a, b) return a.SortID < b.SortID end)
     end
 
+    local waterMaterial = Material "splashsweps/shader/inkmesh"
+    local fbScale = ScrH() / (2 * math.tan(math.rad(LocalPlayer():GetFOV() * 0.5)))
+    waterMaterial:SetFloat("$c1_y", fbScale)
+
     local rtIndex = #ss.RenderTarget.Resolutions
     local scale = surfaceInfo.UVScales[rtIndex]
     local worldToUV = Matrix()
@@ -329,12 +333,16 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
         local meshIndex = 1
         local renderBatch = ss.RenderBatches[modelIndex]
         ---@class ss.SurfaceBuilder.MeshVertexPack
+        ---@field Lift integer?
         ---@field Normal Vector
-        ---@field TangentS Vector
-        ---@field TangentT Vector
-        ---@field Position Vector
-        ---@field U        number[]
-        ---@field V        number[]
+        ---@field TangentS    Vector
+        ---@field TangentT    Vector
+        ---@field Position    Vector
+        ---@field U           number[]
+        ---@field V           number[]
+        ---@field UVRange     number[]
+        ---@field InkTangent  number[]
+        ---@field InkBinormal number[]
         local meshData = {} ---@type ss.SurfaceBuilder.MeshVertexPack[][]
         for _, meshInfo in ipairs(meshInfoArray) do
             local sortID = meshInfo.SortID
@@ -351,7 +359,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                     local baseTextureName = matinfo.NeedsFrameBuffer
                         and render.GetScreenEffectTexture(1):GetName() or matinfo.BaseTexture
                     local bump = matinfo.NeedsBumpedLightmaps and 1 or 0
-                    local fb = matinfo.NeedsFrameBuffer and 1 or 0
+                    local fb = fbScale * (matinfo.NeedsFrameBuffer and 1 or 0)
                     local params = {
                         ["$vertexshader"]           = "splashsweps/inkmesh_vs30",
                         ["$pixshader"]              = "splashsweps/inkmesh_ps30",
@@ -371,18 +379,22 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         ["$linearread_texture6"]    = "1",
                         ["$cull"]                   = "1",
                         ["$depthtest"]              = "1",
+                        ["$vertexalpha"]            = "1",
+                        ["$vertexcolor"]            = "1",
                         ["$vertexnormal"]           = "1",
-                        ["$tcsize0"]                = "2",
-                        ["$tcsize1"]                = "2",
-                        ["$tcsize2"]                = "2",
-                        ["$tcsize3"]                = "2",
+                        ["$tcsize0"]                = "4",
+                        ["$tcsize1"]                = "4",
+                        ["$tcsize2"]                = "3",
+                        ["$tcsize3"]                = "3",
                         ["$tcsize4"]                = "3",
                         ["$tcsize5"]                = "3",
+                        ["$tcsize6"]                = "4",
                         ["$c0_x"]                   = 0,     -- Sun direction x
                         ["$c0_y"]                   = 0.3,   -- Sun direction y
                         ["$c0_z"]                   = 0.954, -- Sun direction z
                         ["$c1_x"]                   = bump,  -- Indicates if having bumped lightmaps
                         ["$c1_y"]                   = fb,    -- Indicates if it needs frame buffer
+                        ["$c1_z"]                   = 0,
                         ["$viewprojmat"]            = matinfo.BaseTextureTransform,
                         ["$invviewprojmat"]         = matinfo.BumpTextureTransform,
                     }
@@ -431,12 +443,31 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         uv.x = uv.x + info.Translation.x * scale
                         uv.y = uv.y + info.Translation.y * scale
                         meshData[meshIndex][vertIndex] = {
+                            Lift = v.LiftThisVertex,
                             Normal = normal,
                             TangentS = tangent,
                             TangentT = binormal,
                             Position = position,
                             U = { uv.y, s, bumpmapOffsets[faceIndex], v.BumpmapUV.x },
                             V = { uv.x, t, 0,                         v.BumpmapUV.y },
+                            UVRange = {
+                                info.OffsetU,
+                                info.OffsetV,
+                                info.OffsetU + info.Width,
+                                info.OffsetV + info.Height,
+                            },
+                            InkTangent = {
+                                worldToUV:GetField(1, 1),
+                                worldToUV:GetField(1, 2),
+                                worldToUV:GetField(1, 3),
+                                worldToUV:GetField(1, 4),
+                            },
+                            InkBinormal = {
+                                worldToUV:GetField(2, 1),
+                                worldToUV:GetField(2, 2),
+                                worldToUV:GetField(2, 3),
+                                worldToUV:GetField(2, 4),
+                            },
                         }
                         vertIndex = vertIndex + 1
                         if (i - 1) % 3 == 2 then
@@ -451,15 +482,20 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
         for i, vertices in ipairs(meshData) do
             mesh.Begin(renderBatch[i].Mesh, MATERIAL_TRIANGLES, #vertices / 3)
             for _, v in ipairs(vertices) do
+                print(v.InkTangent[1], v.InkTangent[2], v.InkTangent[3], v.InkTangent[4])
+                print(v.InkBinormal[1], v.InkBinormal[2], v.InkBinormal[3], v.InkBinormal[4])
+                print ""
                 mesh.Normal(v.Normal)
                 mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, 1)
                 mesh.Position(v.Position)
-                mesh.TexCoord(0, v.U[1], v.V[1])
-                mesh.TexCoord(1, v.U[2], v.V[2])
-                mesh.TexCoord(2, v.U[3], v.V[3])
-                mesh.TexCoord(3, v.U[4], v.V[4])
+                mesh.TexCoord(0, v.U[1], v.V[1], v.U[4], v.V[4])
+                mesh.TexCoord(1, v.U[2], v.V[2], v.U[3], v.V[3])
+                mesh.TexCoord(2, v.InkTangent[1], v.InkTangent[2], v.InkTangent[3], v.InkTangent[4])
+                mesh.TexCoord(3, v.InkBinormal[1], v.InkBinormal[2], v.InkBinormal[3], v.InkBinormal[4])
                 mesh.TexCoord(4, v.TangentS.x, v.TangentS.y, v.TangentS.z)
                 mesh.TexCoord(5, v.TangentT.x, v.TangentT.y, v.TangentT.z)
+                mesh.TexCoord(6, unpack(v.UVRange))
+                mesh.Color(0, 0, 0, v.Lift and 255 or 0)
                 mesh.AdvanceVertex()
             end
             mesh.End()

@@ -7,12 +7,9 @@ if not SplashSWEPs then
         ---Contains information around render targets clientside.
         RenderTarget = {
             Resolutions = {
-                1024,
-                -- 4096,
-                -- 5792,
-                -- 8192,
-                -- 11586,
-                -- 16384,
+                4096,
+                8192,
+                16384,
             },
         },
     }

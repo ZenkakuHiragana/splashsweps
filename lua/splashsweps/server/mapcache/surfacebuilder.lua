@@ -645,16 +645,42 @@ local function BuildFromBrushFace(bsp, rawFace)
     else
         local surf = ss.new "PrecachedData.Surface"
         local mbrMatrix, mbrSize = FindMBR(filteredVertices, angle)
+        local bumpmapU = {} ---@type number[]
+        local bumpmapV = {} ---@type number[]
+        local lightmapU = {} ---@type number[]
+        local lightmapV = {} ---@type number[]
         local triangles = {} ---@type integer[]
+        local isVolumetricSide = {} ---@type boolean[]
+        for i, v in ipairs(filteredVertices) do
+            surf.AABBMax:Set(ss.MaxVector(surf.AABBMax, v))
+            surf.AABBMin:Set(ss.MinVector(surf.AABBMin, v))
+            bumpmapU[i] = (v:Dot(tangent) + texInfo.textureOffsetS) / texData.width
+            bumpmapV[i] = (v:Dot(binormal) + texInfo.textureOffsetT) / texData.height
+            lightmapU[i] = v:Dot(texInfo.lightmapVecS)
+                + texInfo.lightmapOffsetS
+                - rawFace.lightmapTextureMinsInLuxels[1]
+                + 0.5
+            lightmapV[i] = v:Dot(texInfo.lightmapVecT)
+                + texInfo.lightmapOffsetT
+                - rawFace.lightmapTextureMinsInLuxels[2]
+                + 0.5
+        end
+
         for i = 2, #filteredVertices - 1 do
             triangles[#triangles + 1] = 1
             triangles[#triangles + 1] = i
             triangles[#triangles + 1] = i + 1
         end
 
-        for _, v in ipairs(filteredVertices) do
-            surf.AABBMax:Set(ss.MaxVector(surf.AABBMax, v))
-            surf.AABBMin:Set(ss.MinVector(surf.AABBMin, v))
+        for i = 1, #filteredVertices do
+            local j = (i % #filteredVertices) + 1
+            triangles[#triangles + 1] = j
+            triangles[#triangles + 1] = i
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = true, j
+
+            triangles[#triangles + 1] = i
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = true, i
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = true, j
         end
 
         for i, t in ipairs(triangles) do
@@ -663,16 +689,11 @@ local function BuildFromBrushFace(bsp, rawFace)
             surf.Vertices[i].Normal:Set(normal)
             surf.Vertices[i].Tangent:Set(tangent)
             surf.Vertices[i].Binormal:Set(binormal)
-            surf.Vertices[i].BumpmapUV.x = (filteredVertices[t]:Dot(tangent) + texInfo.textureOffsetS) / texData.width
-            surf.Vertices[i].BumpmapUV.y = (filteredVertices[t]:Dot(binormal) + texInfo.textureOffsetT) / texData.height
-            surf.Vertices[i].LightmapUV.x = filteredVertices[t]:Dot(texInfo.lightmapVecS)
-                + texInfo.lightmapOffsetS
-                - rawFace.lightmapTextureMinsInLuxels[1]
-                + 0.5
-            surf.Vertices[i].LightmapUV.y = filteredVertices[t]:Dot(texInfo.lightmapVecT)
-                + texInfo.lightmapOffsetT
-                - rawFace.lightmapTextureMinsInLuxels[2]
-                + 0.5
+            surf.Vertices[i].BumpmapUV.x = bumpmapU[t]
+            surf.Vertices[i].BumpmapUV.y = bumpmapV[t]
+            surf.Vertices[i].LightmapUV.x = lightmapU[t]
+            surf.Vertices[i].LightmapUV.y = lightmapV[t]
+            surf.Vertices[i].LiftThisVertex = isVolumetricSide[i] and 1 or nil
         end
 
         if not isWater then
