@@ -650,7 +650,7 @@ local function BuildFromBrushFace(bsp, rawFace)
         local lightmapU = {} ---@type number[]
         local lightmapV = {} ---@type number[]
         local triangles = {} ---@type integer[]
-        local isVolumetricSide = {} ---@type boolean[]
+        local isVolumetricSide = {} ---@type integer[]
         for i, v in ipairs(filteredVertices) do
             surf.AABBMax:Set(ss.MaxVector(surf.AABBMax, v))
             surf.AABBMin:Set(ss.MinVector(surf.AABBMin, v))
@@ -674,13 +674,13 @@ local function BuildFromBrushFace(bsp, rawFace)
 
         for i = 1, #filteredVertices do
             local j = (i % #filteredVertices) + 1
-            triangles[#triangles + 1] = j
-            triangles[#triangles + 1] = i
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = true, j
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = -1, j
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = -1, i
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  1, j
 
-            triangles[#triangles + 1] = i
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = true, i
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = true, j
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = -1, i
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  1, i
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  1, j
         end
 
         for i, t in ipairs(triangles) do
@@ -693,7 +693,7 @@ local function BuildFromBrushFace(bsp, rawFace)
             surf.Vertices[i].BumpmapUV.y = bumpmapV[t]
             surf.Vertices[i].LightmapUV.x = lightmapU[t]
             surf.Vertices[i].LightmapUV.y = lightmapV[t]
-            surf.Vertices[i].LiftThisVertex = isVolumetricSide[i] and 1 or nil
+            surf.Vertices[i].LiftThisVertex = isVolumetricSide[i]
         end
 
         if not isWater then

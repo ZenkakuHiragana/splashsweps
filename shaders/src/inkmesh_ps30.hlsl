@@ -250,15 +250,15 @@ void FetchGeometrySamples(
 }
 
 // Steep Parallax Occlusion Mapping
-float2 ApplyParallaxEffect(const PS_INPUT i, float3 eyeDir) {
+float2 ApplyParallaxEffect(const PS_INPUT i) {
     const float HEIGHT_RANGE        = +1.0 - (-1.0);
-    const float PIXELS_PER_STEP_RCP = rcp(16.0);
-    const float MIN_LAYERS          = 2.0;
-    const float MAX_LAYERS          = 512.0;
-    const int   NUM_BINARY_SEARCHES = 8;
+    const float PIXELS_PER_STEP_RCP = rcp(2.0);
+    const float MIN_STEPS           = 2.0;
+    const float MAX_STEPS           = 64.0;
+    const int   NUM_BINARY_SEARCHES = 4;
 
-    float2 inkUV   = i.inkUV_worldBumpUV.xy;
-    float  uvPerPx = max(length(fwidth(inkUV)), 1e-8);
+    float3 eyeDir = g_EyePos.xyz - i.worldPos_projPosZ.xyz;
+    float2 inkUV = i.inkUV_worldBumpUV.xy;
     float3x3 tangentSpaceInk = {
         i.inkBinormalMeshLift.xyz,
         i.inkTangentXYZWorldZ.xyz, // Swapped!
@@ -266,71 +266,74 @@ float2 ApplyParallaxEffect(const PS_INPUT i, float3 eyeDir) {
     };
 
     // Ink UV difference at height of HEIGHT_TO_HAMMER_UNITS
-    float3 inkSpaceViewDir = mul(tangentSpaceInk, eyeDir);
-    float2 parallaxVecInk = inkSpaceViewDir.xy / max(inkSpaceViewDir.z, 1e-3);
-    parallaxVecInk *= HEIGHT_TO_HAMMER_UNITS;
-    parallaxVecInk *= 0.5;
-
-    // Hammer unit change at maximum height change
-    // Samples initial height and apply parallax effect for ink
-    float maxParallaxOffset = length(parallaxVecInk) * HEIGHT_RANGE;
-    float numLayers = clamp(round(maxParallaxOffset
-        / uvPerPx * PIXELS_PER_STEP_RCP), MIN_LAYERS, MAX_LAYERS);
-    float2 previousUV;
-    float2 initialUV = inkUV + parallaxVecInk * (1 - i.inkBinormalMeshLift.w / HEIGHT_TO_HAMMER_UNITS);
-    float  fractionStep = rcp(numLayers);
-    float  currentInkHeight = 0.0, currentRayHeight = 1.0;
-    float  previousInkHeight, previousRayHeight;
-    for (int j = 0; j <= MAX_LAYERS; j++) {
-        if (j > (int)numLayers) break;
-        float fraction = (float)j / numLayers;
+    float3 inkSpaceViewDir   = mul(tangentSpaceInk, eyeDir);
+    float3 invRayVector      = sign(inkSpaceViewDir) * rcp(max(abs(inkSpaceViewDir), 1e-5));
+    float4 rayCrossFraction  = saturate((i.surfaceClipRange - inkUV.xyxy) * invRayVector.xyxy);
+    float2 rayCrossFractionZ = saturate(invRayVector.zz * (float2(
+        -HEIGHT_TO_HAMMER_UNITS - 0.125,
+         HEIGHT_TO_HAMMER_UNITS + 0.125)
+        - i.inkBinormalMeshLift.ww));
+    // Starts from slightly higher than the highest
+    float rayFractionMin = min(min(
+        max(rayCrossFraction.x,  rayCrossFraction.z),
+        max(rayCrossFraction.y,  rayCrossFraction.w)),
+        max(rayCrossFractionZ.x, rayCrossFractionZ.y));
+    float3 rayVector        = inkSpaceViewDir * rayFractionMin;
+    float3 rayMarchingEnd   = { inkUV, i.inkBinormalMeshLift.w };
+    float3 rayMarchingStart = rayMarchingEnd + inkSpaceViewDir;
+    float  uvPerScreenPixel = max(min(length(ddx(inkUV)), length(ddy(inkUV))), 1e-8);
+    float  numSteps         = length(rayVector.xy) / uvPerScreenPixel * PIXELS_PER_STEP_RCP;
+    numSteps = clamp(round(numSteps), MIN_STEPS, MAX_STEPS);
+    float rcpNumSteps = rcp(numSteps);
+    float previousInkHeight, currentInkHeight;
+    float3 previousRay, currentRay = rayMarchingStart;
+    for (int j = 0; j <= MAX_STEPS; j++) {
+        if (j > (int)numSteps) break;
+        float fraction = (float)j / numSteps;
         previousInkHeight = currentInkHeight;
-        previousRayHeight = currentRayHeight;
-        previousUV = inkUV;
-        inkUV = initialUV - parallaxVecInk * HEIGHT_RANGE * fraction;
-        inkUV = clamp(inkUV, i.surfaceClipRange.xy, i.surfaceClipRange.zw);
-        currentInkHeight = FetchHeight(inkUV);
-        currentRayHeight = lerp(1.0, -1.0, fraction);
-        if (currentInkHeight > currentRayHeight) {
-            //   parallaxVec  / tangentViewDir
-            //   -------->  /
-            //  +---------+- previousRayHeight
-            //  |       / ||
-            //  * - _ /   VV previousHeightLeft
-            // /\   / ' - *
-            // || /       |
-            // |+---------+- currentRayHeight
-            // L------------ currentHeightExceeds
+        previousRay = currentRay;
+        currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
+        currentInkHeight = FetchHeight(currentRay.xy) * HEIGHT_TO_HAMMER_UNITS;
+        if ((previousInkHeight <= previousRay.z && currentRay.z <= currentInkHeight) ||
+            (previousRay.z <= previousInkHeight && currentInkHeight <= currentRay.z)) {
             [unroll]
             for (int k = 0; k < NUM_BINARY_SEARCHES; k++) {
-                fractionStep *= 0.5;
-                if (currentInkHeight > currentRayHeight) {
-                    fraction -= fractionStep;
-                } else {
-                    fraction += fractionStep;
+                rcpNumSteps *= 0.5;
+                fraction += sign(step(currentInkHeight, currentRay.z) - 0.5) * rcpNumSteps;
+                previousRay = currentRay;
+                currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
+                float4 crop = step(i.surfaceClipRange, currentRay.xyxy);
+                if (crop.x * crop.y * (1 - crop.z + crop.w) > 0.5) {
+                    previousInkHeight = currentInkHeight;
+                    currentInkHeight = FetchHeight(currentRay.xy) * HEIGHT_TO_HAMMER_UNITS;
                 }
-                previousInkHeight = currentInkHeight;
-                previousRayHeight = currentRayHeight;
-                previousUV = inkUV;
-                inkUV = initialUV - parallaxVecInk * HEIGHT_RANGE * fraction;
-                inkUV = clamp(inkUV, i.surfaceClipRange.xy, i.surfaceClipRange.zw);
-                currentInkHeight = FetchHeight(inkUV);
-                currentRayHeight = lerp(1.0, -1.0, fraction);
+                else {
+                    currentInkHeight = previousInkHeight;
+                }
             }
-            float previousHeightLeft = previousRayHeight - previousInkHeight;
-            float currentHeightExceeds = currentInkHeight - currentRayHeight;
+            //   tangentViewDir /
+            //                /
+            //    +---------+- previousRay.z
+            //    |       / ||
+            //    * - _ /   VV previousHeightLeft
+            //   /\   / ' - *
+            // +-|| /       |
+            // | ++---------+- currentRay.z
+            // L------------ currentHeightExceeds
+            float previousHeightLeft = previousRay.z - previousInkHeight;
+            float currentHeightExceeds = currentInkHeight - currentRay.z;
             float parallaxRefinement = currentHeightExceeds / (previousHeightLeft + currentHeightExceeds);
-            inkUV = lerp(inkUV, previousUV, parallaxRefinement);
-            inkUV = clamp(inkUV, i.surfaceClipRange.xy, i.surfaceClipRange.zw);
+            inkUV = lerp(previousRay.xy, currentRay.xy, parallaxRefinement);
             break;
         }
     }
-    return inkUV;
+    return clamp(inkUV, i.surfaceClipRange.xy, i.surfaceClipRange.zw);
 }
 
 float4 main(PS_INPUT i) : COLOR0 {
+    // if (abs(i.inkBinormalMeshLift.a) / HEIGHT_TO_HAMMER_UNITS > 0.99) return float4(0.0, 1.0, 0.0, 1.0);
     float3 eyeDir  = normalize(g_EyePos.xyz - i.worldPos_projPosZ.xyz);
-    float2 inkUV   = g_Simplified ? i.inkUV_worldBumpUV.xy : ApplyParallaxEffect(i, eyeDir);
+    float2 inkUV   = g_Simplified ? i.inkUV_worldBumpUV.xy : ApplyParallaxEffect(i);
     float2 pixelUV = (floor((inkUV + float2(0.0, 0.5)) / RcpRTSize) + 0.5) * RcpRTSize;
     float4 inkIDs  = tex2Dlod(InkMap, float4(pixelUV, 0.0, 0.0));
     float  ID1     = round(inkIDs.r * 255.0);

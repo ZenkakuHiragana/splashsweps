@@ -32,7 +32,7 @@ const float4x4 cModelViewProj : register(c4);
 const float4 cEyePosWaterZ : register(c2);
 static const float HEIGHT_TO_HAMMER_UNITS = 32.0;
 VS_OUTPUT main(const VS_INPUT v) {
-    float liftAmount = v.color.a * HEIGHT_TO_HAMMER_UNITS;
+    float liftAmount = (round(v.color.a * 2.0) - 1.0) * HEIGHT_TO_HAMMER_UNITS;
     float4 projPos = mul(float4(v.pos + v.normal * liftAmount, 1.0), cModelViewProj);
     VS_OUTPUT w;
     w.pos                       = projPos;
@@ -47,11 +47,11 @@ VS_OUTPUT main(const VS_INPUT v) {
     w.worldPos_projPosZ.w       = projPos.z;
     w.worldBinormalTangentX.xyz = v.binormal;
     w.worldNormalTangentY.xyz   = v.normal;
-    w.inkTangentXYZWorldZ.xyz   = v.inkTangent;
+    w.inkTangentXYZWorldZ.xyz   = v.inkTangent * 0.5;
     w.worldBinormalTangentX.w   = v.tangent.x;
     w.worldNormalTangentY.w     = v.tangent.y;
     w.inkTangentXYZWorldZ.w     = v.tangent.z;
-    w.inkBinormalMeshLift.xyz   = v.inkBinormal;
+    w.inkBinormalMeshLift.xyz   = v.inkBinormal * 0.5;
     w.inkBinormalMeshLift.w     = liftAmount;
     w.unused                    = 0.0;
     return w;

@@ -136,6 +136,7 @@ function ss.LoadInkTypesRT()
     PrintTable(detailTextureNames)
     print "$heightmap"
     PrintTable(heightTextureNames)
+    if #parameters == 0 then return end
 
     -- 256 + 512 + 1024 + 32768 + 8388608
     -- = POINTSAMPLE | NOMIP | NOLOD | ALL_MIPS | RENDERTARGET | NODEPTHBUFFER

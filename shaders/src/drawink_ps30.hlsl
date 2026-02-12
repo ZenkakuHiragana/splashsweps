@@ -244,8 +244,7 @@ PS_OUTPUT DetailMapping(const PS_INPUT i, float t, float shapeMask) {
 }
 
 PS_OUTPUT main(const PS_INPUT i) {
-    clip(inkMapUV - i.surfaceClipRange.xy);
-    clip(i.surfaceClipRange.zw - inkMapUV);
+    clip(step(float4(i.surfaceClipRange.xy, inkMapUV), float4(inkMapUV, i.surfaceClipRange.zw)) - 0.5);
 
     float4 shapeMask = tex2D(TintTextureAtlas, i.detailAndShapeUV.zw);
     clip(shapeMask.a < eps ? -1.0 : 1.0);
