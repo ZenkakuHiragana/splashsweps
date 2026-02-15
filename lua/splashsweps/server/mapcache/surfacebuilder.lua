@@ -528,6 +528,9 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, normal, tangent, bi
         end
     end
 
+    local tangents = {} ---@type Vector[]
+    local binormals = {} ---@type Vector[]
+    local normals = {} ---@type Vector[]
     local meanLengthU = (u1:Length() + u2:Length()) * 0.5
     local meanLengthV = (v1:Length() + v2:Length()) * 0.5
     local maxTotalLengthU = max(unpack(totalLengthU))
@@ -537,12 +540,19 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, normal, tangent, bi
     local scaleUV = Vector(scaleU, scaleV, scaleV)
     subdivisionMatrix:Scale(scaleUV)
     for i, s in ipairs(subdivision) do
-        local ui = (i - 1) % power + 1
-        local vi = floor((i - 1) / power) + 1
-        local u = (lengthIntegratedU[i] or 0) / totalLengthU[vi]
-        local v = (lengthIntegratedV[i] or 0) / totalLengthV[ui]
+        local ui = (i - 1) % power
+        local vi = floor((i - 1) / power)
+        local u = (lengthIntegratedU[i] or 0) / totalLengthU[vi + 1]
+        local v = (lengthIntegratedV[i] or 0) / totalLengthV[ui + 1]
         s:SetUnpacked(u, (1 - u) * v, u * v)
         s:Mul(subdivisionMatrix)
+        tangents[i]
+            = deformed[min(ui + 1, power - 1) + vi * power + 1]
+            - deformed[max(ui - 1,         0) + vi * power + 1]
+        binormals[i]
+            = deformed[ui + min(vi + 1, power - 1) * power + 1]
+            - deformed[ui + max(vi - 1,         0) * power + 1]
+        normals[i] = tangents[i]:Cross(binormals[i])
     end
 
     vertices[2] = subdivision[(power - 1) * power + 1]
@@ -551,9 +561,9 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, normal, tangent, bi
     for i, t in ipairs(triangles) do
         surf.Vertices[i] = ss.new "PrecachedData.Vertex"
         surf.Vertices[i].Translation:Set(deformed[t])
-        surf.Vertices[i].Normal:Set(normal)
-        surf.Vertices[i].Tangent:Set(tangent)
-        surf.Vertices[i].Binormal:Set(binormal)
+        surf.Vertices[i].Normal:Set(normals[t])
+        surf.Vertices[i].Tangent:Set(tangents[t])
+        surf.Vertices[i].Binormal:Set(binormals[t])
         surf.Vertices[i].BumpmapUV:Set(bumpmapuv[t])
         surf.Vertices[i].LightmapUV:Set(lightmapuv[t])
         surf.Vertices[i].DisplacementOrigin = subdivision[t]
@@ -673,14 +683,22 @@ local function BuildFromBrushFace(bsp, rawFace)
         end
 
         for i = 1, #filteredVertices do
+            -- Inside the face
             local j = (i % #filteredVertices) + 1
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = -1, j
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = -1, i
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  1, j
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 0, j
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 0, i
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 1, j
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 0, i
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 1, i
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 1, j
 
+            -- Outside the face
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = -1, j
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  0, j
             isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = -1, i
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  1, i
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  1, j
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = -1, i
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  0, j
+            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  0, i
         end
 
         for i, t in ipairs(triangles) do

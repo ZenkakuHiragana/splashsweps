@@ -1,6 +1,9 @@
 "UnlitGeneric"
 {
-    "$basetexture" "splashsweps/paints/drop/a2"
-    "$detail"      "rubber_bump"
-    "$features"    ""
+    "$basetexture"    "splashsweps/paints/drop/a2"
+    "$heightmap"      "splashsweps/inktypes/soft_a"
+    "$detail"         "rubber_bump"
+    "$heightmapscale" "0.75"
+    "$specularscale"  "0.0625"
+    "$features"       ""
 }

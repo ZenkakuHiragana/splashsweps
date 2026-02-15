@@ -33,5 +33,6 @@
     "$c0_z"                   "0.954"
     "$c1_x"                   "0"
     "$c1_y"                   "960"
-    "$c1_z"                   "1" // Simplified pass for water reflection
+    "$c1_z"                   "1e-4"
+    "$c1_w"                   "1" // Simplified pass for water reflection
 }

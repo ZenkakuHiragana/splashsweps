@@ -22,18 +22,50 @@ struct VS_OUTPUT {
     float4   inkUV_worldBumpUV     : TEXCOORD3; // xy: ink albedo UV, zw: world bumpmap UV
     float4   worldPos_projPosZ     : TEXCOORD4; // xyz: world position, w: projected position Z
     float4   worldBinormalTangentX : TEXCOORD5; // xyz: world binormal, w: world tangent X
-    float4   worldNormalTangentY   : TEXCOORD6; // xyz: world normal, w: world tangent Y
-    float4   inkTangentXYZWorldZ   : TEXCOORD7; // xyz: ink tangent, w: world tangent Z
-    float4   inkBinormalMeshLift   : TEXCOORD8; // xyz: ink binormal, w: mesh lift amount
-    float4   unused                : TEXCOORD9;
+    float4   worldNormalTangentY   : TEXCOORD6; // xyz: world normal,   w: world tangent Y
+    float4   inkTangentXYZWorldZ   : TEXCOORD7; // xyz: ink tangent,    w: world tangent Z
+    float4   inkBinormalMeshLift   : TEXCOORD8; // xyz: ink binormal,   w: mesh lift amount
+    float4   projPosW              : TEXCOORD9;
 };
+
+// [0.0, 1.0] --> [-1.0, +1.0]
+#define TO_SIGNED(x) ((x) * 2.0 - 1.0)
+
+// Safe rcp that avoids division by zero
+#define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-21)))
 
 const float4x4 cModelViewProj : register(c4);
 const float4 cEyePosWaterZ : register(c2);
 static const float HEIGHT_TO_HAMMER_UNITS = 32.0;
 VS_OUTPUT main(const VS_INPUT v) {
-    float liftAmount = (round(v.color.a * 2.0) - 1.0) * HEIGHT_TO_HAMMER_UNITS;
-    float4 projPos = mul(float4(v.pos + v.normal * liftAmount, 1.0), cModelViewProj);
+    float liftAmount = round(v.color.a * 2.0) - 1.0;
+    float3 pos = v.pos + v.normal * liftAmount * HEIGHT_TO_HAMMER_UNITS;
+    float3 viewDir = cEyePosWaterZ.xyz - pos;
+    // Extend the side mesh so that it draws ink raised by its height map
+    if (liftAmount > 0.5 && dot(viewDir, v.normal) < 0.0) {
+        float2 surfaceSizeInUV = {
+            v.surfaceClipRange.z - v.surfaceClipRange.x,
+            v.surfaceClipRange.w - v.surfaceClipRange.y,
+        };
+        float surfaceMaxSize =
+            surfaceSizeInUV.x * surfaceSizeInUV.x *
+            SAFERCP(dot(v.inkTangent, v.inkTangent)) +
+            surfaceSizeInUV.y * surfaceSizeInUV.y *
+            SAFERCP(dot(v.inkBinormal, v.inkBinormal));
+        float3 viewDirFlattened = viewDir - v.normal * dot(viewDir, v.normal);
+        float3 viewDirLength2D = length(viewDirFlattened);
+        float3 surfaceExtentDir = viewDirFlattened * surfaceMaxSize / viewDirLength2D;
+        float3 newPos = viewDir + surfaceExtentDir;
+        newPos *= -1.0; // EyePos to vertex
+        newPos *= viewDirLength2D;
+        newPos /= viewDirLength2D - surfaceMaxSize;
+        newPos += cEyePosWaterZ.xyz;
+        liftAmount = dot(newPos - v.pos, v.normal) / HEIGHT_TO_HAMMER_UNITS;
+        liftAmount = clamp(liftAmount, 1.0, 10.0); // Safety cap
+        pos = v.pos + v.normal * liftAmount * HEIGHT_TO_HAMMER_UNITS;
+    }
+
+    float4 projPos = mul(float4(pos, 1.0), cModelViewProj);
     VS_OUTPUT w;
     w.pos                       = projPos;
     w.surfaceClipRange          = v.surfaceClipRange.yxwz * 0.5;
@@ -43,16 +75,16 @@ VS_OUTPUT main(const VS_INPUT v) {
     w.lightmapUV3_projXY.zw     = projPos.xy;
     w.inkUV_worldBumpUV.xy      = v.baseBumpUV.xy * 0.5;
     w.inkUV_worldBumpUV.zw      = v.baseBumpUV.zw;
-    w.worldPos_projPosZ.xyz     = v.pos;
+    w.worldPos_projPosZ.xyz     = pos;
     w.worldPos_projPosZ.w       = projPos.z;
     w.worldBinormalTangentX.xyz = v.binormal;
     w.worldNormalTangentY.xyz   = v.normal;
-    w.inkTangentXYZWorldZ.xyz   = v.inkTangent * 0.5;
+    w.inkTangentXYZWorldZ.xyz   = v.inkBinormal * 0.5; // Intentionally swapped
     w.worldBinormalTangentX.w   = v.tangent.x;
     w.worldNormalTangentY.w     = v.tangent.y;
     w.inkTangentXYZWorldZ.w     = v.tangent.z;
-    w.inkBinormalMeshLift.xyz   = v.inkBinormal * 0.5;
+    w.inkBinormalMeshLift.xyz   = v.inkTangent * 0.5; // Intentionally swapped
     w.inkBinormalMeshLift.w     = liftAmount;
-    w.unused                    = 0.0;
+    w.projPosW                  = projPos.w;
     return w;
 }

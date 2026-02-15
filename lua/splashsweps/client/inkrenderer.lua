@@ -115,21 +115,17 @@ function(bDrawingDepth, bDrawingSkybox)
     local isDrawingWater = rt and rt:GetName():find "_rt_waterref"
     if isDrawingWater then
         render.SetMaterial(InkWaterMaterial)
-        render.DepthRange(0, 65535 / 65536)
         DrawMesh(WaterHandler())
-        render.DepthRange(0, 1)
         return
     end
 
     render.UpdateScreenEffectTexture(1)
-    render.DepthRange(0, 65535 / 65536)
     render.OverrideDepthEnable(true, true)
     DrawMesh(NormalMeshHandler())
     render.OverrideDepthEnable(false)
     render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD, BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD)
     render.RenderFlashlights(function() DrawMesh(FlashlightHandler()) end)
     render.OverrideBlend(false)
-    render.DepthRange(0, 1)
 end)
 
 net.Receive("SplashSWEPs: Paint", function()

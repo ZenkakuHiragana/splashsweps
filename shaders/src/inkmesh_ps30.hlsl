@@ -23,7 +23,8 @@ static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
 static const float HEIGHT_TO_HAMMER_UNITS = 32.0;
-static const float MIN_CAMERA_DIFF = 8.0;
+static const float DEPTH_BASE_BIAS  = 2.0e-5; // 1.0e-5 -- 5.0e-5
+static const float DEPTH_DIFF_SCALE = 1.5;    // Sensitivity of the depth difference
 static const float3 GrayScaleFactor = { 0.2126, 0.7152, 0.0722 };
 
 // Samplers
@@ -53,14 +54,15 @@ const float4 c9            : register(c9);
 const float4 g_EyePos      : register(c10); // xyz: eye position
 const float2x4 BaseTextureTransform : register(c11);
 const float2x4 BumpTextureTransform : register(c15);
-const float4 HDRParams   : register(c30);
+const float4 HDRParams     : register(c30);
 
 #define g_SunDirection      c0.xyz // in world space
 #define g_Unused            c0.w
 #define g_HasBumpedLightmap c1.x
 #define g_NeedsFrameBuffer  c1.y   // True when WorldVertexTransition or Lightmapped_4WayBlend
 #define g_ScreenScale       c1.y   // If g_NeedsFrameBuffer > 0, it is parallax mapping scale
-#define g_Simplified        c1.z   // Simplified rendering for water reflection/refraction
+#define g_HammerUnitsToUV   c1.z   // = ss.RenderTarget.HammerUnitsToUV * 0.5
+#define g_Simplified        c1.w   // Simplified rendering for water reflection/refraction
 
 #define g_TonemapScale  HDRParams.x
 #define g_LightmapScale HDRParams.y
@@ -78,7 +80,10 @@ const float4 HDRParams   : register(c30);
 #define ID_OTHERS             7
 
 // [0.0, 1.0] --> [-1.0, +1.0]
-#define TO_SIGNED(x)   ((x) * 2.0 - 1.0)
+#define TO_SIGNED(x) ((x) * 2.0 - 1.0)
+
+// Safe rcp that avoids division by zero
+#define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-21)))
 
 static const float4 GROUND_PROPERTIES[8] = {
     { 1.0, 1.0, 1.0,  1.0 },
@@ -106,10 +111,15 @@ struct PS_INPUT {
     float4   inkUV_worldBumpUV     : TEXCOORD3; // xy: ink albedo UV, zw: world bumpmap UV
     float4   worldPos_projPosZ     : TEXCOORD4; // xyz: world position, w: projected position Z
     float4   worldBinormalTangentX : TEXCOORD5; // xyz: world binormal, w: world tangent X
-    float4   worldNormalTangentY   : TEXCOORD6; // xyz: world normal, w: world tangent Y
-    float4   inkTangentXYZWorldZ   : TEXCOORD7; // xyz: ink tangent, w: world tangent Z
-    float4   inkBinormalMeshLift   : TEXCOORD8; // xyz: ink binormal, w: mesh lift amount
-    float4   unused                : TEXCOORD9;
+    float4   worldNormalTangentY   : TEXCOORD6; // xyz: world normal,   w: world tangent Y
+    float4   inkTangentXYZWorldZ   : TEXCOORD7; // xyz: ink tangent,    w: world tangent Z
+    float4   inkBinormalMeshLift   : TEXCOORD8; // xyz: ink binormal,   w: mesh lift amount
+    float4   projPosW              : TEXCOORD9;
+};
+
+struct PS_OUTPUT {
+    float4 color : COLOR0;
+    float  depth : DEPTH0;
 };
 
 float4 FetchDataPixel(int id, int index) {
@@ -241,7 +251,7 @@ void FetchGeometrySamples(
                      saturate(dot(geometryNormal, BumpBasis[1])),
                      saturate(dot(geometryNormal, BumpBasis[2])));
         float3 lightmapColorExpected = mul(lightDirectionDifferences, lightmapColors);
-        geometryAlbedo = frameBufferSample.rgb / max(lightmapColorExpected, 1e-4);
+        geometryAlbedo = frameBufferSample.rgb / max(lightmapColorExpected, 1.0e-4);
     }
     else {
         uv = mul(BaseTextureTransform, float4(baseUV, 1.0, 1.0));
@@ -250,66 +260,69 @@ void FetchGeometrySamples(
 }
 
 // Steep Parallax Occlusion Mapping
-float2 ApplyParallaxEffect(const PS_INPUT i) {
+float3 ApplyParallaxEffect(const PS_INPUT i) {
     const float HEIGHT_RANGE        = +1.0 - (-1.0);
-    const float PIXELS_PER_STEP_RCP = rcp(2.0);
+    const float PIXELS_PER_STEP_RCP = rcp(16.0);
     const float MIN_STEPS           = 2.0;
-    const float MAX_STEPS           = 64.0;
+    const float MAX_STEPS           = 16.0;
     const int   NUM_BINARY_SEARCHES = 4;
-
-    float3 eyeDir = g_EyePos.xyz - i.worldPos_projPosZ.xyz;
-    float2 inkUV = i.inkUV_worldBumpUV.xy;
+    float3 worldPos = i.worldPos_projPosZ.xyz;
+    float3 inkUV    = { i.inkUV_worldBumpUV.xy, i.inkBinormalMeshLift.w };
+    float3 eyeDir   = g_EyePos.xyz - worldPos;
     float3x3 tangentSpaceInk = {
+        i.inkTangentXYZWorldZ.xyz,
         i.inkBinormalMeshLift.xyz,
-        i.inkTangentXYZWorldZ.xyz, // Swapped!
-        i.worldNormalTangentY.xyz,
+        i.worldNormalTangentY.xyz / HEIGHT_TO_HAMMER_UNITS,
     };
 
-    // Ink UV difference at height of HEIGHT_TO_HAMMER_UNITS
-    float3 inkSpaceViewDir   = mul(tangentSpaceInk, eyeDir);
-    float3 invRayVector      = sign(inkSpaceViewDir) * rcp(max(abs(inkSpaceViewDir), 1e-5));
-    float4 rayCrossFraction  = saturate((i.surfaceClipRange - inkUV.xyxy) * invRayVector.xyxy);
-    float2 rayCrossFractionZ = saturate(invRayVector.zz * (float2(
-        -HEIGHT_TO_HAMMER_UNITS - 0.125,
-         HEIGHT_TO_HAMMER_UNITS + 0.125)
-        - i.inkBinormalMeshLift.ww));
-    // Starts from slightly higher than the highest
-    float rayFractionMin = min(min(
-        max(rayCrossFraction.x,  rayCrossFraction.z),
-        max(rayCrossFraction.y,  rayCrossFraction.w)),
-        max(rayCrossFractionZ.x, rayCrossFractionZ.y));
-    float3 rayVector        = inkSpaceViewDir * rayFractionMin;
-    float3 rayMarchingEnd   = { inkUV, i.inkBinormalMeshLift.w };
-    float3 rayMarchingStart = rayMarchingEnd + inkSpaceViewDir;
-    float  uvPerScreenPixel = max(min(length(ddx(inkUV)), length(ddy(inkUV))), 1e-8);
-    float  numSteps         = length(rayVector.xy) / uvPerScreenPixel * PIXELS_PER_STEP_RCP;
+    float3 boxMin           = { i.surfaceClipRange.xy, -1.0 - 1e-5 };
+    float3 boxMax           = { i.surfaceClipRange.zw,  1.0 + 1e-5 };
+    float3 viewDir          = mul(tangentSpaceInk, eyeDir);
+    float3 viewDirInv       = SAFERCP(viewDir);
+    float3 fractionMin      = (boxMin - inkUV) * viewDirInv;
+    float3 fractionMax      = (boxMax - inkUV) * viewDirInv;
+    float3 fractionNear     = max(fractionMin, fractionMax);
+    float3 fractionFar      = min(fractionMin, fractionMax);
+    float  fractionStart    = min(min(fractionNear.x, fractionNear.y), fractionNear.z);
+    float  fractionEnd      = max(max(fractionFar.x, fractionFar.y), fractionFar.z);
+    float3 rayMarchingStart = inkUV + viewDir * min(fractionStart, 1.0);
+    float3 rayMarchingEnd   = inkUV + viewDir * fractionEnd;
+    float  pixelPerUV       = rcp(max(min(length(ddx(inkUV.xy)), length(ddy(inkUV.xy))), 1.0e-8));
+    float  numSteps         = distance(rayMarchingStart.xy, rayMarchingEnd.xy);
+    numSteps *= PIXELS_PER_STEP_RCP * pixelPerUV;
     numSteps = clamp(round(numSteps), MIN_STEPS, MAX_STEPS);
-    float rcpNumSteps = rcp(numSteps);
-    float previousInkHeight, currentInkHeight;
-    float3 previousRay, currentRay = rayMarchingStart;
-    for (int j = 0; j <= MAX_STEPS; j++) {
+    float3 previousRay;
+    float3 currentRay = rayMarchingStart;
+    float previousInkHeight;
+    float currentInkHeight = FetchHeight(currentRay.xy);
+    if (currentRay.z < currentInkHeight) return currentRay;
+    [unroll]
+    for (int j = 1; j <= MAX_STEPS; j++) {
         if (j > (int)numSteps) break;
         float fraction = (float)j / numSteps;
         previousInkHeight = currentInkHeight;
         previousRay = currentRay;
         currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
-        currentInkHeight = FetchHeight(currentRay.xy) * HEIGHT_TO_HAMMER_UNITS;
+        currentInkHeight = FetchHeight(currentRay.xy);
         if ((previousInkHeight <= previousRay.z && currentRay.z <= currentInkHeight) ||
             (previousRay.z <= previousInkHeight && currentInkHeight <= currentRay.z)) {
+            float rcpNumSteps = rcp(numSteps);
+            float lerpFraction = fraction - rcpNumSteps;
+            float lerpInkHeight = previousInkHeight;
             [unroll]
             for (int k = 0; k < NUM_BINARY_SEARCHES; k++) {
-                rcpNumSteps *= 0.5;
-                fraction += sign(step(currentInkHeight, currentRay.z) - 0.5) * rcpNumSteps;
+                float previousError = previousInkHeight - previousRay.z;
+                float currentError = currentInkHeight - currentRay.z;
+                float isGoingTooMuch = step(previousError * currentError, 0.0);
+                float isErrorIncreasing = step(abs(previousError), abs(currentError));
+                lerpFraction = lerp(lerpFraction, fraction - rcpNumSteps, isGoingTooMuch);
+                lerpInkHeight = lerp(lerpInkHeight, previousInkHeight, isGoingTooMuch);
+                rcpNumSteps *= step(lerp(isErrorIncreasing, 1.0, isGoingTooMuch), 0.5) - 0.5;
+                fraction += rcpNumSteps;
                 previousRay = currentRay;
+                previousInkHeight = currentInkHeight;
                 currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
-                float4 crop = step(i.surfaceClipRange, currentRay.xyxy);
-                if (crop.x * crop.y * (1 - crop.z + crop.w) > 0.5) {
-                    previousInkHeight = currentInkHeight;
-                    currentInkHeight = FetchHeight(currentRay.xy) * HEIGHT_TO_HAMMER_UNITS;
-                }
-                else {
-                    currentInkHeight = previousInkHeight;
-                }
+                currentInkHeight = FetchHeight(currentRay.xy);
             }
             //   tangentViewDir /
             //                /
@@ -320,21 +333,39 @@ float2 ApplyParallaxEffect(const PS_INPUT i) {
             // +-|| /       |
             // | ++---------+- currentRay.z
             // L------------ currentHeightExceeds
-            float previousHeightLeft = previousRay.z - previousInkHeight;
+            float previousError = previousInkHeight - previousRay.z;
+            float currentError = currentInkHeight - currentRay.z;
+            float isGoingTooMuch = step(previousError * currentError, 0.0);
+            lerpFraction = lerp(lerpFraction, fraction - rcpNumSteps, isGoingTooMuch);
+            lerpInkHeight = lerp(lerpInkHeight, previousInkHeight, isGoingTooMuch);
+            float3 lerpRay = lerp(rayMarchingStart, rayMarchingEnd, lerpFraction);
+            float previousHeightLeft = lerpRay.z - lerpInkHeight;
             float currentHeightExceeds = currentInkHeight - currentRay.z;
             float parallaxRefinement = currentHeightExceeds / (previousHeightLeft + currentHeightExceeds);
-            inkUV = lerp(previousRay.xy, currentRay.xy, parallaxRefinement);
-            break;
+            parallaxRefinement = lerpFraction < fraction ? parallaxRefinement : 1 - parallaxRefinement;
+            inkUV = lerp(lerpRay, currentRay, parallaxRefinement);
+            return clamp(inkUV,
+                float3(i.surfaceClipRange.xy, -1.0),
+                float3(i.surfaceClipRange.zw,  1.0));
         }
     }
-    return clamp(inkUV, i.surfaceClipRange.xy, i.surfaceClipRange.zw);
+    clip(currentInkHeight - i.inkBinormalMeshLift.w);
+    return clamp(inkUV,
+        float3(i.surfaceClipRange.xy, -1.0),
+        float3(i.surfaceClipRange.zw,  1.0));
 }
 
-float4 main(PS_INPUT i) : COLOR0 {
-    // if (abs(i.inkBinormalMeshLift.a) / HEIGHT_TO_HAMMER_UNITS > 0.99) return float4(0.0, 1.0, 0.0, 1.0);
-    float3 eyeDir  = normalize(g_EyePos.xyz - i.worldPos_projPosZ.xyz);
-    float2 inkUV   = g_Simplified ? i.inkUV_worldBumpUV.xy : ApplyParallaxEffect(i);
-    float2 pixelUV = (floor((inkUV + float2(0.0, 0.5)) / RcpRTSize) + 0.5) * RcpRTSize;
+PS_OUTPUT main(const PS_INPUT i) {
+    float3 inkUV; // Z = final ray marching height
+    if (g_Simplified) {
+        inkUV = float3(i.inkUV_worldBumpUV.xy, 0.0);
+    }
+    else {
+        inkUV = ApplyParallaxEffect(i);
+    }
+    float3 viewVec = g_EyePos.xyz - i.worldPos_projPosZ.xyz;
+    float3 viewDir = normalize(viewVec);
+    float2 pixelUV = (floor(inkUV.xy / RcpRTSize) + 0.5) * RcpRTSize + float2(0.0, 0.5);
     float4 inkIDs  = tex2Dlod(InkMap, float4(pixelUV, 0.0, 0.0));
     float  ID1     = round(inkIDs.r * 255.0);
     float  ID2     = round(inkIDs.g * 255.0);
@@ -353,26 +384,24 @@ float4 main(PS_INPUT i) : COLOR0 {
     float metallic, roughness, specularScale, refraction, height, depth;
     float detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor;
     float3 additive, multiplicative, inkNormal;
-    FetchAdditiveAndHeight(inkUV, additive, height, inkNormal);
-    clip(saturate(height) * HEIGHT_TO_HAMMER_UNITS - i.inkBinormalMeshLift.w);
-
-    FetchMultiplicativeAndDepth(inkUV, multiplicative, depth);
+    FetchAdditiveAndHeight(inkUV.xy, additive, height, inkNormal);
+    FetchMultiplicativeAndDepth(inkUV.xy, multiplicative, depth);
     FetchInkMaterial(ID1, ID2, idBlend, metallic, roughness, specularScale, refraction);
     FetchInkDetails(ID1, ID2, idBlend, detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor);
 
     float3 worldTangent = {
         i.worldBinormalTangentX.w,
         i.worldNormalTangentY.w,
-        i.inkTangentXYZWorldZ.w
+        i.inkTangentXYZWorldZ.w,
     };
-    float3x3 tangentSpaceTranspose = {
+    float3x3 tangentSpaceWorld = {
         worldTangent,
         i.worldBinormalTangentX.xyz,
         i.worldNormalTangentY.xyz,
     };
-    float3 tangentViewDir = mul(tangentSpaceTranspose, eyeDir);
-    float2 parallaxVec = tangentViewDir.xy / max(tangentViewDir.z, 1e-3);
-    float2 uvDepthParallax = parallaxVec * depth * HEIGHT_TO_HAMMER_UNITS * 0;
+    float3 tangentViewDir = mul(tangentSpaceWorld, viewDir);
+    float2 parallaxVec = tangentViewDir.xy / max(tangentViewDir.z, 1.0e-3);
+    float2 uvDepthParallax = parallaxVec * depth * HEIGHT_TO_HAMMER_UNITS;
     float2 uvRefraction = inkNormal.xy * refraction;
     uvRefraction += parallaxVec * height * HEIGHT_TO_HAMMER_UNITS * refraction;
 
@@ -380,15 +409,36 @@ float4 main(PS_INPUT i) : COLOR0 {
     float2 bumpUV = i.inkUV_worldBumpUV.zw + uvOffset;
     float2 baseUV = bumpUV;
     if (g_NeedsFrameBuffer > 0.0) {
+        // Inverse conversion of world position -- UV coordinates equation:
+        // P: world pos,  S: tangent S,         T: tangent T
+        // U: (u, v),     X: screen pos (x, y)
+        //    P = S u + T v
+        // 1. Get partial derivatives of both sides
+        //    ∂P/∂x = S ∂u/∂x + T ∂v/∂x
+        //    ∂P/∂y = S ∂u/∂y + T ∂v/∂y
+        // 2. Consolidates them into matrix form (assuming row vectors)
+        //   / ∂P/dx \ _ / ∂U/∂x \ / S \
+        //   \ ∂P/∂y / ‾ \ ∂U/∂y / \ T /
+        // 3. Multiplies inverse dUdx--dUdy matrix from left side to get S, T
+        // float2x3 dPdX   = { ddx(worldPos), ddy(worldPos) };
+        // float2x2 dUdX   = { ddx(inkUV),    ddy(inkUV)    };
+        // float dUdXdet   = dUdX._m00 * dUdX._m11 - dUdX._m01 * dUdX._m10;
+        // float dUdXidet  = sign(dUdXdet) * rcp(max(abs(dUdXdet), 1.0e-8));
+        // float2x2 dUdXInv = float2x2(
+        //      dUdX._m11, -dUdX._m01,
+        //     -dUdX._m10,  dUdX._m00) * dUdXidet;
+        // float3x3 tangentSpaceInk = { mul(dUdXInv, dPdX), i.worldNormalTangentY.xyz };
+        // tangentSpaceInk[0] = normalize(tangentSpaceInk[0]) * g_HammerUnitsToUV;
+        // tangentSpaceInk[1] = normalize(tangentSpaceInk[1]) * g_HammerUnitsToUV;
         float2 du = ddx(uvOffset);
         float2 dv = ddy(uvOffset);
         float det = du.x * dv.y - dv.x * du.y;
-        det = rcp(det + (det < 0 ? -1e-7 : 1e-7));
+        det = rcp(det + (det < 0 ? -1.0e-7 : 1.0e-7));
         float2 su = float2( dv.y, -du.y) * det;
         float2 sv = float2(-dv.x,  du.x) * det;
         float3 meshNormal = i.worldNormalTangentY.xyz;
-        float meshAngleFactor = dot(meshNormal, eyeDir);
-        float screenDepth = max(i.worldPos_projPosZ.w, 1e-3);
+        float meshAngleFactor = dot(meshNormal, viewDir);
+        float screenDepth = max(i.worldPos_projPosZ.w, 1.0e-3);
         float2 pixelOffset = uvOffset.x * su + uvOffset.y * sv;
         pixelOffset *= step(0, meshAngleFactor); // disable if not facing at all
         pixelOffset *= rcp(float2(length(worldTangent), length(i.worldBinormalTangentX.xyz)));
@@ -415,7 +465,7 @@ float4 main(PS_INPUT i) : COLOR0 {
 
     // Blend ink and world normals
     float3 tangentSpaceNormal = normalize(lerp(geometryNormal, inkNormal, bumpblendfactor));
-    float3 worldSpaceNormal = normalize(mul(tangentSpaceNormal, tangentSpaceTranspose));
+    float3 worldSpaceNormal = normalize(mul(tangentSpaceNormal, tangentSpaceWorld));
 
     // Compute diffuse lighting factors using bumped lightmap basis
     float3 lightDirectionDifferences;
@@ -443,7 +493,7 @@ float4 main(PS_INPUT i) : COLOR0 {
     result *= g_LightmapScale;
 
     // ^ Diffuse component (multiplies to the final result)
-    // ------------------------------------------------------
+    // -------------------------------------------------------------------------
     // v Specular component (accumulates to the final result)
 
 #ifdef g_PhongEnabled
@@ -453,11 +503,11 @@ float4 main(PS_INPUT i) : COLOR0 {
     if (g_HasBumpedLightmap) {
         float3 strength = mul(GrayScaleFactor, lightmapColors);
         float3 fakeTangentLightDir = mul(strength, BumpBasis);
-        float3 fakeWorldLightDir = mul(fakeTangentLightDir, tangentSpaceTranspose);
+        float3 fakeWorldLightDir = mul(fakeTangentLightDir, tangentSpaceWorld);
         phongLightDir = lerp(g_SunDirection, fakeWorldLightDir, saturate(strength));
     }
 
-    float spec = CalcBlinnPhongSpec(worldSpaceNormal, phongLightDir, eyeDir, phongExponent);
+    float spec = CalcBlinnPhongSpec(worldSpaceNormal, phongLightDir, viewDir, phongExponent);
     float3 phongSpecular = mul(lightDirectionDifferences * spec, lightmapColors);
     phongSpecular *= CalcFresnel(tangentSpaceNormal, tangentViewDir, phongFresnel);
     phongSpecular *= ambientOcclusion;
@@ -469,7 +519,7 @@ float4 main(PS_INPUT i) : COLOR0 {
 #ifdef g_RimEnabled
     float3 worldMeshNormal = i.worldNormalTangentY.xyz;
     float rimExponent = lerp(RIM_EXPONENT_MIN, RIM_EXPONENT_MAX, roughness);
-    float rimNormalDotViewDir = saturate(dot(worldMeshNormal, eyeDir));
+    float rimNormalDotViewDir = saturate(dot(worldMeshNormal, viewDir));
     float rimScale = saturate(pow(1.0 - rimNormalDotViewDir, rimExponent));
     rimScale *= lerp(RIM_METALIC_MIN, RIM_METALIC_MAX, metallic);
     rimScale *= lerp(RIM_ROUGHNESS_MIN, RIM_ROUGHNESS_MAX, roughness);
@@ -489,14 +539,14 @@ float4 main(PS_INPUT i) : COLOR0 {
 #ifdef g_EnvmapEnabled
     // Envmap specular component
     float3 envmapFresnel  = lerp(FRESNEL_MIN, albedo, metallic);
-    float3 envmapReflect  = -reflect(eyeDir, worldSpaceNormal);
+    float3 envmapReflect  = -reflect(viewDir, worldSpaceNormal);
     float3 envmapSpecular = texCUBE(EnvmapSampler, envmapReflect).rgb;
 
     // Apply envmap contribution
     float  envmapScale  = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, roughness * roughness);
     float3 envmapAlbedo = lerp(float3(1.0, 1.0, 1.0), albedo, metallic);
     envmapSpecular *= envmapAlbedo;
-    envmapSpecular *= CalcFresnel(worldSpaceNormal, eyeDir, envmapFresnel);
+    envmapSpecular *= CalcFresnel(worldSpaceNormal, viewDir, envmapFresnel);
     envmapSpecular *= envmapScale;
     envmapSpecular *= ambientOcclusion;
     envmapSpecular *= specularScale;
@@ -504,5 +554,59 @@ float4 main(PS_INPUT i) : COLOR0 {
     result += envmapSpecular;
 #endif
 
-    return float4(result * g_TonemapScale, 1.0);
+    // ^ Specular component (accumulates to the final result)
+    // -------------------------------------------------------------------------
+    // v Depth calculation
+
+    // Construct near and far Z from projected position Z and W
+    // Projection matrix looks like
+    // / *   0               0                    0 \
+    // | 0   *               0                    0 |
+    // | 0   0            farZ / (farZ - nearZ)   1 |
+    // \ 0   0   -nearZ * farZ / (farZ - nearZ)   0 /
+    //
+    // and projected position Z and W are
+    // W = z
+    // Z = z * ( farZ / (farZ - nearZ) ) + ( -nearZ * farZ / (farZ - nearZ) )
+    //   = Propotional * W + Offset
+    //
+    // Partial derivatives of Z and W effectively estimates the projection matrix
+    // ∂Z/∂x = ∂/∂x(Propotional * W + Offset) = Propotiolal * ∂W/∂x
+    //
+    // We have two formula to estimate the Propotional factor
+    // ∂Z/∂x = Propotional * ∂W/∂x
+    // ∂Z/∂y = Propotional * ∂W/∂y
+    // float2(∂Z/∂x, ∂Z/∂y) = Propotional * float2(∂W/∂x, ∂W/∂y)
+    //
+    // The dot product of the partial derivatives are
+    // dot(∂Z/∂X, ∂W/∂X) = Propotional * dot(∂W/∂X, ∂W/∂X)
+    // <=>   Propotional = dot(∂Z/∂X, ∂W/∂X) / dot(∂W/∂X, ∂W/∂X)
+    float projPosZ = i.worldPos_projPosZ.w;
+    float projPosW = i.projPosW.x;
+    float2 dZ = { ddx(projPosZ), ddy(projPosZ) };
+    float2 dW = { ddx(projPosW), ddy(projPosW) };
+    float projMatrixPropotional = dot(dW, dW) > 1e-6 ? dot(dZ, dW) * rcp(dot(dW, dW)) : 1.0;
+    float projMatrixOffset = projPosZ - projMatrixPropotional * projPosW;
+
+    // Calculate new depth from parallax affected UV and original UV
+    float3 inkUVWorldUnits = {
+        i.inkUV_worldBumpUV.x / length(i.inkTangentXYZWorldZ.xyz),
+        i.inkUV_worldBumpUV.y / length(i.inkBinormalMeshLift.xyz),
+        i.inkBinormalMeshLift.w * HEIGHT_TO_HAMMER_UNITS,
+    };
+    float3 parallaxAffectedUV = {
+        inkUV.x / length(i.inkTangentXYZWorldZ.xyz),
+        inkUV.y / length(i.inkBinormalMeshLift.xyz),
+        inkUV.z * HEIGHT_TO_HAMMER_UNITS,
+    };
+    float uvDifference = distance(inkUVWorldUnits, parallaxAffectedUV);
+    float viewVecLength = length(viewVec);
+    float newW = projPosW * (1.0 - uvDifference / viewVecLength);
+    float newZ = projMatrixPropotional * newW + projMatrixOffset;
+    float meshDepth = projPosZ / projPosW;
+    float newDepth = min(meshDepth, newZ / newW); // Don't go deeper than the original mesh
+    float maxDepthDiff = max(abs(ddx(meshDepth)), abs(ddy(meshDepth)));
+    newDepth -= DEPTH_BASE_BIAS + maxDepthDiff * DEPTH_DIFF_SCALE; // Slightly go towards the camera
+    PS_OUTPUT p = { result * g_TonemapScale, 1.0, max(newDepth, 0.0) };
+    return p;
 }

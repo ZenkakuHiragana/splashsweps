@@ -360,6 +360,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         and render.GetScreenEffectTexture(1):GetName() or matinfo.BaseTexture
                     local bump = matinfo.NeedsBumpedLightmaps and 1 or 0
                     local fb = fbScale * (matinfo.NeedsFrameBuffer and 1 or 0)
+                    local uvScale = ss.RenderTarget.HammerUnitsToUV * 0.5
                     local params = {
                         ["$vertexshader"]           = "splashsweps/inkmesh_vs30",
                         ["$pixshader"]              = "splashsweps/inkmesh_ps30",
@@ -394,7 +395,8 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         ["$c0_z"]                   = 0.954, -- Sun direction z
                         ["$c1_x"]                   = bump,  -- Indicates if having bumped lightmaps
                         ["$c1_y"]                   = fb,    -- Indicates if it needs frame buffer
-                        ["$c1_z"]                   = 0,
+                        ["$c1_z"]                   = uvScale,
+                        ["$c1_w"]                   = 0,
                         ["$viewprojmat"]            = matinfo.BaseTextureTransform,
                         ["$invviewprojmat"]         = matinfo.BumpTextureTransform,
                     }
