@@ -41,27 +41,24 @@ VS_OUTPUT main(const VS_INPUT v) {
     float liftAmount = round(v.color.a * 2.0) - 1.0;
     float3 pos = v.pos + v.normal * liftAmount * HEIGHT_TO_HAMMER_UNITS;
     float3 viewDir = cEyePosWaterZ.xyz - pos;
+    float viewDirDot = dot(viewDir, v.normal);
     // Extend the side mesh so that it draws ink raised by its height map
-    if (liftAmount > 0.5 && dot(viewDir, v.normal) < 0.0) {
+    if (liftAmount > 0.5 && viewDirDot < 0.0) {
         float2 surfaceSizeInUV = {
             v.surfaceClipRange.z - v.surfaceClipRange.x,
             v.surfaceClipRange.w - v.surfaceClipRange.y,
         };
-        float surfaceMaxSize =
+        float surfaceMaxSize = sqrt(
             surfaceSizeInUV.x * surfaceSizeInUV.x *
             SAFERCP(dot(v.inkTangent, v.inkTangent)) +
             surfaceSizeInUV.y * surfaceSizeInUV.y *
-            SAFERCP(dot(v.inkBinormal, v.inkBinormal));
-        float3 viewDirFlattened = viewDir - v.normal * dot(viewDir, v.normal);
-        float3 viewDirLength2D = length(viewDirFlattened);
-        float3 surfaceExtentDir = viewDirFlattened * surfaceMaxSize / viewDirLength2D;
-        float3 newPos = viewDir + surfaceExtentDir;
-        newPos *= -1.0; // EyePos to vertex
-        newPos *= viewDirLength2D;
-        newPos /= viewDirLength2D - surfaceMaxSize;
-        newPos += cEyePosWaterZ.xyz;
-        liftAmount = dot(newPos - v.pos, v.normal) / HEIGHT_TO_HAMMER_UNITS;
-        liftAmount = clamp(liftAmount, 1.0, 10.0); // Safety cap
+            SAFERCP(dot(v.inkBinormal, v.inkBinormal)));
+        float3 viewDirFlattened = viewDir - v.normal * viewDirDot;
+        float viewDirLength2D = length(viewDirFlattened);
+        float viewAngle = viewDirLength2D / max(-viewDirDot, 1e-3);
+        float extraHeight = surfaceMaxSize * viewAngle;
+        liftAmount += extraHeight / HEIGHT_TO_HAMMER_UNITS;
+        liftAmount = clamp(liftAmount, 1.0, 16.0); // Safety cap
         pos = v.pos + v.normal * liftAmount * HEIGHT_TO_HAMMER_UNITS;
     }
 

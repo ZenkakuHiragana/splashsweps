@@ -484,9 +484,6 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
         for i, vertices in ipairs(meshData) do
             mesh.Begin(renderBatch[i].Mesh, MATERIAL_TRIANGLES, #vertices / 3)
             for _, v in ipairs(vertices) do
-                print(v.InkTangent[1], v.InkTangent[2], v.InkTangent[3], v.InkTangent[4])
-                print(v.InkBinormal[1], v.InkBinormal[2], v.InkBinormal[3], v.InkBinormal[4])
-                print ""
                 mesh.Normal(v.Normal)
                 mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, 1)
                 mesh.Position(v.Position)

@@ -176,10 +176,10 @@ function ss.SetupSurfaces(surfaces)
                 tempMatrix:GetField(2, 3),
                 tempMatrix:GetField(2, 4),
             }
-            ps.OffsetU  = uvInfo.OffsetU - ss.RT_MARGIN_PIXELS / rtSize / 2
-            ps.OffsetV  = uvInfo.OffsetV - ss.RT_MARGIN_PIXELS / rtSize / 2
-            ps.UVWidth  = uvInfo.Width   + ss.RT_MARGIN_PIXELS / rtSize
-            ps.UVHeight = uvInfo.Height  + ss.RT_MARGIN_PIXELS / rtSize
+            ps.OffsetU  = uvInfo.OffsetU - (ss.RT_MARGIN_PIXELS  + 0.5) / rtSize
+            ps.OffsetV  = uvInfo.OffsetV - (ss.RT_MARGIN_PIXELS  + 0.5) / rtSize
+            ps.UVWidth  = uvInfo.Width   + (ss.RT_MARGIN_PIXELS  + 0.5) / rtSize
+            ps.UVHeight = uvInfo.Height  + (ss.RT_MARGIN_PIXELS  + 0.5) / rtSize
         end
         ss.SurfaceArray[i] = ps
     end

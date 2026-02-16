@@ -261,10 +261,9 @@ void FetchGeometrySamples(
 
 // Steep Parallax Occlusion Mapping
 float3 ApplyParallaxEffect(const PS_INPUT i) {
-    const float HEIGHT_RANGE        = +1.0 - (-1.0);
     const float PIXELS_PER_STEP_RCP = rcp(16.0);
-    const float MIN_STEPS           = 2.0;
-    const float MAX_STEPS           = 16.0;
+    const float MIN_STEPS = 2.0;
+    const float MAX_STEPS = 16.0;
     const int   NUM_BINARY_SEARCHES = 4;
     float3 worldPos = i.worldPos_projPosZ.xyz;
     float3 inkUV    = { i.inkUV_worldBumpUV.xy, i.inkBinormalMeshLift.w };
@@ -386,6 +385,7 @@ PS_OUTPUT main(const PS_INPUT i) {
     float3 additive, multiplicative, inkNormal;
     FetchAdditiveAndHeight(inkUV.xy, additive, height, inkNormal);
     FetchMultiplicativeAndDepth(inkUV.xy, multiplicative, depth);
+    clip(depth + i.inkBinormalMeshLift.w);
     FetchInkMaterial(ID1, ID2, idBlend, metallic, roughness, specularScale, refraction);
     FetchInkDetails(ID1, ID2, idBlend, detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor);
 
@@ -590,13 +590,13 @@ PS_OUTPUT main(const PS_INPUT i) {
 
     // Calculate new depth from parallax affected UV and original UV
     float3 inkUVWorldUnits = {
-        i.inkUV_worldBumpUV.x / length(i.inkTangentXYZWorldZ.xyz),
-        i.inkUV_worldBumpUV.y / length(i.inkBinormalMeshLift.xyz),
+        i.inkUV_worldBumpUV.x / g_HammerUnitsToUV,
+        i.inkUV_worldBumpUV.y / g_HammerUnitsToUV,
         i.inkBinormalMeshLift.w * HEIGHT_TO_HAMMER_UNITS,
     };
     float3 parallaxAffectedUV = {
-        inkUV.x / length(i.inkTangentXYZWorldZ.xyz),
-        inkUV.y / length(i.inkBinormalMeshLift.xyz),
+        inkUV.x / g_HammerUnitsToUV,
+        inkUV.y / g_HammerUnitsToUV,
         inkUV.z * HEIGHT_TO_HAMMER_UNITS,
     };
     float uvDifference = distance(inkUVWorldUnits, parallaxAffectedUV);
