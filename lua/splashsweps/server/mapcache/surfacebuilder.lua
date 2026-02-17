@@ -660,7 +660,7 @@ local function BuildFromBrushFace(bsp, rawFace)
         local lightmapU = {} ---@type number[]
         local lightmapV = {} ---@type number[]
         local triangles = {} ---@type integer[]
-        local isVolumetricSide = {} ---@type integer[]
+        local triangleType = {} ---@type integer[]
         for i, v in ipairs(filteredVertices) do
             surf.AABBMax:Set(ss.MaxVector(surf.AABBMax, v))
             surf.AABBMin:Set(ss.MinVector(surf.AABBMin, v))
@@ -676,29 +676,42 @@ local function BuildFromBrushFace(bsp, rawFace)
                 + 0.5
         end
 
+        -- Mesh on the ground
+        local TRI_CEIL = 0
+        local TRI_DEPTH = 1
+        local TRI_BASE = 2
+        local TRI_SIDE = 3
         for i = 2, #filteredVertices - 1 do
-            triangles[#triangles + 1] = 1
-            triangles[#triangles + 1] = i
-            triangles[#triangles + 1] = i + 1
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, 1
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i + 1
         end
 
+        -- Floating mesh facing toward the mesh
+        for i = 2, #filteredVertices - 1 do
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_CEIL, 1
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_CEIL, i + 1
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_CEIL, i
+        end
+
+        -- Setting up the side mesh for parallax effect
         for i = 1, #filteredVertices do
             -- Inside the face
             local j = (i % #filteredVertices) + 1
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 0, j
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 0, i
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 1, j
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 0, i
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 1, i
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = 1, j
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, j
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, j
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, j
 
             -- Outside the face
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = -1, j
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  0, j
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = -1, i
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] = -1, i
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  0, j
-            isVolumetricSide[#triangles + 1], triangles[#triangles + 1] =  0, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, j
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  i
         end
 
         for i, t in ipairs(triangles) do
@@ -711,7 +724,7 @@ local function BuildFromBrushFace(bsp, rawFace)
             surf.Vertices[i].BumpmapUV.y = bumpmapV[t]
             surf.Vertices[i].LightmapUV.x = lightmapU[t]
             surf.Vertices[i].LightmapUV.y = lightmapV[t]
-            surf.Vertices[i].LiftThisVertex = isVolumetricSide[i]
+            surf.Vertices[i].LiftThisVertex = triangleType[i]
         end
 
         if not isWater then

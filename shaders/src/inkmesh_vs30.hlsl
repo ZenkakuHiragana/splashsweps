@@ -25,7 +25,7 @@ struct VS_OUTPUT {
     float4   worldNormalTangentY   : TEXCOORD6; // xyz: world normal,   w: world tangent Y
     float4   inkTangentXYZWorldZ   : TEXCOORD7; // xyz: ink tangent,    w: world tangent Z
     float4   inkBinormalMeshLift   : TEXCOORD8; // xyz: ink binormal,   w: mesh lift amount
-    float4   projPosW              : TEXCOORD9;
+    float4   projPosW_isCeiling    : TEXCOORD9;
 };
 
 // [0.0, 1.0] --> [-1.0, +1.0]
@@ -38,12 +38,25 @@ const float4x4 cModelViewProj : register(c4);
 const float4 cEyePosWaterZ : register(c2);
 static const float HEIGHT_TO_HAMMER_UNITS = 32.0;
 VS_OUTPUT main(const VS_INPUT v) {
-    float liftAmount = round(v.color.a * 2.0) - 1.0;
+    bool isCeiling = v.color.a == 0.0;
+    float liftAmount = max(round(v.color.a * 3.0) - 2.0, -1.0);
+    float cameraHeight = dot(v.normal, cEyePosWaterZ.xyz - v.pos);
+    if (isCeiling) {
+        if (cameraHeight < 0.0) {
+            VS_OUTPUT w = (VS_OUTPUT)0.0;
+            w.pos = float4(0.0, 0.0, -1.0, 1.0);
+            return w;
+        }
+        else {
+            liftAmount = 1.0;
+        }
+    }
+
     float3 pos = v.pos + v.normal * liftAmount * HEIGHT_TO_HAMMER_UNITS;
-    float3 viewDir = cEyePosWaterZ.xyz - pos;
-    float viewDirDot = dot(viewDir, v.normal);
+    float3 viewVec = cEyePosWaterZ.xyz - pos;
+    float viewVecDot = dot(viewVec, v.normal);
     // Extend the side mesh so that it draws ink raised by its height map
-    if (liftAmount > 0.5 && viewDirDot < 0.0) {
+    if (!isCeiling && liftAmount == 1.0 && viewVecDot < 0.0) {
         float2 surfaceSizeInUV = {
             v.surfaceClipRange.z - v.surfaceClipRange.x,
             v.surfaceClipRange.w - v.surfaceClipRange.y,
@@ -53,9 +66,9 @@ VS_OUTPUT main(const VS_INPUT v) {
             SAFERCP(dot(v.inkTangent, v.inkTangent)) +
             surfaceSizeInUV.y * surfaceSizeInUV.y *
             SAFERCP(dot(v.inkBinormal, v.inkBinormal)));
-        float3 viewDirFlattened = viewDir - v.normal * viewDirDot;
-        float viewDirLength2D = length(viewDirFlattened);
-        float viewAngle = viewDirLength2D / max(-viewDirDot, 1e-3);
+        float3 viewVecFlattened = viewVec - v.normal * viewVecDot;
+        float viewVecLength2D = length(viewVecFlattened);
+        float viewAngle = viewVecLength2D / max(-viewVecDot, 1e-3);
         float extraHeight = surfaceMaxSize * viewAngle;
         liftAmount += extraHeight / HEIGHT_TO_HAMMER_UNITS;
         liftAmount = clamp(liftAmount, 1.0, 16.0); // Safety cap
@@ -82,6 +95,8 @@ VS_OUTPUT main(const VS_INPUT v) {
     w.inkTangentXYZWorldZ.w     = v.tangent.z;
     w.inkBinormalMeshLift.xyz   = v.inkTangent * 0.5; // Intentionally swapped
     w.inkBinormalMeshLift.w     = liftAmount;
-    w.projPosW                  = projPos.w;
+    w.projPosW_isCeiling.x      = projPos.w;
+    w.projPosW_isCeiling.y      = isCeiling ? 1.0 : 0.0;
+    w.projPosW_isCeiling.zw     = 0.0;
     return w;
 }

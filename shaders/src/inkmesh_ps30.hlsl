@@ -114,7 +114,7 @@ struct PS_INPUT {
     float4   worldNormalTangentY   : TEXCOORD6; // xyz: world normal,   w: world tangent Y
     float4   inkTangentXYZWorldZ   : TEXCOORD7; // xyz: ink tangent,    w: world tangent Z
     float4   inkBinormalMeshLift   : TEXCOORD8; // xyz: ink binormal,   w: mesh lift amount
-    float4   projPosW              : TEXCOORD9;
+    float4   projPosW_isCeiling    : TEXCOORD9;
 };
 
 struct PS_OUTPUT {
@@ -267,7 +267,6 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
     const int   NUM_BINARY_SEARCHES = 4;
     float3 worldPos = i.worldPos_projPosZ.xyz;
     float3 inkUV    = { i.inkUV_worldBumpUV.xy, i.inkBinormalMeshLift.w };
-    float3 eyeDir   = g_EyePos.xyz - worldPos;
     float3x3 tangentSpaceInk = {
         i.inkTangentXYZWorldZ.xyz,
         i.inkBinormalMeshLift.xyz,
@@ -276,7 +275,7 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
 
     float3 boxMin           = { i.surfaceClipRange.xy, -1.0 - 1e-5 };
     float3 boxMax           = { i.surfaceClipRange.zw,  1.0 + 1e-5 };
-    float3 viewDir          = mul(tangentSpaceInk, eyeDir);
+    float3 viewDir          = mul(tangentSpaceInk, g_EyePos.xyz - worldPos);
     float3 viewDirInv       = SAFERCP(viewDir);
     float3 fractionMin      = (boxMin - inkUV) * viewDirInv;
     float3 fractionMax      = (boxMax - inkUV) * viewDirInv;
@@ -294,7 +293,9 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
     float3 currentRay = rayMarchingStart;
     float previousInkHeight;
     float currentInkHeight = FetchHeight(currentRay.xy);
-    if (currentRay.z < currentInkHeight) return currentRay;
+    if (inkUV.z >= 0.0 && fractionStart < 1.0 &&
+        0.0 < currentRay.z && currentRay.z < currentInkHeight) return currentRay;
+    clip(-i.projPosW_isCeiling.y);
     [unroll]
     for (int j = 1; j <= MAX_STEPS; j++) {
         if (j > (int)numSteps) break;
@@ -357,6 +358,7 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
 PS_OUTPUT main(const PS_INPUT i) {
     float3 inkUV; // Z = final ray marching height
     if (g_Simplified) {
+        clip(-abs(i.inkBinormalMeshLift.w));
         inkUV = float3(i.inkUV_worldBumpUV.xy, 0.0);
     }
     else {
@@ -369,14 +371,6 @@ PS_OUTPUT main(const PS_INPUT i) {
     float  ID1     = round(inkIDs.r * 255.0);
     float  ID2     = round(inkIDs.g * 255.0);
     float  idBlend = inkIDs.b;
-    float2 bumpUVd[2] = {
-        ddx(i.inkUV_worldBumpUV.zw),
-        ddy(i.inkUV_worldBumpUV.zw),
-    };
-    float2 baseUVd[2] = {
-        g_HasBumpedLightmap ? float2(RcpFbSize.x, 0.0) : bumpUVd[0],
-        g_HasBumpedLightmap ? float2(0.0, RcpFbSize.y) : bumpUVd[1],
-    };
     clip(floor(ID1 + ID2 + idBlend) - 0.5);
 
     // Samples ink parameters
@@ -454,6 +448,14 @@ PS_OUTPUT main(const PS_INPUT i) {
         tex2D(LightmapSampler, i.lightmapUV1And2.xy).rgb,
         tex2D(LightmapSampler, i.lightmapUV1And2.zw).rgb,
         tex2D(LightmapSampler, i.lightmapUV3_projXY.xy).rgb,
+    };
+    float2 bumpUVd[2] = {
+        ddx(i.inkUV_worldBumpUV.zw),
+        ddy(i.inkUV_worldBumpUV.zw),
+    };
+    float2 baseUVd[2] = {
+        g_HasBumpedLightmap ? float2(RcpFbSize.x, 0.0) : bumpUVd[0],
+        g_HasBumpedLightmap ? float2(0.0, RcpFbSize.y) : bumpUVd[1],
     };
 
     // Sample geometry albedo and normal
@@ -556,57 +558,65 @@ PS_OUTPUT main(const PS_INPUT i) {
 
     // ^ Specular component (accumulates to the final result)
     // -------------------------------------------------------------------------
-    // v Depth calculation
+    // v Depth & alpha calculation
 
-    // Construct near and far Z from projected position Z and W
-    // Projection matrix looks like
-    // / *   0               0                    0 \
-    // | 0   *               0                    0 |
-    // | 0   0            farZ / (farZ - nearZ)   1 |
-    // \ 0   0   -nearZ * farZ / (farZ - nearZ)   0 /
-    //
-    // and projected position Z and W are
-    // W = z
-    // Z = z * ( farZ / (farZ - nearZ) ) + ( -nearZ * farZ / (farZ - nearZ) )
-    //   = Propotional * W + Offset
-    //
-    // Partial derivatives of Z and W effectively estimates the projection matrix
-    // ∂Z/∂x = ∂/∂x(Propotional * W + Offset) = Propotiolal * ∂W/∂x
-    //
-    // We have two formula to estimate the Propotional factor
-    // ∂Z/∂x = Propotional * ∂W/∂x
-    // ∂Z/∂y = Propotional * ∂W/∂y
-    // float2(∂Z/∂x, ∂Z/∂y) = Propotional * float2(∂W/∂x, ∂W/∂y)
-    //
-    // The dot product of the partial derivatives are
-    // dot(∂Z/∂X, ∂W/∂X) = Propotional * dot(∂W/∂X, ∂W/∂X)
-    // <=>   Propotional = dot(∂Z/∂X, ∂W/∂X) / dot(∂W/∂X, ∂W/∂X)
+    float alpha = 1.0;
     float projPosZ = i.worldPos_projPosZ.w;
-    float projPosW = i.projPosW.x;
-    float2 dZ = { ddx(projPosZ), ddy(projPosZ) };
-    float2 dW = { ddx(projPosW), ddy(projPosW) };
-    float projMatrixPropotional = dot(dW, dW) > 1e-6 ? dot(dZ, dW) * rcp(dot(dW, dW)) : 1.0;
-    float projMatrixOffset = projPosZ - projMatrixPropotional * projPosW;
+    float projPosW = i.projPosW_isCeiling.x;
+    float newDepth = projPosZ / projPosW;
+    if (!g_Simplified) {
+        // Construct near and far Z from projected position Z and W
+        // Projection matrix looks like
+        // / *   0               0                    0 \
+        // | 0   *               0                    0 |
+        // | 0   0            farZ / (farZ - nearZ)   1 |
+        // \ 0   0   -nearZ * farZ / (farZ - nearZ)   0 /
+        //
+        // and projected position Z and W are
+        // W = z
+        // Z = z * ( farZ / (farZ - nearZ) ) + ( -nearZ * farZ / (farZ - nearZ) )
+        //   = Propotional * W + Offset
+        //
+        // Partial derivatives of Z and W effectively estimates the projection matrix
+        // ∂Z/∂x = ∂/∂x(Propotional * W + Offset) = Propotiolal * ∂W/∂x
+        //
+        // We have two formula to estimate the Propotional factor
+        // ∂Z/∂x = Propotional * ∂W/∂x
+        // ∂Z/∂y = Propotional * ∂W/∂y
+        // float2(∂Z/∂x, ∂Z/∂y) = Propotional * float2(∂W/∂x, ∂W/∂y)
+        //
+        // The dot product of the partial derivatives are
+        // dot(∂Z/∂X, ∂W/∂X) = Propotional * dot(∂W/∂X, ∂W/∂X)
+        // <=>   Propotional = dot(∂Z/∂X, ∂W/∂X) / dot(∂W/∂X, ∂W/∂X)
+        float2 dZ = { ddx(projPosZ), ddy(projPosZ) };
+        float2 dW = { ddx(projPosW), ddy(projPosW) };
+        float projMatrixPropotional = dot(dW, dW) > 1e-6 ? dot(dZ, dW) * rcp(dot(dW, dW)) : 1.0;
+        float projMatrixOffset = projPosZ - projMatrixPropotional * projPosW;
+        float nearZ = -projMatrixOffset * SAFERCP(projMatrixPropotional);
 
-    // Calculate new depth from parallax affected UV and original UV
-    float3 inkUVWorldUnits = {
-        i.inkUV_worldBumpUV.x / g_HammerUnitsToUV,
-        i.inkUV_worldBumpUV.y / g_HammerUnitsToUV,
-        i.inkBinormalMeshLift.w * HEIGHT_TO_HAMMER_UNITS,
-    };
-    float3 parallaxAffectedUV = {
-        inkUV.x / g_HammerUnitsToUV,
-        inkUV.y / g_HammerUnitsToUV,
-        inkUV.z * HEIGHT_TO_HAMMER_UNITS,
-    };
-    float uvDifference = distance(inkUVWorldUnits, parallaxAffectedUV);
-    float viewVecLength = length(viewVec);
-    float newW = projPosW * (1.0 - uvDifference / viewVecLength);
-    float newZ = projMatrixPropotional * newW + projMatrixOffset;
-    float meshDepth = projPosZ / projPosW;
-    float newDepth = min(meshDepth, newZ / newW); // Don't go deeper than the original mesh
-    float maxDepthDiff = max(abs(ddx(meshDepth)), abs(ddy(meshDepth)));
-    newDepth -= DEPTH_BASE_BIAS + maxDepthDiff * DEPTH_DIFF_SCALE; // Slightly go towards the camera
-    PS_OUTPUT p = { result * g_TonemapScale, 1.0, max(newDepth, 0.0) };
+        // Calculate new depth from parallax affected UV and original UV
+        float3 inkUVWorldUnits = {
+            i.inkUV_worldBumpUV.x / g_HammerUnitsToUV,
+            i.inkUV_worldBumpUV.y / g_HammerUnitsToUV,
+            i.inkBinormalMeshLift.w * HEIGHT_TO_HAMMER_UNITS,
+        };
+        float3 parallaxAffectedUV = {
+            inkUV.x / g_HammerUnitsToUV,
+            inkUV.y / g_HammerUnitsToUV,
+            inkUV.z * HEIGHT_TO_HAMMER_UNITS,
+        };
+        float uvDifference = distance(inkUVWorldUnits, parallaxAffectedUV);
+        float viewVecLength = length(viewVec);
+        float minW = nearZ + 16.0;
+        float newW = max(projPosW * (1.0 - uvDifference / viewVecLength), minW);
+        float newZ = projMatrixPropotional * newW + projMatrixOffset;
+        float meshDepth = projPosZ / projPosW;
+        float maxDepthDiff = max(abs(ddx(meshDepth)), abs(ddy(meshDepth)));
+        newDepth = min(meshDepth, newZ / newW); // Don't go deeper than the original mesh
+        newDepth -= DEPTH_BASE_BIAS + maxDepthDiff * DEPTH_DIFF_SCALE; // Slightly go towards the camera
+        alpha = 1.0;
+    }
+
+    PS_OUTPUT p = { result * g_TonemapScale, alpha, max(newDepth, 0.0) };
     return p;
 }

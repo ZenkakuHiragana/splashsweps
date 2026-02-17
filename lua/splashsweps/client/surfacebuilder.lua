@@ -378,6 +378,9 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         ["$linearread_texture4"]    = "1",
                         ["$linearread_texture5"]    = "1",
                         ["$linearread_texture6"]    = "1",
+                        ["$alpha_blend"]            = "1",
+                        ["$alphablend"]             = "1",
+                        ["$alphatested"]            = "0",
                         ["$cull"]                   = "1",
                         ["$depthtest"]              = "1",
                         ["$vertexalpha"]            = "1",
@@ -445,7 +448,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         uv.x = uv.x + info.Translation.x * scale
                         uv.y = uv.y + info.Translation.y * scale
                         meshData[meshIndex][vertIndex] = {
-                            Lift = ((v.LiftThisVertex or 0) + 1) * 0.5,
+                            Lift = math.Remap(v.LiftThisVertex or 2, 0, 3, 0, 1),
                             Normal = normal,
                             TangentS = tangent,
                             TangentT = binormal,
