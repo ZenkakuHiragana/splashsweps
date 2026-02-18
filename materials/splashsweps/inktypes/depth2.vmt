@@ -7,7 +7,7 @@
     "$heightbaseline" "0"
     "$geometrypaintbias" "1"
     "$specularscale" "0"
-    "$alpha" "0"
-    "$heightonly" "1"
+    "$alpha" "0.125"
+    "$heightonly" "0"
     "$features" ""
 }

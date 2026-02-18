@@ -56,6 +56,7 @@ SWEP.InkTypes = {
     "splashsweps/inktypes/material_test",
     "splashsweps/inktypes/height1",
     "splashsweps/inktypes/depth1",
+    "splashsweps/inktypes/depth2",
 }
 
 function SWEP:Initialize()

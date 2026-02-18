@@ -161,6 +161,11 @@ float FetchHeight(float2 uv) {
     return TO_SIGNED(tex2Dlod(InkMap, float4(uv, 0.0, 0.0)).a);
 }
 
+// Samples only depth value to apply parallax effect to the ink
+float FetchDepth(float2 uv) {
+    return tex2Dlod(InkMap, float4(uv.x + 0.5, uv.y, 0.0, 0.0)).a;
+}
+
 // Samples additive color and height value
 void FetchAdditiveAndHeight(float2 uv, out float3 additive, out float height, out float3 normal) {
     float4 uv4 = { uv, 0.0, 0.0 };
@@ -299,8 +304,9 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
     float3 previousRay;
     float3 currentRay = rayMarchingStart;
     float previousInkHeight;
-    float currentInkHeight = FetchHeight(currentRay.xy);
+    float currentInkHeight = inkUV.z >= 0.0 ? FetchHeight(currentRay.xy) : FetchDepth(currentRay.xy);
     clip(i.projPosW_isCeiling.y * (currentInkHeight - 1.0 + viewDir.z));
+    clip((1.0 - step(-inkUV.z, 0.0)) * (currentInkHeight - inkUV.z));
     if (i.projPosW_isCeiling.y > 0.5) return inkUV;
     if (inkUV.z >= 0.0 && fractionStart < 1.0 &&
         0.0 < currentRay.z && currentRay.z < currentInkHeight) return currentRay;
@@ -311,7 +317,8 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
         previousInkHeight = currentInkHeight;
         previousRay = currentRay;
         currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
-        currentInkHeight = FetchHeight(currentRay.xy);
+        currentInkHeight = inkUV.z >= 0.0 ? FetchHeight(currentRay.xy) : FetchDepth(currentRay.xy);
+        clip((1.0 - step(-inkUV.z, 0.0)) * (currentInkHeight - inkUV.z));
         if ((previousInkHeight <= previousRay.z && currentRay.z <= currentInkHeight) ||
             (previousRay.z <= previousInkHeight && currentInkHeight <= currentRay.z)) {
             float previousHeightLeft = previousRay.z - previousInkHeight;
@@ -373,13 +380,21 @@ PS_OUTPUT main(const PS_INPUT i) {
         i.worldBinormalTangentX.xyz,
         i.worldNormalTangentY.xyz,
     };
+    float2 tangentScaleSqr = {
+        dot(worldTangent, worldTangent),
+        dot(i.worldBinormalTangentX.xyz, i.worldBinormalTangentX.xyz),
+    };
+    float2 texTransformScale = {
+        length(BaseTextureTransform[0].xyz),
+        length(BaseTextureTransform[1].xyz),
+    };
     float3 tangentViewDir = mul(tangentSpaceWorld, viewDir);
     float2 parallaxVec = tangentViewDir.xy / max(tangentViewDir.z, 1.0e-3);
-    float2 uvDepthParallax = parallaxVec * depth * HEIGHT_TO_HAMMER_UNITS;
-    float2 uvRefraction = inkNormal.xy * refraction;
-    uvRefraction += parallaxVec * height * HEIGHT_TO_HAMMER_UNITS * refraction;
-
-    float2 uvOffset = uvDepthParallax * uvRefraction;
+    float2 uvDepthParallax = -parallaxVec;
+    uvDepthParallax *= depth;
+    uvDepthParallax /= max(tangentScaleSqr, 1.0e-3) * max(texTransformScale, 1e-3);
+    float2 uvRefraction = inkNormal.xy * refraction * rsqrt(max(tangentScaleSqr, 1.0e-3)) * 0.0;
+    float2 uvOffset = uvDepthParallax + uvRefraction;
     float2 bumpUV = i.inkUV_worldBumpUV.zw + uvOffset;
     float2 baseUV = bumpUV;
     if (g_NeedsFrameBuffer > 0.0) {
@@ -404,21 +419,15 @@ PS_OUTPUT main(const PS_INPUT i) {
         // float3x3 tangentSpaceInk = { mul(dUdXInv, dPdX), i.worldNormalTangentY.xyz };
         // tangentSpaceInk[0] = normalize(tangentSpaceInk[0]) * g_HammerUnitsToUV;
         // tangentSpaceInk[1] = normalize(tangentSpaceInk[1]) * g_HammerUnitsToUV;
-        float2 du = ddx(uvOffset);
-        float2 dv = ddy(uvOffset);
+        float2 du = ddx(i.inkUV_worldBumpUV.zw);
+        float2 dv = ddy(i.inkUV_worldBumpUV.zw);
         float det = du.x * dv.y - dv.x * du.y;
         det = rcp(det + (det < 0 ? -1.0e-7 : 1.0e-7));
-        float2 su = float2( dv.y, -du.y) * det;
-        float2 sv = float2(-dv.x,  du.x) * det;
-        float3 meshNormal = i.worldNormalTangentY.xyz;
-        float meshAngleFactor = dot(meshNormal, viewDir);
-        float screenDepth = max(i.worldPos_projPosZ.w, 1.0e-3);
-        float2 pixelOffset = uvOffset.x * su + uvOffset.y * sv;
-        pixelOffset *= step(0, meshAngleFactor); // disable if not facing at all
-        pixelOffset *= rcp(float2(length(worldTangent), length(i.worldBinormalTangentX.xyz)));
-        pixelOffset *= rcp(screenDepth);
-        pixelOffset *= g_ScreenScale;
-        float2 finalUV = (i.screenPos - pixelOffset) * RcpFbSize;
+        float2 screenOffset = {
+            dot(float2( dv.y, -dv.x), uvOffset) * det,
+            dot(float2(-du.y,  du.x), uvOffset) * det,
+        };
+        float2 finalUV = (i.screenPos + screenOffset * g_ScreenScale) * RcpFbSize;
         float2 fade = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.55, finalUV);
         baseUV = lerp(i.screenPos * RcpFbSize, finalUV, fade);
     }

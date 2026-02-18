@@ -27,7 +27,7 @@ static const float eps = 5e-3;
 #define regionID  i.typeRegionTimeZScale.y
 #define time      i.typeRegionTimeZScale.z
 #define zScale    i.typeRegionTimeZScale.w
-#define inkMapUV  (i.screenPos * RcpRTSize)
+#define inkMapUV  ((i.screenPos + float2(0.5, 0.5)) * RcpRTSize)
 
 int GetSurfaceIndex(float4 indexSample) {
     return int(lerp(indexSample.r, indexSample.g, ceil(indexSample.b)) * 255);

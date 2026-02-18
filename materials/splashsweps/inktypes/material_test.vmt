@@ -1,14 +1,14 @@
 "UnlitGeneric"
 {
-    "$basetexture"   "rubber2"
+    "$basetexture"   "grey"
     "$tinttexture"   "splashsweps/inktypes/material_test"
     "$detail"        "null-bumpmap"
     "$features"      ""
     "$metallic"      "0"
     "$roughness"     "0.5"
     "$specularscale" "0.75"
-    "$alphatest"     "1"
-    "$translucent"   "1"
+    "$heightmapscale" "0.125"
+    "$heightbaseline" "0.5"
     "Proxies"
     {
         "LinearRamp"
