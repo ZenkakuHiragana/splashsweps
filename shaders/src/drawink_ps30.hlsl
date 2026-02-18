@@ -1,4 +1,6 @@
 
+#include "inkmesh_common.hlsl"
+
 sampler InkMap             : register(s0);
 sampler DataSampler        : register(s1);
 sampler BaseTextureAtlas   : register(s2);
@@ -19,36 +21,13 @@ struct PS_OUTPUT {
     float  depth : DEPTH0;
 };
 
-static const float  eps = 5e-3;
-static const float4 GROUND_PROPERTIES[8] = {
-    { 1.0, 1.0, 1.0,  1.0 },
-    { 1.0, 1.0, 1.0,  0.0 },
-    { 1.0, 1.0, 1.0,  1.0 },
-    { 1.0, 1.0, 0.75, 0.5 },
-    { 0.0, 0.0, 0.0,  1.0 },
-    { 0.0, 1.0, 1.0,  1.0 },
-    { 0.0, 1.0, 1.0,  1.0 },
-    { 0.0, 0.0, 0.0,  0.0 },
-};
-
-#define TO_SIGNED(x)           ((x) * 2.0 - 1.0) // [0.0, 1.0] --> [-1.0, +1.0]
-#define TO_UNSIGNED(x) saturate((x) * 0.5 + 0.5) // [-1.0, +1.0] --> [0.0, 1.0]
+static const float eps = 5e-3;
 #define NODIG     abs(0.5 - miscParam.w) < eps ? 1.0 : 0.0
 #define paintType i.typeRegionTimeZScale.x
 #define regionID  i.typeRegionTimeZScale.y
 #define time      i.typeRegionTimeZScale.z
 #define zScale    i.typeRegionTimeZScale.w
 #define inkMapUV  (i.screenPos * RcpRTSize)
-
-// Data texture layout
-#define ID_COLOR_ALPHA        0
-#define ID_TINT_GEOMETRYPAINT 1
-#define ID_EDGE               2
-#define ID_HEIGHT_MAXLAYERS   3
-#define ID_MATERIAL_REFRACT   4
-#define ID_MISC               5
-#define ID_DETAILS_BUMPBLEND  6
-#define ID_OTHERS             7
 
 int GetSurfaceIndex(float4 indexSample) {
     return int(lerp(indexSample.r, indexSample.g, ceil(indexSample.b)) * 255);
@@ -95,7 +74,7 @@ void CalculateHeight(
     float baselineFalloff = exp(-sign(paintHeight) * oldPixelValue / maxHeight);
     baselineFalloff *= 1 - oldHeightSaturated;
     float baselineAdd = paintHeight * baselineFalloff;
-    float detailFalloff = oldHeightSaturated * oldHeightSaturated;;
+    float detailFalloff = oldHeightSaturated * oldHeightSaturated;
     detailFalloff *= detailFalloff;
     detailFalloff *= detailFalloff;
     detailFalloff *= detailFalloff;

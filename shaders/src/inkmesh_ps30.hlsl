@@ -272,7 +272,6 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
     const float PIXELS_PER_STEP_RCP = rcp(16.0);
     const float MIN_STEPS = 2.0;
     const float MAX_STEPS = 16.0;
-    const int   NUM_BINARY_SEARCHES = 2;
     float3 worldPos = i.worldPos_projPosZ.xyz;
     float3 inkUV    = { i.inkUV_worldBumpUV.xy, i.inkBinormalMeshLift.w };
     float3x3 tangentSpaceInk = {
@@ -315,44 +314,10 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
         currentInkHeight = FetchHeight(currentRay.xy);
         if ((previousInkHeight <= previousRay.z && currentRay.z <= currentInkHeight) ||
             (previousRay.z <= previousInkHeight && currentInkHeight <= currentRay.z)) {
-            // float rcpNumSteps = rcp(numSteps);
-            // float lerpFraction = fraction - rcpNumSteps;
-            // float lerpInkHeight = previousInkHeight;
-            // [unroll]
-            // for (int k = 0; k < NUM_BINARY_SEARCHES; k++) {
-            //     float previousError = previousInkHeight - previousRay.z;
-            //     float currentError = currentInkHeight - currentRay.z;
-            //     float isGoingTooMuch = step(previousError * currentError, 0.0);
-            //     float isErrorIncreasing = step(abs(previousError), abs(currentError));
-            //     lerpFraction = lerp(lerpFraction, fraction - rcpNumSteps, isGoingTooMuch);
-            //     lerpInkHeight = lerp(lerpInkHeight, previousInkHeight, isGoingTooMuch);
-            //     rcpNumSteps *= step(lerp(isErrorIncreasing, 1.0, isGoingTooMuch), 0.5) - 0.5;
-            //     fraction += rcpNumSteps;
-            //     previousRay = currentRay;
-            //     previousInkHeight = currentInkHeight;
-            //     currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
-            //     currentInkHeight = FetchHeight(currentRay.xy);
-            // }
-            //   tangentViewDir /
-            //                /
-            //    +---------+- previousRay.z
-            //    |       / ||
-            //    * - _ /   VV previousHeightLeft
-            //   /\   / ' - *
-            // +-|| /       |
-            // | ++---------+- currentRay.z
-            // L------------ currentHeightExceeds
-            // float previousError = previousInkHeight - previousRay.z;
-            // float currentError = currentInkHeight - currentRay.z;
-            // float isGoingTooMuch = step(previousError * currentError, 0.0);
-            // lerpFraction = lerp(lerpFraction, fraction - rcpNumSteps, isGoingTooMuch);
-            // lerpInkHeight = lerp(lerpInkHeight, previousInkHeight, isGoingTooMuch);
-            // float3 lerpRay = lerp(rayMarchingStart, rayMarchingEnd, lerpFraction);
             float previousHeightLeft = previousRay.z - previousInkHeight;
             float currentHeightExceeds = currentInkHeight - currentRay.z;
             float parallaxRefinement = currentHeightExceeds / (previousHeightLeft + currentHeightExceeds);
-            parallaxRefinement = 1 - parallaxRefinement;
-            inkUV = lerp(previousRay, currentRay, parallaxRefinement);
+            inkUV = lerp(currentRay, previousRay, parallaxRefinement);
             return clamp(inkUV,
                 float3(i.surfaceClipRange.xy, -1.0),
                 float3(i.surfaceClipRange.zw,  1.0));

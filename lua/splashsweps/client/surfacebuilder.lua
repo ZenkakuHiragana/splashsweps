@@ -357,7 +357,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                     local envmapTextureName = matinfo.Envmap
                     local bumpmapTextureName = matinfo.Bumpmap
                     local frameBufferName = render.GetScreenEffectTexture(1):GetName()
-                    local baseTextureName = matinfo.NeedsBumpedLightmaps
+                    local baseTextureName = matinfo.NeedsFrameBuffer
                         and frameBufferName or matinfo.BaseTexture
                     local bump = matinfo.NeedsBumpedLightmaps and 1 or 0
                     local fb = fbScale * (matinfo.NeedsFrameBuffer and 1 or 0)
