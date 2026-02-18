@@ -1,6 +1,8 @@
 // Ink Mesh Pixel Shader for SplashSWEPs
 // Based on LightmappedGeneric pixel shader with bumped lightmaps
 
+#include "inkmesh_common.hlsl"
+
 // Build configurations
 #define g_EnvmapEnabled
 #define g_PhongEnabled
@@ -22,23 +24,23 @@ static const float RIM_METALIC_MAX    = 0.0625; // Rim lighting strength at meta
 static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
-static const float HEIGHT_TO_HAMMER_UNITS = 32.0;
 static const float DEPTH_BASE_BIAS  = 2.0e-5; // 1.0e-5 -- 5.0e-5
 static const float DEPTH_DIFF_SCALE = 1.5;    // Sensitivity of the depth difference
 static const float3 GrayScaleFactor = { 0.2126, 0.7152, 0.0722 };
 
 // Samplers
 sampler InkMap             : register(s0);
-sampler InkDetailSampler   : register(s1);
-sampler InkDataSampler     : register(s2);
+sampler InkDataSampler     : register(s1);
+sampler DepthSampler       : register(s2);
 sampler WallAlbedoSampler  : register(s3);
-sampler WallBumpmapSampler : register(s4);
-sampler LightmapSampler    : register(s5);
-sampler EnvmapSampler      : register(s6);
+sampler InkDetailSampler   : register(s4);
+sampler WallBumpmapSampler : register(s5);
+sampler LightmapSampler    : register(s6);
+sampler EnvmapSampler      : register(s7);
 
 // If the base geometry is WorldVertexTransition,
 // the albedo sampler becomes a frame buffer
-#define FrameBufferSampler WallAlbedoSampler
+#define FrameBuffer WallAlbedoSampler
 
 // Constants
 const float4 c0            : register(c0);
@@ -46,8 +48,8 @@ const float4 c1            : register(c1);
 const float4 c2            : register(c2);
 const float4 c3            : register(c3);
 const float2 RcpRTSize     : register(c4); // One over ink map size
-const float2 RcpDetailSize : register(c5);
-const float2 RcpDataRTSize : register(c6);
+const float2 RcpDataRTSize : register(c5);
+const float2 RcpDepthSize  : register(c6);
 const float2 RcpFbSize     : register(c7); // One over frame buffer size
 const float4 c8            : register(c8);
 const float4 c9            : register(c9);
@@ -68,33 +70,6 @@ const float4 HDRParams     : register(c30);
 #define g_LightmapScale HDRParams.y
 #define g_EnvmapScale   HDRParams.z
 #define g_GammaScale    HDRParams.w // = TonemapScale ^ (1 / 2.2)
-
-// Data texture layout
-#define ID_COLOR_ALPHA        0
-#define ID_TINT_GEOMETRYPAINT 1
-#define ID_EDGE               2
-#define ID_HEIGHT_MAXLAYERS   3
-#define ID_MATERIAL_REFRACT   4
-#define ID_MISC               5
-#define ID_DETAILS_BUMPBLEND  6
-#define ID_OTHERS             7
-
-// [0.0, 1.0] --> [-1.0, +1.0]
-#define TO_SIGNED(x) ((x) * 2.0 - 1.0)
-
-// Safe rcp that avoids division by zero
-#define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-21)))
-
-static const float4 GROUND_PROPERTIES[8] = {
-    { 1.0, 1.0, 1.0,  1.0 },
-    { 1.0, 1.0, 1.0,  0.0 },
-    { 1.0, 1.0, 1.0,  1.0 },
-    { 1.0, 1.0, 0.75, 0.5 },
-    { 0.0, 0.0, 0.0,  1.0 },
-    { 0.0, 1.0, 1.0,  1.0 },
-    { 0.0, 1.0, 1.0,  1.0 },
-    { 0.0, 0.0, 0.0,  0.0 },
-};
 
 // Bumped lightmap basis vectors (same as LightmappedGeneric) in tangent space
 static const float3x3 BumpBasis = {
@@ -146,6 +121,39 @@ float CalcBlinnPhongSpec(float3 normal, float3 lightDir, float3 viewDir, float e
 float3 CalcFresnel(float3 normal, float3 viewDirection, float3 f0) {
     float nDotV = saturate(dot(normal, viewDirection));
     return lerp(f0, float3(1.0, 1.0, 1.0), pow(1.0 - nDotV, 5.0));
+}
+
+float4 CalcNearFarZ(float projPosZ, float projPosW) {
+    // Construct near and far Z from projected position Z and W
+    // Projection matrix looks like
+    // / *   0               0                    0 \
+    // | 0   *               0                    0 |
+    // | 0   0            farZ / (farZ - nearZ)   1 |
+    // \ 0   0   -nearZ * farZ / (farZ - nearZ)   0 /
+    //
+    // and projected position Z and W are
+    // W = z
+    // Z = z * ( farZ / (farZ - nearZ) ) + ( -nearZ * farZ / (farZ - nearZ) )
+    //   = Propotional * W + Offset
+    //
+    // Partial derivatives of Z and W effectively estimates the projection matrix
+    // ∂Z/∂x = ∂/∂x(Propotional * W + Offset) = Propotiolal * ∂W/∂x
+    //
+    // We have two formula to estimate the Propotional factor
+    // ∂Z/∂x = Propotional * ∂W/∂x
+    // ∂Z/∂y = Propotional * ∂W/∂y
+    // float2(∂Z/∂x, ∂Z/∂y) = Propotional * float2(∂W/∂x, ∂W/∂y)
+    //
+    // The dot product of the partial derivatives are
+    // dot(∂Z/∂X, ∂W/∂X) = Propotional * dot(∂W/∂X, ∂W/∂X)
+    // <=>   Propotional = dot(∂Z/∂X, ∂W/∂X) / dot(∂W/∂X, ∂W/∂X)
+    float2 dZ = { ddx(projPosZ), ddy(projPosZ) };
+    float2 dW = { ddx(projPosW), ddy(projPosW) };
+    float projMatrixPropotional = dot(dW, dW) > 1e-6 ? dot(dZ, dW) * rcp(dot(dW, dW)) : 1.0;
+    float projMatrixOffset = projPosZ - projMatrixPropotional * projPosW;
+    float nearZ = -projMatrixOffset * SAFERCP(projMatrixPropotional);
+    float farZ = -projMatrixPropotional * nearZ / (1.0 - projMatrixPropotional);
+    return float4(nearZ, farZ, projMatrixPropotional, projMatrixOffset);
 }
 
 // Samples only height value to apply parallax effect to the ink
@@ -243,7 +251,7 @@ void FetchGeometrySamples(
     }
 
     if (g_NeedsFrameBuffer) {
-        float4 frameBufferSample = tex2Dgrad(FrameBufferSampler, baseUV, baseUVddx, baseUVddy);
+        float4 frameBufferSample = tex2Dgrad(FrameBuffer, baseUV, baseUVddx, baseUVddy);
         frameBufferSample /= g_TonemapScale * g_LightmapScale;
         float3 lightDirectionDifferences = hasNoBump
             ? float3(1.0, 0.0, 0.0)
@@ -264,7 +272,7 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
     const float PIXELS_PER_STEP_RCP = rcp(16.0);
     const float MIN_STEPS = 2.0;
     const float MAX_STEPS = 16.0;
-    const int   NUM_BINARY_SEARCHES = 4;
+    const int   NUM_BINARY_SEARCHES = 2;
     float3 worldPos = i.worldPos_projPosZ.xyz;
     float3 inkUV    = { i.inkUV_worldBumpUV.xy, i.inkBinormalMeshLift.w };
     float3x3 tangentSpaceInk = {
@@ -293,9 +301,10 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
     float3 currentRay = rayMarchingStart;
     float previousInkHeight;
     float currentInkHeight = FetchHeight(currentRay.xy);
+    clip(i.projPosW_isCeiling.y * (currentInkHeight - 1.0 + viewDir.z));
+    if (i.projPosW_isCeiling.y > 0.5) return inkUV;
     if (inkUV.z >= 0.0 && fractionStart < 1.0 &&
         0.0 < currentRay.z && currentRay.z < currentInkHeight) return currentRay;
-    clip(-i.projPosW_isCeiling.y);
     [unroll]
     for (int j = 1; j <= MAX_STEPS; j++) {
         if (j > (int)numSteps) break;
@@ -306,24 +315,24 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
         currentInkHeight = FetchHeight(currentRay.xy);
         if ((previousInkHeight <= previousRay.z && currentRay.z <= currentInkHeight) ||
             (previousRay.z <= previousInkHeight && currentInkHeight <= currentRay.z)) {
-            float rcpNumSteps = rcp(numSteps);
-            float lerpFraction = fraction - rcpNumSteps;
-            float lerpInkHeight = previousInkHeight;
-            [unroll]
-            for (int k = 0; k < NUM_BINARY_SEARCHES; k++) {
-                float previousError = previousInkHeight - previousRay.z;
-                float currentError = currentInkHeight - currentRay.z;
-                float isGoingTooMuch = step(previousError * currentError, 0.0);
-                float isErrorIncreasing = step(abs(previousError), abs(currentError));
-                lerpFraction = lerp(lerpFraction, fraction - rcpNumSteps, isGoingTooMuch);
-                lerpInkHeight = lerp(lerpInkHeight, previousInkHeight, isGoingTooMuch);
-                rcpNumSteps *= step(lerp(isErrorIncreasing, 1.0, isGoingTooMuch), 0.5) - 0.5;
-                fraction += rcpNumSteps;
-                previousRay = currentRay;
-                previousInkHeight = currentInkHeight;
-                currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
-                currentInkHeight = FetchHeight(currentRay.xy);
-            }
+            // float rcpNumSteps = rcp(numSteps);
+            // float lerpFraction = fraction - rcpNumSteps;
+            // float lerpInkHeight = previousInkHeight;
+            // [unroll]
+            // for (int k = 0; k < NUM_BINARY_SEARCHES; k++) {
+            //     float previousError = previousInkHeight - previousRay.z;
+            //     float currentError = currentInkHeight - currentRay.z;
+            //     float isGoingTooMuch = step(previousError * currentError, 0.0);
+            //     float isErrorIncreasing = step(abs(previousError), abs(currentError));
+            //     lerpFraction = lerp(lerpFraction, fraction - rcpNumSteps, isGoingTooMuch);
+            //     lerpInkHeight = lerp(lerpInkHeight, previousInkHeight, isGoingTooMuch);
+            //     rcpNumSteps *= step(lerp(isErrorIncreasing, 1.0, isGoingTooMuch), 0.5) - 0.5;
+            //     fraction += rcpNumSteps;
+            //     previousRay = currentRay;
+            //     previousInkHeight = currentInkHeight;
+            //     currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
+            //     currentInkHeight = FetchHeight(currentRay.xy);
+            // }
             //   tangentViewDir /
             //                /
             //    +---------+- previousRay.z
@@ -333,17 +342,17 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
             // +-|| /       |
             // | ++---------+- currentRay.z
             // L------------ currentHeightExceeds
-            float previousError = previousInkHeight - previousRay.z;
-            float currentError = currentInkHeight - currentRay.z;
-            float isGoingTooMuch = step(previousError * currentError, 0.0);
-            lerpFraction = lerp(lerpFraction, fraction - rcpNumSteps, isGoingTooMuch);
-            lerpInkHeight = lerp(lerpInkHeight, previousInkHeight, isGoingTooMuch);
-            float3 lerpRay = lerp(rayMarchingStart, rayMarchingEnd, lerpFraction);
-            float previousHeightLeft = lerpRay.z - lerpInkHeight;
+            // float previousError = previousInkHeight - previousRay.z;
+            // float currentError = currentInkHeight - currentRay.z;
+            // float isGoingTooMuch = step(previousError * currentError, 0.0);
+            // lerpFraction = lerp(lerpFraction, fraction - rcpNumSteps, isGoingTooMuch);
+            // lerpInkHeight = lerp(lerpInkHeight, previousInkHeight, isGoingTooMuch);
+            // float3 lerpRay = lerp(rayMarchingStart, rayMarchingEnd, lerpFraction);
+            float previousHeightLeft = previousRay.z - previousInkHeight;
             float currentHeightExceeds = currentInkHeight - currentRay.z;
             float parallaxRefinement = currentHeightExceeds / (previousHeightLeft + currentHeightExceeds);
-            parallaxRefinement = lerpFraction < fraction ? parallaxRefinement : 1 - parallaxRefinement;
-            inkUV = lerp(lerpRay, currentRay, parallaxRefinement);
+            parallaxRefinement = 1 - parallaxRefinement;
+            inkUV = lerp(previousRay, currentRay, parallaxRefinement);
             return clamp(inkUV,
                 float3(i.surfaceClipRange.xy, -1.0),
                 float3(i.surfaceClipRange.zw,  1.0));
@@ -356,6 +365,12 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
 }
 
 PS_OUTPUT main(const PS_INPUT i) {
+    float projPosZ = i.worldPos_projPosZ.w;
+    float projPosW = i.projPosW_isCeiling.x;
+    float sceneLinearDepth = tex2Dlod(DepthSampler, float4(i.screenPos.xy * RcpDepthSize, 0.0, 0.0)).r;
+    float linearDepth = projPosZ / 4096.0;
+    clip(sceneLinearDepth + 1e-8 - linearDepth); // Early-Z culling
+
     float3 inkUV; // Z = final ray marching height
     if (g_Simplified) {
         clip(-abs(i.inkBinormalMeshLift.w));
@@ -561,39 +576,8 @@ PS_OUTPUT main(const PS_INPUT i) {
     // v Depth & alpha calculation
 
     float alpha = 1.0;
-    float projPosZ = i.worldPos_projPosZ.w;
-    float projPosW = i.projPosW_isCeiling.x;
     float newDepth = projPosZ / projPosW;
-    if (!g_Simplified) {
-        // Construct near and far Z from projected position Z and W
-        // Projection matrix looks like
-        // / *   0               0                    0 \
-        // | 0   *               0                    0 |
-        // | 0   0            farZ / (farZ - nearZ)   1 |
-        // \ 0   0   -nearZ * farZ / (farZ - nearZ)   0 /
-        //
-        // and projected position Z and W are
-        // W = z
-        // Z = z * ( farZ / (farZ - nearZ) ) + ( -nearZ * farZ / (farZ - nearZ) )
-        //   = Propotional * W + Offset
-        //
-        // Partial derivatives of Z and W effectively estimates the projection matrix
-        // ∂Z/∂x = ∂/∂x(Propotional * W + Offset) = Propotiolal * ∂W/∂x
-        //
-        // We have two formula to estimate the Propotional factor
-        // ∂Z/∂x = Propotional * ∂W/∂x
-        // ∂Z/∂y = Propotional * ∂W/∂y
-        // float2(∂Z/∂x, ∂Z/∂y) = Propotional * float2(∂W/∂x, ∂W/∂y)
-        //
-        // The dot product of the partial derivatives are
-        // dot(∂Z/∂X, ∂W/∂X) = Propotional * dot(∂W/∂X, ∂W/∂X)
-        // <=>   Propotional = dot(∂Z/∂X, ∂W/∂X) / dot(∂W/∂X, ∂W/∂X)
-        float2 dZ = { ddx(projPosZ), ddy(projPosZ) };
-        float2 dW = { ddx(projPosW), ddy(projPosW) };
-        float projMatrixPropotional = dot(dW, dW) > 1e-6 ? dot(dZ, dW) * rcp(dot(dW, dW)) : 1.0;
-        float projMatrixOffset = projPosZ - projMatrixPropotional * projPosW;
-        float nearZ = -projMatrixOffset * SAFERCP(projMatrixPropotional);
-
+    if (!g_Simplified && i.projPosW_isCeiling.y < 0.5) {
         // Calculate new depth from parallax affected UV and original UV
         float3 inkUVWorldUnits = {
             i.inkUV_worldBumpUV.x / g_HammerUnitsToUV,
@@ -607,14 +591,15 @@ PS_OUTPUT main(const PS_INPUT i) {
         };
         float uvDifference = distance(inkUVWorldUnits, parallaxAffectedUV);
         float viewVecLength = length(viewVec);
-        float minW = nearZ + 16.0;
+        float4 zRange = CalcNearFarZ(projPosZ, projPosW);
+        float minW = zRange.x + 16.0;
         float newW = max(projPosW * (1.0 - uvDifference / viewVecLength), minW);
-        float newZ = projMatrixPropotional * newW + projMatrixOffset;
+        float newZ = zRange.z * newW + zRange.w;
         float meshDepth = projPosZ / projPosW;
         float maxDepthDiff = max(abs(ddx(meshDepth)), abs(ddy(meshDepth)));
         newDepth = min(meshDepth, newZ / newW); // Don't go deeper than the original mesh
         newDepth -= DEPTH_BASE_BIAS + maxDepthDiff * DEPTH_DIFF_SCALE; // Slightly go towards the camera
-        alpha = 1.0;
+        alpha = saturate(1.0 - i.inkBinormalMeshLift.w * smoothstep(LOD_DISTANCE * 0.5, LOD_DISTANCE * 0.875, newW));
     }
 
     PS_OUTPUT p = { result * g_TonemapScale, alpha, max(newDepth, 0.0) };

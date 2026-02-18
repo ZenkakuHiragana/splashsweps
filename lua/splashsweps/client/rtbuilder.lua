@@ -48,7 +48,6 @@ local RTNAMES = {
 local COMMON_FLAGS = bit.bor(
     TEXTUREFLAGS.NOMIP,
     TEXTUREFLAGS.NOLOD,
-    TEXTUREFLAGS.ALL_MIPS,
     TEXTUREFLAGS.RENDERTARGET)
 local RTFLAGS = {
     -- Wish this prevents sRGB correction

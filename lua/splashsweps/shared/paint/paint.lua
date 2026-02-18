@@ -15,6 +15,7 @@ local GetPredictionPlayer = GetPredictionPlayer
 local net_Start = net.Start
 local net_WriteUInt = net.WriteUInt
 local net_WriteInt = net.WriteInt
+---@diagnostic disable-next-line undefined-field
 local net_SendOmit = net.SendOmit
 
 ---Maximum paint scale of a single drop to be networked

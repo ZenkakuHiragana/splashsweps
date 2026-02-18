@@ -1,5 +1,6 @@
 // Ink Mesh Vertex Shader for SplashSWEPs
-// Based on LightmappedGeneric vertex shader
+
+#include "inkmesh_common.hlsl"
 
 struct VS_INPUT {
     float3 pos              : POSITION;
@@ -28,17 +29,10 @@ struct VS_OUTPUT {
     float4   projPosW_isCeiling    : TEXCOORD9;
 };
 
-// [0.0, 1.0] --> [-1.0, +1.0]
-#define TO_SIGNED(x) ((x) * 2.0 - 1.0)
-
-// Safe rcp that avoids division by zero
-#define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-21)))
-
 const float4x4 cModelViewProj : register(c4);
 const float4 cEyePosWaterZ : register(c2);
-static const float HEIGHT_TO_HAMMER_UNITS = 32.0;
 VS_OUTPUT main(const VS_INPUT v) {
-    bool isCeiling = v.color.a == 0.0;
+    bool isCeiling = v.color.a < 0.125;
     float liftAmount = max(round(v.color.a * 3.0) - 2.0, -1.0);
     float cameraHeight = dot(v.normal, cEyePosWaterZ.xyz - v.pos);
     if (isCeiling) {
@@ -54,27 +48,35 @@ VS_OUTPUT main(const VS_INPUT v) {
 
     float3 pos = v.pos + v.normal * liftAmount * HEIGHT_TO_HAMMER_UNITS;
     float3 viewVec = cEyePosWaterZ.xyz - pos;
+    float viewVecDist = length(viewVec);
     float viewVecDot = dot(viewVec, v.normal);
-    // Extend the side mesh so that it draws ink raised by its height map
-    if (!isCeiling && liftAmount == 1.0 && viewVecDot < 0.0) {
-        float2 surfaceSizeInUV = {
-            v.surfaceClipRange.z - v.surfaceClipRange.x,
-            v.surfaceClipRange.w - v.surfaceClipRange.y,
-        };
-        float surfaceMaxSize = sqrt(
-            surfaceSizeInUV.x * surfaceSizeInUV.x *
-            SAFERCP(dot(v.inkTangent, v.inkTangent)) +
-            surfaceSizeInUV.y * surfaceSizeInUV.y *
-            SAFERCP(dot(v.inkBinormal, v.inkBinormal)));
-        float3 viewVecFlattened = viewVec - v.normal * viewVecDot;
-        float viewVecLength2D = length(viewVecFlattened);
-        float viewAngle = viewVecLength2D / max(-viewVecDot, 1e-3);
-        float extraHeight = surfaceMaxSize * viewAngle;
-        liftAmount += extraHeight / HEIGHT_TO_HAMMER_UNITS;
-        liftAmount = clamp(liftAmount, 1.0, 16.0); // Safety cap
-        pos = v.pos + v.normal * liftAmount * HEIGHT_TO_HAMMER_UNITS;
+    if (!isCeiling) {
+        // Extend the side mesh so that it draws ink raised by its height map
+        if (liftAmount == 1.0 && viewVecDot < 0.0) {
+            float2 surfaceSizeInUV = {
+                v.surfaceClipRange.z - v.surfaceClipRange.x,
+                v.surfaceClipRange.w - v.surfaceClipRange.y,
+            };
+            float surfaceMaxSize = sqrt(
+                surfaceSizeInUV.x * surfaceSizeInUV.x *
+                SAFERCP(dot(v.inkTangent, v.inkTangent)) +
+                surfaceSizeInUV.y * surfaceSizeInUV.y *
+                SAFERCP(dot(v.inkBinormal, v.inkBinormal)));
+            float3 viewVecFlattened = viewVec - v.normal * viewVecDot;
+            float viewVecLength2D = length(viewVecFlattened);
+            float viewAngle = viewVecLength2D / max(-viewVecDot, 1e-3);
+            float extraHeight = surfaceMaxSize * viewAngle;
+            liftAmount += extraHeight / HEIGHT_TO_HAMMER_UNITS;
+            liftAmount = clamp(liftAmount, 1.0, 16.0); // Safety cap
+        }
+
+        float fade = 1.0 - smoothstep(LOD_DISTANCE * 0.5, LOD_DISTANCE, viewVecDist);
+        fade -= cameraHeight / viewVecDist;
+        fade *= step(0.125, fade);
+        liftAmount *= fade;
     }
 
+    pos = v.pos + v.normal * liftAmount * HEIGHT_TO_HAMMER_UNITS;
     float4 projPos = mul(float4(pos, 1.0), cModelViewProj);
     VS_OUTPUT w;
     w.pos                       = projPos;

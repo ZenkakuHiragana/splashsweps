@@ -106,6 +106,13 @@ hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
     end
 end)
 
+-- IMAGE_FORMAT_R32F = 27, Single-channel 32-bit floating point
+hook.Add("NeedsDepthPass", "SplashSWEPs: Needs depth pass", function() return true end)
+GetRenderTargetEx("_rt_resolvedfullframedepth", ScrW(), ScrH(),
+    RT_SIZE_FULL_FRAME_BUFFER,
+    MATERIAL_RT_DEPTH_SHARED,
+    bit.bor(4, 8, 256, 512, 65536), 0, 27)
+
 hook.Add("PreDrawTranslucentRenderables", "SplashSWEPs: Draw ink",
 function(bDrawingDepth, bDrawingSkybox)
     -- if ss.GetOption "hideink" then return end

@@ -356,8 +356,9 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                     local lightmapTextureName = page and string.format("\\[lightmap%d]", page) or "white"
                     local envmapTextureName = matinfo.Envmap
                     local bumpmapTextureName = matinfo.Bumpmap
-                    local baseTextureName = matinfo.NeedsFrameBuffer
-                        and render.GetScreenEffectTexture(1):GetName() or matinfo.BaseTexture
+                    local frameBufferName = render.GetScreenEffectTexture(1):GetName()
+                    local baseTextureName = matinfo.NeedsBumpedLightmaps
+                        and frameBufferName or matinfo.BaseTexture
                     local bump = matinfo.NeedsBumpedLightmaps and 1 or 0
                     local fb = fbScale * (matinfo.NeedsFrameBuffer and 1 or 0)
                     local uvScale = ss.RenderTarget.HammerUnitsToUV * 0.5
@@ -365,12 +366,13 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         ["$vertexshader"]           = "splashsweps/inkmesh_vs30",
                         ["$pixshader"]              = "splashsweps/inkmesh_ps30",
                         ["$basetexture"]            = ss.RenderTarget.StaticTextures.InkMap:GetName(),
-                        ["$texture1"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
-                        ["$texture2"]               = ss.RenderTarget.StaticTextures.Params:GetName(),
+                        ["$texture1"]               = ss.RenderTarget.StaticTextures.Params:GetName(),
+                        ["$texture2"]               = "_rt_ResolvedFullFrameDepth",
                         ["$texture3"]               = baseTextureName,
-                        ["$texture4"]               = bumpmapTextureName,
-                        ["$texture5"]               = lightmapTextureName,
-                        ["$texture6"]               = envmapTextureName,
+                        ["$texture4"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
+                        ["$texture5"]               = bumpmapTextureName,
+                        ["$texture6"]               = lightmapTextureName,
+                        ["$texture7"]               = envmapTextureName,
                         ["$linearread_basetexture"] = "1",
                         ["$linearread_texture1"]    = "1",
                         ["$linearread_texture2"]    = "1",
@@ -378,6 +380,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         ["$linearread_texture4"]    = "1",
                         ["$linearread_texture5"]    = "1",
                         ["$linearread_texture6"]    = "1",
+                        ["$linearread_texture7"]    = "1",
                         ["$alpha_blend"]            = "1",
                         ["$alphablend"]             = "1",
                         ["$alphatested"]            = "0",
