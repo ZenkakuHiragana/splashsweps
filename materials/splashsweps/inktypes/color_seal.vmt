@@ -3,7 +3,9 @@
     "$basetexture"    "splashsweps/paints/drop/a2"
     "$heightmap"      "splashsweps/inktypes/soft_a"
     "$detail"         "rubber_bump"
-    "$heightmapscale" "0.75"
+    "$heightmapscale" "0.125"
     "$specularscale"  "0.0625"
+    "$heightbaseline" "0"
+    "$tintcolor"      "[.2 .2 .2]"
     "$features"       ""
 }
