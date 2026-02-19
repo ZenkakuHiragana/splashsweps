@@ -170,7 +170,7 @@ float FetchDepth(float2 uv) {
 void FetchAdditiveAndHeight(float2 uv, out float3 additive, out float height, out float3 normal) {
     float4 uv4 = { uv, 0.0, 0.0 };
     float4 s = tex2Dlod(InkMap, uv4);
-    additive = s.rgb;
+    additive = pow(s.rgb, 2.2); // Manually correct gamma
     height   = TO_SIGNED(s.a);
 
     // Additional samples to calculate tangent space normal
@@ -184,7 +184,7 @@ void FetchAdditiveAndHeight(float2 uv, out float3 additive, out float height, ou
 // Samples multiplicative color and ground depth
 void FetchMultiplicativeAndDepth(float2 uv, out float3 multiplicative, out float depth) {
     float4 s = tex2Dlod(InkMap, float4(uv.x + 0.5, uv.y, 0.0, 0.0));
-    multiplicative = s.rgb;
+    multiplicative = pow(s.rgb, 2.2);
     depth          = s.a;
 }
 
