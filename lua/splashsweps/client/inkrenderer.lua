@@ -99,6 +99,12 @@ hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
     InkWaterMaterial:SetFloat("$c0_z", sunDir.z)
     for _, model in ipairs(ss.RenderBatches) do
         for _, m in ipairs(model) do
+            if m.EnvmapSource then
+                -- print(m.EnvmapSource, m.EnvmapSource:GetTexture "$envmap")
+                if m.EnvmapSource:GetTexture "$envmap" then
+                    m.Material:SetTexture("$texture7", m.EnvmapSource:GetTexture "$envmap")
+                end
+            end
             m.Material:SetFloat("$c0_x", sunDir.x)
             m.Material:SetFloat("$c0_y", sunDir.y)
             m.Material:SetFloat("$c0_z", sunDir.z)

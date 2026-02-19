@@ -16,7 +16,7 @@ local MIN_DRAW_RADIUS = 0.01 * 0.01 -- Squared minimum draw radius for static pr
 ---@field ArrayIndex integer Index to material name array which is usually game.GetMap():GetMaterials()
 ---@field NeedsBumpedLightmaps boolean
 ---@field NeedsFrameBuffer boolean
----@field Envmap string? Value of $envmap
+---@field Envmap IMaterial? Value of $envmap
 ---@field Bumpmap string? Value of $bumpmap
 ---@field BaseTexture string? Value of $basetexture
 ---@field BumpTextureTransform string? Value of $bumptexturetransform
@@ -136,7 +136,7 @@ local function enumerateMaterials(materialsInMap)
                     ArrayIndex = enumerationIDToArrayIndex[enumerationID],
                     NeedsBumpedLightmaps = bit.band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0,
                     NeedsFrameBuffer = tobool(mat:GetString "$basetexture2"),
-                    Envmap = mat:GetString "$envmap" or "shadertest/shadertest_env.hdr",
+                    Envmap = mat,
                     Bumpmap = mat:GetString "$bumpmap",
                     BaseTexture = mat:GetString "$basetexture",
                     BaseTextureTransform = mat:GetString "$basetexturetransform",
@@ -354,7 +354,6 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                     local matinfo = info.Material
                     local page = info.LightmapPage
                     local lightmapTextureName = page and string.format("\\[lightmap%d]", page) or "white"
-                    local envmapTextureName = matinfo.Envmap
                     local bumpmapTextureName = matinfo.Bumpmap
                     local frameBufferName = render.GetScreenEffectTexture(1):GetName()
                     local baseTextureName = matinfo.NeedsFrameBuffer
@@ -372,7 +371,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         ["$texture4"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
                         ["$texture5"]               = bumpmapTextureName,
                         ["$texture6"]               = lightmapTextureName,
-                        ["$texture7"]               = envmapTextureName,
+                        ["$texture7"]               = "shadertest/shadertest_env.hdr",
                         ["$linearread_basetexture"] = "1",
                         ["$linearread_texture1"]    = "1",
                         ["$linearread_texture2"]    = "1",
@@ -416,6 +415,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             ["$bumpmap"]     = bumpmapTextureName,
                         })
                     renderBatch[#renderBatch + 1] = {
+                        EnvmapSource = matinfo.Envmap,
                         Material = mat,
                         MaterialFlashlight = matf,
                         Mesh = Mesh(mat),

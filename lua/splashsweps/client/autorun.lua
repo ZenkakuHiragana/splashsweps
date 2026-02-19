@@ -1,6 +1,7 @@
 
 if not SplashSWEPs then
     ---@class ss.MeshData
+    ---@field EnvmapSource IMaterial? For some reason $envmap is not set at InitPostEntity so use this to fetch later.
     ---@field Material IMaterial The material to draw this mesh.
     ---@field MaterialFlashlight IMaterial The material to draw flashlight rendering.
     ---@field Mesh IMesh The IMesh object to render this part of surfaces.
