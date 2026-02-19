@@ -100,7 +100,7 @@ function ss.LoadInkTypesRT()
             { edgecolor.x, edgecolor.y, edgecolor.z, mat:GetFloat "$edgewidth"         or 1 },
             {
                 (mat:GetInt "$maxlayers" or 1) / 255,
-                mat:GetFloat "$maxheight"  or  1,
+                mat:GetFloat "$maxheight" or 1,
                 math.Remap(mat:GetFloat "$heightmapscale" or 1, -1, 1, 0, 1),
                 mat:GetFloat "$heightbaseline" or -1,
             }, {

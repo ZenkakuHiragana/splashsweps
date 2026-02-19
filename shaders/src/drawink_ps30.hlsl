@@ -58,20 +58,27 @@ void CalculateHeight(
     // Height map blend parameters
     float maxHeight      = heightParam.y;
     float heightBaseline = heightParam.w;
-    float heightScale    = TO_SIGNED(heightParam.z) * zScale;
+    float heightScale    = TO_SIGNED(heightParam.z);
+    heightScale *= step(5.0e-3, abs(heightScale)) * zScale;
+    float paintDir       = heightScale >= 0.0 ? 1.0 : -1.0;
     float paintHeight    = heightSample * heightScale; // -1.0 -- +1.0
     float paintDetail    = paintHeight - heightBaseline * heightScale;
     float oldHeight, oldDepth;
     int oldIndex = int(oldPixelValue);
-    if (regionID == 2) {
+    if (regionID == 0) {
+        float4 oldDepthUV  = float4(inkMapUV + float2(0.5, 0.0), 0.0, 0.0);
+        oldDepth = tex2Dlod(InkMap, oldDepthUV).a;
+    }
+    else if (regionID == 2) {
         float4 oldHeightUV = float4(inkMapUV + float2(0.0, -0.5), 0.0, 0.0);
         oldHeight = TO_SIGNED(tex2Dlod(InkMap, oldHeightUV).a);
         oldPixelValue = oldHeight;
     }
 
     // Height map blend calculation
-    float oldHeightSaturated = saturate(sign(paintHeight) * oldPixelValue);
-    float baselineFalloff = exp(-sign(paintHeight) * oldPixelValue / maxHeight);
+    float oldHeightSaturated = saturate(
+        paintDir * (oldPixelValue + (regionID == 0 ? oldDepth : 0.0)));
+    float baselineFalloff = exp(-max(oldHeightSaturated, 1.0e-6) / max(maxHeight, 1.0e-12));
     baselineFalloff *= 1 - oldHeightSaturated;
     float baselineAdd = paintHeight * baselineFalloff;
     float detailFalloff = oldHeightSaturated * oldHeightSaturated;
@@ -87,11 +94,9 @@ void CalculateHeight(
     if (desiredAdd < 0.0) {
         desiredAdd = abs(desiredAdd);
         if (regionID == 0) {
-            float4 oldDepthUV  = float4(inkMapUV + float2(0.5, 0.0), 0.0, 0.0);
             float4 oldIndexUV  = float4(inkMapUV + float2(0.0, 0.5), 0.0, 0.0);
             float4 indexSample = tex2Dlod(InkMap, oldIndexUV);
             oldHeight = oldPixelValue;
-            oldDepth = tex2Dlod(InkMap, oldDepthUV).a;
             oldIndex = GetSurfaceIndex(indexSample);
         }
         else if (regionID == 1) {

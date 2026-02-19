@@ -2,8 +2,12 @@
 {
     "$basetexture" "red"
     "$tinttexture" "white"
+    "$heightmap" "null"
     "$detail" "rubber_bump"
     "$alpha" "0.125"
     "$maxlayers" "4"
+    "$maxheight" "0.1"
+    "$heightmapscale" "1"
+    "$heightbaseline" "0.05"
     "$features" ""
 }
