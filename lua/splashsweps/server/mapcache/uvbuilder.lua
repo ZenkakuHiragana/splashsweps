@@ -26,6 +26,7 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
     for rtIndex, rtSize in ipairs(ss.RenderTarget.Resolutions) do
         local rects = {} ---@type ss.Rectangle[]
         local margin = estimatedRectangleSize * ss.RT_MARGIN_PIXELS / rtSize
+        local marginVector = Vector(margin * 0.5, margin * 0.5)
         for i, surf in ipairs(surfaces) do
             local info = surf.UVInfo[rtIndex]
             rects[i] = ss.MakeRectangle(info.Width + margin, info.Height + margin, 0, 0, surf)
@@ -47,8 +48,8 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
         for _, index in ipairs(packer.results) do
             local rect = packer.rects[index]
             local tag = rect.tag ---@cast tag ss.PrecachedData.Surface
-            local width = rect.width - margin
-            local height = rect.height - margin
+            local width = rect.width
+            local height = rect.height
             if tag.UVInfo then
                 local info = tag.UVInfo[rtIndex]
 
@@ -69,11 +70,12 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
                 workMatrix:SetAngles(info.Angle)
                 workMatrix:InvertTR()
                 info.Angle:Set(workMatrix:GetAngles())
-                info.Translation:Set(workMatrix:GetTranslation() + rect.bottomleft)
+                info.Translation:Set(
+                    workMatrix:GetTranslation() + rect.bottomleft + marginVector)
             else ---@cast tag { UV: ss.PrecachedData.StaticProp.UVInfo, Rectangle: Vector }
                 local rotated = rect.istall ~= (tag.Rectangle.x < tag.Rectangle.y)
-                tag.UV.Width = width
-                tag.UV.Height = height
+                tag.UV.Width = width - margin
+                tag.UV.Height = height - margin
                 tag.UV.Offset:SetUnpacked(rect.left, rect.bottom, rotated and 1 or 0)
             end
         end

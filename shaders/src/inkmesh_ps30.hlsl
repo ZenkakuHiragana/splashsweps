@@ -32,15 +32,11 @@ static const float3 GrayScaleFactor = { 0.2126, 0.7152, 0.0722 };
 sampler InkMap             : register(s0);
 sampler InkDataSampler     : register(s1);
 sampler DepthSampler       : register(s2);
-sampler WallAlbedoSampler  : register(s3);
+sampler FrameBuffer        : register(s3);
 sampler InkDetailSampler   : register(s4);
-sampler WallBumpmapSampler : register(s5);
-sampler LightmapSampler    : register(s6);
-sampler EnvmapSampler      : register(s7);
-
-// If the base geometry is WorldVertexTransition,
-// the albedo sampler becomes a frame buffer
-#define FrameBuffer WallAlbedoSampler
+sampler WallAlbedoSampler  : register(s5);
+sampler WallBumpmapSampler : register(s6);
+sampler LightmapSampler    : register(s7);
 
 // Constants
 const float4 c0            : register(c0);
@@ -170,7 +166,7 @@ float FetchDepth(float2 uv) {
 void FetchAdditiveAndHeight(float2 uv, out float3 additive, out float height, out float3 normal) {
     float4 uv4 = { uv, 0.0, 0.0 };
     float4 s = tex2Dlod(InkMap, uv4);
-    additive = pow(s.rgb, 2.2); // Manually correct gamma
+    additive = pow(abs(s.rgb), 2.2); // Manually correct gamma
     height   = TO_SIGNED(s.a);
 
     // Additional samples to calculate tangent space normal
@@ -184,7 +180,7 @@ void FetchAdditiveAndHeight(float2 uv, out float3 additive, out float height, ou
 // Samples multiplicative color and ground depth
 void FetchMultiplicativeAndDepth(float2 uv, out float3 multiplicative, out float depth) {
     float4 s = tex2Dlod(InkMap, float4(uv.x + 0.5, uv.y, 0.0, 0.0));
-    multiplicative = pow(s.rgb, 2.2);
+    multiplicative = pow(abs(s.rgb), 2.2);
     depth          = s.a;
 }
 
@@ -529,13 +525,27 @@ PS_OUTPUT main(const PS_INPUT i) {
 
 #ifdef g_EnvmapEnabled
     // Envmap specular component
-    float3 envmapFresnel  = lerp(FRESNEL_MIN, albedo, metallic);
-    float3 envmapReflect  = -reflect(viewDir, worldSpaceNormal);
-    float3 envmapSpecular = texCUBE(EnvmapSampler, envmapReflect).rgb;
+    float3 envmapReflect = reflect(tangentViewDir, tangentSpaceNormal);
+    float2 envmapUVOffset = envmapReflect.xy * 7.0;
+    envmapUVOffset /= max(tangentScaleSqr, 1.0e-3);
+    float2 du = ddx(i.inkUV_worldBumpUV.zw);
+    float2 dv = ddy(i.inkUV_worldBumpUV.zw);
+    float det = du.x * dv.y - dv.x * du.y;
+    det = rcp(det + (det < 0 ? -1.0e-7 : 1.0e-7));
+    float2 screenOffset = {
+        dot(float2( dv.y, -dv.x), envmapUVOffset) * det,
+        dot(float2(-du.y,  du.x), envmapUVOffset) * det,
+    };
+    float2 fakeSSRUV = saturate((i.screenPos - screenOffset) * RcpFbSize);
+    float3 envmapSpecular = tex2D(FrameBuffer, fakeSSRUV).rgb;
+    envmapSpecular /= g_TonemapScale;
+    envmapSpecular *= smoothstep(-0.35, 0.35, envmapReflect.z);
+    envmapSpecular *= step(abs(i.inkBinormalMeshLift.w), 1e-3);
 
     // Apply envmap contribution
-    float  envmapScale  = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, roughness * roughness);
-    float3 envmapAlbedo = lerp(float3(1.0, 1.0, 1.0), albedo, metallic);
+    float3 envmapFresnel = lerp(FRESNEL_MIN, albedo, metallic);
+    float  envmapScale   = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, roughness * roughness);
+    float3 envmapAlbedo  = lerp(float3(1.0, 1.0, 1.0), albedo, metallic);
     envmapSpecular *= envmapAlbedo;
     envmapSpecular *= CalcFresnel(worldSpaceNormal, viewDir, envmapFresnel);
     envmapSpecular *= envmapScale;

@@ -6,7 +6,7 @@
     "$detail"        "null-bumpmap"
     "$features"      ""
     "$metallic"      "0"
-    "$roughness"     "0.0"
+    "$roughness"     "0"
     "$specularscale" "1"
     "$maxheight"     "0.2"
     "$heightmapscale" "0.125"

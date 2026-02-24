@@ -16,7 +16,6 @@ local MIN_DRAW_RADIUS = 0.01 * 0.01 -- Squared minimum draw radius for static pr
 ---@field ArrayIndex integer Index to material name array which is usually game.GetMap():GetMaterials()
 ---@field NeedsBumpedLightmaps boolean
 ---@field NeedsFrameBuffer boolean
----@field Envmap IMaterial? Value of $envmap
 ---@field Bumpmap string? Value of $bumpmap
 ---@field BaseTexture string? Value of $basetexture
 ---@field BumpTextureTransform string? Value of $bumptexturetransform
@@ -25,7 +24,6 @@ ss.struct "SurfaceBuilder.MaterialInfo" {
     ArrayIndex = 0,
     NeedsBumpedLightmaps = false,
     NeedsFrameBuffer = false,
-    Envmap = nil,
     Bumpmap = nil,
     BaseTexture = nil,
     BumpTextureTransform = nil,
@@ -136,7 +134,6 @@ local function enumerateMaterials(materialsInMap)
                     ArrayIndex = enumerationIDToArrayIndex[enumerationID],
                     NeedsBumpedLightmaps = bit.band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0,
                     NeedsFrameBuffer = tobool(mat:GetString "$basetexture2"),
-                    Envmap = mat,
                     Bumpmap = mat:GetString "$bumpmap",
                     BaseTexture = mat:GetString "$basetexture",
                     BaseTextureTransform = mat:GetString "$basetexturetransform",
@@ -355,9 +352,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                     local page = info.LightmapPage
                     local lightmapTextureName = page and string.format("\\[lightmap%d]", page) or "white"
                     local bumpmapTextureName = matinfo.Bumpmap
-                    local frameBufferName = render.GetScreenEffectTexture(1):GetName()
-                    local baseTextureName = matinfo.NeedsFrameBuffer
-                        and frameBufferName or matinfo.BaseTexture
+                    local baseTextureName = matinfo.BaseTexture
                     local bump = matinfo.NeedsBumpedLightmaps and 1 or 0
                     local fb = fbScale * (matinfo.NeedsFrameBuffer and 1 or 0)
                     local uvScale = ss.RenderTarget.HammerUnitsToUV * 0.5
@@ -367,17 +362,17 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         ["$basetexture"]            = ss.RenderTarget.StaticTextures.InkMap:GetName(),
                         ["$texture1"]               = ss.RenderTarget.StaticTextures.Params:GetName(),
                         ["$texture2"]               = "_rt_ResolvedFullFrameDepth",
-                        ["$texture3"]               = baseTextureName,
+                        ["$texture3"]               = "_rt_fullframefb1",
                         ["$texture4"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
-                        ["$texture5"]               = bumpmapTextureName,
-                        ["$texture6"]               = lightmapTextureName,
-                        ["$texture7"]               = "shadertest/shadertest_env.hdr",
+                        ["$texture5"]               = baseTextureName,
+                        ["$texture6"]               = bumpmapTextureName,
+                        ["$texture7"]               = lightmapTextureName,
                         ["$linearread_basetexture"] = "1",
                         ["$linearread_texture1"]    = "1",
                         ["$linearread_texture2"]    = "1",
                         ["$linearread_texture3"]    = "0",
                         ["$linearread_texture4"]    = "1",
-                        ["$linearread_texture5"]    = "1",
+                        ["$linearread_texture5"]    = "0",
                         ["$linearread_texture6"]    = "1",
                         ["$linearread_texture7"]    = "1",
                         ["$alpha_blend"]            = "1",
@@ -415,7 +410,6 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             ["$bumpmap"]     = bumpmapTextureName,
                         })
                     renderBatch[#renderBatch + 1] = {
-                        EnvmapSource = matinfo.Envmap,
                         Material = mat,
                         MaterialFlashlight = matf,
                         Mesh = Mesh(mat),

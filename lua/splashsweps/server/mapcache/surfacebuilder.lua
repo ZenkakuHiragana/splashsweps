@@ -528,6 +528,11 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, normal, tangent, bi
         end
     end
 
+    -- Add margin to construct overlapped hash table entries
+    local OVERLAP_MARGIN = 8
+    surf.AABBMax:Add(ss.vector_one * OVERLAP_MARGIN)
+    surf.AABBMin:Sub(ss.vector_one * OVERLAP_MARGIN)
+
     local tangents = {} ---@type Vector[]
     local binormals = {} ---@type Vector[]
     local normals = {} ---@type Vector[]
@@ -575,13 +580,12 @@ end
 -- Construct a polygon from a raw face data
 ---@param bsp ss.RawBSPResults
 ---@param rawFace ss.Binary.BSP.FACES
+---@param coplanarEdges boolean[] surfedge index --> is shared by two faces having the same normal
 ---@return ss.PrecachedData.Surface?, boolean?
-local function BuildFromBrushFace(bsp, rawFace)
+local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
     -- Collect texture information and see if it's valid
     local rawTexInfo   = bsp.TEXINFO
     local texInfo      = rawTexInfo[rawFace.texInfo + 1]
-    if bit.band(texInfo.flags, TextureFilterBits) ~= 0 then return end
-
     local rawTexData   = bsp.TEXDATA
     local rawTexDict   = bsp.TEXDATA_STRING_TABLE
     local rawTexIndex  = bsp.TexDataStringTableToIndex
@@ -590,12 +594,8 @@ local function BuildFromBrushFace(bsp, rawFace)
     local texOffset    = rawTexDict[texData.nameStringTableID + 1]
     local texIndex     = rawTexIndex[texOffset]
     local texName      = rawTexString[texIndex]:lower()
-
     local texMaterial  = GetMaterial(texName)
     local surfaceProp  = texMaterial:GetString "$surfaceprop" or ""
-    local surfaceIndex = util.GetSurfaceIndex(surfaceProp)
-    local surfaceData  = util.GetSurfaceData(surfaceIndex) or {}
-    if surfaceData.material == MAT_GRATE then return end
 
     -- Collect geometrical information
     local rawPlanes = bsp.PLANES
@@ -608,18 +608,28 @@ local function BuildFromBrushFace(bsp, rawFace)
 
     -- Collect "raw" vertex list
     local rawVertices = {} ---@type Vector[]
+    local rawEdgesWithSideMesh = {} ---@type boolean[]
     for i = firstedge, lastedge do
         rawVertices[#rawVertices + 1] = SurfEdgeToVertex(bsp, i)
+        rawEdgesWithSideMesh[#rawEdgesWithSideMesh + 1]
+            = not coplanarEdges[abs(bsp.SURFEDGES[i])]
     end
 
     -- Filter out colinear vertices and calculate the center
     local filteredVertices = {} ---@type Vector[]
+    local filteredSideMesh = {} ---@type boolean[]
     for i, current in ipairs(rawVertices) do
-        local before = rawVertices[(#rawVertices + i - 2) % #rawVertices + 1]
-        local after  = rawVertices[i % #rawVertices + 1]
+        local prevIndex = (#rawVertices + i - 2) % #rawVertices + 1
+        local nextIndex = i % #rawVertices + 1
+        local before = rawVertices[prevIndex]
+        local after  = rawVertices[nextIndex]
         local cross  = (before - current):Cross(after - current)
-        if normal:Dot(cross:GetNormalized()) > 0 then
+        local colinear = normal:Dot(cross:GetNormalized()) > 0
+        local prevWithSide = rawEdgesWithSideMesh[prevIndex]
+        local nextWithSide = rawEdgesWithSideMesh[nextIndex]
+        if colinear or prevWithSide ~= nextWithSide then
             filteredVertices[#filteredVertices + 1] = current
+            filteredSideMesh[#filteredSideMesh + 1] = nextWithSide
         end
     end
 
@@ -676,6 +686,11 @@ local function BuildFromBrushFace(bsp, rawFace)
                 + 0.5
         end
 
+        -- Add margin to construct overlapped hash table entries
+        local OVERLAP_MARGIN = 8
+        surf.AABBMax:Add(ss.vector_one * OVERLAP_MARGIN)
+        surf.AABBMin:Sub(ss.vector_one * OVERLAP_MARGIN)
+
         -- Mesh on the ground
         local TRI_CEIL = 0
         local TRI_DEPTH = 1
@@ -696,22 +711,24 @@ local function BuildFromBrushFace(bsp, rawFace)
 
         -- Setting up the side mesh for parallax effect
         for i = 1, #filteredVertices do
-            -- Inside the face
-            local j = (i % #filteredVertices) + 1
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, j
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, j
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, j
+            if filteredSideMesh[i] then
+                -- Inside the face
+                local j = (i % #filteredVertices) + 1
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, j
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, j
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, i
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, j
 
-            -- Outside the face
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, j
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  i
+                -- Outside the face
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, j
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  i
+            end
         end
 
         for i, t in ipairs(triangles) do
@@ -757,15 +774,53 @@ function ss.BuildSurfaceCache(bsp, ishdr)
     end
 
     print("Generating inkable surfaces for " .. (ishdr and "HDR" or "LDR") .. "...")
+    local validFaces  = {} ---@type boolean[] face index --> is paintable
+    local faceNormals = {} ---@type Vector[] face index --> face normal
+    local edgeToFaces = {} ---@type integer[][] surfedge index --> face indices
     for i, face in ipairs(lump) do
-        local s, iswater = BuildFromBrushFace(bsp, face)
-        if s then
-            if iswater then
-                water[#water + 1] = s
-            else
-                s.FaceLumpIndex = i
-                s.ModelIndex = faceIndexToModelIndex[i]
-                surf[#surf + 1] = s
+        local rawTexInfo = bsp.TEXINFO[face.texInfo + 1]
+        if bit.band(rawTexInfo.flags, TextureFilterBits) == 0 then
+            local rawTexData  = bsp.TEXDATA[rawTexInfo.texData + 1]
+            local texOffset   = bsp.TEXDATA_STRING_TABLE[rawTexData.nameStringTableID + 1]
+            local texIndex    = bsp.TexDataStringTableToIndex[texOffset]
+            local texName     = bsp.TEXDATA_STRING_DATA[texIndex]:lower()
+            local texMaterial = GetMaterial(texName)
+            local surfaceProp = texMaterial:GetString "$surfaceprop" or ""
+            local surfaceData = util.GetSurfaceData(util.GetSurfaceIndex(surfaceProp)) or {}
+            if surfaceData.material ~= MAT_GRATE then
+                validFaces[i] = true
+                faceNormals[i] = bsp.PLANES[face.planeNum + 1].normal
+                for j = face.firstEdge + 1, face.firstEdge + face.numEdges do
+                    local edgeIndex = abs(bsp.SURFEDGES[j])
+                    edgeToFaces[edgeIndex] = edgeToFaces[edgeIndex] or {}
+                    edgeToFaces[edgeIndex][#edgeToFaces[edgeIndex] + 1] = i
+                end
+            end
+        end
+    end
+
+    ---surfedge index --> shared by two faces having the same normal
+    ---@type boolean[]
+    local coplanarEdges = {}
+    for edgeIndex, faces in pairs(edgeToFaces) do
+        if #faces == 2 then -- Two faces sharing this surfedge
+            local n1 = faceNormals[faces[1]]
+            local n2 = faceNormals[faces[2]]
+            coplanarEdges[edgeIndex] = n1 and n2 and n1:Dot(n2) > 1 - ss.eps
+        end
+    end
+
+    for i, face in ipairs(lump) do
+        if validFaces[i] then
+            local s, iswater = BuildFromBrushFace(bsp, face, coplanarEdges)
+            if s then
+                if iswater then
+                    water[#water + 1] = s
+                else
+                    s.FaceLumpIndex = i
+                    s.ModelIndex = faceIndexToModelIndex[i]
+                    surf[#surf + 1] = s
+                end
             end
         end
     end

@@ -57,7 +57,7 @@ ss.InkGridCellSize = 12
 ss.MAX_INK_RADIUS_BITS = 8
 
 ---Gap between surfaces in UV coordinates in pixels.
-ss.RT_MARGIN_PIXELS = 4
+ss.RT_MARGIN_PIXELS = 16
 
 ---Indicates if this game is a single player game.
 ss.sp = game.SinglePlayer()
