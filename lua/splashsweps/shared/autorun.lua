@@ -56,8 +56,11 @@ ss.InkGridCellSize = 12
 ---Number of bits to transfer ink drop radius.
 ss.MAX_INK_RADIUS_BITS = 8
 
----Gap between surfaces in UV coordinates in pixels.
-ss.RT_MARGIN_PIXELS = 16
+---World-space margin per side in Hammer units for heightmap raymarching and adjacent face discovery.
+ss.MARGIN_HAMMER_UNITS = 8
+
+---Guard margin in pixels to prevent bilinear filtering from bleeding across packed rectangles.
+ss.RT_BILINEAR_GUARD_PIXELS = 1
 
 ---Indicates if this game is a single player game.
 ss.sp = game.SinglePlayer()

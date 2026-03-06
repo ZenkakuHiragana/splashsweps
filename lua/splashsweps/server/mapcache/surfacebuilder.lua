@@ -529,9 +529,8 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, normal, tangent, bi
     end
 
     -- Add margin to construct overlapped hash table entries
-    local OVERLAP_MARGIN = 8
-    surf.AABBMax:Add(ss.vector_one * OVERLAP_MARGIN)
-    surf.AABBMin:Sub(ss.vector_one * OVERLAP_MARGIN)
+    surf.AABBMax:Add(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
+    surf.AABBMin:Sub(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
 
     local tangents = {} ---@type Vector[]
     local binormals = {} ---@type Vector[]
@@ -687,9 +686,8 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
         end
 
         -- Add margin to construct overlapped hash table entries
-        local OVERLAP_MARGIN = 8
-        surf.AABBMax:Add(ss.vector_one * OVERLAP_MARGIN)
-        surf.AABBMin:Sub(ss.vector_one * OVERLAP_MARGIN)
+        surf.AABBMax:Add(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
+        surf.AABBMin:Sub(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
 
         -- Mesh on the ground
         local TRI_CEIL = 0

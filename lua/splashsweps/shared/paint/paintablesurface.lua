@@ -176,10 +176,11 @@ function ss.SetupSurfaces(surfaces)
                 tempMatrix:GetField(2, 3),
                 tempMatrix:GetField(2, 4),
             }
-            ps.OffsetU  = uvInfo.OffsetU
-            ps.OffsetV  = uvInfo.OffsetV
-            ps.UVWidth  = uvInfo.Width
-            ps.UVHeight = uvInfo.Height
+            local bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
+            ps.OffsetU  = uvInfo.OffsetU + bilinearGuard
+            ps.OffsetV  = uvInfo.OffsetV + bilinearGuard
+            ps.UVWidth  = uvInfo.Width  - 2 * bilinearGuard
+            ps.UVHeight = uvInfo.Height - 2 * bilinearGuard
         end
         ss.SurfaceArray[i] = ps
     end

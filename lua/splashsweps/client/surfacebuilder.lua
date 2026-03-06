@@ -323,7 +323,9 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
     waterMaterial:SetFloat("$c1_y", fbScale)
 
     local rtIndex = #ss.RenderTarget.Resolutions
+    local rtSize = ss.RenderTarget.Resolutions[rtIndex]
     local scale = surfaceInfo.UVScales[rtIndex]
+    local bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
     local worldToUV = Matrix()
     worldToUV:SetScale(ss.vector_one * scale)
     for modelIndex, meshInfoArray in pairs(meshInfoArrayOfArray) do
@@ -453,10 +455,10 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             U = { uv.y, s, bumpmapOffsets[faceIndex], v.BumpmapUV.x },
                             V = { uv.x, t, 0,                         v.BumpmapUV.y },
                             UVRange = {
-                                info.OffsetU,
-                                info.OffsetV,
-                                info.OffsetU + info.Width,
-                                info.OffsetV + info.Height,
+                                info.OffsetU + bilinearGuard,
+                                info.OffsetV + bilinearGuard,
+                                info.OffsetU + info.Width  - bilinearGuard,
+                                info.OffsetV + info.Height - bilinearGuard,
                             },
                             InkTangent = {
                                 worldToUV:GetField(1, 1),
