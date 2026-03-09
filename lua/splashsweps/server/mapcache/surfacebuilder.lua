@@ -18,16 +18,24 @@ local MaterialCache = {} ---@type table<string, IMaterial>
 local TextureFilterBits = bit.bor(
     SURF_SKY, SURF_NOPORTAL, SURF_TRIGGER,
     SURF_NODRAW, SURF_HINT, SURF_SKIP)
+local MAX_BSP_VERTICES = 65536
+
+---Index to SURFEDGES array -> actual vertex index
+---@param bsp ss.RawBSPResults
+---@param index integer
+---@return integer
+local function SurfEdgeToVertexIndex(bsp, index)
+    local surfedge  = bsp.SURFEDGES[index]
+    local edge      = bsp.EDGES[abs(surfedge) + 1]
+    return edge[surfedge < 0 and 2 or 1]
+end
 
 ---Index to SURFEDGES array -> actual vertex
 ---@param bsp ss.RawBSPResults
 ---@param index integer
 ---@return Vector
 local function SurfEdgeToVertex(bsp, index)
-    local surfedge  = bsp.SURFEDGES[index]
-    local edge      = bsp.EDGES[abs(surfedge) + 1]
-    local vertindex = edge[surfedge < 0 and 2 or 1]
-    return bsp.VERTEXES[vertindex + 1]
+    return bsp.VERTEXES[SurfEdgeToVertexIndex(bsp, index) + 1]
 end
 
 ---@param name string
@@ -37,6 +45,66 @@ local function GetMaterial(name)
         MaterialCache[name] = Material(name)
     end
     return MaterialCache[name]
+end
+
+---Normalizes an edge into a single packed integer key.
+---@param v1 integer The first vertex index of the edge.
+---@param v2 integer The second vertex index of the edge.
+---@return integer key Packed integer for the vertex pairs.
+local function GetVertexPairKey(v1, v2)
+    return min(v1, v2) * MAX_BSP_VERTICES + max(v1, v2)
+end
+
+---Marks local face edges that are duplicated by another face on the same plane.
+---@param bsp ss.RawBSPResults
+---@param lump ss.Binary.BSP.FACES[] List of faces
+---@param validFaces boolean[] Face index --> is paintable
+---@return boolean[][] coplanarFaceEdges Face index --> edge index --> is coplanar
+local function BuildCoplanarFaceEdges(bsp, lump, validFaces)
+    local planeGroups = {} ---@type table<integer, integer[]> Plane index --> list of surfaces
+    local faceEdges = {} ---@type table<integer, integer[]> Face index --> list of packed vertex pairs
+    local coplanarFaceEdges = {} ---@type boolean[][]
+
+    -- Collect planes and edges
+    for faceIndex, face in ipairs(lump) do
+        if validFaces[faceIndex] then
+            local vertices = {} ---@type integer[]
+            for edgeIndex = face.firstEdge + 1, face.firstEdge + face.numEdges do
+                vertices[#vertices + 1] = SurfEdgeToVertexIndex(bsp, edgeIndex)
+            end
+
+            faceEdges[faceIndex] = {}
+            for i, v1 in ipairs(vertices) do
+                local v2 = vertices[i % #vertices + 1]
+                faceEdges[faceIndex][i] = GetVertexPairKey(v1, v2)
+            end
+
+            local i = face.planeNum
+            planeGroups[i] = planeGroups[i] or {}
+            planeGroups[i][#planeGroups[i] + 1] = faceIndex
+        end
+    end
+
+    -- Then check if duplicating edges per plane
+    for _, faceIndices in pairs(planeGroups) do
+        ---Packed verted pair --> number of surfaces on the edge
+        ---@type table<integer, integer>
+        local edgeCounts = {}
+        for _, faceIndex in ipairs(faceIndices) do
+            for _, edgeKey in ipairs(faceEdges[faceIndex] or {}) do
+                edgeCounts[edgeKey] = (edgeCounts[edgeKey] or 0) + 1
+            end
+        end
+
+        for _, faceIndex in ipairs(faceIndices) do
+            coplanarFaceEdges[faceIndex] = {}
+            for i, edgeKey in ipairs(faceEdges[faceIndex] or {}) do
+                coplanarFaceEdges[faceIndex][i] = (edgeCounts[edgeKey] or 0) > 1
+            end
+        end
+    end
+
+    return coplanarFaceEdges
 end
 
 ---Compares two vertices used by table.sort
@@ -579,7 +647,7 @@ end
 -- Construct a polygon from a raw face data
 ---@param bsp ss.RawBSPResults
 ---@param rawFace ss.Binary.BSP.FACES
----@param coplanarEdges boolean[] surfedge index --> is shared by two faces having the same normal
+---@param coplanarEdges boolean[] local edge index --> is covered by coplanar faces
 ---@return ss.PrecachedData.Surface?, boolean?
 local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
     -- Collect texture information and see if it's valid
@@ -611,7 +679,7 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
     for i = firstedge, lastedge do
         rawVertices[#rawVertices + 1] = SurfEdgeToVertex(bsp, i)
         rawEdgesWithSideMesh[#rawEdgesWithSideMesh + 1]
-            = not coplanarEdges[abs(bsp.SURFEDGES[i])]
+            = not coplanarEdges[i - firstedge + 1]
     end
 
     -- Filter out colinear vertices and calculate the center
@@ -625,7 +693,7 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
         local cross  = (before - current):Cross(after - current)
         local colinear = normal:Dot(cross:GetNormalized()) > 0
         local prevWithSide = rawEdgesWithSideMesh[prevIndex]
-        local nextWithSide = rawEdgesWithSideMesh[nextIndex]
+        local nextWithSide = rawEdgesWithSideMesh[i]
         if colinear or prevWithSide ~= nextWithSide then
             filteredVertices[#filteredVertices + 1] = current
             filteredSideMesh[#filteredSideMesh + 1] = nextWithSide
@@ -773,8 +841,6 @@ function ss.BuildSurfaceCache(bsp, ishdr)
 
     print("Generating inkable surfaces for " .. (ishdr and "HDR" or "LDR") .. "...")
     local validFaces  = {} ---@type boolean[] face index --> is paintable
-    local faceNormals = {} ---@type Vector[] face index --> face normal
-    local edgeToFaces = {} ---@type integer[][] surfedge index --> face indices
     for i, face in ipairs(lump) do
         local rawTexInfo = bsp.TEXINFO[face.texInfo + 1]
         if bit.band(rawTexInfo.flags, TextureFilterBits) == 0 then
@@ -787,30 +853,14 @@ function ss.BuildSurfaceCache(bsp, ishdr)
             local surfaceData = util.GetSurfaceData(util.GetSurfaceIndex(surfaceProp)) or {}
             if surfaceData.material ~= MAT_GRATE then
                 validFaces[i] = true
-                faceNormals[i] = bsp.PLANES[face.planeNum + 1].normal
-                for j = face.firstEdge + 1, face.firstEdge + face.numEdges do
-                    local edgeIndex = abs(bsp.SURFEDGES[j])
-                    edgeToFaces[edgeIndex] = edgeToFaces[edgeIndex] or {}
-                    edgeToFaces[edgeIndex][#edgeToFaces[edgeIndex] + 1] = i
-                end
             end
         end
     end
 
-    ---surfedge index --> shared by two faces having the same normal
-    ---@type boolean[]
-    local coplanarEdges = {}
-    for edgeIndex, faces in pairs(edgeToFaces) do
-        if #faces == 2 then -- Two faces sharing this surfedge
-            local n1 = faceNormals[faces[1]]
-            local n2 = faceNormals[faces[2]]
-            coplanarEdges[edgeIndex] = n1 and n2 and n1:Dot(n2) > 1 - ss.eps
-        end
-    end
-
+    local coplanarEdges = BuildCoplanarFaceEdges(bsp, lump, validFaces)
     for i, face in ipairs(lump) do
         if validFaces[i] then
-            local s, iswater = BuildFromBrushFace(bsp, face, coplanarEdges)
+            local s, iswater = BuildFromBrushFace(bsp, face, coplanarEdges[i] or {})
             if s then
                 if iswater then
                     water[#water + 1] = s

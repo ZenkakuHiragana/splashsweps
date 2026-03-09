@@ -328,20 +328,22 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
     local bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
     local worldToUV = Matrix()
     worldToUV:SetScale(ss.vector_one * scale)
+    ---@class ss.SurfaceBuilder.MeshVertexPack
+    ---@field Lift integer?
+    ---@field Normal Vector
+    ---@field TangentS    Vector
+    ---@field TangentT    Vector
+    ---@field Position    Vector
+    ---@field U           number[]
+    ---@field V           number[]
+    ---@field UVRange     number[]
+    ---@field InkTangent  number[]
+    ---@field InkBinormal number[]
+    ---@field SurfaceIndex integer?
+    ss.DebugMeshData = {} ---@type ss.SurfaceBuilder.MeshVertexPack[][]
     for modelIndex, meshInfoArray in pairs(meshInfoArrayOfArray) do
         local meshIndex = 1
         local renderBatch = ss.RenderBatches[modelIndex]
-        ---@class ss.SurfaceBuilder.MeshVertexPack
-        ---@field Lift integer?
-        ---@field Normal Vector
-        ---@field TangentS    Vector
-        ---@field TangentT    Vector
-        ---@field Position    Vector
-        ---@field U           number[]
-        ---@field V           number[]
-        ---@field UVRange     number[]
-        ---@field InkTangent  number[]
-        ---@field InkBinormal number[]
         local meshData = {} ---@type ss.SurfaceBuilder.MeshVertexPack[][]
         for _, meshInfo in ipairs(meshInfoArray) do
             local sortID = meshInfo.SortID
@@ -472,6 +474,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                                 worldToUV:GetField(2, 3),
                                 worldToUV:GetField(2, 4),
                             },
+                            SurfaceIndex = faceIndex,
                         }
                         vertIndex = vertIndex + 1
                         if (i - 1) % 3 == 2 then
@@ -481,6 +484,13 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                 end
                 meshIndex = meshIndex + 1
             end
+        end
+
+        -- Stores debug mesh data
+        for _, vertices in ipairs(meshData) do
+            local dest = {}
+            for _, v in ipairs(vertices) do table.insert(dest, v) end
+            table.insert(ss.DebugMeshData, dest)
         end
 
         for i, vertices in ipairs(meshData) do

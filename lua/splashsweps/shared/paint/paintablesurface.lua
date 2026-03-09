@@ -59,7 +59,9 @@ ss.struct "IHasMBB" {
 ---@field OffsetV                number  The v-coordinate of left-top corner of this surface in UV space.
 ---@field UVWidth                number  The width of this surface in UV space.
 ---@field UVHeight               number  The height of this surface in UV space.
+---@field Index                  integer The index of this surface in ss.SurfaceArray used for debug purpose.
 ss.struct "PaintableSurface" "IHasMBB" {
+    Index = 0,
     AABBMax = Vector(),
     AABBMin = Vector(),
     Normal = Vector(),
@@ -127,6 +129,7 @@ function ss.SetupSurfaces(surfaces)
         setmetatable(surf, SurfaceMeta)
         setmetatable(surf.TransformPaintGrid, MatrixMeta)
         local ps = ss.new "PaintableSurface"
+        ps.Index = i
         ps.AABBMax = surf.AABBMax
         ps.AABBMin = surf.AABBMin
         ps.WorldToLocalGridMatrix:SetAngles(surf.TransformPaintGrid.Angle)
@@ -384,6 +387,7 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
             end
         end
         for j, faceNormalInModelSystem in ipairs(localNormals) do
+            local index = numSurfaces + 6 * (i - 1) + j
             local faceForwardInModelSystem = localForwards[j]
             local faceAngleInModelSystem = faceForwardInModelSystem:AngleEx(faceNormalInModelSystem)
             local faceOriginInModelSystem = boundingBoxSize * faceLocalOriginCoefficients[j]
@@ -391,6 +395,7 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
                 math.abs(boundingBoxSize:Dot(faceForwardInModelSystem)),
                 math.abs(boundingBoxSize:Dot(faceAngleInModelSystem:Right())))
             local ps = ss.new "PaintableSurface"
+            ps.Index = index
             ps.AABBMax = aabbMax
             ps.AABBMin = aabbMin
             ps.WorldToLocalGridMatrix:SetAngles(faceAngleInModelSystem)
@@ -467,7 +472,7 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
                 ps.UVWidth  = faceSizeInAbsoluteUV.x * hammerToPixel
                 ps.UVHeight = faceSizeInAbsoluteUV.y * hammerToPixel
             end
-            ss.SurfaceArray[numSurfaces + 6 * (i - 1) + j] = ps
+            ss.SurfaceArray[index] = ps
         end
     end
 end
