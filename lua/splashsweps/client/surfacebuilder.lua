@@ -449,7 +449,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         uv.x = uv.x + info.Translation.x * scale
                         uv.y = uv.y + info.Translation.y * scale
                         meshData[meshIndex][vertIndex] = {
-                            Lift = math.Remap(v.LiftThisVertex or 2, 0, 3, 0, 1),
+                            Lift = math.Remap(v.LiftThisVertex or 2, 0, 4, 0, 1),
                             Normal = normal,
                             TangentS = tangent,
                             TangentT = binormal,

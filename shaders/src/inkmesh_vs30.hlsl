@@ -32,44 +32,22 @@ struct VS_OUTPUT {
 const float4x4 cModelViewProj : register(c4);
 const float4 cEyePosWaterZ : register(c2);
 VS_OUTPUT main(const VS_INPUT v) {
-    bool isCeiling = v.color.a < 0.125;
-    float liftAmount = max(round(v.color.a * 3.0) - 2.0, -1.0);
+    int role = (int)round(v.color.a * MESH_ROLE_MAX);
     float cameraHeight = dot(v.normal, cEyePosWaterZ.xyz - v.pos);
-    if (isCeiling) {
-        if (cameraHeight < 0.0) {
-            VS_OUTPUT w = (VS_OUTPUT)0.0;
-            w.pos = float4(0.0, 0.0, -1.0, 1.0);
-            return w;
-        }
-        else {
-            liftAmount = 1.0;
-        }
+    bool isCeiling = role == MESH_ROLE_CEIL;
+    float liftAmount = 1.0;
+    if (role == MESH_ROLE_DEPTH) liftAmount = -1.0;
+    if (role == MESH_ROLE_BASE)  liftAmount = 0.0;
+    if (isCeiling && cameraHeight < 0.0) {
+        VS_OUTPUT w = (VS_OUTPUT)0.0;
+        w.pos = float4(0.0, 0.0, -1.0, 1.0);
+        return w;
     }
 
     float3 pos = v.pos + v.normal * liftAmount * HEIGHT_TO_HAMMER_UNITS;
     float3 viewVec = cEyePosWaterZ.xyz - pos;
     float viewVecDist = length(viewVec);
-    float viewVecDot = dot(viewVec, v.normal);
     if (!isCeiling) {
-        // Extend the side mesh so that it draws ink raised by its height map
-        if (liftAmount == 1.0 && viewVecDot < 0.0) {
-            float2 surfaceSizeInUV = {
-                v.surfaceClipRange.z - v.surfaceClipRange.x,
-                v.surfaceClipRange.w - v.surfaceClipRange.y,
-            };
-            float surfaceMaxSize = sqrt(
-                surfaceSizeInUV.x * surfaceSizeInUV.x *
-                SAFERCP(dot(v.inkTangent, v.inkTangent)) +
-                surfaceSizeInUV.y * surfaceSizeInUV.y *
-                SAFERCP(dot(v.inkBinormal, v.inkBinormal)));
-            float3 viewVecFlattened = viewVec - v.normal * viewVecDot;
-            float viewVecLength2D = length(viewVecFlattened);
-            float viewAngle = viewVecLength2D / max(-viewVecDot, 1e-3);
-            float extraHeight = surfaceMaxSize * viewAngle;
-            liftAmount += extraHeight / HEIGHT_TO_HAMMER_UNITS;
-            liftAmount = clamp(liftAmount, 1.0, 16.0); // Safety cap
-        }
-
         float fade = 1.0 - smoothstep(LOD_DISTANCE * 0.5, LOD_DISTANCE, viewVecDist);
         fade -= cameraHeight / viewVecDist;
         fade *= step(0.125, fade);

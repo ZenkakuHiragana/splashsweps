@@ -13,9 +13,9 @@ if ($File.Extension -ne ".hlsl") {
     return
 }
 
-$materialPath = Join-Path $PSScriptRoot ".." ".." "materials" "splashsweps" "shaders"
-$shaderPath = Join-Path $PSScriptRoot ".." "fxc" "splashsweps"
-$refreshCountPath = Join-Path $PSScriptRoot ".." ".." ".vscode"
+$materialPath = Join-Path $PSScriptRoot "..\..\materials\splashsweps\shaders"
+$shaderPath = Join-Path $PSScriptRoot "..\fxc\splashsweps"
+$refreshCountPath = Join-Path $PSScriptRoot "..\..\.vscode"
 
 # Retrieve specification from file name
 $baseFileName = $File.BaseName
@@ -99,7 +99,7 @@ function New-One() {
     # Move the output
     New-Item -ItemType Directory -Path $shaderPath -Force -ErrorAction SilentlyContinue | Out-Null
     Move-Item -Force `
-        -LiteralPath (Join-Path $PWD "shaders" "fxc" "$baseName$shaderSuffix.vcs") `
+        -LiteralPath (Join-Path $PWD "shaders\fxc\$baseName$shaderSuffix.vcs") `
         -Destination $shaderPath
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue -LiteralPath (Join-Path $PWD "include")
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue -LiteralPath (Join-Path $PWD "shaders")

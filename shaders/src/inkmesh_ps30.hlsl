@@ -162,6 +162,10 @@ float FetchDepth(float2 uv) {
     return tex2Dlod(InkMap, float4(uv.x + 0.5, uv.y, 0.0, 0.0)).a;
 }
 
+float EvaluateInterfaceField(float3 samplePos) {
+    return FetchHeight(samplePos.xy) - samplePos.z;
+}
+
 // Samples additive color and height value
 void FetchAdditiveAndHeight(float2 uv, out float3 additive, out float height, out float3 normal) {
     float4 uv4 = { uv, 0.0, 0.0 };
@@ -268,68 +272,91 @@ void FetchGeometrySamples(
     }
 }
 
-// Steep Parallax Occlusion Mapping
-float3 ApplyParallaxEffect(const PS_INPUT i) {
+// Traces the view ray against the active paint interface within the local clip box.
+float3 TracePaintInterface(const PS_INPUT i) {
     const float PIXELS_PER_STEP_RCP = rcp(16.0);
     const float MIN_STEPS = 2.0;
     const float MAX_STEPS = 16.0;
+    const int NUM_REFINEMENT_STEPS = 2;
     float3 worldPos = i.worldPos_projPosZ.xyz;
-    float3 inkUV    = { i.inkUV_worldBumpUV.xy, i.inkBinormalMeshLift.w };
+    float3 proxyUV  = { i.inkUV_worldBumpUV.xy, i.inkBinormalMeshLift.w };
     float3x3 tangentSpaceInk = {
         i.inkTangentXYZWorldZ.xyz,
         i.inkBinormalMeshLift.xyz,
         i.worldNormalTangentY.xyz / HEIGHT_TO_HAMMER_UNITS,
     };
-
-    float3 boxMin           = { i.surfaceClipRange.xy, -1.0 - 1e-5 };
-    float3 boxMax           = { i.surfaceClipRange.zw,  1.0 + 1e-5 };
-    float3 viewDir          = mul(tangentSpaceInk, g_EyePos.xyz - worldPos);
-    float3 viewDirInv       = SAFERCP(viewDir);
-    float3 fractionMin      = (boxMin - inkUV) * viewDirInv;
-    float3 fractionMax      = (boxMax - inkUV) * viewDirInv;
-    float3 fractionNear     = max(fractionMin, fractionMax);
-    float3 fractionFar      = min(fractionMin, fractionMax);
-    float  fractionStart    = min(min(fractionNear.x, fractionNear.y), fractionNear.z);
-    float  fractionEnd      = max(max(fractionFar.x, fractionFar.y), fractionFar.z);
-    float3 rayMarchingStart = inkUV + viewDir * min(fractionStart, 1.0);
-    float3 rayMarchingEnd   = inkUV + viewDir * fractionEnd;
-    float  pixelPerUV       = rcp(max(min(length(ddx(inkUV.xy)), length(ddy(inkUV.xy))), 1.0e-8));
+    float3 boxMin        = { i.surfaceClipRange.xy, -1.0 - 1.0e-5 };
+    float3 boxMax        = { i.surfaceClipRange.zw,  1.0 + 1.0e-5 };
+    float3 eyeUV         = proxyUV + mul(tangentSpaceInk, g_EyePos.xyz - worldPos);
+    float3 rayDir        = proxyUV - eyeUV;
+    float3 rayDirInv     = SAFERCP(rayDir);
+    float3 fractionMin   = (boxMin - eyeUV) * rayDirInv;
+    float3 fractionMax   = (boxMax - eyeUV) * rayDirInv;
+    float3 fractionNear  = min(fractionMin, fractionMax);
+    float3 fractionFar   = max(fractionMin, fractionMax);
+    float  fractionEnter = max(max(fractionNear.x, fractionNear.y), fractionNear.z);
+    float  fractionExit  = min(min(fractionFar.x, fractionFar.y), fractionFar.z);
+    float  fractionStart = max(fractionEnter, 0.0);
+    float  fractionEnd   = fractionExit;
+    if (fractionEnd <= fractionStart) {
+        clip(-1.0);
+        return proxyUV;
+    }
+    float3 rayMarchingStart = eyeUV + rayDir * fractionStart;
+    float3 rayMarchingEnd   = eyeUV + rayDir * fractionEnd;
+    float  pixelPerUV       = rcp(max(min(length(ddx(proxyUV.xy)), length(ddy(proxyUV.xy))), 1.0e-8));
     float  numSteps         = distance(rayMarchingStart.xy, rayMarchingEnd.xy);
     numSteps *= PIXELS_PER_STEP_RCP * pixelPerUV;
     numSteps = clamp(round(numSteps), MIN_STEPS, MAX_STEPS);
-    float3 previousRay;
-    float3 currentRay = rayMarchingStart;
-    float previousInkHeight;
-    float currentInkHeight = inkUV.z >= 0.0 ? FetchHeight(currentRay.xy) : FetchDepth(currentRay.xy);
-    clip(i.projPosW_isCeiling.y * (currentInkHeight - 1.0 + viewDir.z));
-    clip((1.0 - step(-inkUV.z, 0.0)) * (currentInkHeight - inkUV.z));
-    if (i.projPosW_isCeiling.y > 0.5) return inkUV;
-    if (inkUV.z >= 0.0 && fractionStart < 1.0 &&
-        0.0 < currentRay.z && currentRay.z < currentInkHeight) return currentRay;
+    if (fractionEnter > 0.0 && rayMarchingStart.z <= FetchHeight(rayMarchingStart.xy)) {
+        return clamp(rayMarchingStart,
+            float3(i.surfaceClipRange.xy, boxMin.z),
+            float3(i.surfaceClipRange.zw, boxMax.z));
+    }
+    float3 previousRay   = rayMarchingStart;
+    float  previousField = EvaluateInterfaceField(previousRay);
+    if (abs(previousField) < 1.0e-4) {
+        return clamp(previousRay,
+            float3(i.surfaceClipRange.xy, boxMin.z),
+            float3(i.surfaceClipRange.zw, boxMax.z));
+    }
     [unroll]
     for (int j = 1; j <= MAX_STEPS; j++) {
         if (j > (int)numSteps) break;
         float fraction = (float)j / numSteps;
-        previousInkHeight = currentInkHeight;
-        previousRay = currentRay;
-        currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
-        currentInkHeight = inkUV.z >= 0.0 ? FetchHeight(currentRay.xy) : FetchDepth(currentRay.xy);
-        clip((1.0 - step(-inkUV.z, 0.0)) * (currentInkHeight - inkUV.z));
-        if ((previousInkHeight <= previousRay.z && currentRay.z <= currentInkHeight) ||
-            (previousRay.z <= previousInkHeight && currentInkHeight <= currentRay.z)) {
-            float previousHeightLeft = previousRay.z - previousInkHeight;
-            float currentHeightExceeds = currentInkHeight - currentRay.z;
-            float parallaxRefinement = currentHeightExceeds / (previousHeightLeft + currentHeightExceeds);
-            inkUV = lerp(currentRay, previousRay, parallaxRefinement);
+        float3 currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
+        float currentField = EvaluateInterfaceField(currentRay);
+        if (previousField * currentField <= 0.0) {
+            float3 a = previousRay;
+            float3 b = currentRay;
+            float fa = previousField;
+            float fb = currentField;
+            [unroll]
+            for (int k = 0; k < NUM_REFINEMENT_STEPS; k++) {
+                float3 mid = lerp(a, b, 0.5);
+                float fm = EvaluateInterfaceField(mid);
+                if (fa * fm <= 0.0) {
+                    b = mid;
+                    fb = fm;
+                }
+                else {
+                    a = mid;
+                    fa = fm;
+                }
+            }
+
+            float hitFraction = saturate(-fa * SAFERCP(fb - fa));
+            float3 inkUV = lerp(a, b, hitFraction);
             return clamp(inkUV,
-                float3(i.surfaceClipRange.xy, -1.0),
-                float3(i.surfaceClipRange.zw,  1.0));
+                float3(i.surfaceClipRange.xy, boxMin.z),
+                float3(i.surfaceClipRange.zw, boxMax.z));
         }
+
+        previousRay = currentRay;
+        previousField = currentField;
     }
-    clip(currentInkHeight - i.inkBinormalMeshLift.w);
-    return clamp(inkUV,
-        float3(i.surfaceClipRange.xy, -1.0),
-        float3(i.surfaceClipRange.zw,  1.0));
+    clip(-1.0);
+    return proxyUV;
 }
 
 PS_OUTPUT main(const PS_INPUT i) {
@@ -345,7 +372,7 @@ PS_OUTPUT main(const PS_INPUT i) {
         inkUV = float3(i.inkUV_worldBumpUV.xy, 0.0);
     }
     else {
-        inkUV = ApplyParallaxEffect(i);
+        inkUV = TracePaintInterface(i);
     }
     float3 viewVec = g_EyePos.xyz - i.worldPos_projPosZ.xyz;
     float3 viewDir = normalize(viewVec);
@@ -362,7 +389,7 @@ PS_OUTPUT main(const PS_INPUT i) {
     float3 additive, multiplicative, inkNormal;
     FetchAdditiveAndHeight(inkUV.xy, additive, height, inkNormal);
     FetchMultiplicativeAndDepth(inkUV.xy, multiplicative, depth);
-    clip(depth + i.inkBinormalMeshLift.w);
+    clip(depth + inkUV.z);
     FetchInkMaterial(ID1, ID2, idBlend, metallic, roughness, specularScale, refraction);
     FetchInkDetails(ID1, ID2, idBlend, detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor);
 

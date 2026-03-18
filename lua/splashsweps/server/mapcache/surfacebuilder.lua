@@ -675,16 +675,16 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
 
     -- Collect "raw" vertex list
     local rawVertices = {} ---@type Vector[]
-    local rawEdgesWithSideMesh = {} ---@type boolean[]
+    local rawEdgesWithOuterSide = {} ---@type boolean[]
     for i = firstedge, lastedge do
         rawVertices[#rawVertices + 1] = SurfEdgeToVertex(bsp, i)
-        rawEdgesWithSideMesh[#rawEdgesWithSideMesh + 1]
+        rawEdgesWithOuterSide[#rawEdgesWithOuterSide + 1]
             = not coplanarEdges[i - firstedge + 1]
     end
 
     -- Filter out colinear vertices and calculate the center
     local filteredVertices = {} ---@type Vector[]
-    local filteredSideMesh = {} ---@type boolean[]
+    local filteredOuterSide = {} ---@type boolean[]
     for i, current in ipairs(rawVertices) do
         local prevIndex = (#rawVertices + i - 2) % #rawVertices + 1
         local nextIndex = i % #rawVertices + 1
@@ -692,11 +692,11 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
         local after  = rawVertices[nextIndex]
         local cross  = (before - current):Cross(after - current)
         local colinear = normal:Dot(cross:GetNormalized()) > 0
-        local prevWithSide = rawEdgesWithSideMesh[prevIndex]
-        local nextWithSide = rawEdgesWithSideMesh[i]
-        if colinear or prevWithSide ~= nextWithSide then
+        local prevWithOuterSide = rawEdgesWithOuterSide[prevIndex]
+        local nextWithOuterSide = rawEdgesWithOuterSide[i]
+        if colinear or prevWithOuterSide ~= nextWithOuterSide then
             filteredVertices[#filteredVertices + 1] = current
-            filteredSideMesh[#filteredSideMesh + 1] = nextWithSide
+            filteredOuterSide[#filteredOuterSide + 1] = nextWithOuterSide
         end
     end
 
@@ -761,7 +761,8 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
         local TRI_CEIL = 0
         local TRI_DEPTH = 1
         local TRI_BASE = 2
-        local TRI_SIDE = 3
+        local TRI_SIDE_IN = 3
+        local TRI_SIDE_OUT = 4
         for i = 2, #filteredVertices - 1 do
             triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, 1
             triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
@@ -777,24 +778,34 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
 
         -- Setting up the side mesh for parallax effect
         for i = 1, #filteredVertices do
-            if filteredSideMesh[i] then
-                -- Inside the face
-                local j = (i % #filteredVertices) + 1
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, j
+            local j = (i % #filteredVertices) + 1
 
-                -- Outside the face
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  i
+            -- Portal side must remain even for coplanar neighbors because each face keeps
+            -- its own clip range and RT region.
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, j
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_IN, j
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_IN, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_IN, j
+
+            -- Outward-facing coverage is only needed on the outer boundary.
+            if filteredOuterSide[i] then
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_OUT, j
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, j
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_OUT, j
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_OUT, i
+                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
             end
+
+            -- Depth-side seams must also remain because neighboring faces are independent.
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, j
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
+            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  i
         end
 
         for i, t in ipairs(triangles) do
