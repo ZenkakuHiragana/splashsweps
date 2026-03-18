@@ -5,7 +5,7 @@
 struct VS_INPUT {
     float3 pos              : POSITION;
     float3 normal           : NORMAL0;
-    float4 color            : COLOR0;
+    float4 color            : COLOR0;    // xy: Unused, z: Role, w: Lift amount
     float4 baseBumpUV       : TEXCOORD0; // xy: Ink UV, zw: World bumpmap UV
     float4 lightmapUVOffset : TEXCOORD1; // xy: Lightmap UV, zw: Bumpmapped lightmap offset
     float3 inkTangent       : TEXCOORD2;
@@ -32,12 +32,10 @@ struct VS_OUTPUT {
 const float4x4 cModelViewProj : register(c4);
 const float4 cEyePosWaterZ : register(c2);
 VS_OUTPUT main(const VS_INPUT v) {
-    int role = (int)round(v.color.a * MESH_ROLE_MAX);
+    int role = (int)round(v.color.b * MESH_ROLE_MAX);
     float cameraHeight = dot(v.normal, cEyePosWaterZ.xyz - v.pos);
     bool isCeiling = role == MESH_ROLE_CEIL;
-    float liftAmount = 1.0;
-    if (role == MESH_ROLE_DEPTH) liftAmount = -1.0;
-    if (role == MESH_ROLE_BASE)  liftAmount = 0.0;
+    float liftAmount = TO_SIGNED(v.color.a);
     if (isCeiling && cameraHeight < 0.0) {
         VS_OUTPUT w = (VS_OUTPUT)0.0;
         w.pos = float4(0.0, 0.0, -1.0, 1.0);

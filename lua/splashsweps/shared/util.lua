@@ -66,3 +66,46 @@ end
 function ss.MaxVector(a, b)
     return Vector(math.max(a.x, b.x), math.max(a.y, b.y), math.max(a.z, b.z))
 end
+
+---Indicates the Z-offset direction of associated vertex of the ink mesh.
+---@alias ss.LIFT_TYPE
+---| `ss.LIFT_NONE`
+---| `ss.LIFT_UP`
+---| `ss.LIFT_DOWN`
+ss.LIFT_DOWN = 0 ---@type ss.LIFT_TYPE Indicating the vertex has negative offset along the surface normal.
+ss.LIFT_NONE = 1 ---@type ss.LIFT_TYPE Indicating the vertex has no offset along the surface normal.
+ss.LIFT_UP   = 2 ---@type ss.LIFT_TYPE Indicating the vertex has positive offset along the surface normal.
+
+---Type of triangle of the ink mesh.
+---@alias ss.TRI_TYPE
+---| `ss.TRI_CEIL`
+---| `ss.TRI_DEPTH`
+---| `ss.TRI_BASE`
+---| `ss.TRI_SIDE_IN`
+---| `ss.TRI_SIDE_OUT`
+ss.TRI_CEIL     = 0 ---@type ss.TRI_TYPE Indicating the triangle acts like the ceiling of the mesh proxy.
+ss.TRI_DEPTH    = 1 ---@type ss.TRI_TYPE Indicating the triangle is beneath the base surface to show curved shape on the sides.
+ss.TRI_BASE     = 2 ---@type ss.TRI_TYPE Indicating the triangle is on the base surface.
+ss.TRI_SIDE_IN  = 3 ---@type ss.TRI_TYPE Indicating the triangle is part of the side mesh facing inside the mesh.
+ss.TRI_SIDE_OUT = 4 ---@type ss.TRI_TYPE Indicating the triangle is part of the side mesh facing outside the mesh.
+ss.TRI_MAX      = 4 ---Maximum number of TRI_TYPE.
+
+---Composes two numbers describing the triangle type of the mesh
+---(base surface, side mesh, etc.) and
+---indicator to lift up/down the vertices.
+---@param triangleType ss.TRI_TYPE  The triangle type.
+---@param liftType     ss.LIFT_TYPE The lift type.
+---@return integer     composed     The composed number stored in the cache file.
+function ss.ComposeMeshType(triangleType, liftType)
+    return bit.bor(bit.lshift(triangleType, 2), liftType)
+end
+
+---Decomposes the parameter from cache file to obtain two values stored in it.
+---@param param integer The parameter composed by `ss.ComposeMeshType`.
+---@return ss.TRI_TYPE  triangleType
+---@return ss.LIFT_TYPE liftType
+function ss.DecomposeMeshType(param)
+    local triangleType = bit.rshift(param, 2) ---@type ss.TRI_TYPE
+    local liftType     = bit.band(param, 3) ---@type ss.LIFT_TYPE
+    return triangleType, liftType
+end

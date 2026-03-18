@@ -41,7 +41,7 @@ local uvDisplaySize = 512
 local uvDisplayX = 16
 local uvDisplayY = 16
 
--- In client/surfacebuilder.lua: Lift = math.Remap(LiftThisVertex or 2, 0, 4, 0, 1)
+-- In client/surfacebuilder.lua: Lift = math.Remap(MetaData or 2, 0, 4, 0, 1)
 -- TRI_CEIL=0 -> 0.0, TRI_DEPTH=1 -> 0.25, TRI_BASE=2 -> 0.5,
 -- TRI_SIDE_IN=3 -> 0.75, TRI_SIDE_OUT=4 -> 1.0
 local ROLE_CEIL = 0
@@ -349,7 +349,7 @@ local function DrawHUDOverlays()
             local rw, rh = uh * uvDisplaySize, uw * uvDisplaySize
             surface.SetDrawColor(regionColor.r, regionColor.g, regionColor.b, 255)
             surface.DrawOutlinedRect(math.floor(rx), math.floor(ry),
-                math.ceil(rw), math.ceil(rh), 2)
+                math.ceil(rw), math.ceil(rh), 1)
 
             -- Draw triangles in UV space
             if #vertices >= 3 then

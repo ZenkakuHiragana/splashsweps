@@ -736,8 +736,8 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
         local bumpmapV = {} ---@type number[]
         local lightmapU = {} ---@type number[]
         local lightmapV = {} ---@type number[]
-        local triangles = {} ---@type integer[]
-        local triangleType = {} ---@type integer[]
+        local tris = {} ---@type integer[]
+        local triTypes = {} ---@type integer[]
         for i, v in ipairs(filteredVertices) do
             surf.AABBMax:Set(ss.MaxVector(surf.AABBMax, v))
             surf.AABBMin:Set(ss.MinVector(surf.AABBMin, v))
@@ -758,22 +758,18 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
         surf.AABBMin:Sub(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
 
         -- Mesh on the ground
-        local TRI_CEIL = 0
-        local TRI_DEPTH = 1
-        local TRI_BASE = 2
-        local TRI_SIDE_IN = 3
-        local TRI_SIDE_OUT = 4
+        local cmp = ss.ComposeMeshType
         for i = 2, #filteredVertices - 1 do
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, 1
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i + 1
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_BASE, ss.LIFT_NONE), 1
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_BASE, ss.LIFT_NONE), i
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_BASE, ss.LIFT_NONE), i + 1
         end
 
         -- Floating mesh facing toward the mesh
         for i = 2, #filteredVertices - 1 do
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_CEIL, 1
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_CEIL, i + 1
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_CEIL, i
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_CEIL, ss.LIFT_NONE), 1
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_CEIL, ss.LIFT_NONE), i + 1
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_CEIL, ss.LIFT_NONE), i
         end
 
         -- Setting up the side mesh for parallax effect
@@ -782,33 +778,33 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
 
             -- Portal side must remain even for coplanar neighbors because each face keeps
             -- its own clip range and RT region.
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, j
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_IN, j
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_IN, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_IN, j
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_IN, ss.LIFT_NONE), j
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_IN, ss.LIFT_NONE), i
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_IN, ss.LIFT_UP),   j
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_IN, ss.LIFT_NONE), i
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_IN, ss.LIFT_UP),   i
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_IN, ss.LIFT_UP),   j
 
             -- Outward-facing coverage is only needed on the outer boundary.
             if filteredOuterSide[i] then
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_OUT, j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_OUT, j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE_OUT, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
+                triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_OUT, ss.LIFT_UP),   j
+                triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_OUT, ss.LIFT_NONE), i
+                triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_OUT, ss.LIFT_NONE), j
+                triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_OUT, ss.LIFT_UP),   j
+                triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_OUT, ss.LIFT_UP),   i
+                triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_SIDE_OUT, ss.LIFT_NONE), i
             end
 
             -- Depth-side seams must also remain because neighboring faces are independent.
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, j
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  i
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_DEPTH, ss.LIFT_DOWN), j
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_DEPTH, ss.LIFT_NONE), j
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_DEPTH, ss.LIFT_DOWN), i
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_DEPTH, ss.LIFT_DOWN), i
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_DEPTH, ss.LIFT_NONE), j
+            triTypes[#tris + 1], tris[#tris + 1] = cmp(ss.TRI_DEPTH, ss.LIFT_NONE), i
         end
 
-        for i, t in ipairs(triangles) do
+        for i, t in ipairs(tris) do
             surf.Vertices[i] = ss.new "PrecachedData.Vertex"
             surf.Vertices[i].Translation:Set(filteredVertices[t])
             surf.Vertices[i].Normal:Set(normal)
@@ -818,7 +814,7 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
             surf.Vertices[i].BumpmapUV.y = bumpmapV[t]
             surf.Vertices[i].LightmapUV.x = lightmapU[t]
             surf.Vertices[i].LightmapUV.y = lightmapV[t]
-            surf.Vertices[i].LiftThisVertex = triangleType[i]
+            surf.Vertices[i].MetaData = triTypes[i]
         end
 
         if not isWater then

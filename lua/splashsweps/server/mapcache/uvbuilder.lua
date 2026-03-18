@@ -21,12 +21,11 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
     end
 
     local t0 = SysTime()
-    local estimatedRectangleSize = math.sqrt(totalArea)
     local workMatrix = Matrix() -- Work area to invert matrix.
     for rtIndex, rtSize in ipairs(ss.RenderTarget.Resolutions) do
         local rects = {} ---@type ss.Rectangle[]
         local margin = ss.MARGIN_HAMMER_UNITS * 2
-        local marginVector = Vector(ss.MARGIN_HAMMER_UNITS, -ss.MARGIN_HAMMER_UNITS)
+        local marginVector = Vector(ss.MARGIN_HAMMER_UNITS, ss.MARGIN_HAMMER_UNITS)
         for i, surf in ipairs(surfaces) do
             local info = surf.UVInfo[rtIndex]
             rects[i] = ss.MakeRectangle(info.Width + margin, info.Height + margin, 0, 0, surf)

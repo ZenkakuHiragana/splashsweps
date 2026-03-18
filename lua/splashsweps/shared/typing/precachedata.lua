@@ -31,8 +31,8 @@ end
 ---@field Binormal           Vector
 ---@field LightmapUV         Vector  Relative Lightmap UV values in luxels.
 ---@field BumpmapUV          Vector  Bumpmap UV coordinates of the original face.
+---@field MetaData           integer Stores role and lift amount of this vertex.
 ---@field DisplacementOrigin Vector? The point that this displacement point was made from.
----@field LiftThisVertex     integer? This vertex is to construct the sides of volumetric mesh.
 ss.struct "PrecachedData.Vertex" (setmetatable({
     Vector(),
     Vector(),
@@ -40,7 +40,7 @@ ss.struct "PrecachedData.Vertex" (setmetatable({
     Vector(),
     Vector(),
     Vector(),
-    nil,
+    0,
     nil,
 }, {
     Translation        = 1,
@@ -49,8 +49,8 @@ ss.struct "PrecachedData.Vertex" (setmetatable({
     Binormal           = 4,
     LightmapUV         = 5,
     BumpmapUV          = 6,
-    DisplacementOrigin = 7,
-    LiftThisVertex     = 8,
+    MetaData     = 7,
+    DisplacementOrigin = 8,
     __index            = indexer,
     __newindex         = newindexer,
 }))

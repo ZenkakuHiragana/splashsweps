@@ -329,8 +329,9 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
     local worldToUV = Matrix()
     worldToUV:SetScale(ss.vector_one * scale)
     ---@class ss.SurfaceBuilder.MeshVertexPack
-    ---@field Lift integer?
-    ---@field Normal Vector
+    ---@field Role        number
+    ---@field Lift        number
+    ---@field Normal      Vector
     ---@field TangentS    Vector
     ---@field TangentT    Vector
     ---@field Position    Vector
@@ -397,6 +398,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         ["$c0_x"]                   = 0,     -- Sun direction x
                         ["$c0_y"]                   = 0.3,   -- Sun direction y
                         ["$c0_z"]                   = 0.954, -- Sun direction z
+                        ["$c0_w"]                   = 0,     -- Unused for now
                         ["$c1_x"]                   = bump,  -- Indicates if having bumped lightmaps
                         ["$c1_y"]                   = fb,    -- Indicates if it needs frame buffer
                         ["$c1_z"]                   = uvScale,
@@ -441,6 +443,9 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         local binormal = v.Binormal
                         local s, t = v.LightmapUV.x, v.LightmapUV.y -- Lightmap UV
                         local uv = worldToUV * position
+                        local role, lift = ss.DecomposeMeshType(v.MetaData)
+                        local margin = ss.MARGIN_HAMMER_UNITS * scale
+                            * ({0, 1, 0, 1, 1})[role --[[@as integer]] + 1]
                         if v.DisplacementOrigin then
                             uv = worldToUV * v.DisplacementOrigin
                         end
@@ -449,7 +454,8 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         uv.x = uv.x + info.Translation.x * scale
                         uv.y = uv.y + info.Translation.y * scale
                         meshData[meshIndex][vertIndex] = {
-                            Lift = math.Remap(v.LiftThisVertex or 2, 0, 4, 0, 1),
+                            Role = math.Remap(role, 0, ss.TRI_MAX, 0, 1),
+                            Lift = lift * 0.5,
                             Normal = normal,
                             TangentS = tangent,
                             TangentT = binormal,
@@ -457,10 +463,10 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                             U = { uv.y, s, bumpmapOffsets[faceIndex], v.BumpmapUV.x },
                             V = { uv.x, t, 0,                         v.BumpmapUV.y },
                             UVRange = {
-                                info.OffsetU + bilinearGuard,
-                                info.OffsetV + bilinearGuard,
-                                info.OffsetU + info.Width  - bilinearGuard,
-                                info.OffsetV + info.Height - bilinearGuard,
+                                info.OffsetU + bilinearGuard + margin,
+                                info.OffsetV + bilinearGuard + margin,
+                                info.OffsetU + info.Width  - bilinearGuard - margin,
+                                info.OffsetV + info.Height - bilinearGuard - margin,
                             },
                             InkTangent = {
                                 worldToUV:GetField(1, 1),
@@ -506,7 +512,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                 mesh.TexCoord(4, v.TangentS.x, v.TangentS.y, v.TangentS.z)
                 mesh.TexCoord(5, v.TangentT.x, v.TangentT.y, v.TangentT.z)
                 mesh.TexCoord(6, unpack(v.UVRange))
-                mesh.Color(0, 0, 0, v.Lift * 255)
+                mesh.Color(0, 0, v.Role * 255, v.Lift * 255)
                 mesh.AdvanceVertex()
             end
             mesh.End()
