@@ -25,7 +25,7 @@ static const float LOD_DISTANCE = 4096.0;
 #define MESH_ROLE_BASE     2
 #define MESH_ROLE_SIDE_IN  3
 #define MESH_ROLE_SIDE_OUT 4
-#define MESH_ROLE_MAX 4.0
+#define MESH_ROLE_MAX      4.0
 static const float4 GROUND_PROPERTIES[8] = {
     { 1.0, 1.0, 1.0,  1.0 },
     { 1.0, 1.0, 1.0,  0.0 },

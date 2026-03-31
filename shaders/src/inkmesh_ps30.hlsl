@@ -27,6 +27,7 @@ static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
 static const float DEPTH_BASE_BIAS  = 2.0e-5; // 1.0e-5 -- 5.0e-5
 static const float DEPTH_DIFF_SCALE = 1.5;    // Sensitivity of the depth difference
 static const float3 GrayScaleFactor = { 0.2126, 0.7152, 0.0722 };
+static const float DEBUG_TRACE_MAX_STEPS = 16.0;
 
 // Samplers
 sampler InkMap             : register(s0);
@@ -78,14 +79,14 @@ struct PS_INPUT {
     float2   screenPos             : VPOS;
     float4   surfaceClipRange      : TEXCOORD0; // xy: ink map min UV, zw: ink map max UV
     float4   lightmapUV1And2       : TEXCOORD1; // xy: lightmap UV, zw: bumpmapped lightmap UV (1)
-    float4   lightmapUV3_projXY    : TEXCOORD2; // xy: bumpmapped lightmap UV (2), zw: projected position XY
+    float4   lightmapUV3_projXY    : TEXCOORD2; // xy: bumpmapped lightmap UV (2), zw: bumpUV from inkUV row 0
     float4   inkUV_worldBumpUV     : TEXCOORD3; // xy: ink albedo UV, zw: world bumpmap UV
     float4   worldPos_projPosZ     : TEXCOORD4; // xyz: world position, w: projected position Z
     float4   worldBinormalTangentX : TEXCOORD5; // xyz: world binormal, w: world tangent X
     float4   worldNormalTangentY   : TEXCOORD6; // xyz: world normal,   w: world tangent Y
     float4   inkTangentXYZWorldZ   : TEXCOORD7; // xyz: ink tangent,    w: world tangent Z
     float4   inkBinormalMeshLift   : TEXCOORD8; // xyz: ink binormal,   w: mesh lift amount
-    float4   projPosW_isCeiling    : TEXCOORD9;
+    float4   projPosW_meshRole     : TEXCOORD9; // x: projPosW, y: tri role / MESH_ROLE_MAX, zw: bumpUV from inkUV row 1
 };
 
 struct PS_OUTPUT {
@@ -164,6 +165,43 @@ float FetchDepth(float2 uv) {
 
 float EvaluateInterfaceField(float3 samplePos) {
     return FetchHeight(samplePos.xy) - samplePos.z;
+}
+
+float3 DebugTraceKindColor(float traceKind) {
+    if (traceKind < 0.5) return float3(1.0, 0.0, 0.0);
+    if (traceKind < 1.5) return float3(0.0, 1.0, 0.0);
+    if (traceKind < 2.5) return float3(0.0, 0.5, 1.0);
+    if (traceKind < 3.5) return float3(1.0, 1.0, 0.0);
+    return float3(1.0, 0.0, 1.0);
+}
+
+float3 DebugTexelFraction(float2 uv) {
+    float2 texelCoord = uv / RcpRTSize;
+    float2 texelFrac = frac(texelCoord);
+    float2 texelEdgeDistance = min(texelFrac, 1.0 - texelFrac);
+    float edgeLine = 1.0 - saturate(min(texelEdgeDistance.x, texelEdgeDistance.y) * 8.0);
+    return float3(texelFrac, edgeLine);
+}
+
+float3 DebugSnapDelta(float2 uv, float2 pixelUV) {
+    float2 delta = abs((uv - pixelUV) / RcpRTSize) * 2.0;
+    return saturate(float3(delta.x, delta.y, max(delta.x, delta.y)));
+}
+
+float3 DebugHeightDepth(float height, float hitHeight, float depth) {
+    return float3(TO_UNSIGNED(height), TO_UNSIGNED(hitHeight), saturate(depth));
+}
+
+float3 DebugInkIDs(float id1, float id2, float idBlend) {
+    return float3(id1 * (1.0 / 255.0), id2 * (1.0 / 255.0), idBlend);
+}
+
+float2 SolveScreenOffset(float2 du, float2 dv, float2 uvOffset) {
+    float det = du.x * dv.y - dv.x * du.y;
+    det = rcp(det + (det < 0 ? -1.0e-7 : 1.0e-7));
+    return float2(
+        dot(float2( dv.y, -dv.x), uvOffset) * det,
+        dot(float2(-du.y,  du.x), uvOffset) * det);
 }
 
 // Samples additive color and height value
@@ -273,7 +311,7 @@ void FetchGeometrySamples(
 }
 
 // Traces the view ray against the active paint interface within the local clip box.
-float3 TracePaintInterface(const PS_INPUT i) {
+float3 TracePaintInterface(const PS_INPUT i, out float traceKind, out float traceSteps, out float traceRayFraction) {
     const float PIXELS_PER_STEP_RCP = rcp(16.0);
     const float MIN_STEPS = 2.0;
     const float MAX_STEPS = 16.0;
@@ -299,8 +337,8 @@ float3 TracePaintInterface(const PS_INPUT i) {
     float  fractionStart = max(fractionEnter, 0.0);
     float  fractionEnd   = fractionExit;
     if (fractionEnd <= fractionStart) {
+        traceRayFraction = fractionStart;
         clip(-1.0);
-        return proxyUV;
     }
     float3 rayMarchingStart = eyeUV + rayDir * fractionStart;
     float3 rayMarchingEnd   = eyeUV + rayDir * fractionEnd;
@@ -308,14 +346,13 @@ float3 TracePaintInterface(const PS_INPUT i) {
     float  numSteps         = distance(rayMarchingStart.xy, rayMarchingEnd.xy);
     numSteps *= PIXELS_PER_STEP_RCP * pixelPerUV;
     numSteps = clamp(round(numSteps), MIN_STEPS, MAX_STEPS);
-    if (fractionEnter > 0.0 && rayMarchingStart.z <= FetchHeight(rayMarchingStart.xy)) {
-        return clamp(rayMarchingStart,
-            float3(i.surfaceClipRange.xy, boxMin.z),
-            float3(i.surfaceClipRange.zw, boxMax.z));
-    }
+    traceSteps = numSteps;
     float3 previousRay   = rayMarchingStart;
     float  previousField = EvaluateInterfaceField(previousRay);
+    float  previousRayFraction = fractionStart;
     if (abs(previousField) < 1.0e-4) {
+        traceKind = 1.0;
+        traceRayFraction = previousRayFraction;
         return clamp(previousRay,
             float3(i.surfaceClipRange.xy, boxMin.z),
             float3(i.surfaceClipRange.zw, boxMax.z));
@@ -324,6 +361,7 @@ float3 TracePaintInterface(const PS_INPUT i) {
     for (int j = 1; j <= MAX_STEPS; j++) {
         if (j > (int)numSteps) break;
         float fraction = (float)j / numSteps;
+        float currentRayFraction = lerp(fractionStart, fractionEnd, fraction);
         float3 currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
         float currentField = EvaluateInterfaceField(currentRay);
         if (previousField * currentField <= 0.0) {
@@ -347,6 +385,8 @@ float3 TracePaintInterface(const PS_INPUT i) {
 
             float hitFraction = saturate(-fa * SAFERCP(fb - fa));
             float3 inkUV = lerp(a, b, hitFraction);
+            traceKind = 2.0;
+            traceRayFraction = lerp(previousRayFraction, currentRayFraction, hitFraction);
             return clamp(inkUV,
                 float3(i.surfaceClipRange.xy, boxMin.z),
                 float3(i.surfaceClipRange.zw, boxMax.z));
@@ -354,6 +394,17 @@ float3 TracePaintInterface(const PS_INPUT i) {
 
         previousRay = currentRay;
         previousField = currentField;
+        previousRayFraction = currentRayFraction;
+    }
+    traceKind = -1.0;
+    traceRayFraction = fractionEnd;
+    if (previousField > 0.0) {
+        // Camera is inside the ink — the ray never exited the surface.
+        // Return the last sample as a fallback (closest to the ink surface).
+        traceKind = 0.0;
+        return clamp(previousRay,
+            float3(i.surfaceClipRange.xy, boxMin.z),
+            float3(i.surfaceClipRange.zw, boxMax.z));
     }
     clip(-1.0);
     return proxyUV;
@@ -361,21 +412,34 @@ float3 TracePaintInterface(const PS_INPUT i) {
 
 PS_OUTPUT main(const PS_INPUT i) {
     float projPosZ = i.worldPos_projPosZ.w;
-    float projPosW = i.projPosW_isCeiling.x;
+    float projPosW = i.projPosW_meshRole.x;
     float sceneLinearDepth = tex2Dlod(DepthSampler, float4(i.screenPos.xy * RcpDepthSize, 0.0, 0.0)).r;
     float linearDepth = projPosZ / 4096.0;
-    clip(sceneLinearDepth + 1e-8 - linearDepth); // Early-Z culling
+    float role = round(i.projPosW_meshRole.y * MESH_ROLE_MAX);
+    bool  isBase = role == MESH_ROLE_BASE;
+    bool  isCeil = role == MESH_ROLE_CEIL;
+    bool  isDepth = role == MESH_ROLE_DEPTH;
+    bool  isSideIn = role == MESH_ROLE_SIDE_IN;
+    bool  isSideOut = role == MESH_ROLE_SIDE_OUT;
+    // if (isBase || isDepth || isSideOut) {
+    //     clip(sceneLinearDepth + 1e-8 - linearDepth); // Early-Z culling
+    // }
 
     float3 inkUV; // Z = final ray marching height
+    float traceKind = 3.0;
+    float traceSteps = 0.0;
+    float traceRayFraction = 1.0;
     if (g_Simplified) {
         clip(-abs(i.inkBinormalMeshLift.w));
         inkUV = float3(i.inkUV_worldBumpUV.xy, 0.0);
     }
     else {
-        inkUV = TracePaintInterface(i);
+        inkUV = TracePaintInterface(i, traceKind, traceSteps, traceRayFraction);
     }
-    float3 viewVec = g_EyePos.xyz - i.worldPos_projPosZ.xyz;
-    float3 viewDir = normalize(viewVec);
+    float3 hitWorldPos = lerp(g_EyePos.xyz, i.worldPos_projPosZ.xyz, traceRayFraction);
+    float3 viewVec = g_EyePos.xyz - hitWorldPos;
+    float  viewVecLength = max(length(viewVec), 1.0e-4);
+    float3 viewDir = viewVec * rcp(viewVecLength);
     float2 pixelUV = (floor(inkUV.xy / RcpRTSize) + 0.5) * RcpRTSize + float2(0.0, 0.5);
     float4 inkIDs  = tex2Dlod(InkMap, float4(pixelUV, 0.0, 0.0));
     float  ID1     = round(inkIDs.r * 255.0);
@@ -389,7 +453,7 @@ PS_OUTPUT main(const PS_INPUT i) {
     float3 additive, multiplicative, inkNormal;
     FetchAdditiveAndHeight(inkUV.xy, additive, height, inkNormal);
     FetchMultiplicativeAndDepth(inkUV.xy, multiplicative, depth);
-    clip(depth + inkUV.z);
+    clip(max(depth + inkUV.z, 0));
     FetchInkMaterial(ID1, ID2, idBlend, metallic, roughness, specularScale, refraction);
     FetchInkDetails(ID1, ID2, idBlend, detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor);
 
@@ -414,12 +478,26 @@ PS_OUTPUT main(const PS_INPUT i) {
     float3 tangentViewDir = mul(tangentSpaceWorld, viewDir);
     float2 parallaxVec = tangentViewDir.xy / max(tangentViewDir.z, 1.0e-3);
     float2 uvDepthParallax = -parallaxVec;
-    uvDepthParallax *= depth;
+    float thickness = max(depth + inkUV.z, 0.0);
+    uvDepthParallax *= thickness;
     uvDepthParallax /= max(tangentScaleSqr, 1.0e-3) * max(texTransformScale, 1e-3);
     float2 uvRefraction = inkNormal.xy * refraction * rsqrt(max(tangentScaleSqr, 1.0e-3)) * 0.0;
     float2 uvOffset = uvDepthParallax + uvRefraction;
-    float2 bumpUV = i.inkUV_worldBumpUV.zw + uvOffset;
+    float2 inkProxyUV = i.inkUV_worldBumpUV.xy;
+    float2 bumpProxyUV = i.inkUV_worldBumpUV.zw;
+    float2 inkHitOffset = (inkUV.xy - inkProxyUV) * 2.0;
+    float2 bumpFromInkRow0 = i.lightmapUV3_projXY.zw;
+    float2 bumpFromInkRow1 = i.projPosW_meshRole.zw;
+    float2 hitBumpOffset = {
+        dot(bumpFromInkRow0, inkHitOffset),
+        dot(bumpFromInkRow1, inkHitOffset),
+    };
+    float2 bumpUV = bumpProxyUV + hitBumpOffset + uvOffset;
     float2 baseUV = bumpUV;
+    float2 bumpUVd[2] = {
+        ddx(bumpProxyUV),
+        ddy(bumpProxyUV),
+    };
     if (g_NeedsFrameBuffer > 0.0) {
         // Inverse conversion of world position -- UV coordinates equation:
         // P: world pos,  S: tangent S,         T: tangent T
@@ -442,14 +520,7 @@ PS_OUTPUT main(const PS_INPUT i) {
         // float3x3 tangentSpaceInk = { mul(dUdXInv, dPdX), i.worldNormalTangentY.xyz };
         // tangentSpaceInk[0] = normalize(tangentSpaceInk[0]) * g_HammerUnitsToUV;
         // tangentSpaceInk[1] = normalize(tangentSpaceInk[1]) * g_HammerUnitsToUV;
-        float2 du = ddx(i.inkUV_worldBumpUV.zw);
-        float2 dv = ddy(i.inkUV_worldBumpUV.zw);
-        float det = du.x * dv.y - dv.x * du.y;
-        det = rcp(det + (det < 0 ? -1.0e-7 : 1.0e-7));
-        float2 screenOffset = {
-            dot(float2( dv.y, -dv.x), uvOffset) * det,
-            dot(float2(-du.y,  du.x), uvOffset) * det,
-        };
+        float2 screenOffset = SolveScreenOffset(bumpUVd[0], bumpUVd[1], hitBumpOffset + uvOffset);
         float2 finalUV = (i.screenPos + screenOffset * g_ScreenScale) * RcpFbSize;
         float2 fade = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.55, finalUV);
         baseUV = lerp(i.screenPos * RcpFbSize, finalUV, fade);
@@ -460,10 +531,6 @@ PS_OUTPUT main(const PS_INPUT i) {
         tex2D(LightmapSampler, i.lightmapUV1And2.xy).rgb,
         tex2D(LightmapSampler, i.lightmapUV1And2.zw).rgb,
         tex2D(LightmapSampler, i.lightmapUV3_projXY.xy).rgb,
-    };
-    float2 bumpUVd[2] = {
-        ddx(i.inkUV_worldBumpUV.zw),
-        ddy(i.inkUV_worldBumpUV.zw),
     };
     float2 baseUVd[2] = {
         g_HasBumpedLightmap ? float2(RcpFbSize.x, 0.0) : bumpUVd[0],
@@ -588,29 +655,46 @@ PS_OUTPUT main(const PS_INPUT i) {
 
     float alpha = 1.0;
     float newDepth = projPosZ / projPosW;
-    if (!g_Simplified && i.projPosW_isCeiling.y < 0.5) {
-        // Calculate new depth from parallax affected UV and original UV
-        float3 inkUVWorldUnits = {
-            i.inkUV_worldBumpUV.x / g_HammerUnitsToUV,
-            i.inkUV_worldBumpUV.y / g_HammerUnitsToUV,
-            i.inkBinormalMeshLift.w * HEIGHT_TO_HAMMER_UNITS,
-        };
-        float3 parallaxAffectedUV = {
-            inkUV.x / g_HammerUnitsToUV,
-            inkUV.y / g_HammerUnitsToUV,
-            inkUV.z * HEIGHT_TO_HAMMER_UNITS,
-        };
-        float uvDifference = distance(inkUVWorldUnits, parallaxAffectedUV);
-        float viewVecLength = length(viewVec);
+    if (!g_Simplified && i.projPosW_meshRole.y > 0.125) {
+        // The traced hit lies on the same screen ray as the proxy point, so clip-space W
+        // scales linearly by the traced ray fraction even when the hit is behind the proxy.
         float4 zRange = CalcNearFarZ(projPosZ, projPosW);
         float minW = zRange.x + 16.0;
-        float newW = max(projPosW * (1.0 - uvDifference / viewVecLength), minW);
+        float newW = max(projPosW * traceRayFraction, minW);
         float newZ = zRange.z * newW + zRange.w;
         float meshDepth = projPosZ / projPosW;
-        float maxDepthDiff = max(abs(ddx(meshDepth)), abs(ddy(meshDepth)));
-        newDepth = min(meshDepth, newZ / newW); // Don't go deeper than the original mesh
+        float hitDepth = newZ / newW;
+        float maxDepthDiff = max(abs(ddx(hitDepth)), abs(ddy(hitDepth)));
+        bool isSideOut = i.projPosW_meshRole.y > 0.875;
+        newDepth = isSideOut ? hitDepth : min(meshDepth, hitDepth);
         newDepth -= DEPTH_BASE_BIAS + maxDepthDiff * DEPTH_DIFF_SCALE; // Slightly go towards the camera
         alpha = saturate(1.0 - i.inkBinormalMeshLift.w * smoothstep(LOD_DISTANCE * 0.5, LOD_DISTANCE * 0.875, newW));
+    }
+
+    int debugMode = (int)round(g_Unused);
+    if (debugMode > 0) {
+        float3 debugColor = float3(1.0, 0.0, 1.0);
+        if (debugMode == 1) {
+            debugColor = DebugTraceKindColor(traceKind);
+        }
+        else if (debugMode == 2) {
+            debugColor = DebugTexelFraction(inkUV.xy);
+        }
+        else if (debugMode == 3) {
+            debugColor = DebugSnapDelta(inkUV.xy, pixelUV);
+        }
+        else if (debugMode == 4) {
+            debugColor = DebugHeightDepth(height, inkUV.z, depth);
+        }
+        else if (debugMode == 5) {
+            debugColor = DebugInkIDs(ID1, ID2, idBlend);
+        }
+        else if (debugMode == 6) {
+            debugColor = traceSteps / DEBUG_TRACE_MAX_STEPS;
+        }
+
+        PS_OUTPUT debugOutput = { debugColor * g_TonemapScale, alpha, max(newDepth, 0.0) };
+        return debugOutput;
     }
 
     PS_OUTPUT p = { result * g_TonemapScale, alpha, max(newDepth, 0.0) };

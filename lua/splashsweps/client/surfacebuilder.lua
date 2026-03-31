@@ -69,6 +69,51 @@ ss.struct "SurfaceBuilder.MeshConstructionInfo" {
     TriangleCount = 0,
 }
 
+---@param vertices ss.PrecachedData.Vertex[]
+---@param worldToUV VMatrix
+---@param info ss.PrecachedData.UVInfo
+---@param scale number
+---@return number[] bumpFromInk
+local function ComputeBumpFromInk(vertices, worldToUV, info, scale)
+    for i = 1, #vertices, 3 do
+        local v0 = vertices[i]
+        local v1 = vertices[i + 1]
+        local v2 = vertices[i + 2]
+        if v0 and v1 and v2 then
+            local uv0 = worldToUV * (v0.DisplacementOrigin or v0.Translation)
+            local uv1 = worldToUV * (v1.DisplacementOrigin or v1.Translation)
+            local uv2 = worldToUV * (v2.DisplacementOrigin or v2.Translation)
+            uv0.x = uv0.x + info.Translation.x * scale
+            uv0.y = uv0.y + info.Translation.y * scale
+            uv1.x = uv1.x + info.Translation.x * scale
+            uv1.y = uv1.y + info.Translation.y * scale
+            uv2.x = uv2.x + info.Translation.x * scale
+            uv2.y = uv2.y + info.Translation.y * scale
+
+            local di1x = uv1.y - uv0.y
+            local di1y = uv1.x - uv0.x
+            local di2x = uv2.y - uv0.y
+            local di2y = uv2.x - uv0.x
+            local det = di1x * di2y - di2x * di1y
+            if math.abs(det) > 1.0e-12 then
+                local db1x = v1.BumpmapUV.x - v0.BumpmapUV.x
+                local db1y = v1.BumpmapUV.y - v0.BumpmapUV.y
+                local db2x = v2.BumpmapUV.x - v0.BumpmapUV.x
+                local db2y = v2.BumpmapUV.y - v0.BumpmapUV.y
+                local invDet = 1 / det
+                return {
+                    ( db1x * di2y - db2x * di1y) * invDet,
+                    (-db1x * di2x + db2x * di1x) * invDet,
+                    ( db1y * di2y - db2y * di1y) * invDet,
+                    (-db1y * di2x + db2y * di1x) * invDet,
+                }
+            end
+        end
+    end
+
+    return { 0, 0, 0, 0 }
+end
+
 ---Sorts faces for lightmap packing, mimicking the engine's LightmapLess function.
 ---@param a ss.PrecachedData.LightmapInfo
 ---@param b ss.PrecachedData.LightmapInfo
@@ -338,6 +383,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
     ---@field U           number[]
     ---@field V           number[]
     ---@field UVRange     number[]
+    ---@field BumpFromInk number[]
     ---@field InkTangent  number[]
     ---@field InkBinormal number[]
     ---@field SurfaceIndex integer?
@@ -390,10 +436,10 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         ["$vertexnormal"]           = "1",
                         ["$tcsize0"]                = "4",
                         ["$tcsize1"]                = "4",
-                        ["$tcsize2"]                = "3",
-                        ["$tcsize3"]                = "3",
-                        ["$tcsize4"]                = "3",
-                        ["$tcsize5"]                = "3",
+                        ["$tcsize2"]                = "4",
+                        ["$tcsize3"]                = "4",
+                        ["$tcsize4"]                = "4",
+                        ["$tcsize5"]                = "4",
                         ["$tcsize6"]                = "4",
                         ["$c0_x"]                   = 0,     -- Sun direction x
                         ["$c0_y"]                   = 0.3,   -- Sun direction y
@@ -436,6 +482,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                     local surf = surfaceInfo.Surfaces[faceIndex]
                     local info = setmetatable(surf.UVInfo[rtIndex], UVInfoMeta)
                     worldToUV:SetAngles(info.Angle)
+                    local bumpFromInk = ComputeBumpFromInk(surf.Vertices, worldToUV, info, scale)
                     for i, v in ipairs(surf.Vertices) do
                         local position = v.Translation
                         local normal = v.Normal
@@ -468,17 +515,18 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                                 info.OffsetU + info.Width  - bilinearGuard - margin,
                                 info.OffsetV + info.Height - bilinearGuard - margin,
                             },
+                            BumpFromInk = bumpFromInk,
                             InkTangent = {
                                 worldToUV:GetField(1, 1),
                                 worldToUV:GetField(1, 2),
                                 worldToUV:GetField(1, 3),
-                                worldToUV:GetField(1, 4),
+                                bumpFromInk[3],
                             },
                             InkBinormal = {
                                 worldToUV:GetField(2, 1),
                                 worldToUV:GetField(2, 2),
                                 worldToUV:GetField(2, 3),
-                                worldToUV:GetField(2, 4),
+                                bumpFromInk[4],
                             },
                             SurfaceIndex = faceIndex,
                         }
@@ -509,8 +557,8 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                 mesh.TexCoord(1, v.U[2], v.V[2], v.U[3], v.V[3])
                 mesh.TexCoord(2, v.InkTangent[1], v.InkTangent[2], v.InkTangent[3], v.InkTangent[4])
                 mesh.TexCoord(3, v.InkBinormal[1], v.InkBinormal[2], v.InkBinormal[3], v.InkBinormal[4])
-                mesh.TexCoord(4, v.TangentS.x, v.TangentS.y, v.TangentS.z)
-                mesh.TexCoord(5, v.TangentT.x, v.TangentT.y, v.TangentT.z)
+                mesh.TexCoord(4, v.TangentS.x, v.TangentS.y, v.TangentS.z, v.BumpFromInk[1])
+                mesh.TexCoord(5, v.TangentT.x, v.TangentT.y, v.TangentT.z, v.BumpFromInk[2])
                 mesh.TexCoord(6, unpack(v.UVRange))
                 mesh.Color(0, 0, v.Role * 255, v.Lift * 255)
                 mesh.AdvanceVertex()
