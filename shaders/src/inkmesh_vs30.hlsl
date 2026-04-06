@@ -1,6 +1,5 @@
 // Ink Mesh Vertex Shader for SplashSWEPs
-
-#include "inkmesh_common.hlsl"
+#include "inkmesh_core.hlsl"
 
 struct VS_INPUT {
     float3 pos              : POSITION;

@@ -363,7 +363,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
         table.sort(infoArray, function(a, b) return a.SortID < b.SortID end)
     end
 
-    local waterMaterial = Material "splashsweps/shader/inkmesh"
+    local waterMaterial = Material "splashsweps/shaders/inkmesh"
     local fbScale = ScrH() / (2 * math.tan(math.rad(LocalPlayer():GetFOV() * 0.5)))
     waterMaterial:SetFloat("$c1_y", fbScale)
 

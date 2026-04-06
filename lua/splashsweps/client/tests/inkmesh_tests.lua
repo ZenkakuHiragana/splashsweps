@@ -13,12 +13,14 @@ local COLOR_TRACE_BOX_MISS = { 255, 255, 0, 255 }
 local COLOR_TRACE_NO_HIT = { 255, 0, 255, 255 }
 local COLOR_TRACE_HIT_START = { 0, 255, 0, 255 }
 local COLOR_TRACE_HIT_CROSSING = { 0, 128, 255, 255 }
-local INKMESH_TEST_MATERIAL_NAME = "splashsweps_render_test_inkmesh_psonly"
-local RT_FLAGS_INKMAP = 128 + 256 + 512 + 32768
+local COLOR_TRACE_HIT_CENTER = { 64, 64, 128, 255 }
+local COLOR_TRACE_HIT_FRACTION = { 92, 32, 0, 255 }
+local COLOR_TRACE_SAMPLE_FETCH = { 255, 255, 0, 255 }
+local COLOR_DISPLAY_TRACE_HIT_CROSSING = COLOR_TRACE_HIT_CROSSING
 
 ---@type ss.RenderHarness
 local rt = ss.RenderHarness
-if not rt or not rt.CaptureRT or not rt.NewPixelMap or not rt.ClearTestPrefix then return end
+if not rt or not rt.CaptureRT or not rt.NewPixelMap or not rt.RegisterSuite then return end
 
 ---@param target ITexture
 ---@param clear number[]|Color?
@@ -36,32 +38,21 @@ local function fillRT(target, clear, draw)
 end
 
 ---@return IMaterial
-local function getInkmeshMaterial()
-    local template = Material("splashsweps/shaders/inkmesh_test")
-    local params = template:GetKeyValues() or {}
-    params["$cull"] = "0"
-    params["$c0_w"] = 1
-    params["$c1_x"] = 0
-    params["$c1_y"] = 0
-    params["$c1_w"] = 0
-    params["$c30_x"] = 1
-    params["$c30_y"] = 1
-    params["$c30_z"] = 1
-    params["$c30_w"] = 1
+local function getInkmeshCoreMaterial()
+    local material = Material("splashsweps/shaders/inkmesh_core_test")
+    return material
+end
 
-    local material = CreateMaterial(
-        INKMESH_TEST_MATERIAL_NAME,
-        "Screenspace_General_8Tex",
-        params
-    )
-    material:Recompute()
+---@return IMaterial
+local function getInkmeshDisplayMaterial()
+    local material = Material("splashsweps/shaders/inkmesh_test")
     return material
 end
 
 ---@param name string
----@param heightAlpha integer
+---@param opts { heightAlpha?: integer, depthAlpha?: integer, indexColor?: number[]|Color, paramsFill?: number[]|Color?, detailsFill?: number[]|Color?, sceneDepthFill?: number[]|Color?, frameBufferFill?: number[]|Color? }
 ---@return { inkMap: ITexture, params: ITexture, details: ITexture, sceneDepth: ITexture, frameBuffer: ITexture }
-local function configureInkmeshFixtureTextures(name, heightAlpha)
+local function configureInkmeshFixtureTextures(name, opts)
     local inkMap = rt.EnsureRT(
         name .. "_inkmap",
         INKMESH_FIXTURE_RT,
@@ -73,6 +64,9 @@ local function configureInkmeshFixtureTextures(name, heightAlpha)
     local details = rt.EnsureRT(name .. "_details", 2, 2)
     local sceneDepth = rt.EnsureRT(name .. "_depth", INKMESH_FIXTURE_RT, INKMESH_FIXTURE_RT)
     local frameBuffer = rt.EnsureRT(name .. "_framebuffer", INKMESH_FIXTURE_RT, INKMESH_FIXTURE_RT)
+    local heightAlpha = opts.heightAlpha or 0
+    local depthAlpha = opts.depthAlpha or 255
+    local indexColor = opts.indexColor or { 255, 255, 255, 255 }
 
     fillRT(inkMap, { 0, 0, 0, 0 }, function()
         if heightAlpha > 0 then
@@ -80,11 +74,14 @@ local function configureInkmeshFixtureTextures(name, heightAlpha)
             surface.DrawRect(0, 0, INKMESH_FIXTURE_RT / 2, INKMESH_FIXTURE_RT)
         end
 
-        surface.SetDrawColor(255, 255, 255, 255)
+        surface.SetDrawColor(0, 0, 0, depthAlpha)
         surface.DrawRect(INKMESH_FIXTURE_RT / 2, 0, INKMESH_FIXTURE_RT / 2, INKMESH_FIXTURE_RT)
+
+        surface.SetDrawColor(indexColor[1], indexColor[2], indexColor[3], indexColor[4])
+        surface.DrawRect(0, INKMESH_FIXTURE_RT / 2, INKMESH_FIXTURE_RT / 2, INKMESH_FIXTURE_RT / 2)
     end)
 
-    fillRT(params, { 255, 255, 255, 255 }, function()
+    fillRT(params, opts.paramsFill or { 255, 255, 255, 255 }, function()
         surface.SetDrawColor(0, 0, 0, 255)
         surface.DrawRect(0, 4, 1, 1)
         surface.SetDrawColor(0, 255, 255, 255)
@@ -95,9 +92,9 @@ local function configureInkmeshFixtureTextures(name, heightAlpha)
         surface.DrawRect(0, 7, 1, 1)
     end)
 
-    fillRT(details, { 255, 255, 255, 255 }, function() end)
-    fillRT(sceneDepth, { 255, 255, 255, 255 }, function() end)
-    fillRT(frameBuffer, { 255, 255, 255, 255 }, function() end)
+    fillRT(details, opts.detailsFill or { 255, 255, 255, 255 }, function() end)
+    fillRT(sceneDepth, opts.sceneDepthFill or { 255, 255, 255, 255 }, function() end)
+    fillRT(frameBuffer, opts.frameBufferFill or { 255, 255, 255, 255 }, function() end)
 
     return {
         inkMap = inkMap,
@@ -116,7 +113,7 @@ end
 
 ---@param distance number?
 ---@param projPosZ number?
----@return Vector
+---@return number[]
 local function buildWorldPosProjPosZ(distance, projPosZ)
     local eye = EyePos()
     local d = tonumber(distance) or 32
@@ -128,6 +125,20 @@ end
 ---@return number[]
 local function buildProjPosWMeshRole(role, projPosW)
     return { projPosW or INKMESH_PROJ_POS_W, role or INKMESH_ROLE_BASE, 0, 0 }
+end
+
+---@param lift number?
+---@param proxyU number?
+---@param proxyV number?
+---@param eyeHeight number?
+---@return number[]
+local function buildCoreEyeUV(lift, proxyU, proxyV, eyeHeight)
+    return {
+        proxyU or INKMESH_PROXY_U,
+        proxyV or INKMESH_PROXY_V,
+        (lift or 0) + (eyeHeight or 1),
+        0,
+    }
 end
 
 ---@param material IMaterial
@@ -168,11 +179,11 @@ local function drawInkmeshQuad(material, opts)
     mesh.End()
 end
 
----@param opts { name: string, heightAlpha: integer?, clipRange: number[]?, eyeNormalDistance: number?, worldPosProjPosZ: number[]?, worldNormalTangentY: number[]?, inkTangentXYZWorldZ: number[]?, inkBinormalMeshLift: number[]?, projPosWMeshRole: number[]?, role: integer?, projPosW: number?, projPosZ: number?, proxyU: number?, proxyV: number? }
+---@param material IMaterial
+---@param textures { inkMap: ITexture, params: ITexture, details: ITexture, sceneDepth: ITexture, frameBuffer: ITexture }
+---@param opts table
 ---@return integer[][]
-local function captureInkmeshDebug(opts)
-    local textures = configureInkmeshFixtureTextures(opts.name, opts.heightAlpha)
-    local material = getInkmeshMaterial()
+local function captureInkmeshFixture(material, textures, opts)
     material:SetTexture("$basetexture", textures.inkMap)
     material:SetTexture("$texture1", textures.params)
     material:SetTexture("$texture2", textures.sceneDepth)
@@ -181,10 +192,10 @@ local function captureInkmeshDebug(opts)
     material:SetTexture("$texture5", "white")
     material:SetTexture("$texture6", "null-bumpmap")
     material:SetTexture("$texture7", "white")
-    material:SetInt("$c0_w", 1)
-    material:SetFloat("$c1_x", 0)
-    material:SetFloat("$c1_y", 0)
-    material:SetFloat("$c1_w", 0)
+    material:SetInt("$c0_w", opts.debugMode or 1)
+    material:SetFloat("$c1_x", opts.c1_x or 0)
+    material:SetFloat("$c1_y", opts.c1_y or 0)
+    material:SetFloat("$c1_w", opts.c1_w or 0)
     material:Recompute()
 
     return rt.CaptureRT(
@@ -195,9 +206,11 @@ local function captureInkmeshDebug(opts)
             render.TurnOnToneMapping()
             render.SetGoalToneMappingScale(1)
             render.SetToneMappingScaleLinear(Vector(1, 1, 1))
+            render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
             local ok, err = pcall(function()
                 drawInkmeshQuad(material, opts)
             end)
+            render.OverrideBlend(false)
             render.SetToneMappingScaleLinear(toneMapping)
             if not ok then error(err, 0) end
         end,
@@ -206,19 +219,35 @@ local function captureInkmeshDebug(opts)
     )
 end
 
-ss.RenderHarness.ClearTestPrefix("inkmesh.")
+---@param opts { name: string, debugMode?: integer, heightAlpha?: integer, depthAlpha?: integer, indexColor?: number[]|Color, clipRange?: number[], eyeNormalDistance?: number, worldPosProjPosZ?: number[], worldNormalTangentY?: number[], inkTangentXYZWorldZ?: number[], inkBinormalMeshLift?: number[], projPosWMeshRole?: number[], role?: integer, projPosW?: number, projPosZ?: number, proxyU?: number, proxyV?: number, c1_x?: number, c1_y?: number, c1_w?: number }
+---@return integer[][]
+local function captureInkmeshCoreDebug(opts)
+    local textures = configureInkmeshFixtureTextures(opts.name, opts)
+    local material = getInkmeshCoreMaterial()
+    return captureInkmeshFixture(material, textures, opts)
+end
+
+---@param opts { name: string, debugMode?: integer, heightAlpha?: integer, depthAlpha?: integer, indexColor?: number[]|Color, clipRange?: number[], eyeNormalDistance?: number, worldPosProjPosZ?: number[], worldNormalTangentY?: number[], inkTangentXYZWorldZ?: number[], inkBinormalMeshLift?: number[], projPosWMeshRole?: number[], role?: integer, projPosW?: number, projPosZ?: number, proxyU?: number, proxyV?: number, c1_x?: number, c1_y?: number, c1_w?: number }
+---@return integer[][]
+local function captureInkmeshDisplayDebug(opts)
+    local textures = configureInkmeshFixtureTextures(opts.name, opts)
+    local material = getInkmeshDisplayMaterial()
+    return captureInkmeshFixture(material, textures, opts)
+end
+
+rt.ClearTestPrefix("inkmesh.")
 
 ---@type ss.RenderHarness.Case[]
 local cases = {
     {
-        name = "inkmesh.tracekind.hit_start",
+        name = "inkmesh.core.tracekind.hit_start",
         run = function(t)
-            local actual = captureInkmeshDebug {
-                name = "inkmesh_tracekind_hit_start",
+            local actual = captureInkmeshCoreDebug {
+                name = "inkmesh_core_tracekind_hit_start",
+                debugMode = 1,
                 heightAlpha = 255,
                 clipRange = INKMESH_CLIP_FULL,
-                eyeNormalDistance = 32,
-                worldPosProjPosZ = buildWorldPosProjPosZ(32, 1),
+                worldPosProjPosZ = buildCoreEyeUV(0),
                 inkBinormalMeshLift = { 0, 0, 0, 0 },
             }
 
@@ -227,20 +256,20 @@ local cases = {
                 INKMESH_FIXTURE_RT,
                 actual,
                 buildInkmeshExpected(COLOR_TRACE_HIT_START),
-                "inkmesh debug trace kind hit-start",
+                "inkmesh core trace kind hit-start",
                 4
             )
         end,
     },
     {
-        name = "inkmesh.tracekind.hit_crossing",
+        name = "inkmesh.core.tracekind.hit_crossing",
         run = function(t)
-            local actual = captureInkmeshDebug {
-                name = "inkmesh_tracekind_hit_crossing",
+            local actual = captureInkmeshCoreDebug {
+                name = "inkmesh_core_tracekind_hit_crossing",
+                debugMode = 1,
                 heightAlpha = 128,
                 clipRange = INKMESH_CLIP_FULL,
-                eyeNormalDistance = 32,
-                worldPosProjPosZ = buildWorldPosProjPosZ(32, 1),
+                worldPosProjPosZ = buildCoreEyeUV(-0.75),
                 inkBinormalMeshLift = { 0, 0, 0, -0.75 },
             }
 
@@ -249,20 +278,20 @@ local cases = {
                 INKMESH_FIXTURE_RT,
                 actual,
                 buildInkmeshExpected(COLOR_TRACE_HIT_CROSSING),
-                "inkmesh debug trace kind hit-crossing",
+                "inkmesh core trace kind hit-crossing",
                 4
             )
         end,
     },
     {
-        name = "inkmesh.tracekind.box_miss_visible",
+        name = "inkmesh.core.tracekind.box_miss_visible",
         run = function(t)
-            local actual = captureInkmeshDebug {
-                name = "inkmesh_tracekind_box_miss",
+            local actual = captureInkmeshCoreDebug {
+                name = "inkmesh_core_tracekind_box_miss",
+                debugMode = 1,
                 heightAlpha = 128,
                 clipRange = { 0.0, 0.0, 0.1, 0.1 },
-                eyeNormalDistance = 32,
-                worldPosProjPosZ = buildWorldPosProjPosZ(32, 1),
+                worldPosProjPosZ = buildCoreEyeUV(-0.75),
                 inkBinormalMeshLift = { 0, 0, 0, -0.75 },
             }
 
@@ -271,21 +300,21 @@ local cases = {
                 INKMESH_FIXTURE_RT,
                 actual,
                 buildInkmeshExpected(COLOR_TRACE_BOX_MISS),
-                "inkmesh debug trace kind box-miss remains visible",
+                "inkmesh core trace kind box-miss",
                 4
             )
         end,
     },
     {
-        name = "inkmesh.tracekind.no_hit_visible",
+        name = "inkmesh.core.tracekind.no_hit_visible",
         run = function(t)
-            local actual = captureInkmeshDebug {
-                name = "inkmesh_tracekind_no_hit",
+            local actual = captureInkmeshCoreDebug {
+                name = "inkmesh_core_tracekind_no_hit",
+                debugMode = 1,
                 heightAlpha = 0,
                 clipRange = INKMESH_CLIP_FULL,
-                eyeNormalDistance = 32,
-                worldPosProjPosZ = buildWorldPosProjPosZ(32, 1),
-                inkBinormalMeshLift = { 0, 0, 0, -0.75 },
+                worldPosProjPosZ = { INKMESH_PROXY_U, 0.75, 0.25, 0 },
+                inkBinormalMeshLift = { 0, 0, 0, 0.25 },
             }
 
             t.assertPixelsEqual(
@@ -293,11 +322,105 @@ local cases = {
                 INKMESH_FIXTURE_RT,
                 actual,
                 buildInkmeshExpected(COLOR_TRACE_NO_HIT),
-                "inkmesh debug trace kind no-hit remains visible",
+                "inkmesh core trace kind no-hit",
+                4
+            )
+        end,
+    },
+    {
+        name = "inkmesh.core.hit_uv_encoding.center",
+        run = function(t)
+            local actual = captureInkmeshCoreDebug {
+                name = "inkmesh_core_hit_uv_center",
+                debugMode = 2,
+                heightAlpha = 128,
+                clipRange = INKMESH_CLIP_FULL,
+                worldPosProjPosZ = buildCoreEyeUV(-0.75),
+                inkBinormalMeshLift = { 0, 0, 0, -0.75 },
+                worldNormalTangentY = { 1, 0, 0, 0 },
+                inkTangentXYZWorldZ = { 0, 1, 0, 0 },
+            }
+
+            t.assertPixelsEqual(
+                INKMESH_FIXTURE_RT,
+                INKMESH_FIXTURE_RT,
+                actual,
+                buildInkmeshExpected(COLOR_TRACE_HIT_CENTER),
+                "inkmesh core hit UV encoding",
+                4
+            )
+        end,
+    },
+    {
+        name = "inkmesh.core.trace_fraction_and_steps",
+        run = function(t)
+            local actual = captureInkmeshCoreDebug {
+                name = "inkmesh_core_trace_fraction_steps",
+                debugMode = 3,
+                heightAlpha = 128,
+                clipRange = INKMESH_CLIP_FULL,
+                worldPosProjPosZ = buildCoreEyeUV(-0.75),
+                inkBinormalMeshLift = { 0, 0, 0, -0.75 },
+                worldNormalTangentY = { 1, 0, 0, 0 },
+                inkTangentXYZWorldZ = { 0, 1, 0, 0 },
+            }
+
+            t.assertPixelsEqual(
+                INKMESH_FIXTURE_RT,
+                INKMESH_FIXTURE_RT,
+                actual,
+                buildInkmeshExpected(COLOR_TRACE_HIT_FRACTION),
+                "inkmesh core trace fraction and steps",
+                4
+            )
+        end,
+    },
+    {
+        name = "inkmesh.core.height_depth_fetch",
+        run = function(t)
+            local actual = captureInkmeshCoreDebug {
+                name = "inkmesh_core_height_depth_fetch",
+                debugMode = 4,
+                heightAlpha = 255,
+                depthAlpha = 255,
+                clipRange = INKMESH_CLIP_FULL,
+                worldPosProjPosZ = buildCoreEyeUV(0),
+                inkBinormalMeshLift = { 0, 0, 0, 0 },
+            }
+
+            t.assertPixelsEqual(
+                INKMESH_FIXTURE_RT,
+                INKMESH_FIXTURE_RT,
+                actual,
+                buildInkmeshExpected(COLOR_TRACE_SAMPLE_FETCH),
+                "inkmesh core height/depth fetch",
+                4
+            )
+        end,
+    },
+    {
+        name = "inkmesh.display.tracekind.hit_crossing",
+        run = function(t)
+            local actual = captureInkmeshDisplayDebug {
+                name = "inkmesh_display_tracekind_hit_crossing",
+                debugMode = 1,
+                heightAlpha = 255,
+                clipRange = INKMESH_CLIP_FULL,
+                worldPosProjPosZ = buildWorldPosProjPosZ(32, 1),
+                inkBinormalMeshLift = { 0, 0, 0, 0 },
+                eyeNormalDistance = 32,
+            }
+
+            t.assertPixelsEqual(
+                INKMESH_FIXTURE_RT,
+                INKMESH_FIXTURE_RT,
+                actual,
+                buildInkmeshExpected(COLOR_DISPLAY_TRACE_HIT_CROSSING),
+                "inkmesh display trace kind hit-crossing",
                 4
             )
         end,
     },
 }
 
-ss.RenderHarness.ScheduleTests(ss.RenderHarness.RegisterCases(cases))
+rt.RegisterSuite("inkmesh", cases)

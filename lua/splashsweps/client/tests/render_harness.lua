@@ -36,6 +36,7 @@ unlitGenericMaterial:Recompute()
 ---@field ClearTestPrefix fun(prefix: string)
 ---@field RegisterCase fun(name: string, fn: fun(t: ss.RenderHarness.Context))
 ---@field RegisterCases fun(cases: ss.RenderHarness.Case[]): string[]
+---@field RegisterSuite fun(id: string, cases: ss.RenderHarness.Case[]): string[]
 ---@field ScheduleTests fun(requested: string[])
 
 ---@class ss.RenderHarness.Case
@@ -111,6 +112,8 @@ unlitGenericMaterial:Recompute()
 ---@field pending string[]?
 ---@field captureYFlip boolean?
 ---@field lastReportPath string?
+---@field suites table<string, string[]>
+---@field suiteOrder string[]
 
 ---@type ss.RenderHarness
 ss.RenderHarness = ss.RenderHarness or {}
@@ -121,9 +124,13 @@ local state = ss.RenderHarness.State or {
     pending = nil,
     captureYFlip = nil,
     lastReportPath = nil,
+    suites = {},
+    suiteOrder = {},
 }
 state.tests = state.tests or {}
 state.rtCache = state.rtCache or {}
+state.suites = state.suites or {}
+state.suiteOrder = state.suiteOrder or {}
 ss.RenderHarness.State = state
 
 local function clamp255(x)
@@ -423,7 +430,7 @@ ss.RenderHarness.NewPixelMap = newPixelMap
 ---@param prefix string
 function ss.RenderHarness.ClearTestPrefix(prefix)
     ss.assert(isstring(prefix) and prefix ~= "", "Render harness prefix must be a non-empty string")
-    local names = {}
+    local names = {} ---@type string[]
     for name in pairs(state.tests) do
         if name:sub(1, #prefix) == prefix then
             names[#names + 1] = name
@@ -433,7 +440,7 @@ function ss.RenderHarness.ClearTestPrefix(prefix)
         state.tests[name] = nil
     end
 
-    local pending = {}
+    local pending = {} ---@type string[]
     for _, name in ipairs(state.pending or {}) do
         if name:sub(1, #prefix) ~= prefix then
             pending[#pending + 1] = name
@@ -477,7 +484,7 @@ end
 ---@return string[]
 function ss.RenderHarness.RegisterCases(cases)
     ss.assert(istable(cases), "Render harness cases must be a table")
-    local names = {}
+    local names = {} ---@type string[]
     for _, case in ipairs(cases) do
         ss.assert(istable(case), "Render harness case must be a table")
         ss.assert(isstring(case.name) and case.name ~= "", "Render harness case name must be a non-empty string")
@@ -511,9 +518,55 @@ local function mergePendingTests(requested)
     return merged
 end
 
+---@param names string[]?
+local function removeNamedTests(names)
+    if not names then return end
+    local removed = {} ---@type true[]
+    for _, name in ipairs(names) do
+        state.tests[name] = nil
+        removed[name] = true
+    end
+
+    local pending = {} ---@type string[]
+    for _, name in ipairs(state.pending or {}) do
+        if not removed[name] then
+            pending[#pending + 1] = name
+        end
+    end
+    state.pending = pending
+end
+
+---@return string[]
+local function collectSuiteNames()
+    local merged = {}
+    local seen = {}
+    for _, id in ipairs(state.suiteOrder) do
+        for _, name in ipairs(state.suites[id] or {}) do
+            appendUniqueName(merged, seen, name)
+        end
+    end
+    return merged
+end
+
 ---@param requested string[]
 function ss.RenderHarness.ScheduleTests(requested)
     state.pending = mergePendingTests(requested)
+end
+
+---@param id string
+---@param cases ss.RenderHarness.Case[]
+---@return string[]
+function ss.RenderHarness.RegisterSuite(id, cases)
+    ss.assert(isstring(id) and id ~= "", "Render harness suite id must be a non-empty string")
+    if not state.suites[id] then
+        state.suiteOrder[#state.suiteOrder + 1] = id
+    end
+
+    removeNamedTests(state.suites[id])
+    local names = ss.RenderHarness.RegisterCases(cases)
+    state.suites[id] = names
+    ss.RenderHarness.ScheduleTests(collectSuiteNames())
+    return names
 end
 
 ---@param report ss.RenderHarness.Report
@@ -678,9 +731,6 @@ end
 
 hook.Add("HUDPaint", HOOK_NAME, runPending)
 
-ss.RenderHarness.ClearTestPrefix("sanity.")
-ss.RenderHarness.ClearTestPrefix("shader.")
-
 ---@type ss.RenderHarness.Case[]
 local baseCases = {
     {
@@ -816,4 +866,4 @@ local baseCases = {
     },
 }
 
-ss.RenderHarness.ScheduleTests(ss.RenderHarness.RegisterCases(baseCases))
+ss.RenderHarness.RegisterSuite("base", baseCases)

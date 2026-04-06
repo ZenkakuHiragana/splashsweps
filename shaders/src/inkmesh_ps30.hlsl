@@ -1,7 +1,7 @@
 // Ink Mesh Pixel Shader for SplashSWEPs
 // Based on LightmappedGeneric pixel shader with bumped lightmaps
 
-#include "inkmesh_common.hlsl"
+#include "inkmesh_core.hlsl"
 
 // Build configurations
 #define g_EnvmapEnabled
@@ -29,64 +29,11 @@ static const float DEPTH_DIFF_SCALE = 1.5;    // Sensitivity of the depth differ
 static const float3 GrayScaleFactor = { 0.2126, 0.7152, 0.0722 };
 static const float DEBUG_TRACE_MAX_STEPS = 16.0;
 
-// Samplers
-sampler InkMap             : register(s0);
-sampler InkDataSampler     : register(s1);
-sampler DepthSampler       : register(s2);
-sampler FrameBuffer        : register(s3);
-sampler InkDetailSampler   : register(s4);
-sampler WallAlbedoSampler  : register(s5);
-sampler WallBumpmapSampler : register(s6);
-sampler LightmapSampler    : register(s7);
-
-// Constants
-const float4 c0            : register(c0);
-const float4 c1            : register(c1);
-const float4 c2            : register(c2);
-const float4 c3            : register(c3);
-const float2 RcpRTSize     : register(c4); // One over ink map size
-const float2 RcpDataRTSize : register(c5);
-const float2 RcpDepthSize  : register(c6);
-const float2 RcpFbSize     : register(c7); // One over frame buffer size
-const float4 c8            : register(c8);
-const float4 c9            : register(c9);
-const float4 g_EyePos      : register(c10); // xyz: eye position
-const float2x4 BaseTextureTransform : register(c11);
-const float2x4 BumpTextureTransform : register(c15);
-const float4 HDRParams     : register(c30);
-
-#define g_SunDirection      c0.xyz // in world space
-#define g_Unused            c0.w
-#define g_HasBumpedLightmap c1.x
-#define g_NeedsFrameBuffer  c1.y   // True when WorldVertexTransition or Lightmapped_4WayBlend
-#define g_ScreenScale       c1.y   // If g_NeedsFrameBuffer > 0, it is parallax mapping scale
-#define g_HammerUnitsToUV   c1.z   // = ss.RenderTarget.HammerUnitsToUV * 0.5
-#define g_Simplified        c1.w   // Simplified rendering for water reflection/refraction
-
-#define g_TonemapScale  HDRParams.x
-#define g_LightmapScale HDRParams.y
-#define g_EnvmapScale   HDRParams.z
-#define g_GammaScale    HDRParams.w // = TonemapScale ^ (1 / 2.2)
-
 // Bumped lightmap basis vectors (same as LightmappedGeneric) in tangent space
 static const float3x3 BumpBasis = {
     float3( 0.81649661064147949,  0.0,                 0.57735025882720947),
     float3(-0.40824833512306213,  0.70710676908493042, 0.57735025882720947),
     float3(-0.40824833512306213, -0.70710676908493042, 0.57735025882720947),
-};
-
-struct PS_INPUT {
-    float2   screenPos             : VPOS;
-    float4   surfaceClipRange      : TEXCOORD0; // xy: ink map min UV, zw: ink map max UV
-    float4   lightmapUV1And2       : TEXCOORD1; // xy: lightmap UV, zw: bumpmapped lightmap UV (1)
-    float4   lightmapUV3_projXY    : TEXCOORD2; // xy: bumpmapped lightmap UV (2), zw: bumpUV from inkUV row 0
-    float4   inkUV_worldBumpUV     : TEXCOORD3; // xy: ink albedo UV, zw: world bumpmap UV
-    float4   worldPos_projPosZ     : TEXCOORD4; // xyz: world position, w: projected position Z
-    float4   worldBinormalTangentX : TEXCOORD5; // xyz: world binormal, w: world tangent X
-    float4   worldNormalTangentY   : TEXCOORD6; // xyz: world normal,   w: world tangent Y
-    float4   inkTangentXYZWorldZ   : TEXCOORD7; // xyz: ink tangent,    w: world tangent Z
-    float4   inkBinormalMeshLift   : TEXCOORD8; // xyz: ink binormal,   w: mesh lift amount
-    float4   projPosW_meshRole     : TEXCOORD9; // x: projPosW, y: tri role / MESH_ROLE_MAX, zw: bumpUV from inkUV row 1
 };
 
 struct PS_OUTPUT {
@@ -151,62 +98,6 @@ float4 CalcNearFarZ(float projPosZ, float projPosW) {
     float nearZ = -projMatrixOffset * SAFERCP(projMatrixPropotional);
     float farZ = -projMatrixPropotional * nearZ / (1.0 - projMatrixPropotional);
     return float4(nearZ, farZ, projMatrixPropotional, projMatrixOffset);
-}
-
-// Samples only height value to apply parallax effect to the ink
-float FetchHeight(float2 uv) {
-    return TO_SIGNED(tex2Dlod(InkMap, float4(uv, 0.0, 0.0)).a);
-}
-
-// Samples only depth value to apply parallax effect to the ink
-float FetchDepth(float2 uv) {
-    return tex2Dlod(InkMap, float4(uv.x + 0.5, uv.y, 0.0, 0.0)).a;
-}
-
-float EvaluateInterfaceField(float3 samplePos) {
-    return FetchHeight(samplePos.xy) - samplePos.z;
-}
-
-float3 DebugTraceKindColor(float traceKind) {
-    if (traceKind < 0.5) return float3(1.0, 0.0, 0.0);
-    if (traceKind < 1.5) return float3(0.0, 1.0, 0.0);
-    if (traceKind < 2.5) return float3(0.0, 0.5, 1.0);
-    if (traceKind < 3.5) return float3(1.0, 1.0, 0.0);
-    if (traceKind < 4.5) return float3(1.0, 0.0, 1.0);
-    return float3(1.0, 0.0, 0.0);
-}
-
-bool IsTraceHit(float traceKind) {
-    return traceKind > 0.5 && traceKind < 2.5;
-}
-
-float3 DebugTexelFraction(float2 uv) {
-    float2 texelCoord = uv / RcpRTSize;
-    float2 texelFrac = frac(texelCoord);
-    float2 texelEdgeDistance = min(texelFrac, 1.0 - texelFrac);
-    float edgeLine = 1.0 - saturate(min(texelEdgeDistance.x, texelEdgeDistance.y) * 8.0);
-    return float3(texelFrac, edgeLine);
-}
-
-float3 DebugSnapDelta(float2 uv, float2 pixelUV) {
-    float2 delta = abs((uv - pixelUV) / RcpRTSize) * 2.0;
-    return saturate(float3(delta.x, delta.y, max(delta.x, delta.y)));
-}
-
-float3 DebugHeightDepth(float height, float hitHeight, float depth) {
-    return float3(TO_UNSIGNED(height), TO_UNSIGNED(hitHeight), saturate(depth));
-}
-
-float3 DebugInkIDs(float id1, float id2, float idBlend) {
-    return float3(id1 * (1.0 / 255.0), id2 * (1.0 / 255.0), idBlend);
-}
-
-float2 SolveScreenOffset(float2 du, float2 dv, float2 uvOffset) {
-    float det = du.x * dv.y - dv.x * du.y;
-    det = rcp(det + (det < 0 ? -1.0e-7 : 1.0e-7));
-    return float2(
-        dot(float2( dv.y, -dv.x), uvOffset) * det,
-        dot(float2(-du.y,  du.x), uvOffset) * det);
 }
 
 // Samples additive color and height value
@@ -313,102 +204,6 @@ void FetchGeometrySamples(
         uv = mul(BaseTextureTransform, float4(baseUV, 1.0, 1.0));
         geometryAlbedo = tex2Dgrad(WallAlbedoSampler, uv, baseUVddx, baseUVddy).rgb;
     }
-}
-
-// Traces the view ray against the active paint interface within the local clip box.
-float3 TracePaintInterface(const PS_INPUT i, out float traceKind, out float traceSteps, out float traceRayFraction) {
-    const float PIXELS_PER_STEP_RCP = rcp(16.0);
-    const float MIN_STEPS = 2.0;
-    const float MAX_STEPS = 16.0;
-    const int NUM_REFINEMENT_STEPS = 2;
-    float3 worldPos = i.worldPos_projPosZ.xyz;
-    float3 proxyUV  = { i.inkUV_worldBumpUV.xy, i.inkBinormalMeshLift.w };
-    float3x3 tangentSpaceInk = {
-        i.inkTangentXYZWorldZ.xyz,
-        i.inkBinormalMeshLift.xyz,
-        i.worldNormalTangentY.xyz / HEIGHT_TO_HAMMER_UNITS,
-    };
-    float3 boxMin        = { i.surfaceClipRange.xy, -1.0 - 1.0e-5 };
-    float3 boxMax        = { i.surfaceClipRange.zw,  1.0 + 1.0e-5 };
-    float3 eyeUV         = proxyUV + mul(tangentSpaceInk, g_EyePos.xyz - worldPos);
-    float3 rayDir        = proxyUV - eyeUV;
-    float3 rayDirInv     = SAFERCP(rayDir);
-    float3 fractionMin   = (boxMin - eyeUV) * rayDirInv;
-    float3 fractionMax   = (boxMax - eyeUV) * rayDirInv;
-    float3 fractionNear  = min(fractionMin, fractionMax);
-    float3 fractionFar   = max(fractionMin, fractionMax);
-    float  fractionEnter = max(max(fractionNear.x, fractionNear.y), fractionNear.z);
-    float  fractionExit  = min(min(fractionFar.x, fractionFar.y), fractionFar.z);
-    float  fractionStart = max(fractionEnter, 0.0);
-    float  fractionEnd   = fractionExit;
-    if (fractionEnd <= fractionStart) {
-        traceKind = TRACE_BOX_MISS;
-        traceRayFraction = fractionStart;
-        return clamp(proxyUV,
-            float3(i.surfaceClipRange.xy, boxMin.z),
-            float3(i.surfaceClipRange.zw, boxMax.z));
-    }
-    float3 rayMarchingStart = eyeUV + rayDir * fractionStart;
-    float3 rayMarchingEnd   = eyeUV + rayDir * fractionEnd;
-    float  pixelPerUV       = rcp(max(min(length(ddx(proxyUV.xy)), length(ddy(proxyUV.xy))), 1.0e-8));
-    float  numSteps         = distance(rayMarchingStart.xy, rayMarchingEnd.xy);
-    numSteps *= PIXELS_PER_STEP_RCP * pixelPerUV;
-    numSteps = clamp(round(numSteps), MIN_STEPS, MAX_STEPS);
-    traceSteps = numSteps;
-    float3 previousRay   = rayMarchingStart;
-    float  previousField = EvaluateInterfaceField(previousRay);
-    float  previousRayFraction = fractionStart;
-    if (abs(previousField) < 1.0e-4) {
-        traceKind = TRACE_HIT_START;
-        traceRayFraction = previousRayFraction;
-        return clamp(previousRay,
-            float3(i.surfaceClipRange.xy, boxMin.z),
-            float3(i.surfaceClipRange.zw, boxMax.z));
-    }
-    [unroll]
-    for (int j = 1; j <= MAX_STEPS; j++) {
-        if (j > (int)numSteps) break;
-        float fraction = (float)j / numSteps;
-        float currentRayFraction = lerp(fractionStart, fractionEnd, fraction);
-        float3 currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
-        float currentField = EvaluateInterfaceField(currentRay);
-        if (previousField * currentField <= 0.0) {
-            float3 a = previousRay;
-            float3 b = currentRay;
-            float fa = previousField;
-            float fb = currentField;
-            [unroll]
-            for (int k = 0; k < NUM_REFINEMENT_STEPS; k++) {
-                float3 mid = lerp(a, b, 0.5);
-                float fm = EvaluateInterfaceField(mid);
-                if (fa * fm <= 0.0) {
-                    b = mid;
-                    fb = fm;
-                }
-                else {
-                    a = mid;
-                    fa = fm;
-                }
-            }
-
-            float hitFraction = saturate(-fa * SAFERCP(fb - fa));
-            float3 inkUV = lerp(a, b, hitFraction);
-            traceKind = TRACE_HIT_CROSSING;
-            traceRayFraction = lerp(previousRayFraction, currentRayFraction, hitFraction);
-            return clamp(inkUV,
-                float3(i.surfaceClipRange.xy, boxMin.z),
-                float3(i.surfaceClipRange.zw, boxMax.z));
-        }
-
-        previousRay = currentRay;
-        previousField = currentField;
-        previousRayFraction = currentRayFraction;
-    }
-    traceKind = TRACE_NO_HIT;
-    traceRayFraction = fractionEnd;
-    return clamp(previousRay,
-        float3(i.surfaceClipRange.xy, boxMin.z),
-        float3(i.surfaceClipRange.zw, boxMax.z));
 }
 
 PS_OUTPUT main(const PS_INPUT i) {
@@ -684,10 +479,10 @@ PS_OUTPUT main(const PS_INPUT i) {
     if (debugMode > 0) {
         float3 debugColor = float3(1.0, 0.0, 1.0);
         if (debugMode == 2) {
-            debugColor = DebugTexelFraction(inkUV.xy);
+            debugColor = DebugTexelFraction(inkUV.xy, RcpRTSize);
         }
         else if (debugMode == 3) {
-            debugColor = DebugSnapDelta(inkUV.xy, pixelUV);
+            debugColor = DebugSnapDelta(inkUV.xy, pixelUV, RcpRTSize);
         }
         else if (debugMode == 4) {
             debugColor = DebugHeightDepth(height, inkUV.z, depth);
