@@ -20,6 +20,11 @@
 
 static const float HEIGHT_TO_HAMMER_UNITS = 32.0;
 static const float LOD_DISTANCE = 4096.0;
+#define TRACE_FALLBACK     0.0
+#define TRACE_HIT_START    1.0
+#define TRACE_HIT_CROSSING 2.0
+#define TRACE_BOX_MISS     3.0
+#define TRACE_NO_HIT       4.0
 #define MESH_ROLE_CEIL     0
 #define MESH_ROLE_DEPTH    1
 #define MESH_ROLE_BASE     2

@@ -172,7 +172,12 @@ float3 DebugTraceKindColor(float traceKind) {
     if (traceKind < 1.5) return float3(0.0, 1.0, 0.0);
     if (traceKind < 2.5) return float3(0.0, 0.5, 1.0);
     if (traceKind < 3.5) return float3(1.0, 1.0, 0.0);
-    return float3(1.0, 0.0, 1.0);
+    if (traceKind < 4.5) return float3(1.0, 0.0, 1.0);
+    return float3(1.0, 0.0, 0.0);
+}
+
+bool IsTraceHit(float traceKind) {
+    return traceKind > 0.5 && traceKind < 2.5;
 }
 
 float3 DebugTexelFraction(float2 uv) {
@@ -337,8 +342,11 @@ float3 TracePaintInterface(const PS_INPUT i, out float traceKind, out float trac
     float  fractionStart = max(fractionEnter, 0.0);
     float  fractionEnd   = fractionExit;
     if (fractionEnd <= fractionStart) {
+        traceKind = TRACE_BOX_MISS;
         traceRayFraction = fractionStart;
-        clip(-1.0);
+        return clamp(proxyUV,
+            float3(i.surfaceClipRange.xy, boxMin.z),
+            float3(i.surfaceClipRange.zw, boxMax.z));
     }
     float3 rayMarchingStart = eyeUV + rayDir * fractionStart;
     float3 rayMarchingEnd   = eyeUV + rayDir * fractionEnd;
@@ -351,7 +359,7 @@ float3 TracePaintInterface(const PS_INPUT i, out float traceKind, out float trac
     float  previousField = EvaluateInterfaceField(previousRay);
     float  previousRayFraction = fractionStart;
     if (abs(previousField) < 1.0e-4) {
-        traceKind = 1.0;
+        traceKind = TRACE_HIT_START;
         traceRayFraction = previousRayFraction;
         return clamp(previousRay,
             float3(i.surfaceClipRange.xy, boxMin.z),
@@ -385,7 +393,7 @@ float3 TracePaintInterface(const PS_INPUT i, out float traceKind, out float trac
 
             float hitFraction = saturate(-fa * SAFERCP(fb - fa));
             float3 inkUV = lerp(a, b, hitFraction);
-            traceKind = 2.0;
+            traceKind = TRACE_HIT_CROSSING;
             traceRayFraction = lerp(previousRayFraction, currentRayFraction, hitFraction);
             return clamp(inkUV,
                 float3(i.surfaceClipRange.xy, boxMin.z),
@@ -396,18 +404,11 @@ float3 TracePaintInterface(const PS_INPUT i, out float traceKind, out float trac
         previousField = currentField;
         previousRayFraction = currentRayFraction;
     }
-    traceKind = -1.0;
+    traceKind = TRACE_NO_HIT;
     traceRayFraction = fractionEnd;
-    if (previousField > 0.0) {
-        // Camera is inside the ink — the ray never exited the surface.
-        // Return the last sample as a fallback (closest to the ink surface).
-        traceKind = 0.0;
-        return clamp(previousRay,
-            float3(i.surfaceClipRange.xy, boxMin.z),
-            float3(i.surfaceClipRange.zw, boxMax.z));
-    }
-    clip(-1.0);
-    return proxyUV;
+    return clamp(previousRay,
+        float3(i.surfaceClipRange.xy, boxMin.z),
+        float3(i.surfaceClipRange.zw, boxMax.z));
 }
 
 PS_OUTPUT main(const PS_INPUT i) {
@@ -425,8 +426,9 @@ PS_OUTPUT main(const PS_INPUT i) {
     //     clip(sceneLinearDepth + 1e-8 - linearDepth); // Early-Z culling
     // }
 
+    float debugDepth = max(projPosZ / projPosW, 0.0);
     float3 inkUV; // Z = final ray marching height
-    float traceKind = 3.0;
+    float traceKind = TRACE_BOX_MISS;
     float traceSteps = 0.0;
     float traceRayFraction = 1.0;
     if (g_Simplified) {
@@ -435,6 +437,14 @@ PS_OUTPUT main(const PS_INPUT i) {
     }
     else {
         inkUV = TracePaintInterface(i, traceKind, traceSteps, traceRayFraction);
+    }
+    int debugMode = (int)round(g_Unused);
+    if (debugMode == 1) {
+        PS_OUTPUT debugTraceOutput = { DebugTraceKindColor(traceKind) * g_TonemapScale, 1.0, debugDepth };
+        return debugTraceOutput;
+    }
+    if (!g_Simplified && !IsTraceHit(traceKind)) {
+        clip(-1.0);
     }
     float3 hitWorldPos = lerp(g_EyePos.xyz, i.worldPos_projPosZ.xyz, traceRayFraction);
     float3 viewVec = g_EyePos.xyz - hitWorldPos;
@@ -671,13 +681,9 @@ PS_OUTPUT main(const PS_INPUT i) {
         alpha = saturate(1.0 - i.inkBinormalMeshLift.w * smoothstep(LOD_DISTANCE * 0.5, LOD_DISTANCE * 0.875, newW));
     }
 
-    int debugMode = (int)round(g_Unused);
     if (debugMode > 0) {
         float3 debugColor = float3(1.0, 0.0, 1.0);
-        if (debugMode == 1) {
-            debugColor = DebugTraceKindColor(traceKind);
-        }
-        else if (debugMode == 2) {
+        if (debugMode == 2) {
             debugColor = DebugTexelFraction(inkUV.xy);
         }
         else if (debugMode == 3) {

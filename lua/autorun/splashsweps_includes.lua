@@ -18,6 +18,9 @@ if SERVER then -- Finds all Lua files used on client and AddCSLuaFile() them.
 
     local merged = table.Add(shared, client)
     for _, filepath in ipairs(merged) do
+        -- splashsweps/client/tests/*.lua is not AddCSLuaFile'd
+        -- but nobody wants to run tests on the connected players of
+        -- a dedicated server so it's fine
         AddCSLuaFile(filepath)
     end
 

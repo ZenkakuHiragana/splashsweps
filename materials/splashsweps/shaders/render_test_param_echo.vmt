@@ -1,0 +1,27 @@
+"Screenspace_General"
+{
+    "$pixshader" "splashsweps/6_render_test_param_echo_ps30"
+    "$vertexshader" "splashsweps/6_render_test_param_echo_vs30"
+    "$basetexture"            "white"
+    "$alpha_blend"            "0"
+    "$alphablend"             "0"
+    "$alphatested"            "0"
+    "$copyalpha"              "1"
+    "$linearread_basetexture" "1"
+    "$linearwrite"            "1"
+    "$disable_color_writes"   "0"
+    "$writealpha"             "1"
+    "$c0_x"                   "0"
+    "$c0_y"                   "1"
+    "$c0_z"                   "0"
+    "$c0_w"                   "1"
+    "$fix_flags2"             "510"
+    "Proxies"
+    {
+        "Equal"
+        {
+            "srcVar"    "$fix_flags2"
+            "resultVar" "$flags2"
+        }
+    }
+}
