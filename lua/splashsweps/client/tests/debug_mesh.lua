@@ -15,17 +15,21 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+if not ss.RenderBatches then return end
+if not ss.RenderBatches[1] then return end
 
-local ps = file.Find("shaders/fxc/splashsweps/*_inkmesh_ps30.vcs", "GAME", "datadesc")
-local vs = file.Find("shaders/fxc/splashsweps/*_inkmesh_vs30.vcs", "GAME", "datadesc")
+local ps = file.Find("shaders/fxc/splashsweps/*_inkmesh_ps30.vcs", "GAME", "datedesc")
+local vs = file.Find("shaders/fxc/splashsweps/*_inkmesh_vs30.vcs", "GAME", "datedesc")
 if ps and vs then
     for _, v in ipairs(ss.RenderBatches[1]) do
-        v.Material:SetString("$pixshader",    ps[1]:gsub("shaders/fxc/", ""))
-        v.Material:SetString("$vertexshader", vs[1]:gsub("shaders/fxc/", ""))
-        v.Material:SetInt("$c0_w", 1)
+        v.Material:SetString("$pixshader",    "splashsweps/" .. ps[1]:gsub(".vcs", ""))
+        v.Material:SetString("$vertexshader", "splashsweps/" .. vs[1]:gsub(".vcs", ""))
+        -- v.Material:SetInt("$c0_w", 0)
         v.Material:Recompute()
     end
 end
+
+ss.ClearAllInk()
 
 -- State
 local enabled = false

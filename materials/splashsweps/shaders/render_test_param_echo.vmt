@@ -1,7 +1,7 @@
 "Screenspace_General"
 {
-    "$pixshader" "splashsweps/6_render_test_param_echo_ps30"
-    "$vertexshader" "splashsweps/6_render_test_param_echo_vs30"
+    "$pixshader"              "splashsweps/render_test_param_echo_ps30"
+    "$vertexshader"           "splashsweps/render_test_param_echo_vs30"
     "$basetexture"            "white"
     "$alpha_blend"            "0"
     "$alphablend"             "0"

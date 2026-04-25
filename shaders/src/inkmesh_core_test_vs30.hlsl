@@ -31,7 +31,7 @@ VS_OUTPUT main(const VS_INPUT v) {
     o.lightmapUV1And2       = 0.0;
     o.lightmapUV3_projXY    = 0.0;
     o.inkUV_worldBumpUV     = v.inkUV_worldBumpUV;
-    o.worldPos_projPosZ     = 0.0;
+    o.worldPos_projPosZ     = v.worldPos_projPosZ;
     o.worldBinormalTangentX = v.worldPos_projPosZ;
     o.worldNormalTangentY   = v.worldNormalTangentY;
     o.inkTangentXYZWorldZ   = v.inkTangentXYZWorldZ;

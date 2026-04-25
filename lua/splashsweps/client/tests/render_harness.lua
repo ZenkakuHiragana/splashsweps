@@ -31,6 +31,7 @@ unlitGenericMaterial:Recompute()
 ---@field State ss.RenderHarness.State
 ---@field EnsureRT fun(key: string, width: integer, height: integer, depth: integer?, flags: integer?, format: integer?): ITexture
 ---@field CaptureRT fun(width: integer, height: integer, draw: fun(rt: ITexture), key: string?, clear: number[]|Color?, depth: integer?, flags: integer?): integer[][]
+---@field CaptureRT3D fun(width: integer, height: integer, draw: fun(rt: ITexture), camera: table, key: string?, clear: number[]|Color?, depth: integer?, flags: integer?): integer[][]
 ---@field ComparePixelMaps fun(width: integer, height: integer, actual: integer[][], expected: integer[][], tolerance: integer?): ss.RenderHarness.Comparison
 ---@field NewPixelMap fun(width: integer, height: integer, fill: number[]|Color?): integer[][]
 ---@field ClearTestPrefix fun(prefix: string)
@@ -61,6 +62,7 @@ unlitGenericMaterial:Recompute()
 ---@field setPixel fun(pixels: integer[][], width: integer, x: integer, y: integer, color: number[]|Color)
 ---@field fillRect fun(pixels: integer[][], width: integer, height: integer, x: integer, y: integer, w: integer, h: integer, color: number[]|Color)
 ---@field capture fun(opts: ss.RenderHarness.CaptureOptions): integer[][]
+---@field capture3D fun(opts: table): integer[][]
 ---@field assertPixelsEqual fun(width: integer, height: integer, actual: integer[][], expected: integer[][], label: string?, tolerance: integer?)
 ---@field note fun(text: string)
 ---@field drawCopy fun(source: ITexture, channel: integer?, width: integer?, height: integer?)
@@ -346,6 +348,45 @@ local function renderToTarget(rt, draw, clear, clearDepth)
     return result
 end
 
+---@param rt ITexture
+---@param draw fun(rt: ITexture)
+---@param clear number[]|Color?
+---@param clearDepth boolean?
+---@param camera table
+---@return integer[][]
+local function renderToTarget3D(rt, draw, clear, clearDepth, camera)
+    local c = normalizeColor(clear or DEFAULT_CLEAR)
+    render.PushRenderTarget(rt)
+    render.OverrideAlphaWriteEnable(true, true)
+    if clearDepth then
+        render.ClearDepth()
+    end
+    render.Clear(c[1], c[2], c[3], c[4])
+
+    local ok, result = xpcall(function()
+        cam.Start3D(
+            camera.origin,
+            camera.angles,
+            camera.fov or 70,
+            0,
+            0,
+            rt:Width(),
+            rt:Height(),
+            camera.znear or 1,
+            camera.zfar or 4096
+        )
+        draw(rt)
+        cam.End3D()
+        render.CapturePixels()
+        return readPixelsRaw(rt:Width(), rt:Height())
+    end, debug.traceback)
+
+    render.OverrideAlphaWriteEnable(false)
+    render.PopRenderTarget()
+    if not ok then error(result, 0) end
+    return result
+end
+
 ---@param width integer
 ---@param height integer
 ---@param draw fun(rt: ITexture)
@@ -366,6 +407,27 @@ local function captureRT(width, height, draw, key, clear, depth, flags)
 end
 
 ss.RenderHarness.CaptureRT = captureRT
+
+---@param width integer
+---@param height integer
+---@param draw fun(rt: ITexture)
+---@param camera table
+---@param key string?
+---@param clear number[]|Color?
+---@param depth integer?
+---@param flags integer?
+---@return integer[][]
+local function captureRT3D(width, height, draw, camera, key, clear, depth, flags)
+    if state.captureYFlip == nil then
+        state.captureYFlip = detectCaptureYFlip()
+    end
+
+    local rt = ensureRT(key or DEFAULT_RT_KEY, width, height, depth, flags)
+    local result = renderToTarget3D(rt, draw, clear, depth ~= MATERIAL_RT_DEPTH_NONE, camera)
+    return state.captureYFlip and flipY(width, height, result) or result
+end
+
+ss.RenderHarness.CaptureRT3D = captureRT3D
 
 ---@param width integer
 ---@param height integer
@@ -439,6 +501,25 @@ function ss.RenderHarness.ClearTestPrefix(prefix)
     for _, name in ipairs(names) do
         state.tests[name] = nil
     end
+
+    local suiteOrder = {} ---@type string[]
+    for _, id in ipairs(state.suiteOrder) do
+        local suiteNames = state.suites[id] or {}
+        local kept = {} ---@type string[]
+        for _, name in ipairs(suiteNames) do
+            if name:sub(1, #prefix) ~= prefix then
+                kept[#kept + 1] = name
+            end
+        end
+
+        if #kept > 0 then
+            state.suites[id] = kept
+            suiteOrder[#suiteOrder + 1] = id
+        else
+            state.suites[id] = nil
+        end
+    end
+    state.suiteOrder = suiteOrder
 
     local pending = {} ---@type string[]
     for _, name in ipairs(state.pending or {}) do
@@ -605,6 +686,23 @@ local function makeContext(testReport)
             width,
             height,
             opts.draw,
+            opts.key,
+            opts.clear,
+            opts.depth,
+            opts.flags
+        )
+    end
+
+    ---@param opts table
+    ---@return integer[][]
+    function ctx.capture3D(opts)
+        local width = opts.width or DEFAULT_RT_WIDTH
+        local height = opts.height or DEFAULT_RT_HEIGHT
+        return captureRT3D(
+            width,
+            height,
+            opts.draw,
+            opts.camera,
             opts.key,
             opts.clear,
             opts.depth,
@@ -784,7 +882,34 @@ local baseCases = {
                 end,
             }
 
-            t.assertPixelsEqual(width, height, actual, expected, "RGBA roundtrip")
+            t.assertPixelsEqual(width, height, actual, expected, "RGBA roundtrip", 20)
+        end,
+    },
+    {
+        name = "sanity.capture3d_unlit_quad",
+        run = function(t)
+            local width, height = 8, 8
+            local expected = t.newExpected(width, height, { 0, 255, 0, 255 })
+            local actual = t.capture3D {
+                key = "sanity_capture3d_unlit_quad",
+                width = width,
+                height = height,
+                clear = { 0, 0, 0, 0 },
+                depth = MATERIAL_RT_DEPTH_SEPARATE,
+                camera = {
+                    origin = Vector(32, -64, 32),
+                    angles = Angle(0, 90, 0),
+                    fov = 50,
+                    znear = 1,
+                    zfar = 512,
+                },
+                draw = function()
+                    render.SetMaterial(unlitGenericMaterial)
+                    render.DrawQuadEasy(Vector(32, 0, 32), Vector(0, -1, 0), 64, 64, Color(0, 255, 0, 255), 0)
+                end,
+            }
+
+            t.assertPixelsEqual(width, height, actual, expected, "3D capture unlit quad", 4)
         end,
     },
     {

@@ -35,11 +35,6 @@ VS_OUTPUT main(const VS_INPUT v) {
     float cameraHeight = dot(v.normal, cEyePosWaterZ.xyz - v.pos);
     bool isCeiling = role == MESH_ROLE_CEIL;
     float liftAmount = TO_SIGNED(v.color.a);
-    if (isCeiling && cameraHeight > HEIGHT_TO_HAMMER_UNITS) {
-        VS_OUTPUT w = (VS_OUTPUT)0.0;
-        w.pos = float4(0.0, 0.0, -1.0, 1.0);
-        return w;
-    }
 
     float3 pos = v.pos + v.normal * liftAmount * HEIGHT_TO_HAMMER_UNITS;
     float3 viewVec = cEyePosWaterZ.xyz - pos;

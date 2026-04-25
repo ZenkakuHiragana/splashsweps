@@ -162,6 +162,201 @@ float TraceLinearFraction(float a, float b) {
     return saturate(-a * SAFERCP(b - a));
 }
 
+float TraceNearestInterfaceDepth(float2 uv) {
+    float boxHeightMin = -1.0 - 1.0e-5;
+    float boxHeightMax =  1.0 + 1.0e-5;
+    float height = FetchHeight(uv);
+    if (height >= boxHeightMin && height <= boxHeightMax) {
+        return height;
+    }
+
+    return clamp(height, boxHeightMin, boxHeightMax);
+}
+
+void BuildTraceRay(
+    float3 proxyUV,
+    float3 worldPos,
+    float3x3 tangentSpaceInk,
+    float3 eyeWorld,
+    out float3 eyeUV,
+    out float3 rayDir) {
+    eyeUV = proxyUV + mul(tangentSpaceInk, eyeWorld - worldPos);
+    rayDir = proxyUV - eyeUV;
+}
+
+bool IntersectTraceBox(
+    float3 eyeUV,
+    float3 rayDir,
+    float4 surfaceClipRange,
+    float heightMin,
+    float heightMax,
+    out float fractionStart,
+    out float fractionEnd) {
+    float3 boxMin       = float3(surfaceClipRange.xy, heightMin);
+    float3 boxMax       = float3(surfaceClipRange.zw, heightMax);
+    float3 rayDirInv    = SAFERCP(rayDir);
+    float3 fractionMin  = (boxMin - eyeUV) * rayDirInv;
+    float3 fractionMax  = (boxMax - eyeUV) * rayDirInv;
+    float3 fractionNear = min(fractionMin, fractionMax);
+    float3 fractionFar  = max(fractionMin, fractionMax);
+    float fractionEnter = max(max(fractionNear.x, fractionNear.y), fractionNear.z);
+    float fractionExit  = min(min(fractionFar.x, fractionFar.y), fractionFar.z);
+    fractionStart = max(fractionEnter, 0.0);
+    fractionEnd = fractionExit;
+    return fractionEnd > fractionStart;
+}
+
+float3 ClampTraceUV(float3 sampleUV, float4 surfaceClipRange, float heightMin, float heightMax) {
+    return clamp(
+        sampleUV,
+        float3(surfaceClipRange.xy, heightMin),
+        float3(surfaceClipRange.zw, heightMax));
+}
+
+float3 MarchInterface(
+    float3 eyeUV,
+    float3 rayDir,
+    float4 surfaceClipRange,
+    float fractionStart,
+    float fractionEnd,
+    out float traceKind,
+    out float traceSteps,
+    out float traceRayFraction) {
+    const float PIXELS_PER_STEP_RCP = rcp(16.0);
+    const float MIN_STEPS = 2.0;
+    const float MAX_STEPS = 16.0;
+    const int NUM_REFINEMENT_STEPS = 2;
+    const float HEIGHT_MIN = -1.0 - 1.0e-5;
+    const float HEIGHT_MAX =  1.0 + 1.0e-5;
+    float3 rayMarchingStart = eyeUV + rayDir * fractionStart;
+    float3 rayMarchingEnd   = eyeUV + rayDir * fractionEnd;
+    float3 proxyUV          = eyeUV + rayDir;
+    float pixelPerUV        = rcp(max(min(length(ddx(proxyUV.xy)), length(ddy(proxyUV.xy))), 1.0e-8));
+    float numSteps          = distance(rayMarchingStart.xy, rayMarchingEnd.xy);
+    numSteps *= PIXELS_PER_STEP_RCP * pixelPerUV;
+    numSteps = clamp(round(numSteps), MIN_STEPS, MAX_STEPS);
+    traceSteps = numSteps;
+
+    float3 previousRay = rayMarchingStart;
+    float previousField = EvaluateInterfaceField(previousRay);
+    float previousRayFraction = fractionStart;
+    if (abs(previousField) < 1.0e-4) {
+        traceKind = TRACE_HIT_START;
+        traceRayFraction = previousRayFraction;
+        return ClampTraceUV(previousRay, surfaceClipRange, HEIGHT_MIN, HEIGHT_MAX);
+    }
+
+    [unroll]
+    for (int j = 1; j <= MAX_STEPS; j++) {
+        if (j > (int)numSteps) break;
+        float fraction = (float)j / numSteps;
+        float currentRayFraction = lerp(fractionStart, fractionEnd, fraction);
+        float3 currentRay = lerp(rayMarchingStart, rayMarchingEnd, fraction);
+        float currentField = EvaluateInterfaceField(currentRay);
+        if (previousField * currentField <= 0.0) {
+            float3 a = previousRay;
+            float3 b = currentRay;
+            float fa = previousField;
+            float fb = currentField;
+
+            [unroll]
+            for (int k = 0; k < NUM_REFINEMENT_STEPS; k++) {
+                float3 mid = lerp(a, b, 0.5);
+                float fm = EvaluateInterfaceField(mid);
+                if (fa * fm <= 0.0) {
+                    b = mid;
+                    fb = fm;
+                }
+                else {
+                    a = mid;
+                    fa = fm;
+                }
+            }
+
+            float hitFraction = TraceLinearFraction(fa, fb);
+            float3 hitUV = lerp(a, b, hitFraction);
+            traceKind = TRACE_HIT_CROSSING;
+            traceRayFraction = lerp(previousRayFraction, currentRayFraction, hitFraction);
+            return ClampTraceUV(hitUV, surfaceClipRange, HEIGHT_MIN, HEIGHT_MAX);
+        }
+
+        previousRay = currentRay;
+        previousField = currentField;
+        previousRayFraction = currentRayFraction;
+    }
+
+    traceKind = TRACE_NO_HIT;
+    float fallbackHeight = TraceNearestInterfaceDepth(previousRay.xy);
+    float fallbackRayDenom = rayDir.z;
+    float fallbackFraction = abs(fallbackRayDenom) > 1.0e-6
+        ? (fallbackHeight - eyeUV.z) * SAFERCP(fallbackRayDenom)
+        : fractionEnd;
+    traceRayFraction = clamp(fallbackFraction, fractionStart, fractionEnd);
+    return ClampTraceUV(float3(previousRay.xy, fallbackHeight), surfaceClipRange, HEIGHT_MIN, HEIGHT_MAX);
+}
+
+float3 TraceInterfaceFromEyeUV(
+    float3 eyeUV,
+    float3 proxyUV,
+    float4 surfaceClipRange,
+    out float traceKind,
+    out float traceSteps,
+    out float traceRayFraction,
+    out float boxEnterFraction,
+    out float boxExitFraction) {
+    const float HEIGHT_MIN = -1.0 - 1.0e-5;
+    const float HEIGHT_MAX =  1.0 + 1.0e-5;
+    float3 rayDir = proxyUV - eyeUV;
+    if (!IntersectTraceBox(
+        eyeUV,
+        rayDir,
+        surfaceClipRange,
+        HEIGHT_MIN,
+        HEIGHT_MAX,
+        boxEnterFraction,
+        boxExitFraction)) {
+        traceKind = TRACE_BOX_MISS;
+        traceSteps = 0.0;
+        traceRayFraction = boxEnterFraction;
+        return ClampTraceUV(proxyUV, surfaceClipRange, HEIGHT_MIN, HEIGHT_MAX);
+    }
+
+    return MarchInterface(
+        eyeUV,
+        rayDir,
+        surfaceClipRange,
+        boxEnterFraction,
+        boxExitFraction,
+        traceKind,
+        traceSteps,
+        traceRayFraction);
+}
+
+float3 TraceInterface(
+    float3 proxyUV,
+    float3 worldPos,
+    float3x3 tangentSpaceInk,
+    float4 surfaceClipRange,
+    float3 eyeWorld,
+    out float traceKind,
+    out float traceSteps,
+    out float traceRayFraction,
+    out float boxEnterFraction,
+    out float boxExitFraction) {
+    float3 eyeUV;
+    float3 rayDir;
+    BuildTraceRay(proxyUV, worldPos, tangentSpaceInk, eyeWorld, eyeUV, rayDir);
+    return TraceInterfaceFromEyeUV(
+        eyeUV,
+        proxyUV,
+        surfaceClipRange,
+        traceKind,
+        traceSteps,
+        traceRayFraction,
+        boxEnterFraction,
+        boxExitFraction);
+}
+
 float3 TracePaintInterfaceCore(
     float3 eyeUV,
     float3 proxyUV,
@@ -254,8 +449,13 @@ float3 TracePaintInterfaceCore(
         previousRayFraction = currentRayFraction;
     }
     traceKind = TRACE_NO_HIT;
-    traceRayFraction = fractionEnd;
-    return clamp(previousRay,
+    float fallbackHeight = TraceNearestInterfaceDepth(previousRay.xy);
+    float fallbackRayDenom = rayDir.z;
+    float fallbackFraction = abs(fallbackRayDenom) > 1.0e-6
+        ? (fallbackHeight - eyeUV.z) * SAFERCP(fallbackRayDenom)
+        : fractionEnd;
+    traceRayFraction = clamp(fallbackFraction, fractionStart, fractionEnd);
+    return clamp(float3(previousRay.xy, fallbackHeight),
         float3(surfaceClipRange.xy, boxMin.z),
         float3(surfaceClipRange.zw, boxMax.z));
 }

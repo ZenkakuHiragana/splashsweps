@@ -1,7 +1,7 @@
 "Screenspace_General_8Tex"
 {
-    "$vertexshader" "splashsweps/73_inkmesh_vs30"
-    "$pixshader" "splashsweps/73_inkmesh_ps30"
+    "$vertexshader"           "splashsweps/inkmesh_vs30"
+    "$pixshader"              "splashsweps/inkmesh_ps30"
     "$basetexture"            "splashsweps_inkmap"
     "$texture1"               "splashsweps_params"
     "$texture2"               "_rt_ResolvedFullFrameDepth"

@@ -4,9 +4,11 @@
 #include "inkmesh_core.hlsl"
 
 // Build configurations
+#ifndef INKMESH_TEST_BUILD
 #define g_EnvmapEnabled
 #define g_PhongEnabled
 #define g_RimEnabled
+#endif
 
 static const float ALBEDO_ALPHA_MIN   = 0.0625;
 static const float DIFFUSE_MIN        = 0.0625; // Diffuse factor at metallic = 100%
@@ -59,6 +61,22 @@ float CalcBlinnPhongSpec(float3 normal, float3 lightDir, float3 viewDir, float e
     float3 halfVector = normalize(lightDir + viewDir);
     float nDotH = saturate(dot(normal, halfVector));
     return pow(nDotH, exponent);
+}
+
+float3 DebugDisplayDecisionColor(float traceKind, float id1, float id2, float idBlend, float depth, float hitHeight) {
+    if (!IsTraceHit(traceKind)) {
+        return DebugTraceKindColor(traceKind);
+    }
+
+    if (floor(id1 + id2 + idBlend) < 0.5) {
+        return float3(1.0, 0.5, 0.0);
+    }
+
+    if (depth + hitHeight < 0.0) {
+        return float3(0.5, 0.0, 1.0);
+    }
+
+    return float3(1.0, 1.0, 1.0);
 }
 
 // Schlick's approximation of Fresnel reflection
@@ -209,15 +227,9 @@ void FetchGeometrySamples(
 PS_OUTPUT main(const PS_INPUT i) {
     float projPosZ = i.worldPos_projPosZ.w;
     float projPosW = i.projPosW_meshRole.x;
-    float sceneLinearDepth = tex2Dlod(DepthSampler, float4(i.screenPos.xy * RcpDepthSize, 0.0, 0.0)).r;
-    float linearDepth = projPosZ / 4096.0;
-    float role = round(i.projPosW_meshRole.y * MESH_ROLE_MAX);
-    bool  isBase = role == MESH_ROLE_BASE;
-    bool  isCeil = role == MESH_ROLE_CEIL;
-    bool  isDepth = role == MESH_ROLE_DEPTH;
-    bool  isSideIn = role == MESH_ROLE_SIDE_IN;
-    bool  isSideOut = role == MESH_ROLE_SIDE_OUT;
     // if (isBase || isDepth || isSideOut) {
+    //     float sceneLinearDepth = tex2Dlod(DepthSampler, float4(i.screenPos.xy * RcpDepthSize, 0.0, 0.0)).r;
+    //     float linearDepth = projPosZ / 4096.0;
     //     clip(sceneLinearDepth + 1e-8 - linearDepth); // Early-Z culling
     // }
 
@@ -226,6 +238,25 @@ PS_OUTPUT main(const PS_INPUT i) {
     float traceKind = TRACE_BOX_MISS;
     float traceSteps = 0.0;
     float traceRayFraction = 1.0;
+    int debugMode = (int)round(g_Unused);
+    float3 proxyUV = float3(i.inkUV_worldBumpUV.xy, i.inkBinormalMeshLift.w);
+    float3x3 tangentSpaceInkDebug = {
+        i.inkTangentXYZWorldZ.xyz,
+        i.inkBinormalMeshLift.xyz,
+        i.worldNormalTangentY.xyz / HEIGHT_TO_HAMMER_UNITS,
+    };
+    float3 eyeUVDebug;
+    float3 rayDirDebug;
+    BuildTraceRay(proxyUV, i.worldPos_projPosZ.xyz, tangentSpaceInkDebug, g_EyePos.xyz, eyeUVDebug, rayDirDebug);
+    float boxEnterFractionDebug, boxExitFractionDebug;
+    bool intersectsTraceBoxDebug = IntersectTraceBox(
+        eyeUVDebug,
+        rayDirDebug,
+        i.surfaceClipRange,
+        -1.0 - 1.0e-5,
+        1.0 + 1.0e-5,
+        boxEnterFractionDebug,
+        boxExitFractionDebug);
     if (g_Simplified) {
         clip(-abs(i.inkBinormalMeshLift.w));
         inkUV = float3(i.inkUV_worldBumpUV.xy, 0.0);
@@ -233,34 +264,178 @@ PS_OUTPUT main(const PS_INPUT i) {
     else {
         inkUV = TracePaintInterface(i, traceKind, traceSteps, traceRayFraction);
     }
-    int debugMode = (int)round(g_Unused);
     if (debugMode == 1) {
         PS_OUTPUT debugTraceOutput = { DebugTraceKindColor(traceKind) * g_TonemapScale, 1.0, debugDepth };
         return debugTraceOutput;
     }
-    if (!g_Simplified && !IsTraceHit(traceKind)) {
+    float roleValue = i.projPosW_meshRole.y;
+    bool isCeiling = roleValue < 0.125;
+    bool isDepth = roleValue >= 0.125 && roleValue < 0.375;
+    bool isBase = roleValue >= 0.375 && roleValue < 0.625;
+    bool allowNoHitFallback = !isDepth && !isBase;
+    bool hasUsableTrace = IsTraceHit(traceKind) || (traceKind > 3.5 && allowNoHitFallback);
+    if (!g_Simplified && debugMode <= 6 && !hasUsableTrace) {
         clip(-1.0);
     }
-    float3 hitWorldPos = lerp(g_EyePos.xyz, i.worldPos_projPosZ.xyz, traceRayFraction);
-    float3 viewVec = g_EyePos.xyz - hitWorldPos;
-    float  viewVecLength = max(length(viewVec), 1.0e-4);
-    float3 viewDir = viewVec * rcp(viewVecLength);
     float2 pixelUV = (floor(inkUV.xy / RcpRTSize) + 0.5) * RcpRTSize + float2(0.0, 0.5);
+    if (debugMode == 2) {
+        PS_OUTPUT debugOutput = { DebugTexelFraction(inkUV.xy, RcpRTSize) * g_TonemapScale, 1.0, debugDepth };
+        return debugOutput;
+    }
+    if (debugMode == 3) {
+        PS_OUTPUT debugOutput = { DebugSnapDelta(inkUV.xy, pixelUV, RcpRTSize) * g_TonemapScale, 1.0, debugDepth };
+        return debugOutput;
+    }
     float4 inkIDs  = tex2Dlod(InkMap, float4(pixelUV, 0.0, 0.0));
     float  ID1     = round(inkIDs.r * 255.0);
     float  ID2     = round(inkIDs.g * 255.0);
     float  idBlend = inkIDs.b;
+    if (debugMode == 12) {
+        float debugHeight = FetchHeight(inkUV.xy);
+        float debugDepthSample = FetchDepth(inkUV.xy);
+        float3 debugColor = DebugDisplayDecisionColor(traceKind, ID1, ID2, idBlend, debugDepthSample, inkUV.z);
+        PS_OUTPUT debugOutput = { debugColor * g_TonemapScale, 1.0, debugDepth };
+        return debugOutput;
+    }
     clip(floor(ID1 + ID2 + idBlend) - 0.5);
+
+    if (debugMode == 4) {
+        float debugHeight = FetchHeight(inkUV.xy);
+        float debugDepthSample = FetchDepth(inkUV.xy);
+        PS_OUTPUT debugOutput = { DebugHeightDepth(debugHeight, inkUV.z, debugDepthSample) * g_TonemapScale, 1.0, debugDepth };
+        return debugOutput;
+    }
+    if (debugMode == 5) {
+        PS_OUTPUT debugOutput = { DebugInkIDs(ID1, ID2, idBlend) * g_TonemapScale, 1.0, debugDepth };
+        return debugOutput;
+    }
+    if (debugMode == 6) {
+        float3 debugColor = traceSteps / DEBUG_TRACE_MAX_STEPS;
+        PS_OUTPUT debugOutput = { debugColor * g_TonemapScale, 1.0, debugDepth };
+        return debugOutput;
+    }
+
+    float alpha = 1.0;
+    float newDepth = projPosZ / projPosW;
+    if (!g_Simplified && i.projPosW_meshRole.y > 0.125) {
+        float4 zRange = CalcNearFarZ(projPosZ, projPosW);
+        float minW = zRange.x + 16.0;
+        float newW = max(projPosW * traceRayFraction, minW);
+        float newZ = zRange.z * newW + zRange.w;
+        float meshDepth = projPosZ / projPosW;
+        float hitDepth = newZ / newW;
+        float maxDepthDiff = max(abs(ddx(hitDepth)), abs(ddy(hitDepth)));
+        bool isSideOut = roleValue > 0.875;
+        newDepth = isSideOut ? hitDepth : min(meshDepth, hitDepth);
+        newDepth -= DEPTH_BASE_BIAS + maxDepthDiff * DEPTH_DIFF_SCALE; // Slightly go towards the camera
+        alpha = saturate(1.0 - i.inkBinormalMeshLift.w * smoothstep(LOD_DISTANCE * 0.5, LOD_DISTANCE * 0.875, newW));
+    }
+
+#ifdef INKMESH_TEST_BUILD
+    if (debugMode == 8) {
+        PS_OUTPUT debugOutput = { float3(alpha, alpha, alpha) * g_TonemapScale, alpha, max(newDepth, 0.0) };
+        return debugOutput;
+    }
+    if (debugMode == 9) {
+        PS_OUTPUT debugOutput = { float3(newDepth, newDepth, newDepth) * g_TonemapScale, alpha, max(newDepth, 0.0) };
+        return debugOutput;
+    }
+    if (debugMode == 11) {
+        float roleIndex = round(roleValue * MESH_ROLE_MAX) / MESH_ROLE_MAX;
+        PS_OUTPUT debugOutput = { float3(roleValue, roleIndex, 0.0) * g_TonemapScale, 1.0, debugDepth };
+        return debugOutput;
+    }
+    if (debugMode == 14) {
+        float3 debugColor;
+        if (c2.x > 0.5) {
+            debugColor = float3(saturate(proxyUV.xy), TO_UNSIGNED(proxyUV.z));
+        }
+        else if (c2.y > 0.5) {
+            debugColor = float3(saturate(eyeUVDebug.xy), TO_UNSIGNED(eyeUVDebug.z));
+        }
+        else if (c2.z > 0.5) {
+            debugColor = float3(
+                saturate(boxEnterFractionDebug * 0.25),
+                saturate(boxExitFractionDebug * 0.25),
+                intersectsTraceBoxDebug ? 1.0 : 0.0
+            );
+        }
+        else {
+            debugColor = float3(EncodeSignedUnitFloat2(rayDirDebug.xy), TO_UNSIGNED(rayDirDebug.z));
+        }
+        PS_OUTPUT debugOutput = { debugColor * g_TonemapScale, 1.0, debugDepth };
+        return debugOutput;
+    }
+    if (debugMode == 15) {
+        float4 debugValue;
+        if (c2.x > 0.5) {
+            debugValue = i.surfaceClipRange;
+        }
+        else {
+            debugValue = float4(saturate(i.inkUV_worldBumpUV.xy), TO_UNSIGNED(i.inkBinormalMeshLift.w), 1.0);
+        }
+        PS_OUTPUT debugOutput = { debugValue.rgb * g_TonemapScale, debugValue.a, debugDepth };
+        return debugOutput;
+    }
+    if (debugMode == 16) {
+        float3 debugVector;
+        if (c2.x > 0.5) {
+            debugVector = i.inkTangentXYZWorldZ.xyz;
+        }
+        else if (c2.y > 0.5) {
+            debugVector = i.inkBinormalMeshLift.xyz;
+        }
+        else {
+            debugVector = i.worldNormalTangentY.xyz;
+        }
+        PS_OUTPUT debugOutput = { TO_UNSIGNED(debugVector) * g_TonemapScale, 1.0, debugDepth };
+        return debugOutput;
+    }
+    if (debugMode == 17) {
+        float2 debugPair = c2.x > 0.5 ? i.lightmapUV3_projXY.zw : i.projPosW_meshRole.zw;
+        PS_OUTPUT debugOutput = { float3(EncodeSignedUnitFloat2(debugPair), 0.0) * g_TonemapScale, 1.0, debugDepth };
+        return debugOutput;
+    }
+#endif
 
     // Samples ink parameters
     float metallic, roughness, specularScale, refraction, height, depth;
     float detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor;
     float3 additive, multiplicative, inkNormal;
-    FetchAdditiveAndHeight(inkUV.xy, additive, height, inkNormal);
-    FetchMultiplicativeAndDepth(inkUV.xy, multiplicative, depth);
-    clip(max(depth + inkUV.z, 0));
+#ifdef INKMESH_TEST_BUILD
+    if (debugMode == 10 && c2.x <= 0.5 && c2.y <= 0.5 && c2.z <= 0.5) {
+        float3 debugColor = float3(
+            g_Simplified ? 1.0 : 0.0,
+            g_NeedsFrameBuffer > 0.0 ? 1.0 : 0.0,
+            g_HasBumpedLightmap > 0.0 ? 1.0 : 0.0);
+        PS_OUTPUT debugOutput = { debugColor * g_TonemapScale, alpha, max(newDepth, 0.0) };
+        return debugOutput;
+    }
+#endif
+
     FetchInkMaterial(ID1, ID2, idBlend, metallic, roughness, specularScale, refraction);
     FetchInkDetails(ID1, ID2, idBlend, detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor);
+#ifdef INKMESH_TEST_BUILD
+    if (debugMode == 10) {
+        float3 debugColor;
+        if (c2.z > 0.5) {
+            debugColor = float3(refraction, bumpblendfactor, idBlend);
+        }
+        else if (c2.y > 0.5) {
+            debugColor = float3(detailblendmode, detailblendscale, detailbumpscale);
+        }
+        else {
+            debugColor = float3(metallic, roughness, specularScale);
+        }
+        PS_OUTPUT debugOutput = { debugColor * g_TonemapScale, alpha, max(newDepth, 0.0) };
+        return debugOutput;
+    }
+#endif
+
+    float3 hitWorldPos = lerp(g_EyePos.xyz, i.worldPos_projPosZ.xyz, traceRayFraction);
+    float3 viewVec = g_EyePos.xyz - hitWorldPos;
+    float  viewVecLength = max(length(viewVec), 1.0e-4);
+    float3 viewDir = viewVec * rcp(viewVecLength);
 
     float3 worldTangent = {
         i.worldBinormalTangentX.w,
@@ -281,6 +456,9 @@ PS_OUTPUT main(const PS_INPUT i) {
         length(BaseTextureTransform[1].xyz),
     };
     float3 tangentViewDir = mul(tangentSpaceWorld, viewDir);
+    FetchAdditiveAndHeight(inkUV.xy, additive, height, inkNormal);
+    FetchMultiplicativeAndDepth(inkUV.xy, multiplicative, depth);
+    clip(max(depth + inkUV.z, 0));
     float2 parallaxVec = tangentViewDir.xy / max(tangentViewDir.z, 1.0e-3);
     float2 uvDepthParallax = -parallaxVec;
     float thickness = max(depth + inkUV.z, 0.0);
@@ -298,6 +476,32 @@ PS_OUTPUT main(const PS_INPUT i) {
         dot(bumpFromInkRow1, inkHitOffset),
     };
     float2 bumpUV = bumpProxyUV + hitBumpOffset + uvOffset;
+#ifdef INKMESH_TEST_BUILD
+    if (debugMode == 13) {
+        float2 testJacobianRow0 = c2.z > 0.5 || c2.w > 0.5 ? float2(c3.x, c3.y) : bumpFromInkRow0;
+        float2 testJacobianRow1 = c2.z > 0.5 || c2.w > 0.5 ? float2(c3.z, c3.w) : bumpFromInkRow1;
+        float2 testHitBumpOffset = {
+            dot(testJacobianRow0, inkHitOffset),
+            dot(testJacobianRow1, inkHitOffset),
+        };
+        float2 testBumpUV = bumpProxyUV + testHitBumpOffset + uvOffset;
+        float3 debugColor;
+        if (c2.w > 0.5) {
+            debugColor = float3(saturate(testBumpUV), 0.0);
+        }
+        else if (c2.z > 0.5) {
+            debugColor = float3(EncodeSignedUnitFloat2(testHitBumpOffset), 0.0);
+        }
+        else if (c2.y > 0.5) {
+            debugColor = float3(saturate(inkHitOffset), 0.0);
+        }
+        else {
+            debugColor = float3(saturate(bumpProxyUV), 0.0);
+        }
+        PS_OUTPUT debugOutput = { debugColor * g_TonemapScale, alpha, max(newDepth, 0.0) };
+        return debugOutput;
+    }
+#endif
     float2 baseUV = bumpUV;
     float2 bumpUVd[2] = {
         ddx(bumpProxyUV),
@@ -348,6 +552,12 @@ PS_OUTPUT main(const PS_INPUT i) {
         bumpUV, bumpUVd[0], bumpUVd[1],
         baseUV, baseUVd[0], baseUVd[1],
         lightmapColors, geometryAlbedo, geometryNormal);
+#ifdef INKMESH_TEST_BUILD
+    if (debugMode == 7) {
+        PS_OUTPUT debugOutput = { geometryAlbedo * g_TonemapScale, alpha, max(newDepth, 0.0) };
+        return debugOutput;
+    }
+#endif
 
     // Blend ink and world normals
     float3 tangentSpaceNormal = normalize(lerp(geometryNormal, inkNormal, bumpblendfactor));
@@ -458,42 +668,8 @@ PS_OUTPUT main(const PS_INPUT i) {
     // -------------------------------------------------------------------------
     // v Depth & alpha calculation
 
-    float alpha = 1.0;
-    float newDepth = projPosZ / projPosW;
-    if (!g_Simplified && i.projPosW_meshRole.y > 0.125) {
-        // The traced hit lies on the same screen ray as the proxy point, so clip-space W
-        // scales linearly by the traced ray fraction even when the hit is behind the proxy.
-        float4 zRange = CalcNearFarZ(projPosZ, projPosW);
-        float minW = zRange.x + 16.0;
-        float newW = max(projPosW * traceRayFraction, minW);
-        float newZ = zRange.z * newW + zRange.w;
-        float meshDepth = projPosZ / projPosW;
-        float hitDepth = newZ / newW;
-        float maxDepthDiff = max(abs(ddx(hitDepth)), abs(ddy(hitDepth)));
-        bool isSideOut = i.projPosW_meshRole.y > 0.875;
-        newDepth = isSideOut ? hitDepth : min(meshDepth, hitDepth);
-        newDepth -= DEPTH_BASE_BIAS + maxDepthDiff * DEPTH_DIFF_SCALE; // Slightly go towards the camera
-        alpha = saturate(1.0 - i.inkBinormalMeshLift.w * smoothstep(LOD_DISTANCE * 0.5, LOD_DISTANCE * 0.875, newW));
-    }
-
     if (debugMode > 0) {
         float3 debugColor = float3(1.0, 0.0, 1.0);
-        if (debugMode == 2) {
-            debugColor = DebugTexelFraction(inkUV.xy, RcpRTSize);
-        }
-        else if (debugMode == 3) {
-            debugColor = DebugSnapDelta(inkUV.xy, pixelUV, RcpRTSize);
-        }
-        else if (debugMode == 4) {
-            debugColor = DebugHeightDepth(height, inkUV.z, depth);
-        }
-        else if (debugMode == 5) {
-            debugColor = DebugInkIDs(ID1, ID2, idBlend);
-        }
-        else if (debugMode == 6) {
-            debugColor = traceSteps / DEBUG_TRACE_MAX_STEPS;
-        }
-
         PS_OUTPUT debugOutput = { debugColor * g_TonemapScale, alpha, max(newDepth, 0.0) };
         return debugOutput;
     }
