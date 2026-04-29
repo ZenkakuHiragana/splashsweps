@@ -6,6 +6,9 @@
 -- file registers lightweight hooks immediately, then performs LSP setup at
 -- VimEnter when LazyVim/Mason/LSP configs are available.
 
+local forced_realms = {}
+local initialized = false
+local overseer_template_registered = false
 local root = vim.fs.dirname(vim.fs.normalize(debug.getinfo(1, "S").source:sub(2)))
 local normalized_root = vim.fs.normalize(root):gsub("\\", "/")
 local lua_prefix = normalized_root .. "/lua/"
@@ -35,10 +38,8 @@ local function get_realm(path)
     then
         return "client"
     end
-  return "server"
+    return "server"
 end
-
-local forced_realms = {}
 
 local function normalize_bufnr(bufnr)
     if not bufnr or bufnr == 0 then
@@ -46,8 +47,6 @@ local function normalize_bufnr(bufnr)
     end
     return bufnr
 end
-
-local initialized = false
 
 local function ensure_gmod_configs()
     if initialized then
@@ -71,25 +70,8 @@ local function ensure_gmod_configs()
     return true
 end
 
-local function has_client(bufnr, name)
-    for _, client in ipairs(vim.lsp.get_clients { bufnr = bufnr }) do
-        if client.name == name then
-            return true
-        end
-    end
-    return false
-end
-
 local function is_managed_lua_client(name)
     return name == "lua_ls" or name == "lua_ls_gmod_server" or name == "lua_ls_gmod_client"
-end
-
-local function detach_client(bufnr, name)
-    for _, client in ipairs(vim.lsp.get_clients { bufnr = bufnr }) do
-        if client.name == name then
-            vim.lsp.buf_detach_client(bufnr, client.id)
-        end
-    end
 end
 
 local function detach_other_lua_clients(bufnr, keep_name)
@@ -110,62 +92,20 @@ local function detach_other_lua_clients(bufnr, keep_name)
     return kept
 end
 
-local function neovim_runtime_library()
-    local library = vim.api.nvim_get_runtime_file("lua/vim/**/*.lua", true)
-
-    for _, plugin in ipairs { "lazy.nvim", "LazyVim", "lazydev.nvim", "snacks.nvim", "nvim-lspconfig" } do
-        local lua_dir = vim.fn.stdpath "data" .. "/lazy/" .. plugin .. "/lua"
-        if vim.uv.fs_stat(lua_dir) then
-            library[#library + 1] = lua_dir
-        end
-    end
-
-    return library
-end
-
 local function start_nvim_lua_ls(bufnr)
     if not vim.api.nvim_buf_is_loaded(bufnr) then
         return
     end
     local path = vim.api.nvim_buf_get_name(bufnr)
-    if not is_nvim_exrc(path) or not vim.lsp.config.lua_ls then
+    if not is_nvim_exrc(path) then
         return
     end
 
-    local keep_name = "lua_ls"
-    local needs_restart = true
-    for _, client in ipairs(vim.lsp.get_clients { bufnr = bufnr }) do
-        if
-            client.name == keep_name
-            and client.config
-            and client.config.settings
-            and vim.tbl_get(client.config.settings, "Lua", "workspace", "library")
-        then
-            needs_restart = false
-        end
-    end
-
-    local has_expected = detach_other_lua_clients(bufnr, keep_name)
-    if not needs_restart and has_expected then
-        return
-    end
-
-    detach_client(bufnr, keep_name)
-
-    local cfg = vim.deepcopy(vim.lsp.config.lua_ls) or {}
-    cfg.name = keep_name
-    cfg.root_dir = root
-    cfg.settings = vim.tbl_deep_extend("force", cfg.settings or {}, {
-        Lua = {
-            runtime = { version = "LuaJIT" },
-            workspace = {
-                checkThirdParty = false,
-                library = neovim_runtime_library(),
-            },
-        },
-    })
-
-    vim.lsp.start(cfg, { bufnr = bufnr })
+    -- For exrc files, do not manually restart lua_ls.
+    -- LazyVim already globally enables lua_ls via vim.lsp.enable(), and manually
+    -- detaching/restarting it here fights the built-in auto-enable callback.
+    -- Only remove stray GMOD-specific Lua clients and keep the default lua_ls.
+    detach_other_lua_clients(bufnr, "lua_ls")
 end
 
 local function start_gmod(bufnr)
@@ -183,7 +123,7 @@ local function start_gmod(bufnr)
         return
     end
 
-  local name = "lua_ls_gmod_" .. (forced_realms[bufnr] or get_realm(path))
+    local name = "lua_ls_gmod_" .. (forced_realms[bufnr] or get_realm(path))
     local seen_gmod = detach_other_lua_clients(bufnr, name)
 
     if not seen_gmod then
@@ -192,39 +132,39 @@ local function start_gmod(bufnr)
 end
 
 local function force_gmod_realm(bufnr, realm)
-  bufnr = normalize_bufnr(bufnr)
+    bufnr = normalize_bufnr(bufnr)
 
-  local path = vim.api.nvim_buf_get_name(bufnr)
-  if not is_gmod(path) then
-    vim.notify("Current buffer is not a GMOD lua/ file", vim.log.levels.WARN)
-    return
-  end
+    local path = vim.api.nvim_buf_get_name(bufnr)
+    if not is_gmod(path) then
+        vim.notify("Current buffer is not a GMOD lua/ file", vim.log.levels.WARN)
+        return
+    end
 
-  forced_realms[bufnr] = realm
-  start_gmod(bufnr)
+    forced_realms[bufnr] = realm
+    start_gmod(bufnr)
 end
 
 local function toggle_gmod_realm(bufnr)
-  bufnr = normalize_bufnr(bufnr)
+    bufnr = normalize_bufnr(bufnr)
 
-  local path = vim.api.nvim_buf_get_name(bufnr)
-  if not is_gmod(path) then
-    vim.notify("Current buffer is not a GMOD lua/ file", vim.log.levels.WARN)
-    return
-  end
-
-  local current = forced_realms[bufnr]
-  if not current then
-    for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
-      if client.name == "lua_ls_gmod_client" then
-        current = "client"
-      elseif client.name == "lua_ls_gmod_server" then
-        current = "server"
-      end
+    local path = vim.api.nvim_buf_get_name(bufnr)
+    if not is_gmod(path) then
+        vim.notify("Current buffer is not a GMOD lua/ file", vim.log.levels.WARN)
+        return
     end
-  end
 
-  force_gmod_realm(bufnr, current == "client" and "server" or "client")
+    local current = forced_realms[bufnr]
+    if not current then
+        for _, client in ipairs(vim.lsp.get_clients { bufnr = bufnr }) do
+            if client.name == "lua_ls_gmod_client" then
+                current = "client"
+            elseif client.name == "lua_ls_gmod_server" then
+                current = "server"
+            end
+        end
+    end
+
+    force_gmod_realm(bufnr, current == "client" and "server" or "client")
 end
 
 local function reconcile(bufnr)
@@ -239,11 +179,38 @@ local function reconcile(bufnr)
     end
 end
 
+local function register_overseer_templates()
+    if overseer_template_registered then
+        return
+    end
+
+    local overseer = require "overseer"
+    local cwd = vim.fs.joinpath(root, "shaders", "src")
+    local build_script = vim.fs.joinpath(cwd, "build.ps1")
+    overseer.register_template {
+        name = "ShaderCompile",
+        desc = "Compile the current shader source file",
+        condition = { dir = root },
+        builder = function()
+            local file = vim.api.nvim_buf_get_name(0)
+            return {
+                name = "ShaderCompile",
+                cmd = { "pwsh" },
+                cwd = cwd,
+                args = { "-ExecutionPolicy", "Bypass", "-File", build_script, file },
+                components = { "default" },
+            }
+        end,
+    }
+
+    overseer_template_registered = true
+end
+
 vim.api.nvim_create_autocmd("VimEnter", {
     group = group,
     callback = function()
+        register_overseer_templates()
         ensure_gmod_configs()
-
         for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
             if vim.api.nvim_buf_is_loaded(bufnr) then
                 reconcile(bufnr)
@@ -276,10 +243,23 @@ vim.api.nvim_create_autocmd("LspAttach", {
     group = group,
     callback = function(args)
         local path = vim.api.nvim_buf_get_name(args.buf)
+        local client = args.data and args.data.client_id and vim.lsp.get_client_by_id(args.data.client_id)
+
+        if not client or not is_managed_lua_client(client.name) then
+            return
+        end
+
         vim.schedule(function()
             if is_gmod(path) then
+                local expected = "lua_ls_gmod_" .. (forced_realms[args.buf] or get_realm(path))
+                if client.name == expected and #vim.lsp.get_clients { bufnr = args.buf } == 1 then
+                    return
+                end
                 start_gmod(args.buf)
             elseif is_nvim_exrc(path) then
+                if client.name == "lua_ls" then
+                    return
+                end
                 start_nvim_lua_ls(args.buf)
             end
         end)
@@ -287,7 +267,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
 })
 
 -- Diagnostic command: :GmodLsp
-vim.api.nvim_create_user_command("GmodLsp", function()
+vim.api.nvim_create_user_command("GLuaLsp", function()
     local lines = {
         "root: " .. root,
         "lua_prefix: " .. lua_prefix,
@@ -301,35 +281,32 @@ vim.api.nvim_create_user_command("GmodLsp", function()
             local names = vim.tbl_map(function(client)
                 return client.name
             end, vim.lsp.get_clients { bufnr = bufnr })
-      lines[#lines + 1] = string.format(
-        "buf%d: %s [%s] gmod=%s realm=%s forced=%s",
-        bufnr,
-        vim.fn.fnamemodify(path, ":t"),
-        table.concat(names, ","),
-        tostring(is_gmod(path)),
-        is_gmod(path) and get_realm(path) or "n/a",
-        forced_realms[bufnr] or "n/a"
-      )
+            lines[#lines + 1] = string.format(
+                "buf%d: %s [%s] gmod=%s realm=%s forced=%s",
+                bufnr,
+                vim.fn.fnamemodify(path, ":t"),
+                table.concat(names, ","),
+                tostring(is_gmod(path)),
+                is_gmod(path) and get_realm(path) or "n/a",
+                forced_realms[bufnr] or "n/a"
+            )
         end
     end
 
-  vim.notify(table.concat(lines, "\n"))
+    vim.notify(table.concat(lines, "\n"))
 end, {})
 
-vim.api.nvim_create_user_command("GmodLuaForceClient", function()
-  force_gmod_realm(0, "client")
+vim.api.nvim_create_user_command("GLuaClient", function()
+    force_gmod_realm(0, "client")
 end, {})
-
-vim.api.nvim_create_user_command("GmodLuaForceServer", function()
-  force_gmod_realm(0, "server")
+vim.api.nvim_create_user_command("GLuaServer", function()
+    force_gmod_realm(0, "server")
 end, {})
-
-vim.api.nvim_create_user_command("GmodLuaToggleRealm", function()
-  toggle_gmod_realm(0)
+vim.api.nvim_create_user_command("GLuaToggle", function()
+    toggle_gmod_realm(0)
 end, {})
-
-vim.api.nvim_create_user_command("GmodLuaAutoRealm", function()
-  local bufnr = normalize_bufnr(0)
-  forced_realms[bufnr] = nil
-  start_gmod(bufnr)
+vim.api.nvim_create_user_command("GLuaAutoRealm", function()
+    local bufnr = normalize_bufnr(0)
+    forced_realms[bufnr] = nil
+    start_gmod(bufnr)
 end, {})

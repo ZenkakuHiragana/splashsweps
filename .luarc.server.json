@@ -19,7 +19,9 @@
     "workspace.ignoreDir": [
         "lua/types",
         "lua/autorun/client",
-        "lua/splashsweps/client"
+        "lua/splashsweps/client",
+        ".nvim-example.lua",
+        ".nvim.lua"
     ],
     "workspace.library": [
         "lua/types/server",
