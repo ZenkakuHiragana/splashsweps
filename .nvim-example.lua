@@ -80,12 +80,34 @@ local function has_client(bufnr, name)
     return false
 end
 
+local function is_managed_lua_client(name)
+    return name == "lua_ls" or name == "lua_ls_gmod_server" or name == "lua_ls_gmod_client"
+end
+
 local function detach_client(bufnr, name)
     for _, client in ipairs(vim.lsp.get_clients { bufnr = bufnr }) do
         if client.name == name then
             vim.lsp.buf_detach_client(bufnr, client.id)
         end
     end
+end
+
+local function detach_other_lua_clients(bufnr, keep_name)
+    local kept = false
+
+    for _, client in ipairs(vim.lsp.get_clients { bufnr = bufnr }) do
+        if is_managed_lua_client(client.name) then
+            if client.name ~= keep_name then
+                vim.lsp.buf_detach_client(bufnr, client.id)
+            elseif kept then
+                vim.lsp.buf_detach_client(bufnr, client.id)
+            else
+                kept = true
+            end
+        end
+    end
+
+    return kept
 end
 
 local function neovim_runtime_library()
@@ -110,10 +132,11 @@ local function start_nvim_lua_ls(bufnr)
         return
     end
 
+    local keep_name = "lua_ls"
     local needs_restart = true
     for _, client in ipairs(vim.lsp.get_clients { bufnr = bufnr }) do
         if
-            client.name == "lua_ls"
+            client.name == keep_name
             and client.config
             and client.config.settings
             and vim.tbl_get(client.config.settings, "Lua", "workspace", "library")
@@ -121,14 +144,16 @@ local function start_nvim_lua_ls(bufnr)
             needs_restart = false
         end
     end
-    if not needs_restart then
+
+    local has_expected = detach_other_lua_clients(bufnr, keep_name)
+    if not needs_restart and has_expected then
         return
     end
 
-    detach_client(bufnr, "lua_ls")
+    detach_client(bufnr, keep_name)
 
     local cfg = vim.deepcopy(vim.lsp.config.lua_ls) or {}
-    cfg.name = "lua_ls"
+    cfg.name = keep_name
     cfg.root_dir = root
     cfg.settings = vim.tbl_deep_extend("force", cfg.settings or {}, {
         Lua = {
@@ -159,20 +184,7 @@ local function start_gmod(bufnr)
     end
 
   local name = "lua_ls_gmod_" .. (forced_realms[bufnr] or get_realm(path))
-    detach_client(bufnr, "lua_ls")
-
-    local seen_gmod = false
-    for _, client in ipairs(vim.lsp.get_clients { bufnr = bufnr }) do
-        if client.name:match "^lua_ls_gmod_" and client.name ~= name then
-            vim.lsp.buf_detach_client(bufnr, client.id)
-        elseif client.name == name then
-            if seen_gmod then
-                vim.lsp.buf_detach_client(bufnr, client.id)
-            else
-                seen_gmod = true
-            end
-        end
-    end
+    local seen_gmod = detach_other_lua_clients(bufnr, name)
 
     if not seen_gmod then
         vim.lsp.start(vim.lsp.config[name], { bufnr = bufnr })
@@ -263,11 +275,14 @@ vim.api.nvim_create_autocmd("BufEnter", {
 vim.api.nvim_create_autocmd("LspAttach", {
     group = group,
     callback = function(args)
-        if is_gmod(vim.api.nvim_buf_get_name(args.buf)) then
-            vim.schedule(function()
+        local path = vim.api.nvim_buf_get_name(args.buf)
+        vim.schedule(function()
+            if is_gmod(path) then
                 start_gmod(args.buf)
-            end)
-        end
+            elseif is_nvim_exrc(path) then
+                start_nvim_lua_ls(args.buf)
+            end
+        end)
     end,
 })
 

@@ -115,14 +115,6 @@ local function VerticesComparer(a, b)
     return Either(a.x == b.x, a.y < b.y, a.x < b.x)
 end
 
----Compares two vectors used by table.sort
----@param a Vector
----@param b Vector
----@return boolean
-local function LengthDescending(a, b)
-    return a:LengthSqr() > b:LengthSqr()
-end
-
 -- Generates a convex hull by monotone chain method
 ---@param source Vector[]
 ---@return Vector[]
@@ -360,6 +352,14 @@ local function FindMinimumOBB(vertices)
         localToWorld:Mul(rotation)
     end
 
+    -- ---Compares two vectors used by table.sort
+    -- ---@param a Vector
+    -- ---@param b Vector
+    -- ---@return boolean
+    -- local function LengthDescending(a, b)
+    --     return a:LengthSqr() > b:LengthSqr()
+    -- end
+    --
     -- Sorting axes (seems broken)
     -- local axes = {
     --     localToWorld:GetForward() * variance.x,

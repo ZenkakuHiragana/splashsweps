@@ -1,11 +1,5 @@
 {
     "$schema": "https://raw.githubusercontent.com/LuaLS/vscode-lua/master/setting/schema.json",
-    "runtime.version": "LuaJIT",
-    "workspace.checkThirdParty": false,
-    "workspace.library": [
-        "lua/types/client",
-        "lua/types/types"
-    ],
     "diagnostics.libraryFiles": "Disable",
     "diagnostics.ignoredFiles": "Disable",
     "runtime.nonstandardSymbol": [
@@ -20,9 +14,15 @@
     "runtime.special": {
         "include": "dofile"
     },
+    "runtime.version": "LuaJIT",
+    "workspace.checkThirdParty": false,
     "workspace.ignoreDir": [
         "lua/types",
-        "lua/autorun/server",
-        "lua/splashsweps/server"
+        "lua/autorun/client",
+        "lua/splashsweps/client"
+    ],
+    "workspace.library": [
+        "lua/types/client",
+        "lua/types/types"
     ]
 }
