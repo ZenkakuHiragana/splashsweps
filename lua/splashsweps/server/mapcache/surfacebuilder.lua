@@ -18,7 +18,6 @@ local MaterialCache = {} ---@type table<string, IMaterial>
 local TextureFilterBits = bit.bor(
     SURF_SKY, SURF_NOPORTAL, SURF_TRIGGER,
     SURF_NODRAW, SURF_HINT, SURF_SKIP)
-local MAX_BSP_VERTICES = 65536
 
 ---Index to SURFEDGES array -> actual vertex index
 ---@param bsp ss.RawBSPResults
@@ -45,66 +44,6 @@ local function GetMaterial(name)
         MaterialCache[name] = Material(name)
     end
     return MaterialCache[name]
-end
-
----Normalizes an edge into a single packed integer key.
----@param v1 integer The first vertex index of the edge.
----@param v2 integer The second vertex index of the edge.
----@return integer key Packed integer for the vertex pairs.
-local function GetVertexPairKey(v1, v2)
-    return min(v1, v2) * MAX_BSP_VERTICES + max(v1, v2)
-end
-
----Marks local face edges that are duplicated by another face on the same plane.
----@param bsp ss.RawBSPResults
----@param lump ss.Binary.BSP.FACES[] List of faces
----@param validFaces boolean[] Face index --> is paintable
----@return boolean[][] coplanarFaceEdges Face index --> edge index --> is coplanar
-local function BuildCoplanarFaceEdges(bsp, lump, validFaces)
-    local planeGroups = {} ---@type table<integer, integer[]> Plane index --> list of surfaces
-    local faceEdges = {} ---@type table<integer, integer[]> Face index --> list of packed vertex pairs
-    local coplanarFaceEdges = {} ---@type boolean[][]
-
-    -- Collect planes and edges
-    for faceIndex, face in ipairs(lump) do
-        if validFaces[faceIndex] then
-            local vertices = {} ---@type integer[]
-            for edgeIndex = face.firstEdge + 1, face.firstEdge + face.numEdges do
-                vertices[#vertices + 1] = SurfEdgeToVertexIndex(bsp, edgeIndex)
-            end
-
-            faceEdges[faceIndex] = {}
-            for i, v1 in ipairs(vertices) do
-                local v2 = vertices[i % #vertices + 1]
-                faceEdges[faceIndex][i] = GetVertexPairKey(v1, v2)
-            end
-
-            local i = face.planeNum
-            planeGroups[i] = planeGroups[i] or {}
-            planeGroups[i][#planeGroups[i] + 1] = faceIndex
-        end
-    end
-
-    -- Then check if duplicating edges per plane
-    for _, faceIndices in pairs(planeGroups) do
-        ---Packed verted pair --> number of surfaces on the edge
-        ---@type table<integer, integer>
-        local edgeCounts = {}
-        for _, faceIndex in ipairs(faceIndices) do
-            for _, edgeKey in ipairs(faceEdges[faceIndex] or {}) do
-                edgeCounts[edgeKey] = (edgeCounts[edgeKey] or 0) + 1
-            end
-        end
-
-        for _, faceIndex in ipairs(faceIndices) do
-            coplanarFaceEdges[faceIndex] = {}
-            for i, edgeKey in ipairs(faceEdges[faceIndex] or {}) do
-                coplanarFaceEdges[faceIndex][i] = (edgeCounts[edgeKey] or 0) > 1
-            end
-        end
-    end
-
-    return coplanarFaceEdges
 end
 
 ---Compares two vertices used by table.sort
@@ -166,9 +105,7 @@ end
 ---@return Vector  size   The size of the MBR in Hammer units.
 local function FindMBR(vertices, angle)
     local center = Vector()
-    for _, v in ipairs(vertices) do
-        center:Add(v)
-    end
+    for _, v in ipairs(vertices) do center:Add(v) end
     center:Div(#vertices)
 
     -- Transforms vertices in the world to 2D space.
@@ -194,7 +131,7 @@ local function FindMBR(vertices, angle)
         local p0, p1 = convex[i], convex[i % #convex + 1]
         local dp = p1 - p0
         if dp:LengthSqr() > 0 then
-            local dir  = dp:GetNormalized()
+            local dir = dp:GetNormalized()
             local rotation = Matrix() -- to represent the angle of the MBR
             rotation:SetForward(dir)
             rotation:SetRight(Vector(dir.y, -dir.x))
@@ -436,10 +373,10 @@ local function CalculateTriangleComponents(surf)
         local maxX = max(e1:Dot(forward), e1:Dot(another))
         local t1t2 = t2 - t1
         local t1t3 = -another
-        local d1212 = t1t2:Dot(t1t2);
-        local d1213 = t1t2:Dot(t1t3);
-        local d1313 = t1t3:Dot(t1t3);
-        local denominator = d1212 * d1313 - d1213 * d1213;
+        local d1212 = t1t2:Dot(t1t2)
+        local d1213 = t1t2:Dot(t1t3)
+        local d1313 = t1t3:Dot(t1t3)
+        local denominator = d1212 * d1313 - d1213 * d1213
         local barycentricDot1 = (d1313 * t1t2 - d1213 * t1t3) / denominator
         local barycentricDot2 = (d1212 * t1t3 - d1213 * t1t2) / denominator
         local t = ss.new "PrecachedData.DisplacementTriangle"
@@ -647,9 +584,8 @@ end
 -- Construct a polygon from a raw face data
 ---@param bsp ss.RawBSPResults
 ---@param rawFace ss.Binary.BSP.FACES
----@param coplanarEdges boolean[] local edge index --> is covered by coplanar faces
 ---@return ss.PrecachedData.Surface?, boolean?
-local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
+local function BuildFromBrushFace(bsp, rawFace)
     -- Collect texture information and see if it's valid
     local rawTexInfo   = bsp.TEXINFO
     local texInfo      = rawTexInfo[rawFace.texInfo + 1]
@@ -675,16 +611,12 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
 
     -- Collect "raw" vertex list
     local rawVertices = {} ---@type Vector[]
-    local rawEdgesWithSideMesh = {} ---@type boolean[]
     for i = firstedge, lastedge do
         rawVertices[#rawVertices + 1] = SurfEdgeToVertex(bsp, i)
-        rawEdgesWithSideMesh[#rawEdgesWithSideMesh + 1]
-            = not coplanarEdges[i - firstedge + 1]
     end
 
     -- Filter out colinear vertices and calculate the center
     local filteredVertices = {} ---@type Vector[]
-    local filteredSideMesh = {} ---@type boolean[]
     for i, current in ipairs(rawVertices) do
         local prevIndex = (#rawVertices + i - 2) % #rawVertices + 1
         local nextIndex = i % #rawVertices + 1
@@ -692,11 +624,8 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
         local after  = rawVertices[nextIndex]
         local cross  = (before - current):Cross(after - current)
         local colinear = normal:Dot(cross:GetNormalized()) > 0
-        local prevWithSide = rawEdgesWithSideMesh[prevIndex]
-        local nextWithSide = rawEdgesWithSideMesh[i]
-        if colinear or prevWithSide ~= nextWithSide then
+        if colinear then
             filteredVertices[#filteredVertices + 1] = current
-            filteredSideMesh[#filteredSideMesh + 1] = nextWithSide
         end
     end
 
@@ -737,7 +666,6 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
         local lightmapU = {} ---@type number[]
         local lightmapV = {} ---@type number[]
         local triangles = {} ---@type integer[]
-        local triangleType = {} ---@type integer[]
         for i, v in ipairs(filteredVertices) do
             surf.AABBMax:Set(ss.MaxVector(surf.AABBMax, v))
             surf.AABBMin:Set(ss.MinVector(surf.AABBMin, v))
@@ -757,44 +685,11 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
         surf.AABBMax:Add(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
         surf.AABBMin:Sub(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
 
-        -- Mesh on the ground
-        local TRI_CEIL = 0
-        local TRI_DEPTH = 1
-        local TRI_BASE = 2
-        local TRI_SIDE = 3
+        -- Construct triangles
         for i = 2, #filteredVertices - 1 do
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, 1
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i + 1
-        end
-
-        -- Floating mesh facing toward the mesh
-        for i = 2, #filteredVertices - 1 do
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_CEIL, 1
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_CEIL, i + 1
-            triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_CEIL, i
-        end
-
-        -- Setting up the side mesh for parallax effect
-        for i = 1, #filteredVertices do
-            if filteredSideMesh[i] then
-                -- Inside the face
-                local j = (i % #filteredVertices) + 1
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_SIDE, j
-
-                -- Outside the face
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_DEPTH, i
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  j
-                triangleType[#triangles + 1], triangles[#triangles + 1] = TRI_BASE,  i
-            end
+            triangles[#triangles + 1] = 1
+            triangles[#triangles + 1] = i
+            triangles[#triangles + 1] = i + 1
         end
 
         for i, t in ipairs(triangles) do
@@ -807,7 +702,6 @@ local function BuildFromBrushFace(bsp, rawFace, coplanarEdges)
             surf.Vertices[i].BumpmapUV.y = bumpmapV[t]
             surf.Vertices[i].LightmapUV.x = lightmapU[t]
             surf.Vertices[i].LightmapUV.y = lightmapV[t]
-            surf.Vertices[i].LiftThisVertex = triangleType[i]
         end
 
         if not isWater then
@@ -857,10 +751,9 @@ function ss.BuildSurfaceCache(bsp, ishdr)
         end
     end
 
-    local coplanarEdges = BuildCoplanarFaceEdges(bsp, lump, validFaces)
     for i, face in ipairs(lump) do
         if validFaces[i] then
-            local s, iswater = BuildFromBrushFace(bsp, face, coplanarEdges[i] or {})
+            local s, iswater = BuildFromBrushFace(bsp, face)
             if s then
                 if iswater then
                     water[#water + 1] = s

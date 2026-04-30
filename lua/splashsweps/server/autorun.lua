@@ -34,6 +34,7 @@ local function LoadCache()
     local cache = util.JSONToTable(util.Decompress(file.Read(txtPath) or "") or "", true)
     local mapCRC = util.CRC(file.Read("maps/" .. game.GetMap() .. ".bsp", "GAME") or "")
     setmetatable(cache or {}, getmetatable(ss.new "PrecachedData"))
+    file.CreateDir "splashsweps"
     if not cache or cache.MapCRC ~= tonumber(mapCRC) then
         cache = ss.BuildMapCache() or {}
         file.Write(txtPath, util.Compress(util.TableToJSON(cache)))

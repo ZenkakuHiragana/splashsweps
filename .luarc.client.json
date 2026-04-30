@@ -18,8 +18,8 @@
     "workspace.checkThirdParty": false,
     "workspace.ignoreDir": [
         "lua/types",
-        "lua/autorun/client",
-        "lua/splashsweps/client",
+        "lua/autorun/server",
+        "lua/splashsweps/server",
         ".nvim-example.lua",
         ".nvim.lua"
     ],

@@ -328,8 +328,8 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
     local bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
     local worldToUV = Matrix()
     worldToUV:SetScale(ss.vector_one * scale)
+
     ---@class ss.SurfaceBuilder.MeshVertexPack
-    ---@field Lift integer?
     ---@field Normal Vector
     ---@field TangentS    Vector
     ---@field TangentT    Vector
@@ -449,7 +449,6 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         uv.x = uv.x + info.Translation.x * scale
                         uv.y = uv.y + info.Translation.y * scale
                         meshData[meshIndex][vertIndex] = {
-                            Lift = math.Remap(v.LiftThisVertex or 2, 0, 3, 0, 1),
                             Normal = normal,
                             TangentS = tangent,
                             TangentT = binormal,
@@ -506,7 +505,6 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                 mesh.TexCoord(4, v.TangentS.x, v.TangentS.y, v.TangentS.z)
                 mesh.TexCoord(5, v.TangentT.x, v.TangentT.y, v.TangentT.z)
                 mesh.TexCoord(6, unpack(v.UVRange))
-                mesh.Color(0, 0, 0, v.Lift * 255)
                 mesh.AdvanceVertex()
             end
             mesh.End()

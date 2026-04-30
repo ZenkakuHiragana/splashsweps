@@ -41,52 +41,13 @@ local uvDisplaySize = 512
 local uvDisplayX = 16
 local uvDisplayY = 16
 
--- Constants for triangle type identification
--- In client/surfacebuilder.lua: Lift = math.Remap(LiftThisVertex or 2, 0, 3, 0, 1)
--- TRI_CEIL=0 -> 0.0, TRI_DEPTH=1 -> 0.333, TRI_BASE=2 -> 0.667, TRI_SIDE=3 -> 1.0
-local LIFT_CEIL  = 0
-local LIFT_DEPTH = 1 / 3
-local LIFT_BASE  = 2 / 3
-local LIFT_SIDE  = 1
-
-local COLOR_BASE  = Color(0,   200, 0,   255) -- Green
-local COLOR_CEIL  = Color(60,  120, 255, 255) -- Blue
-local COLOR_SIDE  = Color(255, 220, 0,   255) -- Yellow
-local COLOR_DEPTH = Color(255, 50,  50,  255) -- Red
-local COLOR_UNKNOWN = Color(180, 180, 180, 255)
-
+local COLOR_BASE     = Color(0, 200, 0, 255)
 local COLOR_NORMAL   = Color(80,  80,  255, 255) -- Blue for normals
 local COLOR_TANGENT  = Color(255, 80,  80,  255) -- Red for tangents
 local COLOR_BINORMAL = Color(80,  255, 80,  255) -- Green for binormals
 
-local COLOR_EDGE_SIDE     = Color(0,   255, 0,   255) -- Green = has side mesh
-local COLOR_EDGE_COPLANAR = Color(255, 60,  60,  200) -- Red = no side mesh (coplanar)
-
+local COLOR_EDGE_SIDE = Color(0,   255, 0,   255) -- Green = has side mesh
 local COLOR_MBB = Color(255, 160, 0, 255) -- Orange for MBB wireframe
-
----Returns the triangle type color based on Lift value.
----@param lift number
----@return Color
-local function LiftToColor(lift)
-    if     math.abs(lift - LIFT_BASE)  < 0.01 then return COLOR_BASE
-    elseif math.abs(lift - LIFT_CEIL)  < 0.01 then return COLOR_CEIL
-    elseif math.abs(lift - LIFT_SIDE)  < 0.01 then return COLOR_SIDE
-    elseif math.abs(lift - LIFT_DEPTH) < 0.01 then return COLOR_DEPTH
-    else return COLOR_UNKNOWN
-    end
-end
-
----Returns the triangle type name based on Lift value.
----@param lift number
----@return string
-local function LiftToName(lift)
-    if     math.abs(lift - LIFT_BASE)  < 0.01 then return "BASE"
-    elseif math.abs(lift - LIFT_CEIL)  < 0.01 then return "CEIL"
-    elseif math.abs(lift - LIFT_SIDE)  < 0.01 then return "SIDE"
-    elseif math.abs(lift - LIFT_DEPTH) < 0.01 then return "DEPTH"
-    else return "?"
-    end
-end
 
 ---Collects mesh vertex data for a given surface object from DebugMeshData.
 ---@param surf ss.PaintableSurface
@@ -195,7 +156,7 @@ local function Draw3DOverlays()
                 local v2 = vertices[i + 1]
                 local v3 = vertices[i + 2]
                 if v1 and v2 and v3 then
-                    local col = LiftToColor(v1.Lift)
+                    local col = COLOR_BASE
                     render.DrawLine(v1.Position, v2.Position, col, false)
                     render.DrawLine(v2.Position, v3.Position, col, false)
                     render.DrawLine(v3.Position, v1.Position, col, false)
@@ -219,28 +180,6 @@ local function Draw3DOverlays()
                     render.DrawLine(p, p + v.Normal   * VECTOR_LEN, COLOR_NORMAL,   false)
                     render.DrawLine(p, p + v.TangentS * VECTOR_LEN, COLOR_TANGENT,  false)
                     render.DrawLine(p, p + v.TangentT * VECTOR_LEN, COLOR_BINORMAL, false)
-                end
-            end
-        end
-
-        -- Layer: Edge classification (side mesh present or not)
-        if layers.edge and #vertices >= 3 then
-            for i = 1, #vertices, 3 do
-                local v1 = vertices[i]
-                local v2 = vertices[i + 1]
-                local v3 = vertices[i + 2]
-                if v1 and v2 and v3 then
-                    local isSideTri = math.abs(v1.Lift - LIFT_SIDE) < 0.01
-                        or math.abs(v1.Lift - LIFT_DEPTH) < 0.01
-                    if isSideTri then
-                        local normal = v1.Normal * 32.0
-                        render.DrawLine(v1.Position + normal, v2.Position + normal, COLOR_EDGE_SIDE, false)
-                        render.DrawLine(v2.Position + normal, v3.Position + normal, COLOR_EDGE_SIDE, false)
-                        render.DrawLine(v3.Position + normal, v1.Position + normal, COLOR_EDGE_SIDE, false)
-                        render.DrawLine(v1.Position - normal, v2.Position - normal, COLOR_EDGE_SIDE, false)
-                        render.DrawLine(v2.Position - normal, v3.Position - normal, COLOR_EDGE_SIDE, false)
-                        render.DrawLine(v3.Position - normal, v1.Position - normal, COLOR_EDGE_SIDE, false)
-                    end
                 end
             end
         end
@@ -322,7 +261,7 @@ local function DrawHUDOverlays()
                     local v2 = vertices[i + 1]
                     local v3 = vertices[i + 2]
                     if v1 and v2 and v3 then
-                        local col = LiftToColor(v1.Lift)
+                        local col = COLOR_BASE
                         local x1, y1 = UVToScreenXY(v1.V[1], v1.U[1])
                         local x2, y2 = UVToScreenXY(v2.V[1], v2.U[1])
                         local x3, y3 = UVToScreenXY(v3.V[1], v3.U[1])
@@ -361,7 +300,7 @@ local function DrawHUDOverlays()
             for i = 1, #vertices, 3 do
                 local v = vertices[i]
                 if v then
-                    local name = LiftToName(v.Lift)
+                    local name = COLOR_BASE
                     triCounts[name] = (triCounts[name] or 0) + 1
                 end
             end
@@ -482,9 +421,22 @@ concommand.Add("ss_debug_radius", function(_, _, args)
     end
 end)
 
-Enable()
-
 print("[SplashSWEPs] Debug mesh loaded. Use 'ss_debug_mesh' to toggle.")
 print("  Layers: ss_debug_layer_wire, ss_debug_layer_mbr, ss_debug_layer_normal,")
 print("          ss_debug_layer_uv, ss_debug_layer_edge, ss_debug_layer_info")
 print("  Radius: ss_debug_radius <HU>  (current: " .. searchRadius .. ")")
+
+concommand.Add("ss_reload_shader", function(_, _, _)
+    local vs = file.Find("shaders/fxc/splashsweps/*_inkmesh_vs30.vcs", "GAME", "datedesc")
+    local ps = file.Find("shaders/fxc/splashsweps/*_inkmesh_ps30.vcs", "GAME", "datedesc")
+    if not (vs and ps) then return end
+    print(string.format("Reloading shader: %s, %s", vs[1], ps[1]))
+    for _, batch in ipairs(ss.RenderBatches) do
+        for _, model in ipairs(batch) do
+            model.Material:SetString("$vertexshader", "splashsweps/" .. vs[1]:sub(1, -5))
+            model.Material:SetString("$pixshader", "splashsweps/" .. ps[1]:sub(1, -5))
+            model.Material:Recompute()
+        end
+    end
+    ss.ClearAllInk()
+end)

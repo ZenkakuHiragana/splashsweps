@@ -20,6 +20,7 @@ if not SplashSWEPs then
 end
 
 include "splashsweps/shared/autorun.lua"
+include "splashsweps/client/debug_mesh.lua"
 include "splashsweps/client/inkrenderer.lua"
 include "splashsweps/client/inktype.lua"
 include "splashsweps/client/rbtree.lua"

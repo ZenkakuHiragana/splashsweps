@@ -47,7 +47,7 @@ SWEP.Secondary.DefaultClip = 0
 SWEP.Secondary.Ammo = "Ink"
 
 SWEP.Primary.Automatic = true
-SWEP.Primary.Delay = 1 / 120
+SWEP.Primary.Delay = 1 / 30
 
 SWEP.InkTypeIndex = 1
 SWEP.InkTypes = {
@@ -82,7 +82,7 @@ function SWEP:PrimaryAttack()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
     self:EmitSound("Weapon_AR2.Single")
     local tr = Owner:GetEyeTrace()
-    local radius = 500
+    local radius = 50
     local pos = tr.HitPos
     local normal = tr.HitNormal
     local right = normal:Cross(tr.StartPos - pos):GetNormalized()

@@ -18,8 +18,6 @@
 // Safe rcp that avoids division by zero
 #define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-21)))
 
-static const float HEIGHT_TO_HAMMER_UNITS = 32.0;
-static const float LOD_DISTANCE = 4096.0;
 static const float4 GROUND_PROPERTIES[8] = {
     { 1.0, 1.0, 1.0,  1.0 },
     { 1.0, 1.0, 1.0,  0.0 },
@@ -30,3 +28,4 @@ static const float4 GROUND_PROPERTIES[8] = {
     { 0.0, 1.0, 1.0,  1.0 },
     { 0.0, 0.0, 0.0,  0.0 },
 };
+

@@ -1,8 +1,8 @@
 "Screenspace_General_8Tex"
 {
     // Debug shader to visualize shader constants
-    "$pixshader" "splashsweps/debug_ps30"
-    "$vertexshader" "splashsweps/debug_vs30"
+    "$pixshader"           "splashsweps/debug_ps30"
+    "$vertexshader"        "splashsweps/debug_vs30"
     "$linearread_texture1" "1"
 
     "$basetexture"  "hunter/myplastic"
