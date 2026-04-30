@@ -105,7 +105,8 @@ function New-One() {
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue -LiteralPath (Join-Path $PWD "shaders")
 
     # Without GMOD running there is no need to rename so reset the count.
-    if (Get-Process -Name "gmod" -ErrorAction SilentlyContinue) {
+    $isGmodRunning = Get-Process -Name "gmod" -ErrorAction SilentlyContinue
+    if ($isGmodRunning) {
         $count++
     } else {
         $count = 1
@@ -120,17 +121,23 @@ function New-One() {
     $oldCount = $oldCount.ToString()
     $count = $count.ToString()
 
-    $paramValue = "splashsweps/${count}_$baseName$shaderSuffix"
+    if ($isGmodRunning) {
+        $paramValue = "splashsweps/${count}_$baseName$shaderSuffix"
+    }
+    else {
+        $paramValue = "splashsweps/$baseName$shaderSuffix"
+    }
     if (Test-Path $vmtPath) {
         $vmtContents = Get-Content $vmtPath
         if ($isVertexShader) {
-            $vmtContents = $vmtContents -replace '"\$vertexshader"\s+"[^"]*"', "`"`$vertexshader`" `"$paramValue`""
+            $vmtContents = $vmtContents -replace '(?<="\$vertexshader"\s+)"[^"]*"', "`"$paramValue`""
         }
         if ($isPixelShader) {
-            $vmtContents = $vmtContents -replace '"\$pixshader"\s+"[^"]*"', "`"`$pixshader`" `"$paramValue`""
+            $vmtContents = $vmtContents -replace '(?<="\$pixshader"\s+)"[^"]*"', "`"$paramValue`""
         }
+        $vmtContents = ($vmtContents -join "`n") + "`n"
         New-Item -ItemType Directory -Path $materialPath -Force -ErrorAction SilentlyContinue | Out-Null
-        Set-Content -LiteralPath $vmtPath -Value $vmtContents
+        Set-Content -LiteralPath $vmtPath -Value $vmtContents -NoNewLine
     }
 
     # Determine Output File (Shader) & Delete
