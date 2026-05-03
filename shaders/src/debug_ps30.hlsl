@@ -1,5 +1,7 @@
 
-// Pixel shader constants available if we draw VertexLitGeneric with $phong = 1 first.
+// Pixel shader for the vertex-input probe.
+// c0.x < 0 switches back to sampler preview mode.
+// c3.w > 0 makes the display show vertex-shader payloads instead of constants.
 // c0  $c0_xyzw from VMT
 // c1  $c1_xyzw from VMT
 // c2  $c2_xyzw from VMT
@@ -128,6 +130,9 @@ PS_OUTPUT main(const PS_INPUT i) {
     float2 uv     = i.uv_depth.xy;
     float4 albedo = tex2D(s[2], uv);
     albedo.rgb = 1.0 - albedo.rgb;
+    if (c[3].w > 0) {
+        albedo.a = 0.0;
+    }
     PS_OUTPUT output = {
         float4(0.0, 0.0, 0.0, 0.0),
         i.uv_depth.z / i.uv_depth.w,

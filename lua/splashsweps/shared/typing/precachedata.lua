@@ -29,10 +29,14 @@ end
 ---@field Normal             Vector
 ---@field Tangent            Vector
 ---@field Binormal           Vector
+---@field LightmapTangent    Vector
+---@field LightmapBinormal   Vector
 ---@field LightmapUV         Vector  Relative Lightmap UV values in luxels.
 ---@field BumpmapUV          Vector  Bumpmap UV coordinates of the original face.
 ---@field DisplacementOrigin Vector? The point that this displacement point was made from.
 ss.struct "PrecachedData.Vertex" (setmetatable({
+    Vector(),
+    Vector(),
     Vector(),
     Vector(),
     Vector(),
@@ -45,9 +49,11 @@ ss.struct "PrecachedData.Vertex" (setmetatable({
     Normal             = 2,
     Tangent            = 3,
     Binormal           = 4,
-    LightmapUV         = 5,
-    BumpmapUV          = 6,
-    DisplacementOrigin = 7,
+    LightmapTangent    = 5,
+    LightmapBinormal   = 6,
+    LightmapUV         = 7,
+    BumpmapUV          = 8,
+    DisplacementOrigin = 9,
     __index            = indexer,
     __newindex         = newindexer,
 }))

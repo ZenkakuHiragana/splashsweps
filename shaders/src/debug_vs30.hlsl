@@ -1,5 +1,7 @@
 
-// Vertex shader constants
+// Vertex-input probe for Screenspace_General_8tex.
+// Shows the values actually received by the vertex shader for IMesh::Draw()
+// and IMesh::DrawSkinned() when c3.w is enabled in the material.
 // c0  cConstants0
 // c1  cConstants1
 // c2  cEyePos_WaterHeightW
@@ -72,8 +74,10 @@ struct VS_INPUT {
     float3 pos     : POSITION0;
     float2 uv      : TEXCOORD0;
     float3 normal  : NORMAL0;
-    float3 color   : COLOR0;
-    float3 tangent : TANGENT0;
+    float4 color   : COLOR0;
+    float4 tangent : TANGENT0;
+    float4 boneWeights : BLENDWEIGHT;
+    float4 boneIndices : BLENDINDICES;
 };
 
 struct VS_OUTPUT {
@@ -93,9 +97,13 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.pos = mul(float4(v.pos, 1.0), cModelViewProj);
     output.uv_depth.xy  = v.uv;
     output.uv_depth.zw = output.pos.zw;
-    const int VERTEX_CONST_OFFSET = 52;
-    for (int i = 0; i < 8; ++i) {
-        output.data[i] = c[i + VERTEX_CONST_OFFSET];
-    }
+    output.data[0] = float4(v.pos, 1.0);
+    output.data[1] = float4(v.uv, 0.0, 0.0);
+    output.data[2] = float4(v.normal, 1.0);
+    output.data[3] = v.color;
+    output.data[4] = v.tangent;
+    output.data[5] = v.boneWeights;
+    output.data[6] = v.boneIndices;
+    output.data[7] = float4(0.0, 0.0, 0.0, 0.0);
     return output;
 }

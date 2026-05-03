@@ -1,11 +1,9 @@
 {
     "title": "Splash SWEPs",
     "type": "weapon",
-    "tags": [
-        "fun",
-        "realism"
-    ],
+    "tags": ["fun", "realism"],
     "ignore": [
+        "AGENTS.md",
         "**/.luarc.json",
         ".editorconfig",
         ".gemini",

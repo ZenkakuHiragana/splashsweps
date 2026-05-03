@@ -9,22 +9,45 @@
 #define g_RimEnabled
 
 struct PS_INPUT {
-    float2   screenPos             : VPOS;
-    float4   surfaceClipRange      : TEXCOORD0; // xy: ink map min UV, zw: ink map max UV
-    float4   lightmapUV1And2       : TEXCOORD1; // xy: lightmap UV, zw: bumpmapped lightmap UV (1)
-    float4   lightmapUV3_projXY    : TEXCOORD2; // xy: bumpmapped lightmap UV (2), zw: projected position XY
-    float4   inkUV_worldBumpUV     : TEXCOORD3; // xy: ink albedo UV, zw: world bumpmap UV
-    float4   worldPos_projPosZ     : TEXCOORD4; // xyz: world position, w: projected position Z
-    float4   worldBinormalTangentX : TEXCOORD5; // xyz: world binormal, w: world tangent X
-    float4   worldNormalTangentY   : TEXCOORD6; // xyz: world normal,   w: world tangent Y
-    float4   inkTangentXYZWorldZ   : TEXCOORD7; // xyz: ink tangent,    w: world tangent Z
-    float4   inkBinormal_projW     : TEXCOORD8; // xyz: ink binormal,   w: projected position W
-    // float4   unused                : TEXCOORD9;
+    float2 screenPos             : VPOS;
+    float4 surfaceClipRange      : TEXCOORD0; // xy: ink map min UV, zw: ink map max UV
+    float4 lightmapUV1And2       : TEXCOORD1; // xy: lightmap UV, zw: bumpmapped lightmap UV (1)
+    float4 lightmapUV3_projXY    : TEXCOORD2; // xy: bumpmapped lightmap UV (2), zw: projected position XY
+    float4 inkUV_worldBumpUV     : TEXCOORD3; // xy: ink albedo UV, zw: world bumpmap UV
+    float4 worldPos_projPosZ     : TEXCOORD4; // xyz: world position, w: projected position Z
+    float4 worldBinormalTangentX : TEXCOORD5; // xyz: world binormal, w: world tangent X
+    float4 worldNormalTangentY   : TEXCOORD6; // xyz: world normal,   w: world tangent Y
+    float4 inkTangentXYZWorldZ   : TEXCOORD7; // xyz: ink tangent,    w: world tangent Z
+    float4 inkBinormal_projW     : TEXCOORD8; // xyz: ink binormal,   w: projected position W
+    // float4 unused                : TEXCOORD9;
 };
 
 struct PS_OUTPUT {
     float4 color : COLOR0;
     float  depth : DEPTH0;
+};
+
+struct PseudoPBR {
+    float metallic;
+    float roughness;
+    float specularScale;
+    float refraction;
+};
+
+struct DetailParams {
+    float blendMode;
+    float blendScale;
+    float bumpScale;
+    float bumpBlendFactor;
+};
+
+struct MaterialParams {
+    float height;
+    float depth;
+    float3 additive;
+    float3 multiplicative;
+    PseudoPBR pbr;
+    DetailParams detail;
 };
 
 static const float HEIGHT_TO_HU       = 8.0;
@@ -44,8 +67,6 @@ static const float RIM_METALIC_MAX    = 0.0625; // Rim lighting strength at meta
 static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
-static const float DEPTH_BASE_BIAS    = 2.0e-5; // 1.0e-5 -- 5.0e-5
-static const float DEPTH_DIFF_SCALE   = 1.5;    // Sensitivity of the depth difference
 static const float3 GrayScaleFactor   = { 0.2126, 0.7152, 0.0722 };
 static const float3x3 BumpBasis = {
     // Bumped lightmap basis vectors (same as LightmappedGeneric) in tangent space
@@ -58,7 +79,7 @@ static const float3x3 BumpBasis = {
 // Samplers
 sampler InkMap             : register(s0);
 sampler InkDataSampler     : register(s1);
-sampler DepthSampler       : register(s2);
+sampler UnusedSampler      : register(s2);
 sampler FrameBuffer        : register(s3);
 sampler InkDetailSampler   : register(s4);
 sampler WallAlbedoSampler  : register(s5);
@@ -90,7 +111,6 @@ const float4 HDRParams : register(c30);
 #define g_Simplified        c1.w   // Simplified rendering for water reflection/refraction
 #define g_RTSize            s0Size // One over ink map size
 #define g_DataRTSize        s1Size // One over data look-up table size
-#define g_DepthSize         s2Size // One over depth sampler size
 #define g_FbSize            s3Size // One over frame buffer size
 #define g_TonemapScale  HDRParams.x
 #define g_LightmapScale HDRParams.y
@@ -167,83 +187,69 @@ float FetchDepth(float2 uv) {
 }
 
 // Samples additive color and height value
-void FetchAdditiveAndHeight(float2 uv, out float3 additive, out float height, out float3 normal) {
+void FetchAdditiveAndHeight(float2 uv, out MaterialParams params, out float3 normal) {
     float4 uv4 = { uv, 0.0, 0.0 };
     float4 s = tex2Dlod(InkMap, uv4);
-    additive = pow(abs(s.rgb), 2.2); // Manually correct gamma
-    height   = TO_SIGNED(s.a);
+    params.additive = pow(abs(s.rgb), 2.2); // Manually correct gamma
+    params.height   = TO_SIGNED(s.a);
 
     // Additional samples to calculate tangent space normal
     float hx = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(g_RTSize.x, 0, 0.0, 0.0)).a);
     float hy = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(0, g_RTSize.y, 0.0, 0.0)).a);
-    float dx = hx - height;
-    float dy = hy - height;
+    float dx = hx - params.height;
+    float dy = hy - params.height;
     normal = normalize(float3(-dx, -dy, 1.0));
 }
 
 // Samples multiplicative color and ground depth
-void FetchMultiplicativeAndDepth(float2 uv, out float3 multiplicative, out float depth) {
+void FetchMultiplicativeAndDepth(float2 uv, out MaterialParams params) {
     float4 s = tex2Dlod(InkMap, float4(uv.x + 0.5, uv.y, 0.0, 0.0));
-    multiplicative = pow(abs(s.rgb), 2.2);
-    depth          = s.a;
+    params.multiplicative = pow(abs(s.rgb), 2.2);
+    params.depth          = s.a;
 }
 
 // Samples lighting parameters from texture sampler
-void FetchInkMaterial(
-    int id1,
-    int id2,
-    float idBlend,
-    out float metallic,
-    out float roughness,
-    out float specularScale,
-    out float refraction) {
+void FetchInkMaterial(float3 IDs, out PseudoPBR pbr) {
     float4 s;
+    int id1 = (int)IDs.x;
+    int id2 = (int)IDs.y;
+    float idBlend = IDs.z;
 
     s = FetchDataPixel(id1, ID_MATERIAL_REFRACT);
-    metallic      = s.r;
-    roughness     = s.g;
-    specularScale = s.b;
-    refraction    = s.a;
+    pbr.metallic      = s.r;
+    pbr.roughness     = s.g;
+    pbr.specularScale = s.b;
+    pbr.refraction    = s.a;
     s = FetchDataPixel(id2, ID_MATERIAL_REFRACT);
-    metallic      = lerp(metallic,      s.r, idBlend);
-    roughness     = lerp(roughness,     s.g, idBlend);
-    specularScale = lerp(specularScale, s.b, idBlend);
-    refraction    = lerp(refraction,    s.a, idBlend);
+    pbr.metallic      = lerp(pbr.metallic,      s.r, idBlend);
+    pbr.roughness     = lerp(pbr.roughness,     s.g, idBlend);
+    pbr.specularScale = lerp(pbr.specularScale, s.b, idBlend);
+    pbr.refraction    = lerp(pbr.refraction,    s.a, idBlend);
 }
 
 // Samples detail component
-void FetchInkDetails(
-    int id1,
-    int id2,
-    float idBlend,
-    out float detailblendmode,
-    out float detailblendscale,
-    out float detailbumpscale,
-    out float bumpblendfactor) {
+void FetchInkDetails(float3 IDs, out DetailParams detail) {
     float4 s;
+    int id1 = (int)IDs.x;
+    int id2 = (int)IDs.y;
+    float idBlend = IDs.z;
 
     s = FetchDataPixel(id1, ID_DETAILS_BUMPBLEND);
-    detailblendmode  = s.r;
-    detailblendscale = s.g;
-    detailbumpscale  = s.b;
-    bumpblendfactor  = s.a;
+    detail.blendMode       = s.r;
+    detail.blendScale      = s.g;
+    detail.bumpScale       = s.b;
+    detail.bumpBlendFactor = s.a;
     s = FetchDataPixel(id2, ID_DETAILS_BUMPBLEND);
-    detailblendmode  = lerp(detailblendmode,  s.r, idBlend);
-    detailblendscale = lerp(detailblendscale, s.g, idBlend);
-    detailbumpscale  = lerp(detailbumpscale,  s.b, idBlend);
-    bumpblendfactor  = lerp(bumpblendfactor,  s.a, idBlend);
+    detail.blendMode       = lerp(detail.blendMode,       s.r, idBlend);
+    detail.blendScale      = lerp(detail.blendScale,      s.g, idBlend);
+    detail.bumpScale       = lerp(detail.bumpScale,       s.b, idBlend);
+    detail.bumpBlendFactor = lerp(detail.bumpBlendFactor, s.a, idBlend);
 }
 
-// Samples albedo and bumpmap pixel from geometry textures
-void FetchGeometrySamples(
-    float2 bumpUV, float2 bumpUVddx, float2 bumpUVddy,
-    float2 baseUV, float2 baseUVddx, float2 baseUVddy,
-    float3x3 lightmapColors,
-    out float3 geometryAlbedo,
-    out float3 geometryNormal) {
-    // Sample world bumpmap
-    float2 uv = mul(BumpTextureTransform, float4(bumpUV, 1.0, 1.0));
-    geometryNormal = tex2Dgrad(WallBumpmapSampler, uv, bumpUVddx, bumpUVddy).rgb;
+// Sample world bumpmap
+float3 FetchGeometryNormal(float2 uv, float2 uvddx, float2 uvddy) {
+    uv = mul(BumpTextureTransform, float4(uv, 1.0, 1.0));
+    float3 geometryNormal = tex2Dgrad(WallBumpmapSampler, uv, uvddx, uvddy).rgb;
     geometryNormal *= 2.0;
     geometryNormal -= 1.0;
 
@@ -251,29 +257,33 @@ void FetchGeometrySamples(
     bool hasNoBump = geometryNormal.x == -1.0 &&
                      geometryNormal.y == -1.0 &&
                      geometryNormal.z == -1.0;
-    if (hasNoBump) {
-        geometryNormal = float3(0.0, 0.0, 1.0);
-    }
+    if (hasNoBump) geometryNormal = float3(0.0, 0.0, 1.0);
+    return geometryNormal;
+}
 
+// Samples albedo and bumpmap pixel from geometry textures
+float3 FetchGeometrySamples(
+    float2 uv, float2 uvddx, float2 uvddy,
+    float3x3 lightmapColors, float3 geometryNormal) {
     if (g_NeedsFrameBuffer) {
-        float4 frameBufferSample = tex2Dgrad(FrameBuffer, baseUV, baseUVddx, baseUVddy);
+        float4 frameBufferSample = tex2Dgrad(FrameBuffer, uv, uvddx, uvddy);
         frameBufferSample /= g_TonemapScale * g_LightmapScale;
-        float3 lightDirectionDifferences = hasNoBump
-            ? float3(1.0, 0.0, 0.0)
-            : float3(saturate(dot(geometryNormal, BumpBasis[0])),
+        float3 lightDirectionDifferences = g_HasBumpedLightmap
+            ? float3(saturate(dot(geometryNormal, BumpBasis[0])),
                      saturate(dot(geometryNormal, BumpBasis[1])),
-                     saturate(dot(geometryNormal, BumpBasis[2])));
+                     saturate(dot(geometryNormal, BumpBasis[2])))
+            : float3(1.0, 0.0, 0.0);
         float3 lightmapColorExpected = mul(lightDirectionDifferences, lightmapColors);
-        geometryAlbedo = frameBufferSample.rgb / max(lightmapColorExpected, 1.0e-4);
+        return frameBufferSample.rgb / max(lightmapColorExpected, 1.0e-4);
     }
     else {
-        uv = mul(BaseTextureTransform, float4(baseUV, 1.0, 1.0));
-        geometryAlbedo = tex2Dgrad(WallAlbedoSampler, uv, baseUVddx, baseUVddy).rgb;
+        uv = mul(BaseTextureTransform, float4(uv, 1.0, 1.0));
+        return tex2Dgrad(WallAlbedoSampler, uv, uvddx, uvddy).rgb;
     }
 }
 
 // Steep Parallax Occlusion Mapping
-float3 ApplyParallaxEffect(const PS_INPUT i) {
+float3 ApplyParallaxInk(const PS_INPUT i) {
     const float PIXELS_PER_STEP_RCP = rcp(16.0);
     const float MIN_STEPS = 2.0;
     const float MAX_STEPS = 16.0;
@@ -329,59 +339,24 @@ float3 ApplyParallaxEffect(const PS_INPUT i) {
         float3(i.surfaceClipRange.zw,  1.0));
 }
 
-float4 main(const PS_INPUT i) : COLOR0 {
-    float3 inkUV; // Z = final ray marching height
-    if (g_Simplified) {
-        inkUV = float3(i.inkUV_worldBumpUV.xy, 0.0);
-    }
-    else {
-        inkUV = ApplyParallaxEffect(i);
-    }
-    float3 viewVec = g_EyePos.xyz - i.worldPos_projPosZ.xyz;
-    float3 viewDir = normalize(viewVec);
-    float2 pixelUV = (floor(inkUV.xy / g_RTSize) + 0.5) * g_RTSize + float2(0.0, 0.5);
-    float4 inkIDs  = tex2Dlod(InkMap, float4(pixelUV, 0.0, 0.0));
-    float  ID1     = round(inkIDs.r * 255.0);
-    float  ID2     = round(inkIDs.g * 255.0);
-    float  idBlend = inkIDs.b;
-    clip(floor(ID1 + ID2 + idBlend) - 0.5);
-
-    // Samples ink parameters
-    float metallic, roughness, specularScale, refraction, height, depth;
-    float detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor;
-    float3 additive, multiplicative, inkNormal;
-    FetchAdditiveAndHeight(inkUV.xy, additive, height, inkNormal);
-    FetchMultiplicativeAndDepth(inkUV.xy, multiplicative, depth);
-    FetchInkMaterial(ID1, ID2, idBlend, metallic, roughness, specularScale, refraction);
-    FetchInkDetails(ID1, ID2, idBlend, detailblendmode, detailblendscale, detailbumpscale, bumpblendfactor);
-
-    float3 worldTangent = {
-        i.worldBinormalTangentX.w,
-        i.worldNormalTangentY.w,
-        i.inkTangentXYZWorldZ.w,
-    };
-    float3x3 tangentSpaceWorld = {
-        worldTangent,
-        i.worldBinormalTangentX.xyz,
-        i.worldNormalTangentY.xyz,
-    };
-    float2 tangentScaleSqr = {
-        dot(worldTangent, worldTangent),
-        dot(i.worldBinormalTangentX.xyz, i.worldBinormalTangentX.xyz),
-    };
+void ApplyParallaxGeometry(
+    const PS_INPUT i, float3x3 tangentSpaceWorld, float2 tangentScaleSqr,
+    float3 inkNormal, MaterialParams params,
+    out float2 baseUV, out float2 bumpUV) {
     float2 texTransformScale = {
         length(BaseTextureTransform[0].xyz),
         length(BaseTextureTransform[1].xyz),
     };
-    float3 tangentViewDir = mul(tangentSpaceWorld, viewDir);
+    float3 viewVec = g_EyePos.xyz - i.worldPos_projPosZ.xyz;
+    float3 tangentViewDir = mul(tangentSpaceWorld, normalize(viewVec));
     float2 parallaxVec = tangentViewDir.xy / max(tangentViewDir.z, 1.0e-3);
     float2 uvDepthParallax = -parallaxVec;
-    uvDepthParallax *= depth;
+    uvDepthParallax *= params.depth;
     uvDepthParallax /= max(tangentScaleSqr, 1.0e-3) * max(texTransformScale, 1e-3);
-    float2 uvRefraction = inkNormal.xy * refraction * rsqrt(max(tangentScaleSqr, 1.0e-3)) * 0.0;
+    float2 uvRefraction = inkNormal.xy * params.pbr.refraction * rsqrt(max(tangentScaleSqr, 1.0e-3)) * 0.0;
     float2 uvOffset = uvDepthParallax + uvRefraction;
-    float2 bumpUV = i.inkUV_worldBumpUV.zw + uvOffset;
-    float2 baseUV = bumpUV;
+    bumpUV = i.inkUV_worldBumpUV.zw + uvOffset;
+    baseUV = bumpUV;
     if (g_NeedsFrameBuffer > 0.0) {
         // Inverse conversion of world position -- UV coordinates equation:
         // P: world pos,  S: tangent S,         T: tangent T
@@ -416,6 +391,37 @@ float4 main(const PS_INPUT i) : COLOR0 {
         float2 fade = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.55, finalUV);
         baseUV = lerp(i.screenPos * g_FbSize, finalUV, fade);
     }
+}
+
+float4 main(const PS_INPUT i) : COLOR0 {
+    // Z = final ray marching height
+    float3 inkUV   = g_Simplified ? float3(i.inkUV_worldBumpUV.xy, 0.0) : ApplyParallaxInk(i);
+    float3 viewVec = g_EyePos.xyz - i.worldPos_projPosZ.xyz;
+    float3 viewDir = normalize(viewVec);
+    float2 pixelUV = (floor(inkUV.xy / g_RTSize) + 0.5) * g_RTSize + float2(0.0, 0.5);
+    float4 inkIDs  = tex2Dlod(InkMap, float4(pixelUV, 0.0, 0.0));
+    float3 IDs     = { round(inkIDs.r * 255.0), round(inkIDs.g * 255.0), inkIDs.b };
+    clip(floor(IDs.x + IDs.y + IDs.z) - 0.5);
+
+    // Samples ink parameters
+    float3 inkNormal;
+    MaterialParams params;
+    FetchAdditiveAndHeight(inkUV.xy, params, inkNormal);
+    FetchMultiplicativeAndDepth(inkUV.xy, params);
+    FetchInkMaterial(IDs, params.pbr);
+    FetchInkDetails(IDs, params.detail);
+
+    float2 baseUV, bumpUV;
+    float3x3 tangentSpaceWorld = {
+        { i.worldBinormalTangentX.w, i.worldNormalTangentY.w, i.inkTangentXYZWorldZ.w },
+        i.worldBinormalTangentX.xyz,
+        i.worldNormalTangentY.xyz,
+    };
+    float2 tangentScaleSqr = {
+        dot(tangentSpaceWorld[0], tangentSpaceWorld[0]),
+        dot(tangentSpaceWorld[1], tangentSpaceWorld[1]),
+    };
+    ApplyParallaxGeometry(i, tangentSpaceWorld, tangentScaleSqr, inkNormal, params, baseUV, bumpUV);
 
     // Sample 3 directional lightmaps
     float3x3 lightmapColors = {
@@ -433,14 +439,11 @@ float4 main(const PS_INPUT i) : COLOR0 {
     };
 
     // Sample geometry albedo and normal
-    float3 geometryAlbedo, geometryNormal;
-    FetchGeometrySamples(
-        bumpUV, bumpUVd[0], bumpUVd[1],
-        baseUV, baseUVd[0], baseUVd[1],
-        lightmapColors, geometryAlbedo, geometryNormal);
+    float3 geometryNormal = FetchGeometryNormal(bumpUV, bumpUVd[0], bumpUVd[1]);
+    float3 geometryAlbedo = FetchGeometrySamples(baseUV, baseUVd[0], baseUVd[1], lightmapColors, geometryNormal);
 
     // Blend ink and world normals
-    float3 tangentSpaceNormal = normalize(lerp(geometryNormal, inkNormal, bumpblendfactor));
+    float3 tangentSpaceNormal = normalize(lerp(geometryNormal, inkNormal, params.detail.bumpBlendFactor));
     float3 worldSpaceNormal = normalize(mul(tangentSpaceNormal, tangentSpaceWorld));
 
     // Compute diffuse lighting factors using bumped lightmap basis
@@ -459,9 +462,9 @@ float4 main(const PS_INPUT i) : COLOR0 {
     }
 
     // Modulate surface albedo and add ink color
-    float3 albedo = geometryAlbedo * multiplicative + additive;
+    float3 albedo = geometryAlbedo * params.multiplicative + params.additive;
     float3 ambientOcclusion = { 1.0, 1.0, 1.0 }; // dummy!
-    float3 result = albedo * lerp(1.0, DIFFUSE_MIN, metallic);
+    float3 result = albedo * lerp(1.0, DIFFUSE_MIN, params.pbr.metallic);
 
     // Apply diffuse lighting component
     result *= mul(lightDirectionDifferences, lightmapColors);
@@ -473,8 +476,8 @@ float4 main(const PS_INPUT i) : COLOR0 {
     // v Specular component (accumulates to the final result)
 
 #ifdef g_PhongEnabled
-    float  phongExponent = lerp(PHONG_EXPONENT_MIN, PHONG_EXPONENT_MAX, roughness);
-    float3 phongFresnel  = lerp(FRESNEL_MIN, albedo, metallic);
+    float  phongExponent = lerp(PHONG_EXPONENT_MIN, PHONG_EXPONENT_MAX, params.pbr.roughness);
+    float3 phongFresnel  = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);
     float3 phongLightDir = g_SunDirection;
     if (g_HasBumpedLightmap) {
         float3 strength = mul(GrayScaleFactor, lightmapColors);
@@ -485,29 +488,30 @@ float4 main(const PS_INPUT i) : COLOR0 {
 
     float spec = CalcBlinnPhongSpec(worldSpaceNormal, phongLightDir, viewDir, phongExponent);
     float3 phongSpecular = mul(lightDirectionDifferences * spec, lightmapColors);
+    float3 tangentViewDir = mul(tangentSpaceWorld, viewDir);
     phongSpecular *= CalcFresnel(tangentSpaceNormal, tangentViewDir, phongFresnel);
     phongSpecular *= ambientOcclusion;
-    phongSpecular *= specularScale;
+    phongSpecular *= params.pbr.specularScale;
     phongSpecular *= g_LightmapScale;
     result += phongSpecular;
 #endif
 
 #ifdef g_RimEnabled
     float3 worldMeshNormal = i.worldNormalTangentY.xyz;
-    float rimExponent = lerp(RIM_EXPONENT_MIN, RIM_EXPONENT_MAX, roughness);
+    float rimExponent = lerp(RIM_EXPONENT_MIN, RIM_EXPONENT_MAX, params.pbr.roughness);
     float rimNormalDotViewDir = saturate(dot(worldMeshNormal, viewDir));
     float rimScale = saturate(pow(1.0 - rimNormalDotViewDir, rimExponent));
-    rimScale *= lerp(RIM_METALIC_MIN, RIM_METALIC_MAX, metallic);
-    rimScale *= lerp(RIM_ROUGHNESS_MIN, RIM_ROUGHNESS_MAX, roughness);
+    rimScale *= lerp(RIM_METALIC_MIN, RIM_METALIC_MAX, params.pbr.metallic);
+    rimScale *= lerp(RIM_ROUGHNESS_MIN, RIM_ROUGHNESS_MAX, params.pbr.roughness);
     rimScale *= saturate(
         (RIMLIGHT_FADE_MAX - i.worldPos_projPosZ.w) /
         (RIMLIGHT_FADE_MAX - RIMLIGHT_FADE_MIN));
 
     // Use average lightmap color as rim light color
     float3 rimLighting = mul(lightDirectionDifferences, lightmapColors);
-    rimLighting = lerp(rimLighting, albedo, metallic);
+    rimLighting = lerp(rimLighting, albedo, params.pbr.metallic);
     rimLighting *= min(rimScale, RIMLIGHT_MAX_SCALE);
-    rimLighting *= specularScale;
+    rimLighting *= params.pbr.specularScale;
     rimLighting *= g_LightmapScale;
     result += rimLighting;
 #endif
@@ -532,14 +536,14 @@ float4 main(const PS_INPUT i) : COLOR0 {
     envmapSpecular *= step(abs(i.inkBinormal_projW.w), 1e-3);
 
     // Apply envmap contribution
-    float3 envmapFresnel = lerp(FRESNEL_MIN, albedo, metallic);
-    float  envmapScale   = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, roughness * roughness);
-    float3 envmapAlbedo  = lerp(float3(1.0, 1.0, 1.0), albedo, metallic);
+    float3 envmapFresnel = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);
+    float  envmapScale   = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, params.pbr.roughness * params.pbr.roughness);
+    float3 envmapAlbedo  = lerp(float3(1.0, 1.0, 1.0), albedo, params.pbr.metallic);
     envmapSpecular *= envmapAlbedo;
     envmapSpecular *= CalcFresnel(worldSpaceNormal, viewDir, envmapFresnel);
     envmapSpecular *= envmapScale;
     envmapSpecular *= ambientOcclusion;
-    envmapSpecular *= specularScale;
+    envmapSpecular *= params.pbr.specularScale;
     envmapSpecular *= g_LightmapScale;
     result += envmapSpecular;
 #endif

@@ -21,7 +21,6 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
     end
 
     local t0 = SysTime()
-    local estimatedRectangleSize = math.sqrt(totalArea)
     local workMatrix = Matrix() -- Work area to invert matrix.
     for rtIndex, rtSize in ipairs(ss.RenderTarget.Resolutions) do
         local rects = {} ---@type ss.Rectangle[]
