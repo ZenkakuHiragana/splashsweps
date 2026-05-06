@@ -1,7 +1,7 @@
 
 // Pixel shader for the vertex-input probe.
-// c0.x < 0 switches back to sampler preview mode.
-// c3.w > 0 makes the display show vertex-shader payloads instead of constants.
+// c0.x < 0 switches to sampler preview mode.
+// c3.w > 0 makes the display show vertex-shader payloads instead of pixel constants.
 // c0  $c0_xyzw from VMT
 // c1  $c1_xyzw from VMT
 // c2  $c2_xyzw from VMT

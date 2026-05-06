@@ -11,6 +11,7 @@ if not ss then return end
 ---@field SpecialWeapon string
 ---@field SubWeapon     string
 ---@field ClassID       integer
+---@diagnostic disable-next-line: deprecated
 local SWEP = SWEP
 if CLIENT then
     SWEP.Author = ""
