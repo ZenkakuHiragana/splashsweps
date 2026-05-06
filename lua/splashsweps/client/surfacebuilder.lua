@@ -330,16 +330,16 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
     worldToUV:SetScale(ss.vector_one * scale)
 
     ---@class ss.SurfaceBuilder.MeshVertexPack
-    ---@field Normal Vector
-    ---@field TangentS    Vector
-    ---@field TangentT    Vector
-    ---@field Position    Vector
-    ---@field U           number[]
-    ---@field V           number[]
-    ---@field UVRange     number[]
-    ---@field InkTangent  number[]
-    ---@field InkBinormal number[]
-    ---@field SurfaceIndex integer?
+    ---@field Position           Vector
+    ---@field UVRange            number[]
+    ---@field WorldTangent_U     number[]
+    ---@field WorldBinormal_V    number[]
+    ---@field WorldNormal_dU     number[]
+    ---@field InkTangent_U       number[]
+    ---@field InkBinormal_V      number[]
+    ---@field LightmapTangent_U  number[]
+    ---@field LightmapBinormal_V number[]
+    ---@field SurfaceIndex       integer?
     ss.DebugMeshData = {} ---@type ss.SurfaceBuilder.MeshVertexPack[][]
     for modelIndex, meshInfoArray in pairs(meshInfoArrayOfArray) do
         local meshIndex = 1
@@ -449,29 +449,54 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
                         uv.x = uv.x + info.Translation.x * scale
                         uv.y = uv.y + info.Translation.y * scale
                         meshData[meshIndex][vertIndex] = {
-                            Normal = normal,
-                            TangentS = tangent,
-                            TangentT = binormal,
                             Position = position,
-                            U = { uv.y, s, bumpmapOffsets[faceIndex], v.BumpmapUV.x },
-                            V = { uv.x, t, 0,                         v.BumpmapUV.y },
                             UVRange = {
                                 info.OffsetU + bilinearGuard,
                                 info.OffsetV + bilinearGuard,
                                 info.OffsetU + info.Width  - bilinearGuard,
                                 info.OffsetV + info.Height - bilinearGuard,
                             },
-                            InkTangent = {
+                            WorldTangent_U = {
+                                tangent.x,
+                                tangent.y,
+                                tangent.z,
+                                v.BumpmapUV.x,
+                            },
+                            WorldBinormal_V = {
+                                binormal.x,
+                                binormal.y,
+                                binormal.z,
+                                v.BumpmapUV.y,
+                            },
+                            WorldNormal_dU = {
+                                normal.x,
+                                normal.y,
+                                normal.z,
+                                bumpmapOffsets[faceIndex],
+                            },
+                            InkTangent_U = {
                                 worldToUV:GetField(1, 1),
                                 worldToUV:GetField(1, 2),
                                 worldToUV:GetField(1, 3),
-                                worldToUV:GetField(1, 4),
+                                uv.y,
                             },
-                            InkBinormal = {
+                            InkBinormal_V = {
                                 worldToUV:GetField(2, 1),
                                 worldToUV:GetField(2, 2),
                                 worldToUV:GetField(2, 3),
-                                worldToUV:GetField(2, 4),
+                                uv.x,
+                            },
+                            LightmapTangent_U = {
+                                v.LightmapTangent.x,
+                                v.LightmapTangent.y,
+                                v.LightmapTangent.z,
+                                s,
+                            },
+                            LightmapBinormal_V = {
+                                v.LightmapBinormal.x,
+                                v.LightmapBinormal.y,
+                                v.LightmapBinormal.z,
+                                t,
                             },
                             SurfaceIndex = faceIndex,
                         }
@@ -495,30 +520,29 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
         for i, vertices in ipairs(meshData) do
             mesh.Begin(renderBatch[i].Mesh, MATERIAL_TRIANGLES, #vertices / 3)
             for _, v in ipairs(vertices) do
-                mesh.Normal(v.Normal)
-                mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, 1)
                 mesh.Position(v.Position)
-                mesh.TexCoord(0, v.U[1], v.V[1], v.U[4], v.V[4])
-                mesh.TexCoord(1, v.U[2], v.V[2], v.U[3], v.V[3])
-                mesh.TexCoord(2, v.InkTangent[1], v.InkTangent[2], v.InkTangent[3], v.InkTangent[4])
-                mesh.TexCoord(3, v.InkBinormal[1], v.InkBinormal[2], v.InkBinormal[3], v.InkBinormal[4])
-                mesh.TexCoord(4, v.TangentS.x, v.TangentS.y, v.TangentS.z)
-                mesh.TexCoord(5, v.TangentT.x, v.TangentT.y, v.TangentT.z)
-                mesh.TexCoord(6, unpack(v.UVRange))
+                mesh.TexCoord(0, unpack(v.UVRange))
+                mesh.TexCoord(1, unpack(v.WorldTangent_U))
+                mesh.TexCoord(2, unpack(v.WorldBinormal_V))
+                mesh.TexCoord(3, unpack(v.WorldNormal_dU))
+                mesh.TexCoord(4, unpack(v.InkTangent_U))
+                mesh.TexCoord(5, unpack(v.InkBinormal_V))
+                mesh.TexCoord(6, unpack(v.LightmapTangent_U))
+                mesh.TexCoord(7, unpack(v.LightmapBinormal_V))
                 mesh.AdvanceVertex()
             end
             mesh.End()
 
             mesh.Begin(renderBatch[i].MeshFlashlight, MATERIAL_TRIANGLES, #vertices / 3)
             for _, v in ipairs(vertices) do
-                mesh.Normal(v.Normal)
-                mesh.UserData(v.TangentS.x, v.TangentS.y, v.TangentS.z, 1)
-                mesh.TangentS(v.TangentS)
-                mesh.TangentT(v.TangentT)
+                mesh.Normal(v.WorldNormal_dU[1], v.WorldNormal_dU[2], v.WorldNormal_dU[3])
+                mesh.UserData(v.WorldTangent_U[1], v.WorldTangent_U[2], v.WorldTangent_U[3], 1)
+                mesh.TangentS(v.WorldTangent_U[1], v.WorldTangent_U[2], v.WorldTangent_U[3])
+                mesh.TangentT(v.WorldBinormal_V[1], v.WorldBinormal_V[2], v.WorldBinormal_V[3])
                 mesh.Position(v.Position)
-                mesh.TexCoord(0, v.U[4], v.V[4]) -- Correctly bind geometry's bumpmap UV
-                mesh.TexCoord(1, v.U[2], v.V[2])
-                mesh.TexCoord(2, v.U[3], v.V[3])
+                mesh.TexCoord(0, v.WorldTangent_U[4], v.WorldBinormal_V[4]) -- Correctly bind geometry's bumpmap UV
+                mesh.TexCoord(1, v.LightmapTangent_U[4], v.LightmapBinormal_V[4])
+                mesh.TexCoord(2, v.WorldNormal_dU[4], 0)
                 mesh.AdvanceVertex()
             end
             mesh.End()
