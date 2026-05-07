@@ -267,9 +267,9 @@ void FetchInkDetails(float3 IDs, out DetailParams detail) {
 }
 
 // Sample world bumpmap
-float3 FetchGeometryNormal(float2 uv, float2 uvddx, float2 uvddy) {
+float3 FetchGeometryNormal(float2 uv) {
     uv = mul(BumpTextureTransform, float4(uv, 1.0, 1.0));
-    float3 geometryNormal = tex2Dgrad(WallBumpmapSampler, uv, uvddx, uvddy).rgb;
+    float3 geometryNormal = tex2Dlod(WallBumpmapSampler, float4(uv, 0.0, 0.0)).rgb;
     geometryNormal *= 2.0;
     geometryNormal -= 1.0;
 
@@ -277,16 +277,14 @@ float3 FetchGeometryNormal(float2 uv, float2 uvddx, float2 uvddy) {
     bool hasNoBump = geometryNormal.x == -1.0 &&
                      geometryNormal.y == -1.0 &&
                      geometryNormal.z == -1.0;
-    if (hasNoBump) geometryNormal = float3(0.0, 0.0, 1.0);
+    if (hasNoBump) return float3(0.0, 0.0, 1.0);
     return geometryNormal;
 }
 
 // Samples albedo and bumpmap pixel from geometry textures
-float3 FetchGeometrySamples(
-    float2 uv, float2 uvddx, float2 uvddy,
-    float3x3 lightmapColors, float3 geometryNormal) {
+float3 FetchGeometrySamples(float2 uv, float3x3 lightmapColors, float3 geometryNormal) {
     if (g_NeedsFrameBuffer) {
-        float4 frameBufferSample = tex2Dgrad(FrameBuffer, uv, uvddx, uvddy);
+        float4 frameBufferSample = tex2Dlod(FrameBuffer, float4(uv, 0.0, 0.0));
         frameBufferSample /= g_TonemapScale * g_LightmapScale;
         float3 lightDirectionDifferences = g_HasBumpedLightmap
             ? float3(saturate(dot(geometryNormal, BumpBasis[0])),
@@ -298,7 +296,7 @@ float3 FetchGeometrySamples(
     }
     else {
         uv = mul(BaseTextureTransform, float4(uv, 1.0, 1.0));
-        return tex2Dgrad(WallAlbedoSampler, uv, uvddx, uvddy).rgb;
+        return tex2Dlod(WallAlbedoSampler, float4(uv, 0.0, 0.0)).rgb;
     }
 }
 
@@ -438,15 +436,10 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
         tex2D(LightmapSampler, i.lightmapUV[1]).rgb,
         tex2D(LightmapSampler, i.lightmapUV[2]).rgb,
     };
-    float2 bumpUVd[2] = { ddx(i.worldUV), ddy(i.worldUV) };
-    float2 baseUVd[2] = {
-        g_HasBumpedLightmap ? float2(g_FbSize.x, 0.0) : bumpUVd[0],
-        g_HasBumpedLightmap ? float2(0.0, g_FbSize.y) : bumpUVd[1],
-    };
 
     // Sample geometry albedo and normal
-    float3 geometryNormal = FetchGeometryNormal(bumpUV, bumpUVd[0], bumpUVd[1]);
-    float3 geometryAlbedo = FetchGeometrySamples(baseUV, baseUVd[0], baseUVd[1], lightmapColors, geometryNormal);
+    float3 geometryNormal = FetchGeometryNormal(bumpUV);
+    float3 geometryAlbedo = FetchGeometrySamples(baseUV, lightmapColors, geometryNormal);
 
     // Blend ink and world normals
     float3 tangentSpaceNormal = normalize(lerp(geometryNormal, inkNormal, params.detail.bumpBlendFactor));
