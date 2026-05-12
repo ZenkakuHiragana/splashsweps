@@ -664,7 +664,6 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
         surf.Vertices[i].LightmapBinormal:Set(texInfo.lightmapVecT)
         surf.Vertices[i].BumpmapUV:Set(bumpmapuv[t])
         surf.Vertices[i].LightmapUV:Set(lightmapuv[t])
-        surf.Vertices[i].UndisplacedOrigin = subdivision[t]
         surf.Vertices[i].DispPaintOrigin = paintorigin[t]
     end
 

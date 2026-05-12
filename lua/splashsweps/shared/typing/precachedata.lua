@@ -33,7 +33,6 @@ end
 ---@field LightmapBinormal  Vector
 ---@field LightmapUV        Vector  Relative Lightmap UV values in luxels.
 ---@field BumpmapUV         Vector  Bumpmap UV coordinates of the original face in texels.
----@field UndisplacedOrigin Vector? The point that this displacement point was made from.
 ---@field DispPaintOrigin   Vector? Displacement-only world-space reference point used to compute paint/ink UV.
 ss.struct "PrecachedData.Vertex" (setmetatable({
     Vector(),
@@ -45,7 +44,6 @@ ss.struct "PrecachedData.Vertex" (setmetatable({
     Vector(),
     Vector(),
     nil,
-    nil,
 }, {
     Translation       = 1,
     Normal            = 2,
@@ -55,8 +53,7 @@ ss.struct "PrecachedData.Vertex" (setmetatable({
     LightmapBinormal  = 6,
     LightmapUV        = 7,
     BumpmapUV         = 8,
-    UndisplacedOrigin = 9,
-    DispPaintOrigin   = 10,
+    DispPaintOrigin   = 9,
     __index           = indexer,
     __newindex        = newindexer,
 }))
