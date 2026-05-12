@@ -387,7 +387,7 @@ local function buildBaseInkMeshMaterialParams()
         ["$linearread_texture3"]    = "0",
         ["$linearread_texture4"]    = "1",
         ["$linearread_texture5"]    = "1",
-        ["$linearread_texture6"]    = "1",
+        ["$linearread_texture6"]    = render.GetHDREnabled() and "1" or "0",
         ["$linearread_texture7"]    = "1",
         ["$alpha_blend"]            = "1",
         ["$alphablend"]             = "1",
