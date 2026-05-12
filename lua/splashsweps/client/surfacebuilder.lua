@@ -37,18 +37,32 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---@field ArrayIndex           integer Index to material name array which is usually game.GetMap():GetMaterials().
 ---@field NeedsBumpedLightmaps boolean Whether the material uses 3 directional lightmaps plus the base lightmap.
 ---@field NeedsFrameBuffer     boolean Whether albedo should be reconstructed from the current framebuffer.
----@field Bumpmap              string? Value of $bumpmap.
 ---@field BaseTexture          string? Value of $basetexture.
----@field BumpTextureTransform string? Value of $bumptransform.
----@field BaseTextureTransform string? Value of $basetexturetransform.
+---@field Bumpmap              string? Value of $bumpmap.
+---@field Detail               string? Value of $detail.
+---@field BumpTextureTransform VMatrix? Value of $bumptransform.
+---@field BaseTextureTransform VMatrix? Value of $basetexturetransform.
+---@field DetailTransform      VMatrix? Value of $detailtransform.
+---@field DetailBlendMode      integer? Value of $detailblendmode.
+---@field DetailBlendFactor    number?  Value of $detailblendfactor.
+---@field DetailScale          Vector?  Value of $detailscale.
+---@field DetailTint           Vector?  Value of $detailtint.
+---@field Color                Vector?  Value of $color.
 ss.struct "SurfaceBuilder.MaterialInfo" {
-    ArrayIndex = 0,
+    ArrayIndex           = 0,
     NeedsBumpedLightmaps = false,
-    NeedsFrameBuffer = false,
-    Bumpmap = nil,
-    BaseTexture = nil,
+    NeedsFrameBuffer     = false,
+    BaseTexture          = nil,
+    Bumpmap              = nil,
+    Detail               = nil,
     BumpTextureTransform = nil,
     BaseTextureTransform = nil,
+    DetailTransform      = nil,
+    DetailBlendMode      = nil,
+    DetailBlendFactor    = nil,
+    DetailScale          = nil,
+    DetailTint           = nil,
+    Color                = nil,
 }
 
 ---Stores packed lightmap information for each SortID.
@@ -154,13 +168,20 @@ local function enumerateMaterials(materialsInMap)
             local mat = Material(name)
             if mat and not mat:IsError() then
                 materialInfo[enumerationID] = {
-                    ArrayIndex = enumerationIDToArrayIndex[enumerationID],
+                    ArrayIndex           = enumerationIDToArrayIndex[enumerationID],
                     NeedsBumpedLightmaps = bit.band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0,
-                    NeedsFrameBuffer = tobool(mat:GetString "$basetexture2"),
-                    Bumpmap = mat:GetString "$bumpmap",
-                    BaseTexture = mat:GetString "$basetexture",
-                    BaseTextureTransform = mat:GetString "$basetexturetransform",
-                    BumpTextureTransform = mat:GetString "$bumptransform",
+                    NeedsFrameBuffer     = tobool(mat:GetString "$basetexture2"),
+                    BaseTexture          = mat:GetString "$basetexture",
+                    Bumpmap              = mat:GetString "$bumpmap",
+                    Detail               = mat:GetString "$detail",
+                    BaseTextureTransform = mat:GetMatrix "$basetexturetransform",
+                    BumpTextureTransform = mat:GetMatrix "$bumptransform",
+                    DetailTransform      = mat:GetMatrix "$detailtexturetransform",
+                    DetailBlendMode      = mat:GetInt    "$detailblendmode",
+                    DetailBlendFactor    = mat:GetFloat  "$detailblendfactor",
+                    DetailScale          = mat:GetVector "$detailscale",
+                    DetailTint           = mat:GetVector "$detailtint",
+                    Color                = mat:GetVector "$color",
                 }
             end
         end
@@ -283,6 +304,22 @@ local function packLightmaps(surfaceInfo, materialInfo)
     return lightmapLayout
 end
 
+---Retrieves the size of lightmap page that contains given face index i in luxels.
+---@param lightmapLayout ss.SurfaceBuilder.LightmapLayout
+---@param lightmapGroup  ss.SurfaceBuilder.LightmapGroup
+---@return integer pageWidth  The width of the page in luxels.
+---@return integer pageHeight The height of the page in luxels.
+local function getLightmapPageSize(lightmapLayout, lightmapGroup)
+    local maxLightmapIndex        = lightmapLayout.MaxLightmapIndex
+    local lastPageWidth           = lightmapLayout.LastLightmapWidth
+    local lastPageHeight          = lightmapLayout.LastLightmapHeight
+    local page       = lightmapGroup.LightmapPage
+    local isLastPage = page == maxLightmapIndex
+    local pageWidth  = isLastPage and lastPageWidth  or MAX_LIGHTMAP_WIDTH
+    local pageHeight = isLastPage and lastPageHeight or MAX_LIGHTMAP_HEIGHT
+    return pageWidth, pageHeight
+end
+
 ---Groups packed faces by model and SortID, while applying packed lightmap UVs to vertices.
 ---@param surfaceInfo    ss.PrecachedData.SurfaceInfo     Cached BSP surface data to update in-place.
 ---@param lightmapLayout ss.SurfaceBuilder.LightmapLayout Packed lightmap layout from packLightmaps.
@@ -294,19 +331,13 @@ local function buildMeshGroupsAndApplyLightmapUVs(surfaceInfo, lightmapLayout)
     local meshGroupsByModel       = {}
     local bumpmapOffsetsByFace    = {} ---@type number[] faceIndex --> bumpmap offset
     local sortIDToMeshGroupIndex  = {} ---@type integer[][]
-    local maxLightmapIndex        = lightmapLayout.MaxLightmapIndex
-    local lastPageWidth           = lightmapLayout.LastLightmapWidth
-    local lastPageHeight          = lightmapLayout.LastLightmapHeight
     for sortID, lightmapGroup in ipairs(lightmapLayout.Groups) do
         local materialInfo = lightmapGroup.Material
+        local pageWidth, pageHeight = getLightmapPageSize(lightmapLayout, lightmapGroup)
         for i, faceIndex in ipairs(lightmapGroup.FaceIndices) do
             local surf = setmetatable(surfaceInfo.Surfaces[faceIndex], SurfaceMeta)
             local lightmapWidth = lightmapGroup.LightmapWidths[i]
             local lightmapCoordinates = lightmapGroup.FaceLightmaps[i]
-            local page       = lightmapGroup.LightmapPage
-            local isLastPage = page == maxLightmapIndex
-            local pageWidth  = isLastPage and lastPageWidth  or MAX_LIGHTMAP_WIDTH
-            local pageHeight = isLastPage and lastPageHeight or MAX_LIGHTMAP_HEIGHT
             bumpmapOffsetsByFace[faceIndex] = materialInfo.NeedsBumpedLightmaps and lightmapWidth / pageWidth or 0
             for _, v in ipairs(surf.Vertices) do
                 setmetatable(v, VertexMeta)
@@ -344,22 +375,21 @@ local function buildMeshGroupsAndApplyLightmapUVs(surfaceInfo, lightmapLayout)
 end
 
 ---Builds the shared key-values for dynamic inkmesh materials.
----@return table<string, string|number> baseParams Common Screenspace_General_8tex parameters.
+---@return table<string, string|number|Vector|VMatrix> baseParams Common Screenspace_General_8tex parameters.
 local function buildBaseInkMeshMaterialParams()
     return {
         ["$vertexshader"]           = "splashsweps/inkmesh_vs30",
         ["$pixshader"]              = "splashsweps/inkmesh_ps30",
         ["$basetexture"]            = ss.RenderTarget.StaticTextures.InkMap:GetName(),
         ["$texture1"]               = ss.RenderTarget.StaticTextures.Params:GetName(),
-        ["$texture2"]               = "_rt_ResolvedFullFrameDepth",
-        ["$texture3"]               = "_rt_fullframefb1",
-        ["$texture4"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
+        ["$texture2"]               = "_rt_fullframefb1",
+        ["$texture7"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
         ["$linearread_basetexture"] = "1",
         ["$linearread_texture1"]    = "1",
-        ["$linearread_texture2"]    = "1",
+        ["$linearread_texture2"]    = "0",
         ["$linearread_texture3"]    = "0",
         ["$linearread_texture4"]    = "1",
-        ["$linearread_texture5"]    = "0",
+        ["$linearread_texture5"]    = "1",
         ["$linearread_texture6"]    = "1",
         ["$linearread_texture7"]    = "1",
         ["$alpha_blend"]            = "1",
@@ -392,31 +422,72 @@ end
 ---@param renderBatch    ss.RenderBatch                      Destination render batch owned by ss.RenderBatches.
 ---@return ss.RenderBatch renderBatch The same render batch after appending mesh entries.
 local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
+    local m = Matrix()
     local fbScale = ScrH() / (2 * math.tan(math.rad(LocalPlayer():GetFOV() * 0.5)))
     for _, vertexBatch in ipairs(vertexBatches) do
         local sortID = vertexBatch.SortID
         local lightmapGroup = lightmapLayout.Groups[sortID]
+        local pageWidth, pageHeight = getLightmapPageSize(lightmapLayout, lightmapGroup)
         local materialInfo = lightmapGroup.Material
         local page = lightmapGroup.LightmapPage
         local lightmapTextureName = page and string.format("\\[lightmap%d]", page) or "white"
-        local bumpmapTextureName = materialInfo.Bumpmap or "null-bumpmap"
         local materialParams = buildBaseInkMeshMaterialParams()
-        materialParams["$texture5"]       = materialInfo.BaseTexture or "white"
-        materialParams["$texture6"]       = bumpmapTextureName
-        materialParams["$texture7"]       = lightmapTextureName
-        materialParams["$c1_x"]           = materialInfo.NeedsBumpedLightmaps and 1 or 0
-        materialParams["$c1_y"]           = fbScale * (materialInfo.NeedsFrameBuffer and 1 or 0)
-        materialParams["$viewprojmat"]    = materialInfo.BaseTextureTransform
-        materialParams["$invviewprojmat"] = materialInfo.BumpTextureTransform
+        materialParams["$texture3"] = materialInfo.BaseTexture or "white"
+        materialParams["$texture4"] = materialInfo.Bumpmap or "null-bumpmap"
+        materialParams["$texture5"] = materialInfo.Detail or "white"
+        materialParams["$texture6"] = lightmapTextureName
+        materialParams["$c0_w"]     = materialInfo.DetailBlendMode or 0
+        materialParams["$c1_x"]     = materialInfo.NeedsBumpedLightmaps and 1 or 0
+        materialParams["$c1_y"]     = fbScale * (materialInfo.NeedsFrameBuffer and 1 or 0)
+        materialParams["$c2_x"]     = 1 / pageWidth
+        materialParams["$c2_y"]     = 1 / pageHeight
+        materialParams["$c2_z"]     = materialInfo.DetailScale and materialInfo.DetailScale.x or 1
+        materialParams["$c2_w"]     = materialInfo.DetailScale and materialInfo.DetailScale.y or 1
+        materialParams["$c3_x"]     = materialInfo.Color and materialInfo.Color.x or 1
+        materialParams["$c3_y"]     = materialInfo.Color and materialInfo.Color.y or 1
+        materialParams["$c3_z"]     = materialInfo.Color and materialInfo.Color.z or 1
+        materialParams["$c3_w"]     = materialInfo.DetailBlendFactor or 1
 
         local mat = CreateMaterial(
             string.format("splashsweps_mesh_%d_%s", sortID, game.GetMap()),
             "Screenspace_General_8tex", materialParams)
+        m:SetUnpacked(
+            materialInfo.BaseTextureTransform:GetField(1, 1),
+            materialInfo.BaseTextureTransform:GetField(1, 2),
+            materialInfo.BaseTextureTransform:GetField(1, 4),
+            materialInfo.DetailTint and materialInfo.DetailTint.x or 1,
+            materialInfo.BaseTextureTransform:GetField(2, 1),
+            materialInfo.BaseTextureTransform:GetField(2, 2),
+            materialInfo.BaseTextureTransform:GetField(2, 4),
+            materialInfo.DetailTint and materialInfo.DetailTint.y or 1,
+            materialInfo.BumpTextureTransform:GetField(1, 1),
+            materialInfo.BumpTextureTransform:GetField(1, 2),
+            materialInfo.BumpTextureTransform:GetField(1, 4),
+            materialInfo.DetailTint and materialInfo.DetailTint.z or 1,
+            materialInfo.BumpTextureTransform:GetField(2, 1),
+            materialInfo.BumpTextureTransform:GetField(2, 2),
+            materialInfo.BumpTextureTransform:GetField(2, 4),
+            0)
+        mat:SetMatrix("$viewprojmat", m)
+        if materialInfo.DetailTransform then
+            m:SetUnpacked(
+                materialInfo.DetailTransform:GetField(1, 1),
+                materialInfo.DetailTransform:GetField(1, 2),
+                materialInfo.DetailTransform:GetField(1, 4),
+                0,
+                materialInfo.DetailTransform:GetField(2, 1),
+                materialInfo.DetailTransform:GetField(2, 2),
+                materialInfo.DetailTransform:GetField(2, 4),
+                0, 0, 0, 0, 0, 0, 0, 0, 0)
+        else
+            m:Identity()
+        end
+        mat:SetMatrix("$invviewprojmat", m)
         local matf = CreateMaterial(
             string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
             "LightmappedGeneric", {
                 ["$basetexture"] = "white",
-                ["$bumpmap"]     = bumpmapTextureName,
+                ["$bumpmap"]     = materialInfo.Bumpmap or "null-bumpmap",
             })
         renderBatch[#renderBatch + 1] = {
             Material = mat,
@@ -465,13 +536,7 @@ local function buildMeshVertexBatches(surfaceInfo, meshGroups, bumpmapOffsetsByF
             worldToUV:SetAngles(uvInfo.Angle)
             for _, v in ipairs(surf.Vertices) do
                 ContinueVertexBatch()
-                ---@cast currentVertices -?
-                local position = v.Translation
-                local normal = v.Normal
-                local tangent = v.Tangent
-                local binormal = v.Binormal
-                local s, t = v.LightmapUV.x, v.LightmapUV.y -- Lightmap UV
-                local uv = worldToUV * position
+                local uv = worldToUV * v.Translation
                 if v.DisplacementOrigin then
                     uv = worldToUV * v.DisplacementOrigin
                 end
@@ -480,7 +545,7 @@ local function buildMeshVertexBatches(surfaceInfo, meshGroups, bumpmapOffsetsByF
                 uv.x = uv.x + uvInfo.Translation.x * scale
                 uv.y = uv.y + uvInfo.Translation.y * scale
                 currentVertices[#currentVertices + 1] = {
-                    Position = position,
+                    Position = v.Translation,
                     UVRange = {
                         uvInfo.OffsetU + bilinearGuard,
                         uvInfo.OffsetV + bilinearGuard,
@@ -488,21 +553,21 @@ local function buildMeshVertexBatches(surfaceInfo, meshGroups, bumpmapOffsetsByF
                         uvInfo.OffsetV + uvInfo.Height - bilinearGuard,
                     },
                     WorldTangent_U = {
-                        tangent.x,
-                        tangent.y,
-                        tangent.z,
+                        v.Tangent.x,
+                        v.Tangent.y,
+                        v.Tangent.z,
                         v.BumpmapUV.x,
                     },
                     WorldBinormal_V = {
-                        binormal.x,
-                        binormal.y,
-                        binormal.z,
+                        v.Binormal.x,
+                        v.Binormal.y,
+                        v.Binormal.z,
                         v.BumpmapUV.y,
                     },
                     WorldNormal_dU = {
-                        normal.x,
-                        normal.y,
-                        normal.z,
+                        v.Normal.x,
+                        v.Normal.y,
+                        v.Normal.z,
                         bumpmapOffsetsByFace[faceIndex],
                     },
                     InkTangent_U = {
@@ -521,13 +586,13 @@ local function buildMeshVertexBatches(surfaceInfo, meshGroups, bumpmapOffsetsByF
                         v.LightmapTangent.x,
                         v.LightmapTangent.y,
                         v.LightmapTangent.z,
-                        s,
+                        v.LightmapUV.x,
                     },
                     LightmapBinormal_V = {
                         v.LightmapBinormal.x,
                         v.LightmapBinormal.y,
                         v.LightmapBinormal.z,
-                        t,
+                        v.LightmapUV.y,
                     },
                     SurfaceIndex = faceIndex,
                 }

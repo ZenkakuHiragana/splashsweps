@@ -21,7 +21,8 @@ struct PsVertexInfo {
     float2   maxUV;
     float3   inkUV;
     float2   worldUV;
-    float3x2 lightmapUV;
+    float2   lightmapUV;
+    float2   lightmapOffset;
     float3x3 worldTransform;
     float3x3 inkTransform;
     float3x3 lightmapTransform;
@@ -50,7 +51,7 @@ struct MaterialParams {
     DetailParams detail;
 };
 
-static const float HEIGHT_TO_HU       = 8.0;
+static const float HEIGHT_TO_HU       = 24.0;
 static const float ALBEDO_ALPHA_MIN   = 0.0625;
 static const float DIFFUSE_MIN        = 0.0625; // Diffuse factor at metallic = 100%
 static const float ENVMAP_SCALE_MIN   = 0.5;    // Envmap factor at roughness = 0%
@@ -75,16 +76,15 @@ static const float3x3 BumpBasis = {
     { -0.40824833512306213, -0.70710676908493042, 0.57735025882720947 },
 };
 
-
 // Samplers
 sampler InkMap             : register(s0);
 sampler InkDataSampler     : register(s1);
-sampler UnusedSampler      : register(s2);
-sampler FrameBuffer        : register(s3);
-sampler InkDetailSampler   : register(s4);
-sampler WallAlbedoSampler  : register(s5);
-sampler WallBumpmapSampler : register(s6);
-sampler LightmapSampler    : register(s7);
+sampler FrameBuffer        : register(s2);
+sampler WallAlbedoSampler  : register(s3);
+sampler WallBumpmapSampler : register(s4);
+sampler WallDetailSampler  : register(s5);
+sampler LightmapSampler    : register(s6);
+sampler InkDetailSampler   : register(s7);
 
 // Constants
 const float4 c0        : register(c0);
@@ -98,27 +98,39 @@ const float2 s3Size    : register(c7);
 const float4 c8        : register(c8);
 const float4 c9        : register(c9);
 const float4 g_EyePos  : register(c10); // xyz: eye position
-const float2x4 BaseTextureTransform : register(c11);
-const float2x4 BumpTextureTransform : register(c15);
+const float4 c11       : register(c11);
+const float4 c12       : register(c12);
+const float4 c13       : register(c13);
+const float4 c14       : register(c14);
+const float4 c15       : register(c15);
+const float4 c16       : register(c16);
 const float4 HDRParams : register(c30);
 
-#define g_SunDirection      c0.xyz // in world space
-#define g_Unused            c0.w
-#define g_HasBumpedLightmap c1.x
-#define g_NeedsFrameBuffer  c1.y   // True when WorldVertexTransition or Lightmapped_4WayBlend
-#define g_ScreenScale       c1.y   // If g_NeedsFrameBuffer > 0, it is parallax mapping scale
-#define g_HammerUnitsToUV   c1.z   // = ss.RenderTarget.HammerUnitsToUV * 0.5
-#define g_Simplified        c1.w   // Simplified rendering for water reflection/refraction
-#define g_RTSize            s0Size // One over ink map size
-#define g_DataRTSize        s1Size // One over data look-up table size
-#define g_FbSize            s3Size // One over frame buffer size
-#define g_TonemapScale  HDRParams.x
-#define g_LightmapScale HDRParams.y
-#define g_EnvmapScale   HDRParams.z
-#define g_GammaScale    HDRParams.w // = TonemapScale ^ (1 / 2.2)
+static const float3 BaseTransform[2]    = { c11.xyz, c12.xyz };
+static const float3 BumpTransform[2]    = { c13.xyz, c14.xyz };
+static const float3 DetailTransform[2]  = { c15.xyz, c16.xyz };
+static const float3 g_DetailTint        = { c11.w, c12.w, c13.w };
+static const float3 g_SunDirection      = c0.xyz; // in world space
+static const float  g_DetailBlendMode   = c0.w;
+static const float  g_HasBumpedLightmap = c1.x;
+static const float  g_NeedsFrameBuffer  = c1.y;   // True when WorldVertexTransition or Lightmapped_4WayBlend
+static const float  g_ScreenScale       = c1.y;   // If g_NeedsFrameBuffer > 0, it is parallax mapping scale
+static const float  g_HammerUnitsToUV   = c1.z;   // = ss.RenderTarget.HammerUnitsToUV * 0.5
+static const float  g_Simplified        = c1.w;   // Simplified rendering for water reflection/refraction
+static const float2 g_LightmapSize      = c2.xy;  // One over lightmap size
+static const float2 g_DetailScale       = c2.zw;
+static const float3 g_Color             = c3.rgb;
+static const float  g_DetailBlendFactor = c3.w;
+static const float2 g_RTSize            = s0Size; // One over ink map size
+static const float2 g_DataRTSize        = s1Size; // One over data look-up table size
+static const float2 g_FbSize            = s2Size; // One over frame buffer size
+static const float2 g_WallAlbedoSize    = s3Size; // One over $basetexture size
+static const float  g_TonemapScale      = HDRParams.x;
+static const float  g_LightmapScale     = HDRParams.y;
+static const float  g_EnvmapScale       = HDRParams.z;
+static const float  g_GammaScale        = HDRParams.w; // = TonemapScale ^ (1 / 2.2)
 
 PsVertexInfo DecomposeInput(const PS_INPUT i) {
-    float3 lightmapOffset = g_HasBumpedLightmap ? float3(0.0, 0.0, 0.0) : float3(1.0, 2.0, 3.0);
     PsVertexInfo v;
     v.screenPos         = i.screenPos.xy;
     v.worldPos          = i.vi.worldPos.xyz;
@@ -126,28 +138,13 @@ PsVertexInfo DecomposeInput(const PS_INPUT i) {
     v.minUV             = i.vi.surfaceClipRange.xy;
     v.maxUV             = i.vi.surfaceClipRange.zw;
     v.inkUV             = float3(i.vi.inkTangent_U.w, i.vi.inkBinormal_V.w, 0.0);
-    v.worldUV           = float2(i.vi.worldTangent_U.w, i.vi.worldBinormal_V.w);
-    v.lightmapUV        = float3x2(
-        i.vi.lightmapTangent_U.w + i.vi.worldNormal_dU.w * lightmapOffset[0], i.vi.lightmapBinormal_V.w,
-        i.vi.lightmapTangent_U.w + i.vi.worldNormal_dU.w * lightmapOffset[1], i.vi.lightmapBinormal_V.w,
-        i.vi.lightmapTangent_U.w + i.vi.worldNormal_dU.w * lightmapOffset[2], i.vi.lightmapBinormal_V.w);
+    v.worldUV           = float2(i.vi.worldTangent_U.w, i.vi.worldBinormal_V.w) * g_WallAlbedoSize;
+    v.lightmapUV        = float2(i.vi.lightmapTangent_U.w, i.vi.lightmapBinormal_V.w);
+    v.lightmapOffset    = float2(i.vi.worldNormal_dU.w, 0.0);
     v.worldTransform    = float3x3(i.vi.worldTangent_U.xyz,    i.vi.worldBinormal_V.xyz,    i.vi.worldNormal_dU.xyz);
     v.inkTransform      = float3x3(i.vi.inkTangent_U.xyz,      i.vi.inkBinormal_V.xyz,      i.vi.worldNormal_dU.xyz);
     v.lightmapTransform = float3x3(i.vi.lightmapTangent_U.xyz, i.vi.lightmapBinormal_V.xyz, i.vi.worldNormal_dU.xyz);
     return v;
-}
-
-float4 FetchDataPixel(int id, int index) {
-    if (id == 0) {
-        return GROUND_PROPERTIES[index];
-    }
-    else {
-        return tex2Dlod(InkDataSampler, float4(
-            (id    - 0.5) * g_DataRTSize.x,
-            (index + 0.5) * g_DataRTSize.y,
-            0.0,
-            0.0));
-    }
 }
 
 // Blinn-Phong specular calculation
@@ -196,6 +193,48 @@ float4 CalcNearFarZ(float projPosZ, float projPosW) {
     return float4(nearZ, farZ, projMatrixPropotional, projMatrixOffset);
 }
 
+float3 CalcLightmapFactors(float3 normal) {
+    if (g_HasBumpedLightmap) {
+        float3 dp = {
+            saturate(dot(normal, BumpBasis[0])),
+            saturate(dot(normal, BumpBasis[1])),
+            saturate(dot(normal, BumpBasis[2])),
+        };
+        return dp * dp;
+    }
+    else {
+        return float3(1.0, 0.0, 0.0);
+    }
+}
+
+float3 CalcFinalLightmapColor(float3x3 lightmapColors, float3 lightmapFactors) {
+    float3 lightmapFinalColor = mul(lightmapFactors, lightmapColors);
+    lightmapFinalColor *= rcp(max(dot(lightmapFactors, float3(1.0, 1.0, 1.0)), 1.0e-3));
+    lightmapFinalColor *= g_LightmapScale;
+    return lightmapFinalColor;
+}
+
+float2 ApplyBaseTransform(float2 uv) {
+    return float2(dot(float3(uv, 1.0), BaseTransform[0]), dot(float3(uv, 1.0), BaseTransform[1]));
+}
+
+float2 ApplyBumpTransform(float2 uv) {
+    return float2(dot(float3(uv, 1.0), BumpTransform[0]), dot(float3(uv, 1.0), BumpTransform[1]));
+}
+
+float4 FetchDataPixel(int id, int index) {
+    if (id == 0) {
+        return GROUND_PROPERTIES[index];
+    }
+    else {
+        return tex2Dlod(InkDataSampler, float4(
+            (id    - 0.5) * g_DataRTSize.x,
+            (index + 0.5) * g_DataRTSize.y,
+            0.0,
+            0.0));
+    }
+}
+
 // Samples only height value to apply parallax effect to the ink
 float FetchHeight(float2 uv) {
     return TO_SIGNED(tex2Dlod(InkMap, float4(uv, 0.0, 0.0)).a);
@@ -214,8 +253,8 @@ void FetchAdditiveAndHeight(float2 uv, inout MaterialParams params, out float3 n
     params.height   = TO_SIGNED(s.a);
 
     // Additional samples to calculate tangent space normal
-    float hx = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(g_RTSize.x, 0, 0.0, 0.0)).a);
-    float hy = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(0, g_RTSize.y, 0.0, 0.0)).a);
+    float hx = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(g_RTSize.x, 0.0, 0.0, 0.0)).a);
+    float hy = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(0.0, g_RTSize.y, 0.0, 0.0)).a);
     float dx = hx - params.height;
     float dy = hy - params.height;
     normal = normalize(float3(-dx, -dy, 1.0));
@@ -267,9 +306,9 @@ void FetchInkDetails(float3 IDs, out DetailParams detail) {
 }
 
 // Sample world bumpmap
-float3 FetchGeometryNormal(float2 uv) {
-    uv = mul(BumpTextureTransform, float4(uv, 1.0, 1.0));
-    float3 geometryNormal = tex2Dlod(WallBumpmapSampler, float4(uv, 0.0, 0.0)).rgb;
+float3 FetchGeometryNormal(const PsVertexInfo i, float2 uv) {
+    float2 dx = ddx(i.worldUV), dy = ddy(i.worldUV);
+    float3 geometryNormal = tex2Dgrad(WallBumpmapSampler, uv, dx, dy).rgb;
     geometryNormal *= 2.0;
     geometryNormal -= 1.0;
 
@@ -281,22 +320,36 @@ float3 FetchGeometryNormal(float2 uv) {
     return geometryNormal;
 }
 
-// Samples albedo and bumpmap pixel from geometry textures
-float3 FetchGeometrySamples(float2 uv, float3x3 lightmapColors, float3 geometryNormal) {
-    if (g_NeedsFrameBuffer) {
-        float4 frameBufferSample = tex2Dlod(FrameBuffer, float4(uv, 0.0, 0.0));
-        frameBufferSample /= g_TonemapScale * g_LightmapScale;
-        float3 lightDirectionDifferences = g_HasBumpedLightmap
-            ? float3(saturate(dot(geometryNormal, BumpBasis[0])),
-                     saturate(dot(geometryNormal, BumpBasis[1])),
-                     saturate(dot(geometryNormal, BumpBasis[2])))
-            : float3(1.0, 0.0, 0.0);
-        float3 lightmapColorExpected = mul(lightDirectionDifferences, lightmapColors);
-        return frameBufferSample.rgb / max(lightmapColorExpected, 1.0e-4);
+float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
+    float2 dx = ddx(i.lightmapUV), dy = ddy(i.lightmapUV);
+    if (g_HasBumpedLightmap) {
+        return float3x3(
+            tex2Dgrad(LightmapSampler, uv + i.lightmapOffset * 1.0, dx, dy).rgb,
+            tex2Dgrad(LightmapSampler, uv + i.lightmapOffset * 2.0, dx, dy).rgb,
+            tex2Dgrad(LightmapSampler, uv + i.lightmapOffset * 3.0, dx, dy).rgb);
     }
     else {
-        uv = mul(BaseTextureTransform, float4(uv, 1.0, 1.0));
-        return tex2Dlod(WallAlbedoSampler, float4(uv, 0.0, 0.0)).rgb;
+        float3 sample = tex2Dgrad(LightmapSampler, uv, dx, dy).rgb;
+        return float3x3(sample, sample, sample);
+    }
+}
+
+// Samples albedo and bumpmap pixel from geometry textures
+float3 FetchGeometrySamples(const PsVertexInfo i, float2 uv) {
+    float3 frameBufferSample = tex2Dlod(FrameBuffer, float4(i.screenPos * g_FbSize, 0.0, 0.0)).rgb / g_TonemapScale;
+    float3 lightmapFactors = CalcLightmapFactors(FetchGeometryNormal(i, ApplyBumpTransform(i.worldUV)));
+    float3x3 lightmapColors = FetchLightmapSamples(i, i.lightmapUV);
+    float3 lightmapFinalColor = CalcFinalLightmapColor(lightmapColors, lightmapFactors);
+    if (g_NeedsFrameBuffer) {
+        return frameBufferSample / max(lightmapFinalColor, 1.0e-8);
+    }
+    else {
+        float2 dx = ddx(i.worldUV), dy = ddy(i.worldUV);
+        float2 worldUVTransformed    = ApplyBaseTransform(i.worldUV);
+        float3 albedoAtOrigin        = max(tex2Dgrad(WallAlbedoSampler, worldUVTransformed, dx, dy).rgb, 1.0e-8);
+        float3 correctionFactor      = dot(frameBufferSample, GrayScaleFactor) / dot(albedoAtOrigin * lightmapFinalColor, GrayScaleFactor);
+        float3 albedoParallaxApplied = tex2Dgrad(WallAlbedoSampler, uv, dx, dy).rgb;
+        return albedoParallaxApplied * correctionFactor;
     }
 }
 
@@ -350,24 +403,15 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
     return clamp(inkUV, float3(i.minUV, -1.0), float3(i.maxUV,  1.0));
 }
 
-void ApplyParallaxGeometry(
-    const PsVertexInfo i, float2 tangentScaleSqr,
-    float3 inkNormal, MaterialParams params,
-    out float2 baseUV, out float2 bumpUV) {
-    float2 texTransformScale = {
-        length(BaseTextureTransform[0].xyz),
-        length(BaseTextureTransform[1].xyz),
-    };
-    float3 viewVec = g_EyePos.xyz - i.worldPos;
-    float3 tangentViewDir = mul(i.worldTransform, normalize(viewVec));
-    float2 parallaxVec = tangentViewDir.xy / max(tangentViewDir.z, 1.0e-3);
-    float2 uvDepthParallax = -parallaxVec;
-    uvDepthParallax *= params.depth;
-    uvDepthParallax /= max(tangentScaleSqr, 1.0e-3) * max(texTransformScale, 1e-3);
-    float2 uvRefraction = inkNormal.xy * params.pbr.refraction * rsqrt(max(tangentScaleSqr, 1.0e-3)) * 0.0;
-    float2 uvOffset = uvDepthParallax + uvRefraction;
-    bumpUV = i.worldUV + uvOffset;
-    baseUV = bumpUV;
+float4 ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params, float3 inkNormal) {
+    float3x3 tangentSpaceGeometry = i.worldTransform; // TEXINFO.textureVecS, TEXINFO.textureVecT, normal
+    tangentSpaceGeometry[2] /= HEIGHT_TO_HU;          // units are in $basetexture's texel per Hammer units
+    float3 viewDir = mul(tangentSpaceGeometry, normalize(g_EyePos.xyz - i.worldPos));
+    float2 uvParallax = -viewDir.xy * params.depth / max(viewDir.z, 1.0e-3) * g_WallAlbedoSize;
+    float2 uvRefraction = inkNormal.xy * params.pbr.refraction * 0.0;
+    float2 uvOffset = uvParallax + uvRefraction;
+    float2 baseUV = ApplyBaseTransform(i.worldUV + uvOffset);
+    float2 bumpUV = ApplyBumpTransform(i.worldUV + uvOffset);
     if (g_NeedsFrameBuffer > 0.0) {
         // Inverse conversion of world position -- UV coordinates equation:
         // P: world pos,  S: tangent S,         T: tangent T
@@ -402,6 +446,15 @@ void ApplyParallaxGeometry(
         float2 fade = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.55, finalUV);
         baseUV = lerp(i.screenPos * g_FbSize, finalUV, fade);
     }
+
+    return float4(baseUV, bumpUV);
+}
+
+float2 ApplyParallaxLightmap(const PsVertexInfo i, const MaterialParams params) {
+    float3x3 tangentSpaceGeometry = i.lightmapTransform;
+    tangentSpaceGeometry[2] /= HEIGHT_TO_HU;
+    float3 viewDir = mul(tangentSpaceGeometry, normalize(g_EyePos.xyz - i.worldPos));
+    return i.lightmapUV - viewDir.xy * params.depth / max(viewDir.z, 1.0e-3) * g_LightmapSize;
 }
 
 float4 main(const PS_INPUT rawInput) : COLOR0 {
@@ -423,52 +476,26 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
     FetchInkMaterial(IDs, params.pbr);
     FetchInkDetails(IDs, params.detail);
 
-    float2 baseUV, bumpUV;
-    float2 tangentScaleSqr = {
-        dot(i.worldTransform[0], i.worldTransform[0]),
-        dot(i.worldTransform[1], i.worldTransform[1]),
-    };
-    ApplyParallaxGeometry(i, tangentScaleSqr, inkNormal, params, baseUV, bumpUV);
-
-    // Sample 3 directional lightmaps
-    float3x3 lightmapColors = {
-        tex2D(LightmapSampler, i.lightmapUV[0]).rgb,
-        tex2D(LightmapSampler, i.lightmapUV[1]).rgb,
-        tex2D(LightmapSampler, i.lightmapUV[2]).rgb,
-    };
-
     // Sample geometry albedo and normal
-    float3 geometryNormal = FetchGeometryNormal(bumpUV);
-    float3 geometryAlbedo = FetchGeometrySamples(baseUV, lightmapColors, geometryNormal);
+    float4 baseBumpUV = ApplyParallaxGeometry(i, params, inkNormal);
+    float2 lightmapUV = ApplyParallaxLightmap(i, params);
+    float3 geometryNormal = FetchGeometryNormal(i, baseBumpUV.zw);
+    float3 geometryAlbedo = FetchGeometrySamples(i, baseBumpUV.xy);
 
     // Blend ink and world normals
     float3 tangentSpaceNormal = normalize(lerp(geometryNormal, inkNormal, params.detail.bumpBlendFactor));
     float3 worldSpaceNormal = normalize(mul(tangentSpaceNormal, i.worldTransform));
+    float3 lightmapFactors = CalcLightmapFactors(tangentSpaceNormal);
+    float3x3 lightmapColors = FetchLightmapSamples(i, lightmapUV);
 
-    // Compute diffuse lighting factors using bumped lightmap basis
-    float3 lightDirectionDifferences;
-    if (g_HasBumpedLightmap) {
-        lightDirectionDifferences = float3(
-            saturate(dot(tangentSpaceNormal, BumpBasis[0])),
-            saturate(dot(tangentSpaceNormal, BumpBasis[1])),
-            saturate(dot(tangentSpaceNormal, BumpBasis[2])));
-
-        // Square for softer falloff
-        lightDirectionDifferences *= lightDirectionDifferences;
-    }
-    else {
-        lightDirectionDifferences = float3(1.0, 0.0, 0.0);
-    }
+    // Compute and apply diffuse lighting factors using bumped lightmap basis
+    float3 geometryLit = geometryAlbedo * params.multiplicative * CalcFinalLightmapColor(lightmapColors, lightmapFactors);
+    float3 inkLit = params.additive * CalcFinalLightmapColor(lightmapColors, lightmapFactors);
+    float3 albedo = geometryLit + inkLit;
 
     // Modulate surface albedo and add ink color
-    float3 albedo = geometryAlbedo * params.multiplicative + params.additive;
     float3 ambientOcclusion = { 1.0, 1.0, 1.0 }; // dummy!
     float3 result = albedo * lerp(1.0, DIFFUSE_MIN, params.pbr.metallic);
-
-    // Apply diffuse lighting component
-    result *= mul(lightDirectionDifferences, lightmapColors);
-    result *= rcp(max(dot(lightDirectionDifferences, float3(1.0, 1.0, 1.0)), 1.0e-3));
-    result *= g_LightmapScale;
 
     // ^ Diffuse component (multiplies to the final result)
     // -------------------------------------------------------------------------
@@ -486,7 +513,7 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
     }
 
     float spec = CalcBlinnPhongSpec(worldSpaceNormal, phongLightDir, viewDir, phongExponent);
-    float3 phongSpecular = mul(lightDirectionDifferences * spec, lightmapColors);
+    float3 phongSpecular = mul(lightmapFactors * spec, lightmapColors);
     float3 tangentViewDir = mul(i.worldTransform, viewDir);
     phongSpecular *= CalcFresnel(tangentSpaceNormal, tangentViewDir, phongFresnel);
     phongSpecular *= ambientOcclusion;
@@ -507,7 +534,7 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
         (RIMLIGHT_FADE_MAX - RIMLIGHT_FADE_MIN));
 
     // Use average lightmap color as rim light color
-    float3 rimLighting = mul(lightDirectionDifferences, lightmapColors);
+    float3 rimLighting = mul(lightmapFactors, lightmapColors);
     rimLighting = lerp(rimLighting, albedo, params.pbr.metallic);
     rimLighting *= min(rimScale, RIMLIGHT_MAX_SCALE);
     rimLighting *= params.pbr.specularScale;
@@ -519,6 +546,10 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
     // Envmap specular component
     float3 envmapReflect = reflect(tangentViewDir, tangentSpaceNormal);
     float2 envmapUVOffset = envmapReflect.xy * 7.0;
+    float2 tangentScaleSqr = {
+        dot(i.worldTransform[0], i.worldTransform[0]),
+        dot(i.worldTransform[1], i.worldTransform[1]),
+    };
     envmapUVOffset /= max(tangentScaleSqr, 1.0e-3);
     float2 du = ddx(i.worldUV);
     float2 dv = ddy(i.worldUV);
@@ -529,7 +560,7 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
         dot(float2(-du.y,  du.x), envmapUVOffset) * det,
     };
     float2 fakeSSRUV = saturate((i.screenPos - screenOffset) * g_FbSize);
-    float3 envmapSpecular = tex2D(FrameBuffer, fakeSSRUV).rgb;
+    float3 envmapSpecular = tex2Dlod(FrameBuffer, float4(fakeSSRUV, 0.0, 0.0)).rgb;
     envmapSpecular /= g_TonemapScale;
     envmapSpecular *= smoothstep(-0.35, 0.35, envmapReflect.z);
     envmapSpecular *= step(abs(i.clipPos.w), 1e-3);

@@ -8,6 +8,7 @@
 --   ss_debug_mesh_probe        : Toggle probe ON/OFF
 --   ss_debug_mesh_probe_spawn  : Spawn or refresh the test meshes
 --   ss_debug_mesh_probe_skin   : Toggle the skinned test mesh
+--   ss_debug_shader_screen     : Toggle the debug shader screen quad
 
 ---@class ss
 local ss = SplashSWEPs
@@ -16,12 +17,18 @@ if not ss then return end
 local enabled = false
 local showSkinned = true
 local probeMaterial = Material("splashsweps/shaders/debug_probe")
+local screenDebugEnabled = false
+local screenDebugPage = 4
+local screenDebugVertexPayload = false
+local screenDebugMaterial = Material("splashsweps/shaders/debug")
 
 local hook3D = "SplashSWEPs: Debug Mesh Probe 3D"
+local hookScreen = "SplashSWEPs: Debug Shader Screen Quad"
 
 local solidMesh ---@type IMesh?
 local skinnedMesh ---@type IMesh?
 local skinBones ---@type VMatrix[]
+local screenDebugMesh ---@type IMesh?
 
 local function MakeMatrix(pos)
     local m = Matrix()
@@ -79,12 +86,48 @@ local function BuildSkinnedMesh()
     }
 end
 
+local m = Matrix()
+m:SetScale(Vector(3.2, 3.4, 1))
+m:SetTranslation(Vector(-0.2, -0.5, 0.0))
+screenDebugMaterial:SetMatrix("$viewprojmat", m)
+
+local function BuildScreenDebugMesh(page)
+    screenDebugMesh = Mesh(screenDebugMaterial)
+    local inset = 0.92
+    local verts = {
+        { u = 0, v = 0, x = -inset, y =  inset },
+        { u = 1, v = 0, x =  inset, y =  inset },
+        { u = 1, v = 1, x =  inset, y = -inset },
+        { u = 0, v = 0, x = -inset, y =  inset },
+        { u = 1, v = 1, x =  inset, y = -inset },
+        { u = 0, v = 1, x = -inset, y = -inset },
+    }
+
+    mesh.Begin(screenDebugMesh, MATERIAL_TRIANGLES, #verts / 3)
+    for _, v in ipairs(verts) do
+        mesh.Position(Vector(0, 0, 0))
+        mesh.Normal(Vector(0, 0, 1))
+        mesh.Color(255, 255, 255, 255)
+        mesh.TexCoord(0, v.u, v.v, 0, 1)
+        mesh.TexCoord(6, 0, 0, 0, page)
+        mesh.TexCoord(7, v.x, v.y, 0, 1)
+        mesh.AdvanceVertex()
+    end
+    mesh.End()
+end
+
 local function EnsureMeshes()
     if not solidMesh or not solidMesh:IsValid() then
         BuildSolidMesh()
     end
     if not skinnedMesh or not skinnedMesh:IsValid() then
         BuildSkinnedMesh()
+    end
+end
+
+local function EnsureScreenDebugMesh()
+    if not screenDebugMesh or not screenDebugMesh:IsValid() then
+        BuildScreenDebugMesh(screenDebugPage)
     end
 end
 
@@ -116,6 +159,17 @@ local function DrawProbe()
     end
 end
 
+local function DrawScreenDebug()
+    if not screenDebugEnabled then return end
+    EnsureScreenDebugMesh()
+    if not screenDebugMesh then return end
+
+    screenDebugMaterial:SetInt("$cull", 0)
+    screenDebugMaterial:SetFloat("$c3_w", screenDebugVertexPayload and 1 or 0)
+    render.SetMaterial(screenDebugMaterial)
+    screenDebugMesh:Draw()
+end
+
 local function Enable()
     enabled = true
     hook.Add("PostDrawOpaqueRenderables", hook3D, DrawProbe)
@@ -136,6 +190,32 @@ concommand.Add("ss_debug_mesh_probe_spawn", function()
     BuildSolidMesh()
     BuildSkinnedMesh()
     print("[SplashSWEPs] Debug mesh probe meshes rebuilt")
+end)
+
+concommand.Add("ss_debug_shader_screen", function(_, _, args)
+    local page = tonumber(args[1])
+    local hasArgs = args[1] ~= nil or args[2] ~= nil
+    if page then
+        screenDebugPage = page
+        BuildScreenDebugMesh(screenDebugPage)
+    end
+
+    if args[2] ~= nil then
+        screenDebugVertexPayload = tobool(args[2])
+    end
+
+    screenDebugEnabled = hasArgs or not screenDebugEnabled
+    if screenDebugEnabled then
+        hook.Add("PostDrawOpaqueRenderables", hookScreen, DrawScreenDebug)
+    else
+        hook.Remove("PostDrawOpaqueRenderables", hookScreen)
+    end
+
+    print(string.format(
+        "[SplashSWEPs] Debug shader screen quad: %s (page=%s, vertex payload=%s)",
+        screenDebugEnabled and "ON" or "OFF",
+        tostring(screenDebugPage),
+        screenDebugVertexPayload and "ON" or "OFF"))
 end)
 
 concommand.Add("ss_reload_shader", function(_, _, _)

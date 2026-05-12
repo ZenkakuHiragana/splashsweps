@@ -32,7 +32,7 @@ end
 ---@field LightmapTangent    Vector
 ---@field LightmapBinormal   Vector
 ---@field LightmapUV         Vector  Relative Lightmap UV values in luxels.
----@field BumpmapUV          Vector  Bumpmap UV coordinates of the original face.
+---@field BumpmapUV          Vector  Bumpmap UV coordinates of the original face in texels.
 ---@field DisplacementOrigin Vector? The point that this displacement point was made from.
 ss.struct "PrecachedData.Vertex" (setmetatable({
     Vector(),
