@@ -178,7 +178,8 @@ local function enumerateMaterials(materialsInMap)
                     DetailBlendFactor    = mat:GetFloat  "$detailblendfactor",
                     DetailScale          = mat:GetVector "$detailscale",
                     DetailTint           = mat:GetVector "$detailtint",
-                    Color                = mat:GetVector "$color",
+                    Color = (mat:GetVector "$color" or ss.vector_one)
+                          * (mat:GetVector "$color2" or ss.vector_one),
                 }
             end
         end

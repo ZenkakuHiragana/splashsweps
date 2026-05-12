@@ -374,25 +374,19 @@ float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
 
 // Samples albedo and bumpmap pixel from geometry textures
 float3 FetchGeometrySamples(const PsVertexInfo i, float2 baseUV, float2 detailUV) {
-    float3 frameBufferSample = tex2Dlod(FrameBuffer, float4(i.screenPos * g_FbSize, 0.0, 0.0)).rgb / g_TonemapScale;
-    float3 lightmapFactors = CalcLightmapFactors(FetchGeometryNormal(i, ApplyBumpTransform(i.worldUV)));
-    float3x3 lightmapColors = FetchLightmapSamples(i, i.lightmapUV);
-    float3 lightmapFinalColor = CalcFinalLightmapColor(lightmapColors, lightmapFactors);
     if (g_NeedsFrameBuffer) {
+        float3   frameBufferSample  = tex2Dlod(FrameBuffer, float4(i.screenPos * g_FbSize, 0.0, 0.0)).rgb / g_TonemapScale;
+        float3   lightmapFactors    = CalcLightmapFactors(FetchGeometryNormal(i, ApplyBumpTransform(i.worldUV)));
+        float3x3 lightmapColors     = FetchLightmapSamples(i, i.lightmapUV);
+        float3   lightmapFinalColor = CalcFinalLightmapColor(lightmapColors, lightmapFactors);
         return frameBufferSample / max(lightmapFinalColor, 1.0e-8);
     }
     else {
-        float2 baseUVAtOrigin         = ApplyBaseTransform(i.worldUV);
-        float2 detailUVAtOrigin       = ApplyDetailTransform(i.worldUV);
-        float2 basedx                 = ddx(baseUVAtOrigin),   basedy   = ddy(baseUVAtOrigin);
-        float2 detaildx               = ddx(detailUVAtOrigin), detaildy = ddy(detailUVAtOrigin);
-        float4 albedoAtOrigin         = tex2Dgrad(WallAlbedoSampler, baseUVAtOrigin, basedx, basedy);
-        float4 detailAtOrigin         = tex2Dgrad(WallDetailSampler, detailUVAtOrigin, detaildx, detaildy) * g_DetailTint;
-        float3 detailedAlbedoAtOrigin = max(ApplyDetailSample(albedoAtOrigin, detailAtOrigin).rgb * g_Color, 1.0e-8);
-        float  correctionFactor       = dot(frameBufferSample, GrayScaleFactor) / dot(detailedAlbedoAtOrigin * lightmapFinalColor, GrayScaleFactor);
-        float4 albedoParallaxApplied  = tex2Dgrad(WallAlbedoSampler, baseUV, basedx, basedy);
-        float4 detailParallaxApplied  = tex2Dgrad(WallDetailSampler, detailUV, detaildx, detaildy) * g_DetailTint;
-        return ApplyDetailSample(albedoParallaxApplied, detailParallaxApplied).rgb * g_Color * correctionFactor;
+        float4 origin = { ApplyBaseTransform(i.worldUV), ApplyDetailTransform(i.worldUV) };
+        float4 dx     = ddx(origin), dy = ddy(origin);
+        float4 albedo = tex2Dgrad(WallAlbedoSampler, baseUV, dx.xy, dy.xy);
+        float4 detail = tex2Dgrad(WallDetailSampler, detailUV, dx.zw, dy.zw) * g_DetailTint;
+        return ApplyDetailSample(albedo, detail).rgb * g_Color;
     }
 }
 
