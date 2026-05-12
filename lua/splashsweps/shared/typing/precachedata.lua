@@ -25,15 +25,16 @@ end
 
 ---Precached information of a vertex stored in a local file.
 ---@class ss.PrecachedData.Vertex
----@field Translation        Vector  The position.
----@field Normal             Vector
----@field Tangent            Vector
----@field Binormal           Vector
----@field LightmapTangent    Vector
----@field LightmapBinormal   Vector
----@field LightmapUV         Vector  Relative Lightmap UV values in luxels.
----@field BumpmapUV          Vector  Bumpmap UV coordinates of the original face in texels.
----@field DisplacementOrigin Vector? The point that this displacement point was made from.
+---@field Translation       Vector  The position.
+---@field Normal            Vector
+---@field Tangent           Vector
+---@field Binormal          Vector
+---@field LightmapTangent   Vector
+---@field LightmapBinormal  Vector
+---@field LightmapUV        Vector  Relative Lightmap UV values in luxels.
+---@field BumpmapUV         Vector  Bumpmap UV coordinates of the original face in texels.
+---@field UndisplacedOrigin Vector? The point that this displacement point was made from.
+---@field DispPaintOrigin   Vector? Displacement-only world-space reference point used to compute paint/ink UV.
 ss.struct "PrecachedData.Vertex" (setmetatable({
     Vector(),
     Vector(),
@@ -44,18 +45,20 @@ ss.struct "PrecachedData.Vertex" (setmetatable({
     Vector(),
     Vector(),
     nil,
+    nil,
 }, {
-    Translation        = 1,
-    Normal             = 2,
-    Tangent            = 3,
-    Binormal           = 4,
-    LightmapTangent    = 5,
-    LightmapBinormal   = 6,
-    LightmapUV         = 7,
-    BumpmapUV          = 8,
-    DisplacementOrigin = 9,
-    __index            = indexer,
-    __newindex         = newindexer,
+    Translation       = 1,
+    Normal            = 2,
+    Tangent           = 3,
+    Binormal          = 4,
+    LightmapTangent   = 5,
+    LightmapBinormal  = 6,
+    LightmapUV        = 7,
+    BumpmapUV         = 8,
+    UndisplacedOrigin = 9,
+    DispPaintOrigin   = 10,
+    __index           = indexer,
+    __newindex        = newindexer,
 }))
 
 ---Precached transformation matrix stored in a local file.

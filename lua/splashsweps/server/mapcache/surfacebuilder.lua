@@ -344,7 +344,7 @@ end
 ---@param surf ss.PrecachedData.Surface
 local function CalculateTriangleComponents(surf)
     local WorldToLocalRotation = Matrix()
-    local DisplacementOriginRotation = Matrix()
+    local DispPaintOriginRotation = Matrix()
     surf.Triangles = {}
     for i = 1, #surf.Vertices, 3 do
         --                 foward = t2 - t3
@@ -387,16 +387,16 @@ local function CalculateTriangleComponents(surf)
         t.MBBOrigin:Set(t3 + e1 * minX)
         t.MBBSize:SetUnpacked(maxX - minX, e2:Dot(another), 0)
 
-        local org1 = surf.Vertices[i].DisplacementOrigin
-        local org2 = surf.Vertices[i + 1].DisplacementOrigin
-        local org3 = surf.Vertices[i + 2].DisplacementOrigin
+        local org1 = surf.Vertices[i].DispPaintOrigin
+        local org2 = surf.Vertices[i + 1].DispPaintOrigin
+        local org3 = surf.Vertices[i + 2].DispPaintOrigin
         local orgForward = org2 - org3
         local orgAnother = org1 - org3
         local orgAngle = orgForward:AngleEx(orgForward:Cross(orgAnother))
-        DisplacementOriginRotation:SetAngles(orgAngle)
+        DispPaintOriginRotation:SetAngles(orgAngle)
         WorldToLocalRotation:SetAngles(angle)
         WorldToLocalRotation:InvertTR()
-        WorldToLocalRotation:Set(DisplacementOriginRotation * WorldToLocalRotation)
+        WorldToLocalRotation:Set(DispPaintOriginRotation * WorldToLocalRotation)
         t.WorldToLocalGridRotation:Set(WorldToLocalRotation:GetAngles())
         surf.Triangles[#surf.Triangles + 1] = t
     end
@@ -407,15 +407,51 @@ end
 ---@param rawFace ss.Binary.BSP.FACES
 ---@param vertices Vector[] The vertices of flat quadrilateral surface that will be modified in this function.
 ---@param texInfo ss.Binary.BSP.TEXINFO
----@param texData ss.Binary.BSP.TEXDATA
 ---@return ss.PrecachedData.Surface
-local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, texData)
+local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
+    ---@param p Vector
+    ---@return Vector
+    local function GetBaseTexelUV(p)
+        return Vector(
+            p:Dot(texInfo.textureVecS) + texInfo.textureOffsetS,
+            p:Dot(texInfo.textureVecT) + texInfo.textureOffsetT)
+    end
+
+    ---@param p Vector
+    ---@return Vector
+    local function GetLightmapUV(p)
+        return Vector(
+            p:Dot(texInfo.lightmapVecS)
+                + texInfo.lightmapOffsetS
+                - rawFace.lightmapTextureMinsInLuxels[1]
+                + 0.5,
+            p:Dot(texInfo.lightmapVecT)
+                + texInfo.lightmapOffsetT
+                - rawFace.lightmapTextureMinsInLuxels[2]
+                + 0.5)
+    end
+
+    ---@param c1 Vector
+    ---@param c2 Vector
+    ---@param c3 Vector
+    ---@param c4 Vector
+    ---@param u number
+    ---@param v number
+    ---@return Vector
+    local function Bilerp(c1, c2, c3, c4, u, v)
+        local left = c1 + (c2 - c1) * v
+        local right = c4 + (c3 - c4) * v
+        return left + (right - left) * u
+    end
+
     -- Collect displacement info
-    local surf         = ss.new "PrecachedData.Surface"
-    local rawDispInfo  = bsp.DISPINFO
-    local rawDispVerts = bsp.DISP_VERTS
-    local dispInfo     = rawDispInfo[rawFace.dispInfo + 1]
-    local power        = 2 ^ dispInfo.power + 1
+    local surf            = ss.new "PrecachedData.Surface"
+    local rawDispInfo     = bsp.DISPINFO
+    local rawDispVerts    = bsp.DISP_VERTS
+    local dispInfo        = rawDispInfo[rawFace.dispInfo + 1]
+    local power           = 2 ^ dispInfo.power + 1
+    local bumpmapCorners  = {} ---@type Vector[]
+    local lightmapCorners = {} ---@type Vector[]
     do
         -- dispInfo.startPosition isn't always equal to
         -- vertices[1] so find correct one and sort them
@@ -430,6 +466,8 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, texData)
 
         for i = 1, 4 do
             indices[i] = (i + startindex - 2) % 4 + 1
+            bumpmapCorners[i] = GetBaseTexelUV(vertices[i])
+            lightmapCorners[i] = GetLightmapUV(vertices[i])
         end
 
         -- Sort them using index table
@@ -451,6 +489,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, texData)
     local u2 = vertices[3] - vertices[2]
     local v1 = vertices[2] - vertices[1]
     local v2 = vertices[3] - vertices[4]
+    local parentNormal = u1:Cross(v1):GetNormalized()
     local subdivisionMatrix = Matrix()
     subdivisionMatrix:SetForward(u1)
     subdivisionMatrix:SetRight(-v1)
@@ -478,6 +517,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, texData)
 
     local deformed    = {} ---@type Vector[]
     local subdivision = {} ---@type Vector[]
+    local paintorigin = {} ---@type Vector[]
     local triangles   = {} ---@type integer[] Indices of triangle mesh
     local bumpmapuv   = {} ---@type Vector[]
     local lightmapuv  = {} ---@type Vector[] Fractional values used in lightmap sampling
@@ -490,10 +530,13 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, texData)
             subdivision[i] = Vector(u, (1 - u) * v, u * v)
             subdivision[i]:Mul(subdivisionMatrix)
             deformed[i] = subdivision[i] + dispVert.vec * dispVert.dist
-            bumpmapuv[i] = Vector(u * texData.width, v * texData.height)
-            lightmapuv[i] = Vector(
-                u * rawFace.lightmapTextureSizeInLuxels[1] + 0.5,
-                v * rawFace.lightmapTextureSizeInLuxels[2] + 0.5)
+            bumpmapuv[i] = Bilerp(
+                bumpmapCorners[1], bumpmapCorners[2],
+                bumpmapCorners[3], bumpmapCorners[4], u, v)
+            lightmapuv[i] = Bilerp(
+                lightmapCorners[1], lightmapCorners[2],
+                lightmapCorners[3], lightmapCorners[4], u, v)
+            paintorigin[i] = Vector()
 
             if ui > 0 then
                 local previous = deformed[i - 1]
@@ -536,31 +579,76 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, texData)
     surf.AABBMax:Add(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
     surf.AABBMin:Sub(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
 
-    local tangents = {} ---@type Vector[]
-    local binormals = {} ---@type Vector[]
-    local normals = {} ---@type Vector[]
-    local meanLengthU = (u1:Length() + u2:Length()) * 0.5
-    local meanLengthV = (v1:Length() + v2:Length()) * 0.5
+    local tangents     = {} ---@type Vector[]
+    local binormals    = {} ---@type Vector[]
+    local normals      = {} ---@type Vector[]
+    local normalCounts = {} ---@type integer[]
+    local meanLengthU  = (u1:Length() + u2:Length()) * 0.5
+    local meanLengthV  = (v1:Length() + v2:Length()) * 0.5
     local maxTotalLengthU = max(unpack(totalLengthU))
     local maxTotalLengthV = max(unpack(totalLengthV))
     local scaleU = maxTotalLengthU / meanLengthU
     local scaleV = maxTotalLengthV / meanLengthV
     local scaleUV = Vector(scaleU, scaleV, scaleV)
     subdivisionMatrix:Scale(scaleUV)
-    for i, s in ipairs(subdivision) do
+    for i, p in ipairs(paintorigin) do
         local ui = (i - 1) % power
         local vi = floor((i - 1) / power)
         local u = (lengthIntegratedU[i] or 0) / totalLengthU[vi + 1]
         local v = (lengthIntegratedV[i] or 0) / totalLengthV[ui + 1]
-        s:SetUnpacked(u, (1 - u) * v, u * v)
-        s:Mul(subdivisionMatrix)
-        tangents[i]
-            = deformed[min(ui + 1, power - 1) + vi * power + 1]
-            - deformed[max(ui - 1,         0) + vi * power + 1]
-        binormals[i]
-            = deformed[ui + min(vi + 1, power - 1) * power + 1]
-            - deformed[ui + max(vi - 1,         0) * power + 1]
-        normals[i] = tangents[i]:Cross(binormals[i])
+        p:SetUnpacked(u, (1 - u) * v, u * v)
+        p:Mul(subdivisionMatrix)
+        normals[i] = Vector()
+        normalCounts[i] = 0
+    end
+
+    for i = 1, #triangles, 3 do
+        local i1 = triangles[i]
+        local i2 = triangles[i + 1]
+        local i3 = triangles[i + 2]
+        local triNormal = (deformed[i2] - deformed[i1]):Cross(deformed[i3] - deformed[i1])
+        if triNormal:LengthSqr() > ss.eps then
+            triNormal:Normalize()
+            if triNormal:Dot(parentNormal) < 0 then triNormal:Mul(-1) end
+            normals[i1]:Add(triNormal)
+            normals[i2]:Add(triNormal)
+            normals[i3]:Add(triNormal)
+            normalCounts[i1] = normalCounts[i1] + 1
+            normalCounts[i2] = normalCounts[i2] + 1
+            normalCounts[i3] = normalCounts[i3] + 1
+        end
+    end
+
+    local textureVecSLength  = texInfo.textureVecS:Length()
+    local textureVecTLength  = texInfo.textureVecT:Length()
+    local textureVecS        = texInfo.textureVecS:GetNormalized()
+    local textureVecT        = texInfo.textureVecT:GetNormalized()
+    local shouldFlipTangentS = parentNormal:Dot(textureVecS:Cross(textureVecT)) > 0
+    for i = 1, #deformed do
+        if normalCounts[i] > 0 then
+            normals[i]:Div(normalCounts[i])
+            normals[i]:Normalize()
+        else
+            normals[i]:Set(parentNormal)
+        end
+
+        tangents[i] = normals[i]:Cross(textureVecT)
+        if tangents[i]:LengthSqr() <= ss.eps then
+            tangents[i] = Vector(textureVecS)
+        else
+            tangents[i]:Normalize()
+        end
+
+        binormals[i] = tangents[i]:Cross(normals[i])
+        if binormals[i]:LengthSqr() <= ss.eps then
+            binormals[i] = Vector(textureVecT)
+        else
+            binormals[i]:Normalize()
+        end
+
+        if shouldFlipTangentS then tangents[i]:Mul(-1) end
+        tangents[i]:Mul(textureVecSLength)
+        binormals[i]:Mul(textureVecTLength)
     end
 
     vertices[2] = subdivision[(power - 1) * power + 1]
@@ -576,7 +664,8 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, texData)
         surf.Vertices[i].LightmapBinormal:Set(texInfo.lightmapVecT)
         surf.Vertices[i].BumpmapUV:Set(bumpmapuv[t])
         surf.Vertices[i].LightmapUV:Set(lightmapuv[t])
-        surf.Vertices[i].DisplacementOrigin = subdivision[t]
+        surf.Vertices[i].UndisplacedOrigin = subdivision[t]
+        surf.Vertices[i].DispPaintOrigin = paintorigin[t]
     end
 
     return surf
@@ -640,7 +729,7 @@ local function BuildFromBrushFace(bsp, rawFace)
     assert(normal:GetNormalized():Dot(angle:Up()) > 0.999)
 
     if isDisplacement then
-        local surf = BuildFromDisplacement(bsp, rawFace, filteredVertices, texInfo, texData)
+        local surf = BuildFromDisplacement(bsp, rawFace, filteredVertices, texInfo)
         local mbrMatrix, mbrSize = FindMBR(filteredVertices, angle) -- For the flat mesh
         local mbbMatrix, mbbSize = FindMinimumOBB(surf.Vertices) -- For the deformed mesh
         local aabbSize = surf.AABBMax - surf.AABBMin

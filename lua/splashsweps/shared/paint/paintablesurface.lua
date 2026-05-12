@@ -83,9 +83,9 @@ ss.struct "PaintableSurface" "IHasMBB" {
 ---@field [1]       Vector The positions of this triangle.
 ---@field [2]       Vector The positions of this triangle.
 ---@field [3]       Vector The positions of this triangle.
----@field [4]       Vector The position that the corresponding vertex originally was located at.
----@field [5]       Vector The position that the corresponding vertex originally was located at.
----@field [6]       Vector The position that the corresponding vertex originally was located at.
+---@field [4]       Vector Paint reference position corresponding to this triangle vertex.
+---@field [5]       Vector Paint reference position corresponding to this triangle vertex.
+---@field [6]       Vector Paint reference position corresponding to this triangle vertex.
 ---@field BarycentricDot1 Vector Parameter to calculate barycentric coordinates v.
 ---@field BarycentricDot2 Vector Parameter to calculate barycentric coordinates w.
 ---@field BarycentricAdd1 number Parameter to calculate barycentric coordinates v.
@@ -149,9 +149,9 @@ function ss.SetupSurfaces(surfaces)
             ps.Triangles[j][1] = surf.Vertices[t.Index].Translation
             ps.Triangles[j][2] = surf.Vertices[t.Index + 1].Translation
             ps.Triangles[j][3] = surf.Vertices[t.Index + 2].Translation
-            ps.Triangles[j][4] = surf.Vertices[t.Index].DisplacementOrigin
-            ps.Triangles[j][5] = surf.Vertices[t.Index + 1].DisplacementOrigin
-            ps.Triangles[j][6] = surf.Vertices[t.Index + 2].DisplacementOrigin
+            ps.Triangles[j][4] = surf.Vertices[t.Index].DispPaintOrigin
+            ps.Triangles[j][5] = surf.Vertices[t.Index + 1].DispPaintOrigin
+            ps.Triangles[j][6] = surf.Vertices[t.Index + 2].DispPaintOrigin
             ps.Triangles[j].BarycentricDot1 = t.BarycentricDot1
             ps.Triangles[j].BarycentricDot2 = t.BarycentricDot2
             ps.Triangles[j].BarycentricAdd1 = -ps.Triangles[j][1]:Dot(ps.Triangles[j].BarycentricDot1)

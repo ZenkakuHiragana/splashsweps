@@ -522,14 +522,7 @@ local function buildMeshVertexBatches(surfaceInfo, meshGroups, bumpmapOffsetsByF
             worldToUV:SetAngles(uvInfo.Angle)
             for _, v in ipairs(surf.Vertices) do
                 ContinueVertexBatch()
-                local uv = worldToUV * v.Translation
-                if v.DisplacementOrigin then
-                    uv = worldToUV * v.DisplacementOrigin
-                end
-
-                -- I think I have to avoid constructing a temporary Vector just for this purpose
-                uv.x = uv.x + uvInfo.Translation.x * scale
-                uv.y = uv.y + uvInfo.Translation.y * scale
+                local uv = worldToUV * (v.DispPaintOrigin or v.Translation) + uvInfo.Translation * scale
                 currentVertices[#currentVertices + 1] = {
                     Position = v.Translation,
                     UVRange = {
