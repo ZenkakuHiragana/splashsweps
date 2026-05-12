@@ -98,17 +98,15 @@ const float2 s3Size    : register(c7);
 const float4 c8        : register(c8);
 const float4 c9        : register(c9);
 const float4 g_EyePos  : register(c10); // xyz: eye position
-const float4 c11       : register(c11);
+const float4 c11       : register(c11); // $viewprojmat
 const float4 c12       : register(c12);
 const float4 c13       : register(c13);
 const float4 c14       : register(c14);
-const float4 c15       : register(c15);
-const float4 c16       : register(c16);
+const float4x4 c15     : register(c15); // $invviewprojmat
 const float4 HDRParams : register(c30);
 
 static const float3 BaseTransform[2]    = { c11.xyz, c12.xyz };
 static const float3 BumpTransform[2]    = { c13.xyz, c14.xyz };
-static const float3 DetailTransform[2]  = { c15.xyz, c16.xyz };
 static const float3 g_DetailTint        = { c11.w, c12.w, c13.w };
 static const float3 g_SunDirection      = c0.xyz; // in world space
 static const float  g_DetailBlendMode   = c0.w;
@@ -220,6 +218,13 @@ float2 ApplyBaseTransform(float2 uv) {
 
 float2 ApplyBumpTransform(float2 uv) {
     return float2(dot(float3(uv, 1.0), BumpTransform[0]), dot(float3(uv, 1.0), BumpTransform[1]));
+}
+
+float3 ApplyDetailSample(float3 albedo, float3 detailSample) {
+    if ((int)g_DetailBlendMode == 0.0) {
+
+    }
+    return albedo;
 }
 
 float4 FetchDataPixel(int id, int index) {

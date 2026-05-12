@@ -42,7 +42,6 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---@field Detail               string? Value of $detail.
 ---@field BumpTextureTransform VMatrix? Value of $bumptransform.
 ---@field BaseTextureTransform VMatrix? Value of $basetexturetransform.
----@field DetailTransform      VMatrix? Value of $detailtransform.
 ---@field DetailBlendMode      integer? Value of $detailblendmode.
 ---@field DetailBlendFactor    number?  Value of $detailblendfactor.
 ---@field DetailScale          Vector?  Value of $detailscale.
@@ -57,7 +56,6 @@ ss.struct "SurfaceBuilder.MaterialInfo" {
     Detail               = nil,
     BumpTextureTransform = nil,
     BaseTextureTransform = nil,
-    DetailTransform      = nil,
     DetailBlendMode      = nil,
     DetailBlendFactor    = nil,
     DetailScale          = nil,
@@ -176,7 +174,6 @@ local function enumerateMaterials(materialsInMap)
                     Detail               = mat:GetString "$detail",
                     BaseTextureTransform = mat:GetMatrix "$basetexturetransform",
                     BumpTextureTransform = mat:GetMatrix "$bumptransform",
-                    DetailTransform      = mat:GetMatrix "$detailtexturetransform",
                     DetailBlendMode      = mat:GetInt    "$detailblendmode",
                     DetailBlendFactor    = mat:GetFloat  "$detailblendfactor",
                     DetailScale          = mat:GetVector "$detailscale",
@@ -441,8 +438,8 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$c1_y"]     = fbScale * (materialInfo.NeedsFrameBuffer and 1 or 0)
         materialParams["$c2_x"]     = 1 / pageWidth
         materialParams["$c2_y"]     = 1 / pageHeight
-        materialParams["$c2_z"]     = materialInfo.DetailScale and materialInfo.DetailScale.x or 1
-        materialParams["$c2_w"]     = materialInfo.DetailScale and materialInfo.DetailScale.y or 1
+        materialParams["$c2_z"]     = materialInfo.DetailScale and materialInfo.DetailScale.x or 4
+        materialParams["$c2_w"]     = materialInfo.DetailScale and materialInfo.DetailScale.y or 4
         materialParams["$c3_x"]     = materialInfo.Color and materialInfo.Color.x or 1
         materialParams["$c3_y"]     = materialInfo.Color and materialInfo.Color.y or 1
         materialParams["$c3_z"]     = materialInfo.Color and materialInfo.Color.z or 1
@@ -469,20 +466,6 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
             materialInfo.BumpTextureTransform:GetField(2, 4),
             0)
         mat:SetMatrix("$viewprojmat", m)
-        if materialInfo.DetailTransform then
-            m:SetUnpacked(
-                materialInfo.DetailTransform:GetField(1, 1),
-                materialInfo.DetailTransform:GetField(1, 2),
-                materialInfo.DetailTransform:GetField(1, 4),
-                0,
-                materialInfo.DetailTransform:GetField(2, 1),
-                materialInfo.DetailTransform:GetField(2, 2),
-                materialInfo.DetailTransform:GetField(2, 4),
-                0, 0, 0, 0, 0, 0, 0, 0, 0)
-        else
-            m:Identity()
-        end
-        mat:SetMatrix("$invviewprojmat", m)
         local matf = CreateMaterial(
             string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
             "LightmappedGeneric", {
