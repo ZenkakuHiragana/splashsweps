@@ -107,7 +107,7 @@ const float4 HDRParams : register(c30);
 
 static const float3 BaseTransform[2]    = { c11.xyz, c12.xyz };
 static const float3 BumpTransform[2]    = { c13.xyz, c14.xyz };
-static const float3 g_DetailTint        = { c11.w, c12.w, c13.w };
+static const float4 g_DetailTint        = { c11.w, c12.w, c13.w, 1.0 };
 static const float3 g_SunDirection      = c0.xyz; // in world space
 static const float  g_DetailBlendMode   = c0.w;
 static const float  g_HasBumpedLightmap = c1.x;
@@ -220,9 +220,42 @@ float2 ApplyBumpTransform(float2 uv) {
     return float2(dot(float3(uv, 1.0), BumpTransform[0]), dot(float3(uv, 1.0), BumpTransform[1]));
 }
 
-float3 ApplyDetailSample(float3 albedo, float3 detailSample) {
-    if ((int)g_DetailBlendMode == 0.0) {
+float2 ApplyDetailTransform(float2 uv) {
+    return float2(
+        uv.x * BaseTransform[0].x * g_DetailScale.x + uv.y * BaseTransform[0].y * g_DetailScale.y + BaseTransform[0].z * g_DetailScale.x,
+        uv.x * BaseTransform[1].x * g_DetailScale.x + uv.y * BaseTransform[1].y * g_DetailScale.y + BaseTransform[1].z * g_DetailScale.y);
+}
 
+float4 ApplyDetailSample(float4 albedo, float4 detailSample) {
+    int mode = (int)g_DetailBlendMode;
+    if (mode == 0) {
+        albedo.rgb *= lerp(1.0, 2.0 * detailSample.rgb, g_DetailBlendFactor);
+    }
+    else if (mode == 1) {
+        albedo.rgb += g_DetailBlendFactor * detailSample.rgb;
+    }
+    else if (mode == 2) {
+        albedo.rgb = lerp(albedo.rgb, detailSample.rgb, g_DetailBlendFactor * detailSample.a);
+    }
+    else if (mode == 3) {
+        albedo = lerp(albedo, detailSample, g_DetailBlendFactor);
+    }
+    else if (mode == 4) {
+        albedo.rgb = lerp(albedo.rgb, detailSample.rgb, g_DetailBlendFactor * (1.0 - albedo.a));
+        albedo.a = detailSample.a;
+    }
+    else if (mode == 7) {
+        float detailPattern = lerp(detailSample.r, detailSample.a, albedo.a);
+        albedo.rgb *= lerp(1.0, 2.0 * detailPattern, g_DetailBlendFactor);
+    }
+    else if (mode == 8) {
+        albedo = lerp(albedo, albedo * detailSample, g_DetailBlendFactor);
+    }
+    else if (mode == 9) {
+        albedo.a = lerp(albedo.a, albedo.a * detailSample.a, g_DetailBlendFactor);
+    }
+    else if (mode == 11) {
+        albedo.rgb *= dot(detailSample.rgb, 2.0 / 3.0);
     }
     return albedo;
 }
@@ -340,7 +373,7 @@ float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
 }
 
 // Samples albedo and bumpmap pixel from geometry textures
-float3 FetchGeometrySamples(const PsVertexInfo i, float2 uv) {
+float3 FetchGeometrySamples(const PsVertexInfo i, float2 baseUV, float2 detailUV) {
     float3 frameBufferSample = tex2Dlod(FrameBuffer, float4(i.screenPos * g_FbSize, 0.0, 0.0)).rgb / g_TonemapScale;
     float3 lightmapFactors = CalcLightmapFactors(FetchGeometryNormal(i, ApplyBumpTransform(i.worldUV)));
     float3x3 lightmapColors = FetchLightmapSamples(i, i.lightmapUV);
@@ -349,12 +382,17 @@ float3 FetchGeometrySamples(const PsVertexInfo i, float2 uv) {
         return frameBufferSample / max(lightmapFinalColor, 1.0e-8);
     }
     else {
-        float2 dx = ddx(i.worldUV), dy = ddy(i.worldUV);
-        float2 worldUVTransformed    = ApplyBaseTransform(i.worldUV);
-        float3 albedoAtOrigin        = max(tex2Dgrad(WallAlbedoSampler, worldUVTransformed, dx, dy).rgb, 1.0e-8);
-        float3 correctionFactor      = dot(frameBufferSample, GrayScaleFactor) / dot(albedoAtOrigin * lightmapFinalColor, GrayScaleFactor);
-        float3 albedoParallaxApplied = tex2Dgrad(WallAlbedoSampler, uv, dx, dy).rgb;
-        return albedoParallaxApplied * correctionFactor;
+        float2 baseUVAtOrigin         = ApplyBaseTransform(i.worldUV);
+        float2 detailUVAtOrigin       = ApplyDetailTransform(i.worldUV);
+        float2 basedx                 = ddx(baseUVAtOrigin),   basedy   = ddy(baseUVAtOrigin);
+        float2 detaildx               = ddx(detailUVAtOrigin), detaildy = ddy(detailUVAtOrigin);
+        float4 albedoAtOrigin         = tex2Dgrad(WallAlbedoSampler, baseUVAtOrigin, basedx, basedy);
+        float4 detailAtOrigin         = tex2Dgrad(WallDetailSampler, detailUVAtOrigin, detaildx, detaildy) * g_DetailTint;
+        float3 detailedAlbedoAtOrigin = max(ApplyDetailSample(albedoAtOrigin, detailAtOrigin).rgb * g_Color, 1.0e-8);
+        float  correctionFactor       = dot(frameBufferSample, GrayScaleFactor) / dot(detailedAlbedoAtOrigin * lightmapFinalColor, GrayScaleFactor);
+        float4 albedoParallaxApplied  = tex2Dgrad(WallAlbedoSampler, baseUV, basedx, basedy);
+        float4 detailParallaxApplied  = tex2Dgrad(WallDetailSampler, detailUV, detaildx, detaildy) * g_DetailTint;
+        return ApplyDetailSample(albedoParallaxApplied, detailParallaxApplied).rgb * g_Color * correctionFactor;
     }
 }
 
@@ -408,15 +446,17 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
     return clamp(inkUV, float3(i.minUV, -1.0), float3(i.maxUV,  1.0));
 }
 
-float4 ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params, float3 inkNormal) {
+void ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params, float3 inkNormal, out float2 baseUV, out float2 bumpUV, out float2 detailUV) {
     float3x3 tangentSpaceGeometry = i.worldTransform; // TEXINFO.textureVecS, TEXINFO.textureVecT, normal
     tangentSpaceGeometry[2] /= HEIGHT_TO_HU;          // units are in $basetexture's texel per Hammer units
     float3 viewDir = mul(tangentSpaceGeometry, normalize(g_EyePos.xyz - i.worldPos));
     float2 uvParallax = -viewDir.xy * params.depth / max(viewDir.z, 1.0e-3) * g_WallAlbedoSize;
     float2 uvRefraction = inkNormal.xy * params.pbr.refraction * 0.0;
     float2 uvOffset = uvParallax + uvRefraction;
-    float2 baseUV = ApplyBaseTransform(i.worldUV + uvOffset);
-    float2 bumpUV = ApplyBumpTransform(i.worldUV + uvOffset);
+    float2 worldUVParallax = i.worldUV + uvOffset;
+    baseUV = ApplyBaseTransform(worldUVParallax);
+    bumpUV = ApplyBumpTransform(worldUVParallax);
+    detailUV = ApplyDetailTransform(worldUVParallax);
     if (g_NeedsFrameBuffer > 0.0) {
         // Inverse conversion of world position -- UV coordinates equation:
         // P: world pos,  S: tangent S,         T: tangent T
@@ -451,8 +491,6 @@ float4 ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params, 
         float2 fade = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.55, finalUV);
         baseUV = lerp(i.screenPos * g_FbSize, finalUV, fade);
     }
-
-    return float4(baseUV, bumpUV);
 }
 
 float2 ApplyParallaxLightmap(const PsVertexInfo i, const MaterialParams params) {
@@ -481,11 +519,14 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
     FetchInkMaterial(IDs, params.pbr);
     FetchInkDetails(IDs, params.detail);
 
+    // Compute geometry UV with parallax effect
+    float2 baseUV, bumpUV, detailUV;
+    ApplyParallaxGeometry(i, params, inkNormal, baseUV, bumpUV, detailUV);
+
     // Sample geometry albedo and normal
-    float4 baseBumpUV = ApplyParallaxGeometry(i, params, inkNormal);
     float2 lightmapUV = ApplyParallaxLightmap(i, params);
-    float3 geometryNormal = FetchGeometryNormal(i, baseBumpUV.zw);
-    float3 geometryAlbedo = FetchGeometrySamples(i, baseBumpUV.xy);
+    float3 geometryNormal = FetchGeometryNormal(i, bumpUV);
+    float3 geometryAlbedo = FetchGeometrySamples(i, baseUV, detailUV);
 
     // Blend ink and world normals
     float3 tangentSpaceNormal = normalize(lerp(geometryNormal, inkNormal, params.detail.bumpBlendFactor));

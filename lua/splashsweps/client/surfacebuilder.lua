@@ -429,11 +429,14 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         local page = lightmapGroup.LightmapPage
         local lightmapTextureName = page and string.format("\\[lightmap%d]", page) or "white"
         local materialParams = buildBaseInkMeshMaterialParams()
+        local hasDetail = tobool(materialInfo.Detail)
+        local detailBlendMode = materialInfo.DetailBlendMode or 0
         materialParams["$texture3"] = materialInfo.BaseTexture or "white"
         materialParams["$texture4"] = materialInfo.Bumpmap or "null-bumpmap"
         materialParams["$texture5"] = materialInfo.Detail or "white"
         materialParams["$texture6"] = lightmapTextureName
-        materialParams["$c0_w"]     = materialInfo.DetailBlendMode or 0
+        materialParams["$linearread_texture5"] = detailBlendMode == 1 and "0" or "1"
+        materialParams["$c0_w"]     = detailBlendMode
         materialParams["$c1_x"]     = materialInfo.NeedsBumpedLightmaps and 1 or 0
         materialParams["$c1_y"]     = fbScale * (materialInfo.NeedsFrameBuffer and 1 or 0)
         materialParams["$c2_x"]     = 1 / pageWidth
@@ -443,7 +446,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$c3_x"]     = materialInfo.Color and materialInfo.Color.x or 1
         materialParams["$c3_y"]     = materialInfo.Color and materialInfo.Color.y or 1
         materialParams["$c3_z"]     = materialInfo.Color and materialInfo.Color.z or 1
-        materialParams["$c3_w"]     = materialInfo.DetailBlendFactor or 1
+        materialParams["$c3_w"]     = hasDetail and (materialInfo.DetailBlendFactor or 1) or 0
 
         local mat = CreateMaterial(
             string.format("splashsweps_mesh_%d_%s", sortID, game.GetMap()),
