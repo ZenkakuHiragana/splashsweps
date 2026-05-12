@@ -34,8 +34,18 @@
     "$c0_x"                   "0"
     "$c0_y"                   "0.3"
     "$c0_z"                   "0.954"
+    "$c0_w"                   "0"
     "$c1_x"                   "0"
-    "$c1_y"                   "960"
+    "$c1_y"                   "0"
     "$c1_z"                   "1e-4"
-    "$c1_w"                   "1" // Simplified pass for water reflection
+    "$c1_w"                   "1"           // Simplified pass for water reflection
+    "$c2_x"                   "0.001953125" // = 1 / 512
+    "$c2_y"                   "0.00390625"  // = 1 / 256
+    "$c2_z"                   "4"
+    "$c2_w"                   "4"
+    "$c3_x"                   "1"
+    "$c3_y"                   "1"
+    "$c3_z"                   "1"
+    "$c3_w"                   "0"
+    "$viewprojmat"            "[ 1 0 0 1 0 1 0 1 1 0 0 1 0 1 0 0 ]"
 }

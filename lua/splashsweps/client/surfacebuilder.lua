@@ -421,7 +421,6 @@ end
 ---@return ss.RenderBatch renderBatch The same render batch after appending mesh entries.
 local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
     local m = Matrix()
-    local fbScale = ScrH() / (2 * math.tan(math.rad(LocalPlayer():GetFOV() * 0.5)))
     for _, vertexBatch in ipairs(vertexBatches) do
         local sortID = vertexBatch.SortID
         local lightmapGroup = lightmapLayout.Groups[sortID]
@@ -439,7 +438,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$linearread_texture5"] = detailBlendMode == 1 and "0" or "1"
         materialParams["$c0_w"]     = detailBlendMode
         materialParams["$c1_x"]     = materialInfo.NeedsBumpedLightmaps and 1 or 0
-        materialParams["$c1_y"]     = fbScale * (materialInfo.NeedsFrameBuffer and 1 or 0)
+        materialParams["$c1_y"]     = materialInfo.NeedsFrameBuffer and 1 or 0
         materialParams["$c2_x"]     = 1 / pageWidth
         materialParams["$c2_y"]     = 1 / pageHeight
         materialParams["$c2_z"]     = materialInfo.DetailScale and materialInfo.DetailScale.x or 4
@@ -484,7 +483,6 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         }
     end
 
-    Material "splashsweps/shaders/inkmesh":SetFloat("$c1_y", fbScale)
     return renderBatch
 end
 

@@ -112,7 +112,6 @@ static const float3 g_SunDirection      = c0.xyz; // in world space
 static const float  g_DetailBlendMode   = c0.w;
 static const float  g_HasBumpedLightmap = c1.x;
 static const float  g_NeedsFrameBuffer  = c1.y;   // True when WorldVertexTransition or Lightmapped_4WayBlend
-static const float  g_ScreenScale       = c1.y;   // If g_NeedsFrameBuffer > 0, it is parallax mapping scale
 static const float  g_HammerUnitsToUV   = c1.z;   // = ss.RenderTarget.HammerUnitsToUV * 0.5
 static const float  g_Simplified        = c1.w;   // Simplified rendering for water reflection/refraction
 static const float2 g_LightmapSize      = c2.xy;  // One over lightmap size
@@ -375,7 +374,7 @@ float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
 // Samples albedo and bumpmap pixel from geometry textures
 float3 FetchGeometrySamples(const PsVertexInfo i, float2 baseUV, float2 detailUV) {
     if (g_NeedsFrameBuffer) {
-        float3   frameBufferSample  = tex2Dlod(FrameBuffer, float4(i.screenPos * g_FbSize, 0.0, 0.0)).rgb / g_TonemapScale;
+        float3   frameBufferSample  = tex2Dlod(FrameBuffer, float4(baseUV, 0.0, 0.0)).rgb / g_TonemapScale;
         float3   lightmapFactors    = CalcLightmapFactors(FetchGeometryNormal(i, ApplyBumpTransform(i.worldUV)));
         float3x3 lightmapColors     = FetchLightmapSamples(i, i.lightmapUV);
         float3   lightmapFinalColor = CalcFinalLightmapColor(lightmapColors, lightmapFactors);
@@ -481,8 +480,8 @@ void ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params, fl
             dot(float2( dv.y, -dv.x), uvOffset) * det,
             dot(float2(-du.y,  du.x), uvOffset) * det,
         };
-        float2 finalUV = (i.screenPos + screenOffset * g_ScreenScale) * g_FbSize;
-        float2 fade = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.55, finalUV);
+        float2 finalUV = (i.screenPos + screenOffset) * g_FbSize;
+        float2 fade = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.95, finalUV);
         baseUV = lerp(i.screenPos * g_FbSize, finalUV, fade);
     }
 }
