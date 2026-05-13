@@ -43,10 +43,12 @@ struct DetailParams {
 };
 
 struct MaterialParams {
-    float height;
-    float depth;
+    float  height;
+    float  depth;
+    float2 depthGradient;
     float3 additive;
     float3 multiplicative;
+    float3 normal;
     PseudoPBR pbr;
     DetailParams detail;
 };
@@ -283,7 +285,7 @@ float FetchDepth(float2 uv) {
 }
 
 // Samples additive color and height value
-void FetchAdditiveAndHeight(float2 uv, inout MaterialParams params, out float3 normal) {
+void FetchAdditiveAndHeight(float2 uv, inout MaterialParams params) {
     float4 uv4 = { uv, 0.0, 0.0 };
     float4 s = tex2Dlod(InkMap, uv4);
     params.additive = pow(abs(s.rgb), 2.2); // Manually correct gamma
@@ -294,14 +296,20 @@ void FetchAdditiveAndHeight(float2 uv, inout MaterialParams params, out float3 n
     float hy = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(0.0, g_RTSize.y, 0.0, 0.0)).a);
     float dx = hx - params.height;
     float dy = hy - params.height;
-    normal = normalize(float3(-dx, -dy, 1.0));
+    params.normal = normalize(float3(-dx, -dy, 1.0));
 }
 
 // Samples multiplicative color and ground depth
 void FetchMultiplicativeAndDepth(float2 uv, inout MaterialParams params) {
-    float4 s = tex2Dlod(InkMap, float4(uv.x + 0.5, uv.y, 0.0, 0.0));
-    params.multiplicative = pow(abs(s.rgb), 2.2);
+    float4 uv4 = { uv.x + 0.5, uv.y, 0.0, 0.0 };
+    float4 s = tex2Dlod(InkMap, uv4);
+    params.multiplicative = pow(abs(s.rgb), 2.2); // Manually correct gamma
     params.depth          = s.a;
+
+    // Additional samples to calculate depth gradient
+    float dx = tex2Dlod(InkMap, uv4 + float4(g_RTSize.x, 0.0, 0.0, 0.0)).a;
+    float dy = tex2Dlod(InkMap, uv4 + float4(0.0, g_RTSize.y, 0.0, 0.0)).a;
+    params.depthGradient = float2(dx, dy) - params.depth;
 }
 
 // Samples lighting parameters from texture sampler
@@ -439,49 +447,59 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
     return clamp(inkUV, float3(i.minUV, -1.0), float3(i.maxUV,  1.0));
 }
 
-void ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params, float3 inkNormal, out float2 baseUV, out float2 bumpUV, out float2 detailUV) {
+// Inverse conversion of world position -- UV coordinates equation:
+// P: world pos,  S: tangent S,         T: tangent T
+// U: (u, v),     X: screen pos (x, y)
+//    P = S u + T v
+// 1. Get partial derivatives of both sides
+//    ∂P/∂x = S ∂u/∂x + T ∂v/∂x
+//    ∂P/∂y = S ∂u/∂y + T ∂v/∂y
+// 2. Consolidates them into matrix form (assuming row vectors)
+//   / ∂P/dx \ _ / ∂U/∂x \ / S \
+//   \ ∂P/∂y / ‾ \ ∂U/∂y / \ T /
+// 3. Multiplies inverse dUdx--dUdy matrix from left side to get S, T
+// float2x3 dPdX   = { ddx(worldPos), ddy(worldPos) };
+// float2x2 dUdX   = { ddx(inkUV),    ddy(inkUV)    };
+// float dUdXdet   = dUdX._m00 * dUdX._m11 - dUdX._m01 * dUdX._m10;
+// float dUdXidet  = sign(dUdXdet) * rcp(max(abs(dUdXdet), 1.0e-8));
+// float2x2 dUdXInv = float2x2(
+//      dUdX._m11, -dUdX._m01,
+//     -dUdX._m10,  dUdX._m00) * dUdXidet;
+// float3x3 tangentSpaceInk = { mul(dUdXInv, dPdX), i.worldNormalTangentY.xyz };
+// tangentSpaceInk[0] = normalize(tangentSpaceInk[0]) * g_HammerUnitsToUV;
+// tangentSpaceInk[1] = normalize(tangentSpaceInk[1]) * g_HammerUnitsToUV;
+float2 ProjectiveUVToScreenOffset(float2 uv, float2 targetUV, float clipW) {
+    float  invW      = rcp(max(clipW, 1.0e-6));
+    float2 uvOverW   = uv * invW;
+    float  invWdx    = ddx(invW),    invWdy    = ddy(invW);
+    float2 uvOverWdx = ddx(uvOverW), uvOverWdy = ddy(uvOverW);
+    float2 a         = uvOverWdx - targetUV * invWdx;
+    float2 b         = uvOverWdy - targetUV * invWdy;
+    float2 c         = targetUV * invW - uvOverW;
+    float  det       = a.x * b.y - b.x * a.y;
+    float  invDet    = sign(det) * rcp(max(abs(det), 1.0e-8));
+    return float2(
+        (c.x * b.y - b.x * c.y) * invDet,
+        (a.x * c.y - c.x * a.y) * invDet);
+}
+
+void ApplyParallaxGeometry(
+    const PsVertexInfo i, const MaterialParams params,
+    out float2 baseUV, out float2 bumpUV, out float2 detailUV) {
     float3x3 tangentSpaceGeometry = i.worldTransform; // TEXINFO.textureVecS, TEXINFO.textureVecT, normal
     tangentSpaceGeometry[2] /= HEIGHT_TO_HU;          // units are in $basetexture's texel per Hammer units
-    float3 viewDir = mul(tangentSpaceGeometry, normalize(g_EyePos.xyz - i.worldPos));
-    float2 uvParallax = -viewDir.xy * params.depth / max(viewDir.z, 1.0e-3) * g_WallAlbedoSize;
-    float2 uvRefraction = inkNormal.xy * params.pbr.refraction * 0.0;
-    float2 uvOffset = uvParallax + uvRefraction;
+    float3 viewVec         = mul(tangentSpaceGeometry, g_EyePos.xyz - i.worldPos);
+    float2 uvParallax      = -viewVec.xy * params.depth / max(viewVec.z, 1.0e-3) * g_WallAlbedoSize;
+    float2 uvRefraction    = params.normal.xy * params.pbr.refraction * 0.0;
+    float2 uvOffset        = uvParallax + uvRefraction;
     float2 worldUVParallax = i.worldUV + uvOffset;
-    baseUV = ApplyBaseTransform(worldUVParallax);
-    bumpUV = ApplyBumpTransform(worldUVParallax);
+    baseUV   = ApplyBaseTransform(worldUVParallax);
+    bumpUV   = ApplyBumpTransform(worldUVParallax);
     detailUV = ApplyDetailTransform(worldUVParallax);
     if (g_NeedsFrameBuffer > 0.0) {
-        // Inverse conversion of world position -- UV coordinates equation:
-        // P: world pos,  S: tangent S,         T: tangent T
-        // U: (u, v),     X: screen pos (x, y)
-        //    P = S u + T v
-        // 1. Get partial derivatives of both sides
-        //    ∂P/∂x = S ∂u/∂x + T ∂v/∂x
-        //    ∂P/∂y = S ∂u/∂y + T ∂v/∂y
-        // 2. Consolidates them into matrix form (assuming row vectors)
-        //   / ∂P/dx \ _ / ∂U/∂x \ / S \
-        //   \ ∂P/∂y / ‾ \ ∂U/∂y / \ T /
-        // 3. Multiplies inverse dUdx--dUdy matrix from left side to get S, T
-        // float2x3 dPdX   = { ddx(worldPos), ddy(worldPos) };
-        // float2x2 dUdX   = { ddx(inkUV),    ddy(inkUV)    };
-        // float dUdXdet   = dUdX._m00 * dUdX._m11 - dUdX._m01 * dUdX._m10;
-        // float dUdXidet  = sign(dUdXdet) * rcp(max(abs(dUdXdet), 1.0e-8));
-        // float2x2 dUdXInv = float2x2(
-        //      dUdX._m11, -dUdX._m01,
-        //     -dUdX._m10,  dUdX._m00) * dUdXidet;
-        // float3x3 tangentSpaceInk = { mul(dUdXInv, dPdX), i.worldNormalTangentY.xyz };
-        // tangentSpaceInk[0] = normalize(tangentSpaceInk[0]) * g_HammerUnitsToUV;
-        // tangentSpaceInk[1] = normalize(tangentSpaceInk[1]) * g_HammerUnitsToUV;
-        float2 du = ddx(i.worldUV);
-        float2 dv = ddy(i.worldUV);
-        float det = du.x * dv.y - dv.x * du.y;
-        det = rcp(det + (det < 0 ? -1.0e-7 : 1.0e-7));
-        float2 screenOffset = {
-            dot(float2( dv.y, -dv.x), uvOffset) * det,
-            dot(float2(-du.y,  du.x), uvOffset) * det,
-        };
-        float2 finalUV = (i.screenPos + screenOffset) * g_FbSize;
-        float2 fade = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.95, finalUV);
+        float2 screenOffset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + uvOffset, i.clipPos.w);
+        float2 finalUV      = i.screenPos * g_FbSize + screenOffset;
+        float2 fade         = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.95, finalUV);
         baseUV = lerp(i.screenPos * g_FbSize, finalUV, fade);
     }
 }
@@ -505,16 +523,15 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
     clip(floor(IDs.x + IDs.y + IDs.z) - 0.5);
 
     // Samples ink parameters
-    float3 inkNormal;
     MaterialParams params;
-    FetchAdditiveAndHeight(inkUV.xy, params, inkNormal);
+    FetchAdditiveAndHeight(inkUV.xy, params);
     FetchMultiplicativeAndDepth(inkUV.xy, params);
     FetchInkMaterial(IDs, params.pbr);
     FetchInkDetails(IDs, params.detail);
 
     // Compute geometry UV with parallax effect
     float2 baseUV, bumpUV, detailUV;
-    ApplyParallaxGeometry(i, params, inkNormal, baseUV, bumpUV, detailUV);
+    ApplyParallaxGeometry(i, params, baseUV, bumpUV, detailUV);
 
     // Sample geometry albedo and normal
     float2 lightmapUV = ApplyParallaxLightmap(i, params);
@@ -522,7 +539,7 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
     float3 geometryAlbedo = FetchGeometrySamples(i, baseUV, detailUV);
 
     // Blend ink and world normals
-    float3 tangentSpaceNormal = normalize(lerp(geometryNormal, inkNormal, params.detail.bumpBlendFactor));
+    float3 tangentSpaceNormal = normalize(lerp(geometryNormal, params.normal, params.detail.bumpBlendFactor));
     float3 worldSpaceNormal = normalize(mul(tangentSpaceNormal, i.worldTransform));
     float3 lightmapFactors = CalcLightmapFactors(tangentSpaceNormal);
     float3x3 lightmapColors = FetchLightmapSamples(i, lightmapUV);
