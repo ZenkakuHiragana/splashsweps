@@ -24,8 +24,9 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
     local workMatrix = Matrix() -- Work area to invert matrix.
     for rtIndex, rtSize in ipairs(ss.RenderTarget.Resolutions) do
         local rects = {} ---@type ss.Rectangle[]
-        local margin = ss.MARGIN_HAMMER_UNITS * 2
-        local marginVector = Vector(ss.MARGIN_HAMMER_UNITS, -ss.MARGIN_HAMMER_UNITS)
+        local marginPerSide = ss.MARGIN_HAMMER_UNITS
+        local margin = marginPerSide * 2
+        local marginVector = Vector(marginPerSide, marginPerSide)
         for i, surf in ipairs(surfaces) do
             local info = surf.UVInfo[rtIndex]
             rects[i] = ss.MakeRectangle(info.Width + margin, info.Height + margin, 0, 0, surf)
@@ -57,7 +58,7 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
                     info.Angle:RotateAroundAxis(info.Angle:Up(), 90)
                     workMatrix:Identity()
                     workMatrix:SetAngles(info.Angle)
-                    info.Translation:Sub(workMatrix * Vector(0, height, 0))
+                    info.Translation:Sub(workMatrix * Vector(0, height - margin, 0))
                 end
 
                 info.OffsetU = rect.left   / rectangleSizeHU
