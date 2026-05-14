@@ -1,11 +1,11 @@
 "UnlitGeneric"
 {
     "$basetexture"   "white"
-    "$color"         "[0 0 0]"
+    "$color"         "[0.2 0.2 0]"
     "$tinttexture"   "splashsweps/inktypes/material_test"
     "$detail"        "null-bumpmap"
     "$features"      ""
-    "$metallic"      "0"
+    "$metallic"      "0.5"
     "$roughness"     "0"
     "$specularscale" "1"
     "$maxheight"     "0.2"

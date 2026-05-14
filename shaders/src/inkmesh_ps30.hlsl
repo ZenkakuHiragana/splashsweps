@@ -19,7 +19,7 @@ struct PS_OUTPUT {
 };
 
 struct PsVertexInfo {
-    float2   screenPos;
+    float2   screenUV;
     float3   worldPos;
     float4   clipPos;
     float2   minUV;
@@ -135,7 +135,7 @@ static const float  g_GammaScale        = HDRParams.w; // = TonemapScale ^ (1 / 
 
 PsVertexInfo DecomposeInput(const PS_INPUT i) {
     PsVertexInfo v;
-    v.screenPos         = i.screenPos.xy;
+    v.screenUV          = i.screenPos.xy * g_FbSize;
     v.worldPos          = i.vi.worldPos.xyz;
     v.clipPos           = i.vi.clipPos;
     v.minUV             = i.vi.surfaceClipRange.xy;
@@ -501,10 +501,9 @@ void ApplyParallaxGeometry(
     bumpUV   = ApplyBumpTransform(worldUVParallax);
     detailUV = ApplyDetailTransform(worldUVParallax);
     if (g_NeedsFrameBuffer > 0.0) {
-        float2 screenOffset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + uvOffset, i.clipPos.w);
-        float2 finalUV      = (i.screenPos + screenOffset) * g_FbSize;
-        float2 fade         = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.95, finalUV);
-        baseUV = lerp(i.screenPos * g_FbSize, finalUV, min(fade.x, fade.y));
+        float2 offset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + uvOffset, i.clipPos.w);
+        float2 uv = i.screenUV + offset * g_FbSize;
+        baseUV = lerp(i.screenUV, uv, smoothstep(0.0, 0.0625, min(min(uv.x, uv.y), 1.0 - max(uv.x, uv.y))));
     }
 }
 
@@ -611,15 +610,8 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
         dot(i.worldTransform[1], i.worldTransform[1]),
     };
     envmapUVOffset /= max(tangentScaleSqr, 1.0e-3);
-    float2 du = ddx(i.worldUV);
-    float2 dv = ddy(i.worldUV);
-    float det = du.x * dv.y - dv.x * du.y;
-    det = rcp(det + (det < 0 ? -1.0e-7 : 1.0e-7));
-    float2 screenOffset = {
-        dot(float2( dv.y, -dv.x), envmapUVOffset) * det,
-        dot(float2(-du.y,  du.x), envmapUVOffset) * det,
-    };
-    float2 fakeSSRUV = saturate((i.screenPos - screenOffset) * g_FbSize);
+    float2 screenOffset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + envmapUVOffset, i.clipPos.w);
+    float2 fakeSSRUV = saturate(i.screenUV - screenOffset * g_FbSize);
     float3 envmapSpecular = tex2Dlod(FrameBuffer, float4(fakeSSRUV, 0.0, 0.0)).rgb;
     envmapSpecular /= g_TonemapScale;
     envmapSpecular *= smoothstep(-0.35, 0.35, envmapReflect.z);
