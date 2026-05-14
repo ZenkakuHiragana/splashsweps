@@ -8,6 +8,11 @@
 #define g_PhongEnabled
 #define g_RimEnabled
 
+struct PS_INPUT {
+    float4 screenPos : VPOS;
+    VertexInfo vi;
+};
+
 struct PS_OUTPUT {
     float4 color : COLOR0;
     float  depth : DEPTH0;
@@ -53,7 +58,6 @@ struct MaterialParams {
     DetailParams detail;
 };
 
-static const float HEIGHT_TO_HU       = 24.0;
 static const float ALBEDO_ALPHA_MIN   = 0.0625;
 static const float DIFFUSE_MIN        = 0.0625; // Diffuse factor at metallic = 100%
 static const float ENVMAP_SCALE_MIN   = 0.5;    // Envmap factor at roughness = 0%
@@ -190,6 +194,42 @@ float4 CalcNearFarZ(float projPosZ, float projPosW) {
     float nearZ = -projMatrixOffset * SAFERCP(projMatrixPropotional);
     float farZ = -projMatrixPropotional * nearZ / (1.0 - projMatrixPropotional);
     return float4(nearZ, farZ, projMatrixPropotional, projMatrixOffset);
+}
+
+// Inverse conversion of world position -- UV coordinates equation:
+// P: world pos,  S: tangent S,         T: tangent T
+// U: (u, v),     X: screen pos (x, y)
+//    P = S u + T v
+// 1. Get partial derivatives of both sides
+//    ∂P/∂x = S ∂u/∂x + T ∂v/∂x
+//    ∂P/∂y = S ∂u/∂y + T ∂v/∂y
+// 2. Consolidates them into matrix form (assuming row vectors)
+//   / ∂P/dx \ _ / ∂U/∂x \ / S \
+//   \ ∂P/∂y / ‾ \ ∂U/∂y / \ T /
+// 3. Multiplies inverse dUdx--dUdy matrix from left side to get S, T
+// float2x3 dPdX   = { ddx(worldPos), ddy(worldPos) };
+// float2x2 dUdX   = { ddx(inkUV),    ddy(inkUV)    };
+// float dUdXdet   = dUdX._m00 * dUdX._m11 - dUdX._m01 * dUdX._m10;
+// float dUdXidet  = sign(dUdXdet) * rcp(max(abs(dUdXdet), 1.0e-8));
+// float2x2 dUdXInv = float2x2(
+//      dUdX._m11, -dUdX._m01,
+//     -dUdX._m10,  dUdX._m00) * dUdXidet;
+// float3x3 tangentSpaceInk = { mul(dUdXInv, dPdX), i.worldNormalTangentY.xyz };
+// tangentSpaceInk[0] = normalize(tangentSpaceInk[0]) * g_HammerUnitsToUV;
+// tangentSpaceInk[1] = normalize(tangentSpaceInk[1]) * g_HammerUnitsToUV;
+float2 ProjectiveUVToScreenOffset(float2 uv, float2 targetUV, float clipW) {
+    float  invW      = rcp(max(clipW, 1.0e-12));
+    float2 uvOverW   = uv * invW;
+    float  invWdx    = ddx(invW),    invWdy    = ddy(invW);
+    float2 uvOverWdx = ddx(uvOverW), uvOverWdy = ddy(uvOverW);
+    float2 a         = uvOverWdx - targetUV * invWdx;
+    float2 b         = uvOverWdy - targetUV * invWdy;
+    float2 c         = targetUV * invW - uvOverW;
+    float  det       = a.x * b.y - b.x * a.y;
+    float  invDet    = sign(det) * rcp(max(abs(det), 1.0e-20));
+    return float2(
+        (c.x * b.y - b.x * c.y) * invDet,
+        (a.x * c.y - c.x * a.y) * invDet);
 }
 
 float3 CalcLightmapFactors(float3 normal) {
@@ -447,42 +487,6 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
     return clamp(inkUV, float3(i.minUV, -1.0), float3(i.maxUV,  1.0));
 }
 
-// Inverse conversion of world position -- UV coordinates equation:
-// P: world pos,  S: tangent S,         T: tangent T
-// U: (u, v),     X: screen pos (x, y)
-//    P = S u + T v
-// 1. Get partial derivatives of both sides
-//    ∂P/∂x = S ∂u/∂x + T ∂v/∂x
-//    ∂P/∂y = S ∂u/∂y + T ∂v/∂y
-// 2. Consolidates them into matrix form (assuming row vectors)
-//   / ∂P/dx \ _ / ∂U/∂x \ / S \
-//   \ ∂P/∂y / ‾ \ ∂U/∂y / \ T /
-// 3. Multiplies inverse dUdx--dUdy matrix from left side to get S, T
-// float2x3 dPdX   = { ddx(worldPos), ddy(worldPos) };
-// float2x2 dUdX   = { ddx(inkUV),    ddy(inkUV)    };
-// float dUdXdet   = dUdX._m00 * dUdX._m11 - dUdX._m01 * dUdX._m10;
-// float dUdXidet  = sign(dUdXdet) * rcp(max(abs(dUdXdet), 1.0e-8));
-// float2x2 dUdXInv = float2x2(
-//      dUdX._m11, -dUdX._m01,
-//     -dUdX._m10,  dUdX._m00) * dUdXidet;
-// float3x3 tangentSpaceInk = { mul(dUdXInv, dPdX), i.worldNormalTangentY.xyz };
-// tangentSpaceInk[0] = normalize(tangentSpaceInk[0]) * g_HammerUnitsToUV;
-// tangentSpaceInk[1] = normalize(tangentSpaceInk[1]) * g_HammerUnitsToUV;
-float2 ProjectiveUVToScreenOffset(float2 uv, float2 targetUV, float clipW) {
-    float  invW      = rcp(max(clipW, 1.0e-6));
-    float2 uvOverW   = uv * invW;
-    float  invWdx    = ddx(invW),    invWdy    = ddy(invW);
-    float2 uvOverWdx = ddx(uvOverW), uvOverWdy = ddy(uvOverW);
-    float2 a         = uvOverWdx - targetUV * invWdx;
-    float2 b         = uvOverWdy - targetUV * invWdy;
-    float2 c         = targetUV * invW - uvOverW;
-    float  det       = a.x * b.y - b.x * a.y;
-    float  invDet    = sign(det) * rcp(max(abs(det), 1.0e-8));
-    return float2(
-        (c.x * b.y - b.x * c.y) * invDet,
-        (a.x * c.y - c.x * a.y) * invDet);
-}
-
 void ApplyParallaxGeometry(
     const PsVertexInfo i, const MaterialParams params,
     out float2 baseUV, out float2 bumpUV, out float2 detailUV) {
@@ -498,9 +502,9 @@ void ApplyParallaxGeometry(
     detailUV = ApplyDetailTransform(worldUVParallax);
     if (g_NeedsFrameBuffer > 0.0) {
         float2 screenOffset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + uvOffset, i.clipPos.w);
-        float2 finalUV      = i.screenPos * g_FbSize + screenOffset;
+        float2 finalUV      = (i.screenPos + screenOffset) * g_FbSize;
         float2 fade         = smoothstep(0.0, 0.05, finalUV) * smoothstep(1.0, 0.95, finalUV);
-        baseUV = lerp(i.screenPos * g_FbSize, finalUV, fade);
+        baseUV = lerp(i.screenPos * g_FbSize, finalUV, min(fade.x, fade.y));
     }
 }
 

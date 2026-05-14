@@ -18,6 +18,7 @@
 // Safe rcp that avoids division by zero
 #define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-21)))
 
+static const float  HEIGHT_TO_HU = 24.0;
 static const float4 GROUND_PROPERTIES[8] = {
     { 1.0, 1.0, 1.0,  1.0 },
     { 1.0, 1.0, 1.0,  0.0 },
@@ -44,14 +45,3 @@ struct VertexInfo {
     float4 worldPos           : TEXCOORD8; // w:  unused
     float4 clipPos            : TEXCOORD9;
 };
-
-struct VS_OUTPUT {
-    float4 clipPos : POSITION0;
-    VertexInfo vi;
-};
-
-struct PS_INPUT {
-    float4 screenPos : VPOS;
-    VertexInfo vi;
-};
-

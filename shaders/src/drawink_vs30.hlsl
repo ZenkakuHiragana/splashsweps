@@ -45,8 +45,9 @@
 //   b : x255 + 1 = Paint type ID
 //   a : Unused
 
+#include "inkmesh_common.hlsl"
+
 const float4 c21 : register(c21); // Ambient cube front
-static const float  HammerUnitsToMaxHeight = rcp(32.0);
 static const float  CornerSignX[4] = { -1,  1, 1, -1 };
 static const float  CornerSignY[4] = { -1, -1, 1,  1 };
 static const float2 ConstantUV[4]  = {{ 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }};
@@ -108,7 +109,7 @@ VS_OUTPUT main(const VS_INPUT v) {
     float2 shapeMin  = v.shapeMaskAtlasRange.xy;
     float2 shapeMax  = v.shapeMaskAtlasRange.zw;
     float2 corner    = ConstantUV[cornerIndex];
-    float  zScale    = saturate(v.size.z * HammerUnitsToMaxHeight);
+    float  zScale    = saturate(v.size.z / HEIGHT_TO_HU);
     output.inkAndTintUV = float4(
         lerp(baseMin, baseMax, corner),
         lerp(tintMin, tintMax, corner));

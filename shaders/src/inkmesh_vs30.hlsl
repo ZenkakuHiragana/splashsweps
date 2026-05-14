@@ -7,6 +7,11 @@ struct VS_INPUT {
     VertexInfo vi;
 };
 
+struct VS_OUTPUT {
+    float4 clipPos : POSITION0;
+    VertexInfo vi;
+};
+
 static const float DEPTH_BIAS = 2.0e-5; // Depth bias in normalized device coordinates
 const float4x4 cModelViewProj : register(c4);
 const float4   cEyePosWaterZ  : register(c2); // xyz: eye position
