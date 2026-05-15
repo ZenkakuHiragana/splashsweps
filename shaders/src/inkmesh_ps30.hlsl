@@ -18,7 +18,16 @@ struct PS_OUTPUT {
     float  depth : DEPTH0;
 };
 
+struct UVs {
+    float2 base;
+    float2 bump;
+    float2 detail;
+    float2 screen;
+    float  isedge;
+};
+
 struct PsVertexInfo {
+    float    baseTextureBlend;
     float2   screenUV;
     float3   worldPos;
     float4   clipPos;
@@ -88,7 +97,8 @@ sampler InkDataSampler     : register(s1);
 sampler FrameBuffer        : register(s2);
 sampler WallAlbedoSampler  : register(s3);
 sampler WallBumpmapSampler : register(s4);
-sampler WallDetailSampler  : register(s5);
+sampler WallDetailSampler  : register(s5); // g_NeedsFrameBuffer == 0.0
+sampler WallAlbedo2Sampler : register(s5); // g_NeedsFrameBuffer != 0.0
 sampler LightmapSampler    : register(s6);
 sampler InkDetailSampler   : register(s7);
 
@@ -135,6 +145,7 @@ static const float  g_GammaScale        = HDRParams.w; // = TonemapScale ^ (1 / 
 
 PsVertexInfo DecomposeInput(const PS_INPUT i) {
     PsVertexInfo v;
+    v.baseTextureBlend  = i.vi.worldPos.w;
     v.screenUV          = i.screenPos.xy * g_FbSize;
     v.worldPos          = i.vi.worldPos.xyz;
     v.clipPos           = i.vi.clipPos;
@@ -420,19 +431,20 @@ float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
 }
 
 // Samples albedo and bumpmap pixel from geometry textures
-float3 FetchGeometrySamples(const PsVertexInfo i, float2 baseUV, float2 detailUV) {
+float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv) {
+    float4 origin = { ApplyBaseTransform(i.worldUV), ApplyDetailTransform(i.worldUV) };
+    float4 dx     = ddx(origin), dy = ddy(origin);
+    float4 albedo = tex2Dgrad(WallAlbedoSampler, uv.base, dx.xy, dy.xy);
+    float4 detail = tex2Dgrad(WallDetailSampler, uv.detail, dx.zw, dy.zw) * g_DetailTint;
     if (g_NeedsFrameBuffer) {
-        float3   frameBufferSample  = tex2Dlod(FrameBuffer, float4(baseUV, 0.0, 0.0)).rgb / g_TonemapScale;
+        float3   frameBufferSample  = tex2Dlod(FrameBuffer, float4(uv.screen, 0.0, 0.0)).rgb / g_TonemapScale;
         float3   lightmapFactors    = CalcLightmapFactors(FetchGeometryNormal(i, ApplyBumpTransform(i.worldUV)));
         float3x3 lightmapColors     = FetchLightmapSamples(i, i.lightmapUV);
         float3   lightmapFinalColor = CalcFinalLightmapColor(lightmapColors, lightmapFactors);
-        return frameBufferSample / max(lightmapFinalColor, 1.0e-8);
+        frameBufferSample /= max(lightmapFinalColor, 1.0e-8);
+        return lerp(frameBufferSample, lerp(albedo, detail, i.baseTextureBlend).rgb, uv.isedge);
     }
     else {
-        float4 origin = { ApplyBaseTransform(i.worldUV), ApplyDetailTransform(i.worldUV) };
-        float4 dx     = ddx(origin), dy = ddy(origin);
-        float4 albedo = tex2Dgrad(WallAlbedoSampler, baseUV, dx.xy, dy.xy);
-        float4 detail = tex2Dgrad(WallDetailSampler, detailUV, dx.zw, dy.zw) * g_DetailTint;
         return ApplyDetailSample(albedo, detail).rgb * g_Color;
     }
 }
@@ -487,9 +499,8 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
     return clamp(inkUV, float3(i.minUV, -1.0), float3(i.maxUV,  1.0));
 }
 
-void ApplyParallaxGeometry(
-    const PsVertexInfo i, const MaterialParams params,
-    out float2 baseUV, out float2 bumpUV, out float2 detailUV) {
+UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params) {
+    UVs uv;
     float3x3 tangentSpaceGeometry = i.worldTransform; // TEXINFO.textureVecS, TEXINFO.textureVecT, normal
     tangentSpaceGeometry[2] /= HEIGHT_TO_HU;          // units are in $basetexture's texel per Hammer units
     float3 viewVec         = mul(tangentSpaceGeometry, g_EyePos.xyz - i.worldPos);
@@ -497,14 +508,19 @@ void ApplyParallaxGeometry(
     float2 uvRefraction    = params.normal.xy * params.pbr.refraction * 0.0;
     float2 uvOffset        = uvParallax + uvRefraction;
     float2 worldUVParallax = i.worldUV + uvOffset;
-    baseUV   = ApplyBaseTransform(worldUVParallax);
-    bumpUV   = ApplyBumpTransform(worldUVParallax);
-    detailUV = ApplyDetailTransform(worldUVParallax);
+    uv.base   = ApplyBaseTransform(worldUVParallax);
+    uv.bump   = ApplyBumpTransform(worldUVParallax);
+    uv.detail = ApplyDetailTransform(worldUVParallax);
+    uv.screen = i.screenUV;
+    uv.isedge = 0.0;
     if (g_NeedsFrameBuffer > 0.0) {
         float2 offset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + uvOffset, i.clipPos.w);
-        float2 uv = i.screenUV + offset * g_FbSize;
-        baseUV = lerp(i.screenUV, uv, smoothstep(0.0, 0.0625, min(min(uv.x, uv.y), 1.0 - max(uv.x, uv.y))));
+        float2 s = i.screenUV + offset * g_FbSize;
+        uv.isedge = 1.0 - smoothstep(0.0, 0.0625, min(min(s.x, s.y), 1.0 - max(s.x, s.y)));
+        uv.screen = lerp(s, i.screenUV, uv.isedge);
+        uv.detail = uv.base;
     }
+    return uv;
 }
 
 float2 ApplyParallaxLightmap(const PsVertexInfo i, const MaterialParams params) {
@@ -533,13 +549,12 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
     FetchInkDetails(IDs, params.detail);
 
     // Compute geometry UV with parallax effect
-    float2 baseUV, bumpUV, detailUV;
-    ApplyParallaxGeometry(i, params, baseUV, bumpUV, detailUV);
+    UVs uv = ApplyParallaxGeometry(i, params);
 
     // Sample geometry albedo and normal
     float2 lightmapUV = ApplyParallaxLightmap(i, params);
-    float3 geometryNormal = FetchGeometryNormal(i, bumpUV);
-    float3 geometryAlbedo = FetchGeometrySamples(i, baseUV, detailUV);
+    float3 geometryNormal = FetchGeometryNormal(i, uv.bump);
+    float3 geometryAlbedo = FetchGeometrySamples(i, uv);
 
     // Blend ink and world normals
     float3 tangentSpaceNormal = normalize(lerp(geometryNormal, params.normal, params.detail.bumpBlendFactor));

@@ -17,7 +17,8 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---One vertex worth of packed data passed to inkmesh_vs30.
 ---@class ss.SurfaceBuilder.MeshVertex
 ---@field Position           Vector World-space position written with mesh.Position.
----@field UVRange            number[] xy: min ink-map UV,             zw: max ink-map UV for surface clipping.
+---@field Color              number[] xyz: unused                      w: displacement vertex alpha
+---@field UVRange            number[] xy:  min ink-map UV,            zw: max ink-map UV for surface clipping.
 ---@field WorldTangent_U     number[] xyz: world tangent,              w: geometry texture U.
 ---@field WorldBinormal_V    number[] xyz: world binormal,             w: geometry texture V.
 ---@field WorldNormal_dU     number[] xyz: world normal,               w: bumped-lightmap U offset.
@@ -165,19 +166,20 @@ local function enumerateMaterials(materialsInMap)
         if enumerationIDToArrayIndex[enumerationID] then
             local mat = Material(name)
             if mat and not mat:IsError() then
+                local baseTexture2 = mat:GetString "$basetexture2"
                 materialInfo[enumerationID] = {
                     ArrayIndex           = enumerationIDToArrayIndex[enumerationID],
                     NeedsBumpedLightmaps = bit.band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0,
-                    NeedsFrameBuffer     = tobool(mat:GetString "$basetexture2"),
+                    NeedsFrameBuffer     = tobool(baseTexture2),
                     BaseTexture          = mat:GetString "$basetexture",
                     Bumpmap              = mat:GetString "$bumpmap",
-                    Detail               = mat:GetString "$detail",
+                    Detail               = baseTexture2 or mat:GetString "$detail",
                     BaseTextureTransform = mat:GetMatrix "$basetexturetransform",
                     BumpTextureTransform = mat:GetMatrix "$bumptransform",
                     DetailBlendMode      = mat:GetInt    "$detailblendmode",
                     DetailBlendFactor    = mat:GetFloat  "$detailblendfactor",
                     DetailScale          = mat:GetVector "$detailscale",
-                    DetailTint           = mat:GetVector "$detailtint",
+                    DetailTint           = baseTexture2 and ss.vector_one or mat:GetVector "$detailtint",
                     Color = (mat:GetVector "$color" or ss.vector_one)
                           * (mat:GetVector "$color2" or ss.vector_one),
                 }
@@ -524,6 +526,7 @@ local function buildMeshVertexBatches(surfaceInfo, meshGroups, bumpmapOffsetsByF
                 local uv = worldToUV * (v.DispPaintOrigin or v.Translation) + uvInfo.Translation * scale
                 currentVertices[#currentVertices + 1] = {
                     Position = v.Translation,
+                    Color = { 0, 0, 0, math.Clamp(v.BumpmapUV.z, 0, 255) },
                     UVRange = {
                         uvInfo.OffsetU + bilinearGuard,
                         uvInfo.OffsetV + bilinearGuard,
@@ -600,11 +603,13 @@ local function writeMeshVertexBatches(renderBatch, vertexBatches)
         local vertices = vertexBatch.Vertices
         mesh.Begin(renderBatch[i].Mesh, MATERIAL_TRIANGLES, #vertices / 3)
         for _, v in ipairs(vertices) do
+            mesh.Color(unpack(v.Color))
             mesh.Position(v.Position)
+            mesh.Normal(v.WorldNormal_dU[1], v.WorldNormal_dU[2], v.WorldNormal_dU[3])
             mesh.TexCoord(0, unpack(v.UVRange))
             mesh.TexCoord(1, unpack(v.WorldTangent_U))
             mesh.TexCoord(2, unpack(v.WorldBinormal_V))
-            mesh.TexCoord(3, unpack(v.WorldNormal_dU))
+            mesh.TexCoord(3, 0, 0, 0, v.WorldNormal_dU[4])
             mesh.TexCoord(4, unpack(v.InkTangent_U))
             mesh.TexCoord(5, unpack(v.InkBinormal_V))
             mesh.TexCoord(6, unpack(v.LightmapTangent_U))

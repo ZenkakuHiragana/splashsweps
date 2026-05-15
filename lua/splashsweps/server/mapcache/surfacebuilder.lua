@@ -533,6 +533,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
             bumpmapuv[i] = Bilerp(
                 bumpmapCorners[1], bumpmapCorners[2],
                 bumpmapCorners[3], bumpmapCorners[4], u, v)
+            bumpmapuv[i].z = dispVert.alpha
             lightmapuv[i] = Bilerp(
                 lightmapCorners[1], lightmapCorners[2],
                 lightmapCorners[3], lightmapCorners[4], u, v)
