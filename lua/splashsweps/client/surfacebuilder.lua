@@ -35,20 +35,22 @@ local MAX_LIGHTMAP_HEIGHT = 256
 
 ---Material metadata needed to reproduce world surface shading in inkmesh.
 ---@class ss.SurfaceBuilder.MaterialInfo
----@field ArrayIndex           integer  Index to material name array which is usually game.GetMap():GetMaterials().
----@field NeedsBumpedLightmaps boolean  Whether the material uses 3 directional lightmaps plus the base lightmap.
----@field NeedsFrameBuffer     boolean  Whether albedo should be reconstructed from the current framebuffer.
----@field BaseTexture          string?  Value of $basetexture.
----@field Bumpmap              string?  Value of $bumpmap.
----@field Detail               string?  Value of $detail.
----@field BumpTextureTransform VMatrix? Value of $bumptransform.
----@field BaseTextureTransform VMatrix? Value of $basetexturetransform.
----@field DetailBlendMode      integer? Value of $detailblendmode.
----@field DetailBlendFactor    number?  Value of $detailblendfactor.
----@field DetailScale          Vector?  Value of $detailscale.
----@field DetailTint           Vector?  Value of $detailtint.
----@field Color                Vector?  Value of $color.
+---@field Material             IMaterial The source material.
+---@field ArrayIndex           integer   Index to material name array which is usually game.GetMap():GetMaterials().
+---@field NeedsBumpedLightmaps boolean   Whether the material uses 3 directional lightmaps plus the base lightmap.
+---@field NeedsFrameBuffer     boolean   Whether albedo should be reconstructed from the current framebuffer.
+---@field BaseTexture          string?   Value of $basetexture.
+---@field Bumpmap              string?   Value of $bumpmap.
+---@field Detail               string?   Value of $detail.
+---@field BumpTextureTransform VMatrix?  Value of $bumptransform.
+---@field BaseTextureTransform VMatrix?  Value of $basetexturetransform.
+---@field DetailBlendFactor    number?   Value of $detailblendfactor.
+---@field DetailBlendMode      integer?  Value of $detailblendmode.
+---@field DetailScale          Vector?   Value of $detailscale.
+---@field DetailTint           Vector?   Value of $detailtint.
+---@field Color                Vector?   Value of $color.
 ss.struct "SurfaceBuilder.MaterialInfo" {
+    Material             = Material "color",
     ArrayIndex           = 0,
     NeedsBumpedLightmaps = false,
     NeedsFrameBuffer     = false,
@@ -57,8 +59,8 @@ ss.struct "SurfaceBuilder.MaterialInfo" {
     Detail               = nil,
     BumpTextureTransform = nil,
     BaseTextureTransform = nil,
-    DetailBlendMode      = nil,
     DetailBlendFactor    = nil,
+    DetailBlendMode      = nil,
     DetailScale          = nil,
     DetailTint           = nil,
     Color                = nil,
@@ -168,6 +170,7 @@ local function enumerateMaterials(materialsInMap)
             if mat and not mat:IsError() then
                 local baseTexture2 = mat:GetString "$basetexture2"
                 materialInfo[enumerationID] = {
+                    Material             = mat,
                     ArrayIndex           = enumerationIDToArrayIndex[enumerationID],
                     NeedsBumpedLightmaps = bit.band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0,
                     NeedsFrameBuffer     = tobool(baseTexture2),
@@ -176,8 +179,8 @@ local function enumerateMaterials(materialsInMap)
                     Detail               = baseTexture2 or mat:GetString "$detail",
                     BaseTextureTransform = mat:GetMatrix "$basetexturetransform",
                     BumpTextureTransform = mat:GetMatrix "$bumptransform",
-                    DetailBlendMode      = mat:GetInt    "$detailblendmode",
                     DetailBlendFactor    = mat:GetFloat  "$detailblendfactor",
+                    DetailBlendMode      = mat:GetInt    "$detailblendmode",
                     DetailScale          = mat:GetVector "$detailscale",
                     DetailTint           = baseTexture2 and ss.vector_one or mat:GetVector "$detailtint",
                     Color = (mat:GetVector "$color" or ss.vector_one)
@@ -477,6 +480,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
                 ["$basetexture"] = "white",
                 ["$bumpmap"]     = materialInfo.Bumpmap or "null-bumpmap",
             })
+        ss.InkMeshMaterials[mat] = materialInfo.Material
         renderBatch[#renderBatch + 1] = {
             Material           = mat,
             MaterialFlashlight = matf,
@@ -642,6 +646,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
     local materialInfo = enumerateMaterials(materialsInMap)
     local lightmapLayout = packLightmaps(surfaceInfo, materialInfo)
     local meshGroupsByModel, bumpmapOffsetsByFace = buildMeshGroupsAndApplyLightmapUVs(surfaceInfo, lightmapLayout)
+    ss.BuildMaterialWatchList(materialInfo)
 
     ss.DebugMeshData = {} ---@type ss.SurfaceBuilder.MeshVertex[][]
     for modelIndex, meshGroups in pairs(meshGroupsByModel) do

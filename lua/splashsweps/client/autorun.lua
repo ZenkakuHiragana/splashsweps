@@ -16,6 +16,10 @@ if not SplashSWEPs then
         ---List of IMeshes to render the painted ink.
         ---@type ss.RenderBatch[]
         RenderBatches = {},
+
+        ---Ink mesh material --> bound geometry material.
+        ---@type table<IMaterial, IMaterial>
+        InkMeshMaterials = {},
     }
 end
 

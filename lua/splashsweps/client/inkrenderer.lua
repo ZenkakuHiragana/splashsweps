@@ -8,6 +8,8 @@ local locals = ss.Locals ---@class ss.Locals
 if not locals.Renderer then
     locals.Renderer = {} ---@class ss.Locals.Renderer
     locals.Renderer.Queue = {}
+    locals.Renderer.MaterialWatchList = {}
+    locals.Renderer.LastSunDirection = Vector()
 end
 
 ---@class ss.Locals.Renderer.Queue
@@ -24,9 +26,14 @@ end
 ---@field row1   number[] The first row of World to UV matrix
 ---@field row2   number[] The second row of World to UV matrix
 
----CurTime() based time to perform traces to check player's ink state.
----@type ss.Locals.Renderer.Queue[]
-local Queue = locals.Renderer.Queue
+---@class ss.Locals.Renderer.MaterialWatchState
+---@field Interval integer Index of adaptive interval array to check this parameter.
+---@field LastTime number  CurTime()-based last check time for this parameter.
+---@field Value    string  Last observed value.
+
+---@class ss.Locals.Renderer.MaterialWatchEntry
+---@field Material IMaterial The material to watch the changes.
+---@field Fields   table<string, ss.Locals.Renderer.MaterialWatchState>
 
 local MinTime,    MaxTime    = 0, 0 --- = Queue[1].time, Queue[#Queue].time
 local NUM_REGION, NUM_VERTEX = 4, 4
@@ -40,10 +47,104 @@ local net_ReadInt = net.ReadInt
 local net_ReadUInt = net.ReadUInt
 local Vector, Angle = Vector, Angle
 
+---CurTime() based time to perform traces to check player's ink state.
+---@type ss.Locals.Renderer.Queue[]
+local Queue = locals.Renderer.Queue
+
+---@type ss.Locals.Renderer.MaterialWatchEntry[]
+local MaterialWatchList       = locals.Renderer.MaterialWatchList
+local MaterialWatchInterval   = { 0, 0.05, 0.5, 1, 2, 5, math.huge }
+local MaterialWatchParameters = {
+    ["$basetexturetransform"] = "Matrix",
+    ["$bumptransform"]        = "Matrix",
+    ["$detailblendfactor"]    = "Float",
+    ["$detailblendmode"]      = "Int",
+    ["$detailscale"]          = "Vector",
+    ["$detailtint"]           = "Vector",
+    ["$color"]                = "Vector",
+    ["$color2"]               = "Vector",
+}
+local RefreshMaterial = {
+    ---@param mat IMaterial
+    ---@param _   IMaterial
+    ---@param value VMatrix
+    ["$basetexturetransform"] = function(mat, _, value)
+        local m = mat:GetMatrix "$viewprojmat"
+        m:SetField(1, 1, value:GetField(1, 1))
+        m:SetField(1, 2, value:GetField(1, 2))
+        m:SetField(1, 3, value:GetField(1, 4))
+        m:SetField(2, 1, value:GetField(2, 1))
+        m:SetField(2, 2, value:GetField(2, 2))
+        m:SetField(2, 3, value:GetField(2, 4))
+        mat:SetMatrix("$viewprojmat", m)
+    end,
+    ---@param mat IMaterial
+    ---@param _   IMaterial
+    ---@param value VMatrix
+    ["$bumptransform"] = function(mat, _, value)
+        local m = mat:GetMatrix "$viewprojmat"
+        m:SetField(3, 1, value:GetField(1, 1))
+        m:SetField(3, 2, value:GetField(1, 2))
+        m:SetField(3, 3, value:GetField(1, 4))
+        m:SetField(4, 1, value:GetField(2, 1))
+        m:SetField(4, 2, value:GetField(2, 2))
+        m:SetField(4, 3, value:GetField(2, 4))
+        mat:SetMatrix("$viewprojmat", m)
+    end,
+    ---@param mat IMaterial
+    ---@param _   IMaterial
+    ---@param value number
+    ["$detailblendfactor"] = function(mat, _, value)
+        mat:SetFloat("$c3_w", value)
+    end,
+    ---@param mat IMaterial
+    ---@param _   IMaterial
+    ---@param value integer
+    ["$detailblendmode"] = function(mat, _, value)
+        mat:SetInt("$linearread_texture5", value == 1 and 0 or 1)
+        mat:SetInt("$c0_w", value)
+    end,
+    ---@param mat IMaterial
+    ---@param _   IMaterial
+    ---@param value Vector
+    ["$detailscale"] = function(mat, _, value)
+        mat:SetFloat("$c2_z", value.x)
+        mat:SetFloat("$c2_w", value.y)
+    end,
+    ---@param mat IMaterial
+    ---@param _   IMaterial
+    ---@param value Vector
+    ["$detailtint"] = function(mat, _, value)
+        local m = mat:GetMatrix "$viewprojmat"
+        m:SetField(1, 4, value.x)
+        m:SetField(2, 4, value.y)
+        m:SetField(3, 4, value.z)
+        mat:SetMatrix("$viewprojmat", m)
+    end,
+    ---@param mat IMaterial
+    ---@param src IMaterial
+    ---@param value Vector
+    ["$color"] = function(mat, src, value)
+        local color = value * (src:GetVector "$color2" or ss.vector_one)
+        mat:SetFloat("$c3_x", color.x)
+        mat:SetFloat("$c3_y", color.y)
+        mat:SetFloat("$c3_z", color.z)
+    end,
+    ---@param mat IMaterial
+    ---@param src IMaterial
+    ---@param value Vector
+    ["$color2"] = function(mat, src, value)
+        local color = value * (src:GetVector "$color" or ss.vector_one)
+        mat:SetFloat("$c3_x", color.x)
+        mat:SetFloat("$c3_y", color.y)
+        mat:SetFloat("$c3_z", color.z)
+    end,
+}
+
 ---@return fun(m: ss.MeshData, ent: Entity?)
 local function NormalMeshHandler()
     local currentMaterial = nil ---@type IMaterial?
-    return function(m, ent)
+    return function(m, _)
         local mat = m.Material
         if currentMaterial ~= mat then
             render.SetMaterial(mat)
@@ -56,7 +157,7 @@ end
 ---@return fun(m: ss.MeshData, ent: Entity?)
 local function FlashlightHandler()
     local currentMaterial = nil ---@type IMaterial?
-    return function(m, ent)
+    return function(m, _)
         local mat = m.MaterialFlashlight
         if currentMaterial ~= mat then
             render.SetMaterial(mat)
@@ -68,7 +169,7 @@ end
 
 ---@return fun(m: ss.MeshData, ent: Entity?)
 local function WaterHandler()
-    return function(m, ent) m.Mesh:Draw() end
+    return function(m, _) m.Mesh:Draw() end
 end
 
 ---@param handler fun(m: ss.MeshData, ent: Entity?)
@@ -92,16 +193,49 @@ local function DrawMesh(handler)
 end
 
 hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
+    local now = CurTime()
+    local refreshList = {} ---@type table<IMaterial, string[]>
+    for _, entry in ipairs(MaterialWatchList) do
+        local keys = {} ---@type string[]
+        for key, state in pairs(entry.Fields) do
+            if now > state.LastTime + MaterialWatchInterval[state.Interval] then
+                state.LastTime = now
+                local value = entry.Material:GetString(key)
+                if value == state.Value then
+                    state.Interval = state.Interval + 1
+                else
+                    state.Interval = 1
+                    state.Value = value
+                    keys[#keys + 1] = key
+                end
+            end
+        end
+
+        if #keys > 0 then
+            refreshList[entry.Material] = keys
+        end
+    end
+
+    for renderMaterial, geometryMaterial in pairs(ss.InkMeshMaterials) do
+        for _, key in ipairs(refreshList[geometryMaterial] or {}) do
+            ---@type fun(self: IMaterial, key: string): number|Vector|VMatrix
+            local get = geometryMaterial["Get" .. MaterialWatchParameters[key]]
+            local value = get(geometryMaterial, key)
+            RefreshMaterial[key](renderMaterial, geometryMaterial, value)
+        end
+    end
+
     local sunInfo = util.GetSunInfo()
     local sunDir = sunInfo and sunInfo.direction or Vector(0, 0.3, 0.954)
-    InkWaterMaterial:SetFloat("$c0_x", sunDir.x)
-    InkWaterMaterial:SetFloat("$c0_y", sunDir.y)
-    InkWaterMaterial:SetFloat("$c0_z", sunDir.z)
-    for _, model in ipairs(ss.RenderBatches) do
-        for _, m in ipairs(model) do
-            m.Material:SetFloat("$c0_x", sunDir.x)
-            m.Material:SetFloat("$c0_y", sunDir.y)
-            m.Material:SetFloat("$c0_z", sunDir.z)
+    if not ss.Locals.Renderer.LastSunDirection:IsEqualTol(sunDir, ss.eps) then
+        ss.Locals.Renderer.LastSunDirection = sunDir
+        InkWaterMaterial:SetFloat("$c0_x", sunDir.x)
+        InkWaterMaterial:SetFloat("$c0_y", sunDir.y)
+        InkWaterMaterial:SetFloat("$c0_z", sunDir.z)
+        for _, m in ipairs(ss.InkMeshMaterials) do
+            m:SetFloat("$c0_x", sunDir.x)
+            m:SetFloat("$c0_y", sunDir.y)
+            m:SetFloat("$c0_z", sunDir.z)
         end
     end
 end)
@@ -263,3 +397,46 @@ hook.Add("RenderScreenspaceEffects", "SplashSWEPs: Paint ink in queue", function
     render_PopRenderTarget()
     for k in pairs(Queue) do Queue[k] = nil end
 end)
+
+---Checks material proxied to be checked in the given list of materials
+---and registers them to the watch list to be refreshed.
+---@param mats ss.SurfaceBuilder.MaterialInfo[]
+function ss.BuildMaterialWatchList(mats)
+    for _, m in ipairs(mats) do
+        local mat = m.Material
+        local vmt = string.format("materials/%s.vmt", mat:GetName())
+        local vmtkv = file.Read(vmt, "GAME")
+        if vmtkv and vmtkv ~= "" then
+            local params = util.KeyValuesToTablePreserveOrder(vmtkv)
+            local proxies ---@type KeyValue[]?
+            for _, kv in ipairs(params) do
+                if kv.Key == "proxies" then
+                    proxies = kv.Value
+                    break
+                end
+            end
+
+            local states = nil ---@type ss.Locals.Renderer.MaterialWatchEntry
+            for _, entry in ipairs(proxies or {}) do
+                local contents = entry.Value ---@cast contents { Key: string, Value: string }[]
+                local kv = table.CollapseKeyValue(contents)
+                local resultvar = kv.resultvar and kv.resultvar:lower()
+                if resultvar then
+                    states = states or {
+                        Material = mat,
+                        Fields = {},
+                    }
+                    states.Fields[resultvar] = {
+                        Interval = 1,
+                        LastTime = CurTime(),
+                        Value = "",
+                    }
+                end
+            end
+
+            if states then
+                MaterialWatchList[#MaterialWatchList + 1] = states
+            end
+        end
+    end
+end
