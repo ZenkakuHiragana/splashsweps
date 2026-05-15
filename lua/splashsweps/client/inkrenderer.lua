@@ -232,7 +232,7 @@ hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
         InkWaterMaterial:SetFloat("$c0_x", sunDir.x)
         InkWaterMaterial:SetFloat("$c0_y", sunDir.y)
         InkWaterMaterial:SetFloat("$c0_z", sunDir.z)
-        for _, m in ipairs(ss.InkMeshMaterials) do
+        for m in pairs(ss.InkMeshMaterials) do
             m:SetFloat("$c0_x", sunDir.x)
             m:SetFloat("$c0_y", sunDir.y)
             m:SetFloat("$c0_z", sunDir.z)

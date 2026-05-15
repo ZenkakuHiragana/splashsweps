@@ -414,8 +414,9 @@ local function buildBaseInkMeshMaterialParams()
         ["$c0_x"]                   = 0,     -- Sun direction x
         ["$c0_y"]                   = 0.3,   -- Sun direction y
         ["$c0_z"]                   = 0.954, -- Sun direction z
-        ["$c1_z"]                   = ss.RenderTarget.HammerUnitsToUV * 0.5,
-        ["$c1_w"]                   = 0,
+        ["$c1_x"]                   = ss.RenderTarget.HammerUnitsToUV * 0.5,
+        ["$c1_z"]                   = 0.5,
+        ["$c1_w"]                   = 0.5,
     }
 end
 
@@ -436,14 +437,16 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         local materialParams        = buildBaseInkMeshMaterialParams()
         local hasDetail             = tobool(materialInfo.Detail)
         local detailBlendMode       = materialInfo.DetailBlendMode or 0
+        local bmtstr                = materialInfo.Material:GetString "$blendmodulatetexture"
         materialParams["$texture3"] = materialInfo.BaseTexture or "white"
         materialParams["$texture4"] = materialInfo.Bumpmap or "null-bumpmap"
         materialParams["$texture5"] = materialInfo.Detail or "white"
         materialParams["$texture6"] = lightmapTextureName
-        materialParams["$linearread_texture5"] = detailBlendMode == 1 and "0" or "1"
+        materialParams["$linearread_texture5"] = (detailBlendMode == 1 or bmtstr) and "0" or "1"
         materialParams["$c0_w"]     = detailBlendMode
-        materialParams["$c1_x"]     = materialInfo.NeedsBumpedLightmaps and 1 or 0
-        materialParams["$c1_y"]     = materialInfo.NeedsFrameBuffer and 1 or 0
+        materialParams["$c1_y"]     = (materialInfo.NeedsBumpedLightmaps and 1 or 0)
+                                    + (materialInfo.NeedsFrameBuffer and 2 or 0)
+                                    + (bmtstr and 4 or 0)
         materialParams["$c2_x"]     = 1 / pageWidth
         materialParams["$c2_y"]     = 1 / pageHeight
         materialParams["$c2_z"]     = materialInfo.DetailScale and materialInfo.DetailScale.x or 4
@@ -474,6 +477,20 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
             materialInfo.BumpTextureTransform:GetField(2, 4),
             0)
         mat:SetMatrix("$viewprojmat", m)
+        if bmtstr then
+            local t = materialInfo.Material:GetTexture "$blendmodulatetexture"
+            timer.Simple(0, function()
+                render.PushRenderTarget(render.GetSmallTex1())
+                cam.Start2D()
+                render.DrawTextureToScreenRect(t, 0, 0, 1, 1)
+                render.CapturePixels()
+                local r, g, _, _ = render.ReadPixel(0, 0)
+                cam.End2D()
+                render.PopRenderTarget()
+                mat:SetFloat("$c1_z", r / 255)
+                mat:SetFloat("$c1_w", g / 255)
+            end)
+        end
         local matf = CreateMaterial(
             string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
             "LightmappedGeneric", {
