@@ -25,6 +25,7 @@ struct UVs {
     float2 lightmap;
     float2 screen;
     float  isedge;
+    float  blend;
 };
 
 struct PsVertexInfo {
@@ -165,8 +166,7 @@ PsVertexInfo DecomposeInput(const PS_INPUT i) {
     v.worldTransform    = float3x3(i.vi.worldTangent_U.xyz,    i.vi.worldBinormal_V.xyz,    i.vi.worldNormal_dU.xyz);
     v.inkTransform      = float3x3(i.vi.inkTangent_U.xyz,      i.vi.inkBinormal_V.xyz,      i.vi.worldNormal_dU.xyz);
     v.lightmapTransform = float3x3(i.vi.lightmapTangent_U.xyz, i.vi.lightmapBinormal_V.xyz, i.vi.worldNormal_dU.xyz);
-    v.baseTextureBlend  = !g_NeedsBlendModulation ? i.vi.worldPos.w
-        : smoothstep(g_BlendModulateMin, g_BlendModulateMax, i.vi.worldPos.w);
+    v.baseTextureBlend  = i.vi.worldPos.w;
     return v;
 }
 
@@ -250,6 +250,11 @@ float2 ProjectiveUVToScreenOffset(float2 uv, float2 targetUV, float clipW) {
     return float2(
         (c.x * b.y - b.x * c.y) * invDet,
         (a.x * c.y - c.x * a.y) * invDet);
+}
+
+float ModulateBlend(float raw) {
+    return saturate(!g_NeedsBlendModulation ? raw
+        : smoothstep(g_BlendModulateMin, g_BlendModulateMax, raw));
 }
 
 float3 CalcLightmapFactors(float3 normal) {
@@ -441,20 +446,31 @@ float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
 
 // Samples albedo and bumpmap pixel from geometry textures
 float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv) {
-    float4 origin = { ApplyBaseTransform(i.worldUV), ApplyDetailTransform(i.worldUV) };
-    float4 dx     = ddx(origin), dy = ddy(origin);
-    float4 albedo = tex2Dgrad(WallAlbedoSampler, uv.base, dx.xy, dy.xy);
+    float2 worldUV = ApplyBaseTransform(i.worldUV);
+    float2 wdx     = ddx(worldUV), wdy = ddy(worldUV);
+    float4 albedo = tex2Dgrad(WallAlbedoSampler, uv.base, wdx, wdy);
     if (g_NeedsFrameBuffer) {
-        float4   albedo2 = tex2Dgrad(WallAlbedo2Sampler, uv.base, dx.xy, dy.xy);
-        float3   frameBufferSample  = tex2Dlod(FrameBuffer, float4(uv.screen, 0.0, 0.0)).rgb / g_TonemapScale;
-        float3   lightmapFactors    = CalcLightmapFactors(FetchGeometryNormal(i, uv.bump));
-        float3x3 lightmapColors     = FetchLightmapSamples(i, uv.lightmap);
-        float3   lightmapFinalColor = CalcFinalLightmapColor(lightmapColors, lightmapFactors);
-        frameBufferSample /= max(lightmapFinalColor, 1.0e-8);
-        return lerp(frameBufferSample, lerp(albedo, albedo2, i.baseTextureBlend).rgb, uv.isedge);
+        float3 lightmapColor = CalcFinalLightmapColor(
+            FetchLightmapSamples(i, uv.lightmap),
+            CalcLightmapFactors(FetchGeometryNormal(i, uv.bump)));
+        float3 lightmapOrigin = CalcFinalLightmapColor(
+            FetchLightmapSamples(i, i.lightmapUV),
+            CalcLightmapFactors(FetchGeometryNormal(i, ApplyBumpTransform(i.worldUV))));
+        float3 fbSample = tex2Dlod(FrameBuffer, float4(uv.screen, 0.0, 0.0)).rgb
+            / max(lightmapColor * g_TonemapScale, 1.0e-8);
+        float3 fbOrigin = tex2Dlod(FrameBuffer, float4(i.screenUV, 0.0, 0.0)).rgb
+            / max(lightmapOrigin * g_TonemapScale, 1.0e-8);
+        float3 albedo2           = tex2Dgrad(WallAlbedo2Sampler, uv.base, wdx, wdy).rgb;
+        float3 albedoOrigin      = tex2Dgrad(WallAlbedoSampler,  worldUV, wdx, wdy).rgb;
+        float3 albedo2Origin     = tex2Dgrad(WallAlbedo2Sampler, worldUV, wdx, wdy).rgb;
+        float3 albedoBlend       = lerp(albedo.rgb, albedo2, uv.blend);
+        float3 albedoBlendOrigin = lerp(albedoOrigin, albedo2Origin, i.baseTextureBlend);
+        float3 albedoFix         = clamp(fbOrigin / max(albedoBlendOrigin, 1.0e-8), 0.5, 2.0);
+        return lerp(fbSample, albedoBlend.rgb * albedoFix, uv.isedge);
     }
     else {
-        float4 detail = tex2Dgrad(WallDetailSampler, uv.detail, dx.zw, dy.zw) * g_DetailTint;
+        float2 detailUV = ApplyDetailTransform(i.worldUV);
+        float4 detail = tex2Dgrad(WallDetailSampler, uv.detail, ddx(detailUV), ddy(detailUV)) * g_DetailTint;
         return ApplyDetailSample(albedo, detail).rgb * g_Color;
     }
 }
@@ -529,11 +545,20 @@ UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params) {
     uv.lightmap = i.lightmapUV + lightmapParallax;
     uv.screen   = i.screenUV;
     uv.isedge   = 0.0;
+    uv.blend    = ModulateBlend(i.baseTextureBlend);
     if (g_NeedsFrameBuffer > 0.0) {
+        float4 dUdxy  = { ddx(i.worldUV), ddy(i.worldUV) };
+        float2 dbdxy  = { ddx(i.baseTextureBlend), ddy(i.baseTextureBlend) };
+        float  invdet = SAFERCP(dUdxy.x * dUdxy.w - dUdxy.y * dUdxy.z);
+        float2 blendGrad = {
+            (dbdxy.x * dUdxy.w - dUdxy.y * dbdxy.y) * invdet,
+            (dUdxy.x * dbdxy.y - dbdxy.x * dUdxy.z) * invdet,
+        };
         float2 offset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + uvOffset, i.clipPos.w);
-        float2 s = i.screenUV + offset * g_FbSize;
-        uv.isedge = 1.0 - step(0.0, min(min(s.x, s.y), 1.0 - max(s.x, s.y)));
-        uv.screen = lerp(s, i.screenUV, uv.isedge);
+        float2 s  = i.screenUV + offset * g_FbSize;
+        uv.isedge = 1.0 - smoothstep(0.0, 0.05, min(min(s.x, s.y), 1.0 - max(s.x, s.y)));
+        uv.screen = saturate(s);
+        uv.blend  = ModulateBlend(i.baseTextureBlend + dot(blendGrad, uvOffset));
     }
     return uv;
 }
