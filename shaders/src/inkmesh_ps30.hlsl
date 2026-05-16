@@ -511,13 +511,13 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
 
 UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params) {
     UVs uv;
-    float3x3 tangentSpaceGeometry = i.worldTransform;    // TEXINFO.textureVecS, TEXINFO.textureVecT, normal
     float3x3 tangentSpaceLightmap = i.lightmapTransform; // TEXINFO.lightmapVecS, TEXINFO.lightmapVecT, normal
-    tangentSpaceGeometry[2] /= HEIGHT_TO_HU;             // units are in $basetexture's texel per Hammer units
-    tangentSpaceLightmap[2] /= HEIGHT_TO_HU;
-    float3 viewVecGeometry  = mul(tangentSpaceGeometry, g_EyePos.xyz - i.worldPos);
+    float3x3 tangentSpaceGeometry = i.worldTransform;    // TEXINFO.textureVecS, TEXINFO.textureVecT, normal
+    tangentSpaceLightmap[2] /= HEIGHT_TO_HU;             // units are in $basetexture's texel per Hammer units
+    tangentSpaceGeometry[2] /= HEIGHT_TO_HU;
     float3 viewVecLightmap  = mul(tangentSpaceLightmap, g_EyePos.xyz - i.worldPos);
-    float2 viewVecZ         = max(float2(viewVecGeometry.z, viewVecLightmap.z), 1.0e-3);
+    float3 viewVecGeometry  = mul(tangentSpaceGeometry, g_EyePos.xyz - i.worldPos);
+    float2 viewVecZ         = max(float2(viewVecLightmap.z, viewVecGeometry.z), 1.0e-3);
     float2 lightmapParallax = -viewVecLightmap.xy * params.depth / viewVecZ.x * g_LightmapSize;
     float2 uvParallax       = -viewVecGeometry.xy * params.depth / viewVecZ.y * g_WallAlbedoSize;
     float2 uvRefraction     = params.normal.xy * params.pbr.refraction * 0.0;

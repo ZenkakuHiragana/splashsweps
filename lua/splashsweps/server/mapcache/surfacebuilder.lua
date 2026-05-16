@@ -417,20 +417,6 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
             p:Dot(texInfo.textureVecT) + texInfo.textureOffsetT)
     end
 
-    ---@param p Vector
-    ---@return Vector
-    local function GetLightmapUV(p)
-        return Vector(
-            p:Dot(texInfo.lightmapVecS)
-                + texInfo.lightmapOffsetS
-                - rawFace.lightmapTextureMinsInLuxels[1]
-                + 0.5,
-            p:Dot(texInfo.lightmapVecT)
-                + texInfo.lightmapOffsetT
-                - rawFace.lightmapTextureMinsInLuxels[2]
-                + 0.5)
-    end
-
     ---@param c1 Vector
     ---@param c2 Vector
     ---@param c3 Vector
@@ -444,14 +430,48 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
         return left + (right - left) * u
     end
 
+    ---@param p1 Vector World position 1
+    ---@param p2 Vector World position 2
+    ---@param p3 Vector World position 3
+    ---@param l1 Vector Lightmap texel position 1
+    ---@param l2 Vector Lightmap texel position 2
+    ---@param l3 Vector Lightmap texel position 3
+    ---@return Vector lightmapVecS
+    ---@return Vector lightmapVecT
+    local function BuildTriangleLightmapBasis(p1, p2, p3, l1, l2, l3)
+        local e1 = p2 - p1
+        local e2 = p3 - p1
+        local e11 = e1:Dot(e1)
+        local e12 = e1:Dot(e2)
+        local e22 = e2:Dot(e2)
+        local det = e11 * e22 - e12 * e12
+        if math.abs(det) <= ss.eps then
+            return Vector(), Vector()
+        end
+
+        -- dual basis:
+        -- dot(e1, dual1) = 1, dot(e2, dual1) = 0
+        -- dot(e1, dual2) = 0, dot(e2, dual2) = 1
+        local invDet = 1 / det
+        local dual1 = (e1 * e22 - e2 * e12) * invDet
+        local dual2 = (e2 * e11 - e1 * e12) * invDet
+        local du1 = l2.x - l1.x
+        local du2 = l3.x - l1.x
+        local dv1 = l2.y - l1.y
+        local dv2 = l3.y - l1.y
+        local lightmapVecS = dual1 * du1 + dual2 * du2
+        local lightmapVecT = dual1 * dv1 + dual2 * dv2
+        return lightmapVecS, lightmapVecT
+    end
+
     -- Collect displacement info
     local surf            = ss.new "PrecachedData.Surface"
     local rawDispInfo     = bsp.DISPINFO
     local rawDispVerts    = bsp.DISP_VERTS
+    local lightmapWidth   = rawFace.lightmapTextureSizeInLuxels[1]
+    local lightmapHeight  = rawFace.lightmapTextureSizeInLuxels[2]
     local dispInfo        = rawDispInfo[rawFace.dispInfo + 1]
     local power           = 2 ^ dispInfo.power + 1
-    local bumpmapCorners  = {} ---@type Vector[]
-    local lightmapCorners = {} ---@type Vector[]
     do
         -- dispInfo.startPosition isn't always equal to
         -- vertices[1] so find correct one and sort them
@@ -466,8 +486,6 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
 
         for i = 1, 4 do
             indices[i] = (i + startindex - 2) % 4 + 1
-            bumpmapCorners[i] = GetBaseTexelUV(vertices[i])
-            lightmapCorners[i] = GetLightmapUV(vertices[i])
         end
 
         -- Sort them using index table
@@ -520,7 +538,21 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
     local paintorigin = {} ---@type Vector[]
     local triangles   = {} ---@type integer[] Indices of triangle mesh
     local bumpmapuv   = {} ---@type Vector[]
-    local lightmapuv  = {} ---@type Vector[] Fractional values used in lightmap sampling
+    local lightmapuv  = {} ---@type Vector[]  Fractional values used in lightmap sampling
+    local lightmapS   = {} ---@type Vector[]
+    local lightmapT   = {} ---@type Vector[]
+    local bumpmapCorners = {
+        GetBaseTexelUV(vertices[1]),
+        GetBaseTexelUV(vertices[2]),
+        GetBaseTexelUV(vertices[3]),
+        GetBaseTexelUV(vertices[4]),
+    }
+    local lightmapCorners = {
+        Vector(0.5,                 0.5),
+        Vector(0.5,                 0.5 + lightmapHeight),
+        Vector(0.5 + lightmapWidth, 0.5 + lightmapHeight),
+        Vector(0.5 + lightmapWidth, 0.5),
+    }
     for vi = 0, power - 1 do
         for ui = 0, power - 1 do
             local i = ui + vi * power + 1
@@ -618,6 +650,13 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
             normalCounts[i2] = normalCounts[i2] + 1
             normalCounts[i3] = normalCounts[i3] + 1
         end
+
+        local s, t = BuildTriangleLightmapBasis(
+            deformed[i1], deformed[i2], deformed[i3],
+            lightmapuv[i1], lightmapuv[i2], lightmapuv[i3])
+        lightmapS[i],     lightmapT[i]     = s, t
+        lightmapS[i + 1], lightmapT[i + 1] = s, t
+        lightmapS[i + 2], lightmapT[i + 2] = s, t
     end
 
     local textureVecSLength  = texInfo.textureVecS:Length()
@@ -652,17 +691,14 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
         binormals[i]:Mul(textureVecTLength)
     end
 
-    vertices[2] = subdivision[(power - 1) * power + 1]
-    vertices[3] = subdivision[#subdivision]
-    vertices[4] = subdivision[power]
     for i, t in ipairs(triangles) do
         surf.Vertices[i] = ss.new "PrecachedData.Vertex"
         surf.Vertices[i].Translation:Set(deformed[t])
         surf.Vertices[i].Normal:Set(normals[t])
         surf.Vertices[i].Tangent:Set(tangents[t])
         surf.Vertices[i].Binormal:Set(binormals[t])
-        surf.Vertices[i].LightmapTangent:Set(texInfo.lightmapVecS)
-        surf.Vertices[i].LightmapBinormal:Set(texInfo.lightmapVecT)
+        surf.Vertices[i].LightmapTangent:Set(lightmapS[i])
+        surf.Vertices[i].LightmapBinormal:Set(lightmapT[i])
         surf.Vertices[i].BumpmapUV:Set(bumpmapuv[t])
         surf.Vertices[i].LightmapUV:Set(lightmapuv[t])
         surf.Vertices[i].DispPaintOrigin = paintorigin[t]
