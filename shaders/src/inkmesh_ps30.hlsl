@@ -103,7 +103,7 @@ sampler TextureSampler5    : register(s5);
 sampler LightmapSampler    : register(s6);
 sampler InkDetailSampler   : register(s7);
 
-#define WallDetailSampler  TextureSampler5 // g_NeedsFrameBuffer != 0.0
+#define WallDetailSampler  TextureSampler5 // g_NeedsFrameBuffer == 0.0
 #define WallAlbedo2Sampler TextureSampler5 // g_NeedsFrameBuffer != 0.0
 
 // Constants
