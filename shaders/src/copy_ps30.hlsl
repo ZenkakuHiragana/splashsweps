@@ -6,8 +6,8 @@ struct PS_INPUT {
 
 sampler BaseTexture : register(s0);
 const float2 c0 : register(c0);
-#define Channel c0.x
-#define VertexColor c0.y
+static const float Channel = c0.x;
+static const float VertexColor = c0.y;
 float4 main(const PS_INPUT i) : COLOR0 {
     if (step(0.5, VertexColor)) {
         return saturate(i.tint);

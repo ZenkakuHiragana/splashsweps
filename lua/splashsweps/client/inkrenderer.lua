@@ -38,6 +38,9 @@ end
 local MinTime,    MaxTime    = 0, 0 --- = Queue[1].time, Queue[#Queue].time
 local NUM_REGION, NUM_VERTEX = 4, 4
 local MAX_QUEUE = math.floor(32768 / (NUM_VERTEX * NUM_REGION))
+local SuperTexture = render.GetSuperFPTex()
+local FullFrameFb1 = render.GetScreenEffectTexture(1)
+local CopyFrameBufferMaterial = Material "splashsweps/shaders/copyfb"
 local InkWaterMaterial = Material "splashsweps/shaders/inkmesh"
 local InkDrawMaterial = Material "splashsweps/shaders/drawink"
 local CVarWireframe = GetConVar "mat_wireframe"
@@ -260,11 +263,17 @@ function(bDrawingDepth, bDrawingSkybox)
         return
     end
 
-    render.UpdateScreenEffectTexture(1)
+    render.CopyRenderTargetToTexture(FullFrameFb1)
+    render.PushRenderTarget(SuperTexture)
+    render.SetMaterial(CopyFrameBufferMaterial)
+    render.DrawScreenQuad()
+    render.PopRenderTarget()
     render.OverrideDepthEnable(true, true)
     DrawMesh(NormalMeshHandler())
     render.OverrideDepthEnable(false)
-    render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD, BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD)
+    render.OverrideBlend(true,
+        BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD,
+        BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD)
     render.RenderFlashlights(function() DrawMesh(FlashlightHandler()) end)
     render.OverrideBlend(false)
 end)
@@ -437,6 +446,58 @@ function ss.BuildMaterialWatchList(mats)
             if states then
                 MaterialWatchList[#MaterialWatchList + 1] = states
             end
+        end
+    end
+end
+
+---Creates render targets and packs textures used in WorldVertexTransition materials.
+---@param mats ss.SurfaceBuilder.MaterialInfo[]
+function ss.BuildUnderlayTexturePack(mats)
+    local copy = Material "pp/copy"
+    for _, m in ipairs(mats) do
+        local mat = m.Material
+        local basetexture2 = mat:GetTexture "$basetexture2"
+        local bmt = mat:GetTexture "$blendmodulatetexture"
+        local bumpmap = mat:GetTexture "$bumpmap"
+        local bumpmap2 = mat:GetTexture "$bumpmap2"
+        local detail = mat:GetTexture "$detail"
+        local numTextures
+            = (basetexture2 and 1 or 0)
+            + (bmt and 1 or 0)
+            + (bumpmap2 and 1 or 0)
+            + (detail and 1 or 0)
+        if numTextures > 0 then
+            local meanWidth
+                = ((basetexture2 and basetexture2:Width() or 0)
+                + (bmt and bmt:Width() or 0)
+                + (bumpmap2 and bumpmap2:Width() or 0)
+                + (detail and detail:Width() or 0)) / numTextures
+            local meanHeight
+                = ((basetexture2 and basetexture2:Height() or 0)
+                + (bmt and bmt:Height() or 0)
+                + (bumpmap2 and bumpmap2:Height() or 0)
+                + (detail and detail:Height() or 0)) / numTextures
+            local size = 2048
+            local name = string.format("splashsweps_texture_%s", mat:GetName())
+            local rt = GetRenderTargetEx(name, size * 2, size * 2,
+                RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE,
+                256 + 512 + 32768, 0, IMAGE_FORMAT_DEFAULT)
+            timer.Simple(0, function()
+                render.PushRenderTarget(rt)
+                cam.Start2D()
+                surface.SetMaterial(copy)
+                copy:SetTexture("$basetexture", detail or "grey")
+                surface.DrawTexturedRect(0, 0, size, size)
+                copy:SetTexture("$basetexture", basetexture2 or "grey")
+                surface.DrawTexturedRect(size, 0, size, size)
+                copy:SetTexture("$basetexture", bmt or "grey")
+                surface.DrawTexturedRect(0, size, size, size)
+                copy:SetTexture("$basetexture", bumpmap2 or bumpmap or "null-bumpmap")
+                surface.DrawTexturedRect(size, size, size, size)
+                cam.End2D()
+                render.PopRenderTarget()
+            end)
+            m.Detail = name
         end
     end
 end

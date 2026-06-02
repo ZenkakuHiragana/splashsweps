@@ -38,7 +38,8 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---@field Material             IMaterial The source material.
 ---@field ArrayIndex           integer   Index to material name array which is usually game.GetMap():GetMaterials().
 ---@field NeedsBumpedLightmaps boolean   Whether the material uses 3 directional lightmaps plus the base lightmap.
----@field NeedsFrameBuffer     boolean   Whether albedo should be reconstructed from the current framebuffer.
+---@field HasBaseTexture2      boolean   Indicates if the material has $basetexture2.
+---@field HasBaseTexture3      boolean   Indicates if the material has $basetexture3.
 ---@field BaseTexture          string?   Value of $basetexture.
 ---@field Bumpmap              string?   Value of $bumpmap.
 ---@field Detail               string?   Value of $detail.
@@ -53,7 +54,8 @@ ss.struct "SurfaceBuilder.MaterialInfo" {
     Material             = Material "color",
     ArrayIndex           = 0,
     NeedsBumpedLightmaps = false,
-    NeedsFrameBuffer     = false,
+    HasBaseTexture2      = false,
+    HasBaseTexture3      = false,
     BaseTexture          = nil,
     Bumpmap              = nil,
     Detail               = nil,
@@ -169,11 +171,13 @@ local function enumerateMaterials(materialsInMap)
             local mat = Material(name)
             if mat and not mat:IsError() then
                 local baseTexture2 = mat:GetString "$basetexture2"
+                local baseTexture3 = mat:GetString "$basetexture3"
                 materialInfo[enumerationID] = {
                     Material             = mat,
                     ArrayIndex           = enumerationIDToArrayIndex[enumerationID],
                     NeedsBumpedLightmaps = bit.band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0,
-                    NeedsFrameBuffer     = tobool(baseTexture2),
+                    HasBaseTexture2      = tobool(baseTexture2),
+                    HasBaseTexture3      = tobool(baseTexture3),
                     BaseTexture          = mat:GetString "$basetexture",
                     Bumpmap              = mat:GetString "$bumpmap",
                     Detail               = baseTexture2 or mat:GetString "$detail",
@@ -385,11 +389,11 @@ local function buildBaseInkMeshMaterialParams()
         ["$pixshader"]              = "splashsweps/inkmesh_ps30",
         ["$basetexture"]            = ss.RenderTarget.StaticTextures.InkMap:GetName(),
         ["$texture1"]               = ss.RenderTarget.StaticTextures.Params:GetName(),
-        ["$texture2"]               = "_rt_fullframefb1",
+        ["$texture2"]               = "__rt_supertexture1",
         ["$texture7"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
         ["$linearread_basetexture"] = "1",
         ["$linearread_texture1"]    = "1",
-        ["$linearread_texture2"]    = "0",
+        ["$linearread_texture2"]    = "1",
         ["$linearread_texture3"]    = "0",
         ["$linearread_texture4"]    = "1",
         ["$linearread_texture5"]    = "1",
@@ -445,8 +449,9 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$linearread_texture5"] = (detailBlendMode == 1 or bmtstr) and "0" or "1"
         materialParams["$c0_w"]     = detailBlendMode
         materialParams["$c1_y"]     = (materialInfo.NeedsBumpedLightmaps and 1 or 0)
-                                    + (materialInfo.NeedsFrameBuffer and 2 or 0)
-                                    + (bmtstr and 4 or 0)
+                                    + (materialInfo.HasBaseTexture2 and 2 or 0)
+                                    + (materialInfo.HasBaseTexture3 and 4 or 0)
+                                    + (bmtstr and 8 or 0)
         materialParams["$c2_x"]     = 1 / pageWidth
         materialParams["$c2_y"]     = 1 / pageHeight
         materialParams["$c2_z"]     = materialInfo.DetailScale and materialInfo.DetailScale.x or 4
@@ -664,6 +669,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
     local lightmapLayout = packLightmaps(surfaceInfo, materialInfo)
     local meshGroupsByModel, bumpmapOffsetsByFace = buildMeshGroupsAndApplyLightmapUVs(surfaceInfo, lightmapLayout)
     ss.BuildMaterialWatchList(materialInfo)
+    ss.BuildUnderlayTexturePack(materialInfo)
 
     ss.DebugMeshData = {} ---@type ss.SurfaceBuilder.MeshVertex[][]
     for modelIndex, meshGroups in pairs(meshGroupsByModel) do

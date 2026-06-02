@@ -1,0 +1,18 @@
+"Screenspace_General"
+{
+    "$pixshader"              "splashsweps/copyfb_ps30"
+    "$vertexshader"           "splashsweps/copyfb_vs30"
+    "$basetexture"            "_rt_fullframefb1"
+    "$texture1"               "_rt_resolvedfullframedepth"
+    "$alpha_blend"            "0"
+    "$alphablend"             "0"
+    "$alphatested"            "0"
+    "$copyalpha"              "1"
+    "$depthtest"              "0"
+    "$linearread_basetexture" "0"
+    "$linearread_texture1"    "1"
+    "$linearwrite"            "1"
+    "$disable_color_writes"   "0"
+    "$writealpha"             "1"
+    "$tcsize0"                "2"
+}

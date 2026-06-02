@@ -4,7 +4,7 @@
     "$pixshader"              "splashsweps/inkmesh_ps30"
     "$basetexture"            "splashsweps_inkmap"
     "$texture1"               "splashsweps_params"
-    "$texture2"               "_rt_fullframefb1"
+    "$texture2"               "__rt_supertexture1"
     "$texture3"               "white"
     "$texture4"               "null-bumpmap"
     "$texture5"               "null"
@@ -12,7 +12,7 @@
     "$texture7"               "splashsweps_details"
     "$linearread_basetexture" "1"
     "$linearread_texture1"    "1"
-    "$linearread_texture2"    "0"
+    "$linearread_texture2"    "1"
     "$linearread_texture3"    "0"
     "$linearread_texture4"    "1"
     "$linearread_texture5"    "1"
@@ -36,7 +36,7 @@
     "$c0_z"                   "0.954"
     "$c0_w"                   "0"
     "$c1_x"                   "1e-4"
-    "$c1_y"                   "8"           // Simplified pass for water reflection
+    "$c1_y"                   "16"          // Simplified pass for water reflection
     "$c1_z"                   "0.5"
     "$c1_w"                   "0.5"
     "$c2_x"                   "0.001953125" // = 1 / 512

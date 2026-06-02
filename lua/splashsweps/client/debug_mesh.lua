@@ -93,14 +93,15 @@ screenDebugMaterial:SetMatrix("$viewprojmat", m)
 
 local function BuildScreenDebugMesh(page)
     screenDebugMesh = Mesh(screenDebugMaterial)
-    local inset = 0.92
+    local inset = 0.75
+    local aspect = ScrH() / ScrW()
     local verts = {
-        { u = 0, v = 0, x = -inset, y =  inset },
-        { u = 1, v = 0, x =  inset, y =  inset },
-        { u = 1, v = 1, x =  inset, y = -inset },
-        { u = 0, v = 0, x = -inset, y =  inset },
-        { u = 1, v = 1, x =  inset, y = -inset },
-        { u = 0, v = 1, x = -inset, y = -inset },
+        { u = 0, v = 0, x = -inset * aspect, y =  inset },
+        { u = 1, v = 0, x =  inset * aspect, y =  inset },
+        { u = 1, v = 1, x =  inset * aspect, y = -inset },
+        { u = 0, v = 0, x = -inset * aspect, y =  inset },
+        { u = 1, v = 1, x =  inset * aspect, y = -inset },
+        { u = 0, v = 1, x = -inset * aspect, y = -inset },
     }
 
     mesh.Begin(screenDebugMesh, MATERIAL_TRIANGLES, #verts / 3)
@@ -207,8 +208,12 @@ concommand.Add("ss_debug_shader_screen", function(_, _, args)
     screenDebugEnabled = hasArgs or not screenDebugEnabled
     if screenDebugEnabled then
         hook.Add("PostDrawOpaqueRenderables", hookScreen, DrawScreenDebug)
+        hook.Add("HUDPaint", hookScreen, function()
+            render.DrawTextureToScreenRect(render.GetSuperFPTex(), 16, 16, 512, 512 * ScrH() / ScrW())
+        end)
     else
         hook.Remove("PostDrawOpaqueRenderables", hookScreen)
+        hook.Remove("HUDPaint", hookScreen)
     end
 
     print(string.format(
