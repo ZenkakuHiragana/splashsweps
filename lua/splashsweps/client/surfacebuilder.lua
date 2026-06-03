@@ -45,6 +45,7 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---@field Detail               string?   Value of $detail.
 ---@field BumpTextureTransform VMatrix?  Value of $bumptransform.
 ---@field BaseTextureTransform VMatrix?  Value of $basetexturetransform.
+---@field BlendMaskTransform   VMatrix?  Value of $blendmasktransform.
 ---@field DetailBlendFactor    number?   Value of $detailblendfactor.
 ---@field DetailBlendMode      integer?  Value of $detailblendmode.
 ---@field DetailScale          Vector?   Value of $detailscale.
@@ -61,6 +62,7 @@ ss.struct "SurfaceBuilder.MaterialInfo" {
     Detail               = nil,
     BumpTextureTransform = nil,
     BaseTextureTransform = nil,
+    BlendMaskTransform   = nil,
     DetailBlendFactor    = nil,
     DetailBlendMode      = nil,
     DetailScale          = nil,
@@ -183,6 +185,7 @@ local function enumerateMaterials(materialsInMap)
                     Detail               = baseTexture2 or mat:GetString "$detail",
                     BaseTextureTransform = mat:GetMatrix "$basetexturetransform",
                     BumpTextureTransform = mat:GetMatrix "$bumptransform",
+                    BlendMaskTransform   = mat:GetMatrix "$blendmasktransform",
                     DetailBlendFactor    = mat:GetFloat  "$detailblendfactor",
                     DetailBlendMode      = mat:GetInt    "$detailblendmode",
                     DetailScale          = mat:GetVector "$detailscale",
@@ -446,7 +449,6 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$texture4"] = materialInfo.Bumpmap or "null-bumpmap"
         materialParams["$texture5"] = materialInfo.Detail or "white"
         materialParams["$texture6"] = lightmapTextureName
-        materialParams["$linearread_texture5"] = (detailBlendMode == 1 or bmtstr) and "0" or "1"
         materialParams["$c0_w"]     = detailBlendMode
         materialParams["$c1_y"]     = (materialInfo.NeedsBumpedLightmaps and 1 or 0)
                                     + (materialInfo.HasBaseTexture2 and 2 or 0)
@@ -482,20 +484,16 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
             materialInfo.BumpTextureTransform:GetField(2, 4),
             0)
         mat:SetMatrix("$viewprojmat", m)
-        if bmtstr then
-            local t = materialInfo.Material:GetTexture "$blendmodulatetexture"
-            timer.Simple(0, function()
-                render.PushRenderTarget(render.GetSmallTex1())
-                cam.Start2D()
-                render.DrawTextureToScreenRect(t, 0, 0, 1, 1)
-                render.CapturePixels()
-                local r, g, _, _ = render.ReadPixel(0, 0)
-                cam.End2D()
-                render.PopRenderTarget()
-                mat:SetFloat("$c1_z", r / 255)
-                mat:SetFloat("$c1_w", g / 255)
-            end)
-        end
+        m:SetUnpacked(
+            materialInfo.BlendMaskTransform:GetField(1, 1),
+            materialInfo.BlendMaskTransform:GetField(1, 2),
+            materialInfo.BlendMaskTransform:GetField(1, 4), 0,
+            materialInfo.BlendMaskTransform:GetField(2, 1),
+            materialInfo.BlendMaskTransform:GetField(2, 2),
+            materialInfo.BlendMaskTransform:GetField(2, 4), 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0)
+        mat:SetMatrix("$invviewprojmat", m)
         local matf = CreateMaterial(
             string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
             "LightmappedGeneric", {

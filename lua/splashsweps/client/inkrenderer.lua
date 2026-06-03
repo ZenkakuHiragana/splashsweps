@@ -456,48 +456,51 @@ function ss.BuildUnderlayTexturePack(mats)
     local copy = Material "pp/copy"
     for _, m in ipairs(mats) do
         local mat = m.Material
-        local basetexture2 = mat:GetTexture "$basetexture2"
-        local bmt = mat:GetTexture "$blendmodulatetexture"
-        local bumpmap = mat:GetTexture "$bumpmap"
-        local bumpmap2 = mat:GetTexture "$bumpmap2"
-        local detail = mat:GetTexture "$detail"
-        local numTextures
-            = (basetexture2 and 1 or 0)
-            + (bmt and 1 or 0)
-            + (bumpmap2 and 1 or 0)
-            + (detail and 1 or 0)
-        if numTextures > 0 then
-            local meanWidth
-                = ((basetexture2 and basetexture2:Width() or 0)
-                + (bmt and bmt:Width() or 0)
-                + (bumpmap2 and bumpmap2:Width() or 0)
-                + (detail and detail:Width() or 0)) / numTextures
-            local meanHeight
-                = ((basetexture2 and basetexture2:Height() or 0)
-                + (bmt and bmt:Height() or 0)
-                + (bumpmap2 and bumpmap2:Height() or 0)
-                + (detail and detail:Height() or 0)) / numTextures
-            local size = 2048
-            local name = string.format("splashsweps_texture_%s", mat:GetName())
-            local rt = GetRenderTargetEx(name, size * 2, size * 2,
-                RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE,
-                256 + 512 + 32768, 0, IMAGE_FORMAT_DEFAULT)
-            timer.Simple(0, function()
-                render.PushRenderTarget(rt)
-                cam.Start2D()
-                surface.SetMaterial(copy)
-                copy:SetTexture("$basetexture", detail or "grey")
-                surface.DrawTexturedRect(0, 0, size, size)
-                copy:SetTexture("$basetexture", basetexture2 or "grey")
-                surface.DrawTexturedRect(size, 0, size, size)
-                copy:SetTexture("$basetexture", bmt or "grey")
-                surface.DrawTexturedRect(0, size, size, size)
-                copy:SetTexture("$basetexture", bumpmap2 or bumpmap or "null-bumpmap")
-                surface.DrawTexturedRect(size, size, size, size)
-                cam.End2D()
-                render.PopRenderTarget()
-            end)
-            m.Detail = name
+        local bt2str = mat:GetString "$basetexture2"
+        local bmtstr = mat:GetString "$blendmodulatetexture"
+        local bumpstr = mat:GetString "$bumpmap"
+        local bumpstr2 = mat:GetString "$bumpmap2"
+        local detailstr = mat:GetString "$detail"
+        if bt2str then
+            local bt2 = mat:GetTexture "$basetexture2"
+            local bmt = mat:GetTexture "$blendmodulatetexture"
+            local bumpmap2 = mat:GetTexture "$bumpmap2"
+            local detail = mat:GetTexture "$detail"
+            local numTextures = 1
+                + (bmtstr and 1 or 0)
+                + (bumpstr2 and 1 or 0)
+                + (detailstr and 1 or 0)
+            if numTextures > 0 then
+                local meanWidth = (bt2:Width()
+                    + (bmtstr and bmt:Width() or 0)
+                    + (bumpstr2 and bumpmap2:Width() or 0)
+                    + (detailstr and detail:Width() or 0)) / numTextures
+                local meanHeight = (bt2:Height()
+                    + (bmtstr and bmt:Height() or 0)
+                    + (bumpstr2 and bumpmap2:Height() or 0)
+                    + (detailstr and detail:Height() or 0)) / numTextures
+                local size = math.min((meanWidth + meanHeight) / 2, 2048)
+                local name = string.format("splashsweps_texture_%s", mat:GetName())
+                local rt = GetRenderTargetEx(name, size * 2, size * 2,
+                    RT_SIZE_NO_CHANGE, MATERIAL_RT_DEPTH_NONE,
+                    256 + 512 + 32768, 0, IMAGE_FORMAT_DEFAULT)
+                timer.Simple(0, function()
+                    render.PushRenderTarget(rt)
+                    cam.Start2D()
+                    surface.SetMaterial(copy)
+                    copy:SetTexture("$basetexture", detailstr or "grey")
+                    surface.DrawTexturedRect(0, 0, size, size)
+                    copy:SetTexture("$basetexture", bt2str)
+                    surface.DrawTexturedRect(size, 0, size, size)
+                    copy:SetTexture("$basetexture", bmtstr or "grey")
+                    surface.DrawTexturedRect(0, size, size, size)
+                    copy:SetTexture("$basetexture", bumpstr2 or bumpstr or "null-bumpmap")
+                    surface.DrawTexturedRect(size, size, size, size)
+                    cam.End2D()
+                    render.PopRenderTarget()
+                end)
+                m.Detail = name
+            end
         end
     end
 end

@@ -123,34 +123,37 @@ const float4 g_EyePos  : register(c10); // xyz: eye position
 const float4 c11       : register(c11); // $viewprojmat
 const float4 c12       : register(c12);
 const float4 c13       : register(c13);
-const float4 c14       : register(c14);
-const float4x4 c15     : register(c15); // $invviewprojmat
+const float4 c14       : register(c14); // w: unused
+const float4 c15       : register(c15); // w: unused
+const float4 c16       : register(c16); // w: unused
+const float2x4 c17     : register(c15); // $invviewprojmat
 const float4 HDRParams : register(c30);
 
-static const float3 BaseTransform[2]       = { c11.xyz, c12.xyz };
-static const float3 BumpTransform[2]       = { c13.xyz, c14.xyz };
-static const float4 g_DetailTint           = { c11.w, c12.w, c13.w, 1.0 };
-static const float3 g_SunDirection         = c0.xyz; // in world space
-static const float  g_DetailBlendMode      = c0.w;
-static const float  g_HammerUnitsToUV      = c1.x;   // = ss.RenderTarget.HammerUnitsToUV * 0.5
-static const float  g_MaterialFlags        = c1.y;
-static const float2 g_LightmapSize         = c2.xy;  // One over lightmap size
-static const float2 g_DetailScale          = c2.zw;
-static const float3 g_Color                = c3.rgb;
-static const float  g_DetailBlendFactor    = c3.w;
-static const float2 g_RTSize               = s0Size; // One over ink map size
-static const float2 g_DataRTSize           = s1Size; // One over data look-up table size
-static const float2 g_FbSize               = s2Size; // One over frame buffer size
-static const float2 g_UnderlayAlbedoSize   = s3Size; // One over $basetexture size
-static const float  g_TonemapScale         = HDRParams.x;
-static const float  g_LightmapScale        = HDRParams.y;
-static const float  g_EnvmapScale          = HDRParams.z;
-static const float  g_GammaScale           = HDRParams.w; // = TonemapScale ^ (1 / 2.2)
+static const float3 BaseTransform[2]     = { c11.xyz, c12.xyz };
+static const float3 BumpTransform[2]     = { c13.xyz, c14.xyz };
+static const float3 BlendTransform[2]    = { c15.xyz, c16.xyz };
+static const float4 g_DetailTint         = { c11.w, c12.w, c13.w, 1.0 };
+static const float3 g_SunDirection       = c0.xyz; // in world space
+static const float  g_DetailBlendMode    = c0.w;
+static const float  g_HammerUnitsToUV    = c1.x;   // = ss.RenderTarget.HammerUnitsToUV * 0.5
+static const float  g_MaterialFlags      = c1.y;
+static const float2 g_LightmapSize       = c2.xy;  // One over lightmap size
+static const float2 g_DetailScale        = c2.zw;
+static const float3 g_Color              = c3.rgb;
+static const float  g_DetailBlendFactor  = c3.w;
+static const float2 g_RTSize             = s0Size; // One over ink map size
+static const float2 g_DataRTSize         = s1Size; // One over data look-up table size
+static const float2 g_FbSize             = s2Size; // One over frame buffer size
+static const float2 g_UnderlayAlbedoSize = s3Size; // One over $basetexture size
+static const float  g_TonemapScale       = HDRParams.x;
+static const float  g_LightmapScale      = HDRParams.y;
+static const float  g_EnvmapScale        = HDRParams.z;
+static const float  g_GammaScale         = HDRParams.w; // = TonemapScale ^ (1 / 2.2)
 
 // Bit flags:
 //   0x01 .. has $bumpmap
-//   0x02 .. is  WorldVertexTransition
-//   0x04 .. is  Lightmapped_4WayBlend
+//   0x02 .. is  WorldVertexTransition = has $basetexture2
+//   0x04 .. is  Lightmapped_4WayBlend = has $basetexture3
 //   0x08 .. has $blendmodulatetexture
 //   0x10 .. is  simplified rendering for water reflection
 static const bool g_HasBumpedLightmap    = fmod(floor(g_MaterialFlags / 1),  2.0) > 0.5;
@@ -223,27 +226,14 @@ float4 CalcNearFarZ(float projPosZ, float projPosW) {
     return float4(nearZ, farZ, projMatrixPropotional, projMatrixOffset);
 }
 
-// Inverse conversion of world position -- UV coordinates equation:
-// P: world pos,  S: tangent S,         T: tangent T
-// U: (u, v),     X: screen pos (x, y)
-//    P = S u + T v
-// 1. Get partial derivatives of both sides
-//    ∂P/∂x = S ∂u/∂x + T ∂v/∂x
-//    ∂P/∂y = S ∂u/∂y + T ∂v/∂y
-// 2. Consolidates them into matrix form (assuming row vectors)
-//   / ∂P/dx \ _ / ∂U/∂x \ / S \
-//   \ ∂P/∂y / ‾ \ ∂U/∂y / \ T /
-// 3. Multiplies inverse dUdx--dUdy matrix from left side to get S, T
-// float2x3 dPdX   = { ddx(worldPos), ddy(worldPos) };
-// float2x2 dUdX   = { ddx(inkUV),    ddy(inkUV)    };
-// float dUdXdet   = dUdX._m00 * dUdX._m11 - dUdX._m01 * dUdX._m10;
-// float dUdXidet  = sign(dUdXdet) * rcp(max(abs(dUdXdet), 1.0e-8));
-// float2x2 dUdXInv = float2x2(
-//      dUdX._m11, -dUdX._m01,
-//     -dUdX._m10,  dUdX._m00) * dUdXidet;
-// float3x3 tangentSpaceInk = { mul(dUdXInv, dPdX), i.worldNormalTangentY.xyz };
-// tangentSpaceInk[0] = normalize(tangentSpaceInk[0]) * g_HammerUnitsToUV;
-// tangentSpaceInk[1] = normalize(tangentSpaceInk[1]) * g_HammerUnitsToUV;
+// Estimate the screen-space pixel offset where the perspective-correct UV would
+// become targetUV.  Around the current pixel, the rasterizer interpolates uv / w
+// and 1 / w linearly in screen space:
+//     U(x, y) = (uvOverW + d(uvOverW)/dx * x + d(uvOverW)/dy * y)
+//             / (invW    + d(invW)   /dx * x + d(invW)   /dy * y)
+// Solving U(x, y) = targetUV gives a 2D linear system for x and y.  The returned
+// offset is in screen pixels; callers multiply by g_FbSize to convert it to
+// normalized framebuffer UVs.
 float2 ProjectiveUVToScreenOffset(float2 uv, float2 targetUV, float clipW) {
     float  invW      = rcp(max(clipW, 1.0e-12));
     float2 uvOverW   = uv * invW;
@@ -290,6 +280,10 @@ float2 ApplyBaseTransform(float2 uv) {
     return float2(dot(float3(uv, 1.0), BaseTransform[0]), dot(float3(uv, 1.0), BaseTransform[1]));
 }
 
+float2 ApplyBlendMaskTransform(float2 uv) {
+    return float2(dot(float3(uv, 1.0), BlendTransform[0]), dot(float3(uv, 1.0), BlendTransform[1]));
+}
+
 float2 ApplyBumpTransform(float2 uv) {
     return float2(dot(float3(uv, 1.0), BumpTransform[0]), dot(float3(uv, 1.0), BumpTransform[1]));
 }
@@ -306,7 +300,7 @@ float4 ApplyDetailSample(float4 albedo, float4 detailSample) {
         albedo.rgb *= lerp(1.0, 2.0 * detailSample.rgb, g_DetailBlendFactor);
     }
     else if (mode == 1) {
-        albedo.rgb += g_DetailBlendFactor * detailSample.rgb;
+        albedo.rgb += g_DetailBlendFactor * pow(detailSample.rgb, 2.2);
     }
     else if (mode == 2) {
         albedo.rgb = lerp(albedo.rgb, detailSample.rgb, g_DetailBlendFactor * detailSample.a);
@@ -458,11 +452,17 @@ float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
 
 // Samples already-lit geometry sample from geometry textures
 float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapFinalColor) {
-    if (uv.isedge < 0.5) {
-        float4 fb = tex2Dlod(FrameBuffer, float4(uv.screen, 0.0, 0.0));
-        if (fb.a * DepthWriteConstant > uv.depth - max(2.0, uv.depth * 0.015)) return fb.rgb;
-        if (g_Is4WayBlend) return tex2Dlod(FrameBuffer, float4(i.screenUV, 0.0, 0.0)).rgb / g_TonemapScale;
+    float fbRatio = uv.isedge;
+    float4 fb = tex2Dlod(FrameBuffer, float4(uv.screen, 0.0, 0.0));
+    if (fb.a * DepthWriteConstant < uv.depth - max(2.0, uv.depth * 0.015)) {
+        fbRatio = 1.0;
     }
+    if (g_Is4WayBlend) {
+        float4 sample = tex2Dlod(FrameBuffer, float4(i.screenUV, 0.0, 0.0));
+        fb.rgb = sample.rgb / g_TonemapScale;
+        fb.a = sample.a;
+    }
+
     float2 duv = ApplyDetailTransform(i.worldUV);
     float2 wuv = ApplyBaseTransform(i.worldUV);
     float2 wdx = ddx(wuv), wdy = ddy(wuv);
@@ -472,13 +472,14 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
             frac(uv.base) * 0.5 + float2(0.5, 0.0), wdx * 0.5, wdy * 0.5);
         float4 detail = tex2Dgrad(UnderlayAtlas,
             frac(uv.detail) * 0.5, ddx(duv) * 0.5, ddy(duv) * 0.5) * g_DetailTint;
+        albedo2.rgb = pow(albedo2.rgb, 2.2);
         albedo.rgb = ApplyDetailSample(lerp(albedo, albedo2, uv.blend), detail).rgb * g_Color;
-        return albedo.rgb * lightmapFinalColor;
+        return lerp(fb.rgb, albedo.rgb * lightmapFinalColor, fbRatio);
     }
     else {
         float4 detail = tex2Dgrad(UnderlayDetail, uv.detail, ddx(duv), ddy(duv)) * g_DetailTint;
         albedo.rgb = ApplyDetailSample(albedo, detail).rgb * g_Color;
-        return albedo.rgb * lightmapFinalColor;
+        return lerp(fb.rgb, albedo.rgb * lightmapFinalColor, fbRatio);
     }
 }
 
@@ -560,9 +561,11 @@ UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params) {
     };
     float2 offset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + uvOffset, i.clipPos.w);
     float2 s  = i.screenUV + offset * g_FbSize;
-    uv.isedge = 1.0 - step(0.0, min(min(s.x, s.y), 1.0 - max(s.x, s.y)));
+    uv.isedge = 1.0 - smoothstep(0.0, 0.0625, min(min(s.x, s.y), 1.0 - max(s.x, s.y)));
     uv.screen = saturate(s);
-    uv.blend  = ModulateBlend(i.baseTextureBlend + dot(blendGrad, uvOffset), uv.base);
+
+    float2 uvbmt = ApplyBlendMaskTransform(worldUVParallax);
+    uv.blend  = ModulateBlend(i.baseTextureBlend + dot(blendGrad, uvOffset), uvbmt);
     uv.depth  = i.clipPos.w + ddx(i.clipPos.w) * offset.x + ddy(i.clipPos.w) * offset.y;
     return uv;
 }
