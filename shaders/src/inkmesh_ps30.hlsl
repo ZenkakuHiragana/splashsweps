@@ -87,9 +87,9 @@ static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
 static const float SSR_INITIAL_STEP   = 4.0;    // Ray start offset in Hammer units to skip the source surface
-static const float SSR_MAX_DISTANCE   = 2048.0; // Maximum reflection ray distance in Hammer units
-static const float SSR_NUM_STEPS      = 8.0;
-static const float SSR_THICKNESS_MIN  = 4.0;    // Minimum accepted screen-depth thickness in Hammer units
+static const float SSR_MAX_DISTANCE   = 1024.0; // Maximum reflection ray distance in Hammer units
+static const float SSR_NUM_STEPS      = 12.0;
+static const float SSR_THICKNESS_MIN  = 16.0;   // Minimum accepted screen-depth thickness in Hammer units
 static const float SSR_THICKNESS_MAX  = 64.0;   // Accepted thickness at the far end of the ray
 static const float DepthWriteConstant = 4000.0; // Used by DepthWrite / _rt_resolvedfullframedepth
 static const float3 GrayScaleFactor   = { 0.2126, 0.7152, 0.0722 };
@@ -559,16 +559,22 @@ UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params) {
     return uv;
 }
 
-float3 SampleScreenSpaceReflection(
-    const PsVertexInfo i, float3 viewDir, float3 worldSpaceNormal, float roughness) {
+float4 SampleScreenSpaceReflection(
+    const PsVertexInfo i, float3 viewDir, float3 worldSpaceNormal, float roughness, float height) {
     static const float SSR_DISTANCE_FADE_START = 0.85;
     static const float SSR_ROUGH_DISTANCE_SCALE = 0.25;
     static const float SSR_THICKNESS_FADE_SCALE = 2.0;
+    float3 worldOffset   = i.worldTransform[2] * height * HEIGHT_TO_HU;
+    float3 originWorld   = i.worldPos + worldOffset;
+    float  originDepth   = i.clipPos.w - dot(worldOffset, viewDir)
+        * (i.clipPos.w / max(length(g_EyePos.xyz - i.worldPos), 1.0e-3));
     float3 reflectionDir = normalize(reflect(-viewDir, worldSpaceNormal));
     float3 screenBasisX  = ddx(i.worldPos);
     float3 screenBasisY  = ddy(i.worldPos);
     float3 depthBasis    = -viewDir;
     float4 rayInScreenBasis = DecomposeBasis(screenBasisX, screenBasisY, depthBasis, reflectionDir);
+    float4 originInScreenBasis = DecomposeBasis(screenBasisX, screenBasisY, depthBasis, worldOffset);
+    float2 originUV = i.screenUV + originInScreenBasis.xy * g_FbSize;
     float basisValid = step(1.0e-6, abs(rayInScreenBasis.a));
 
     float2 rayStepUV       = rayInScreenBasis.xy * g_FbSize;
@@ -577,46 +583,54 @@ float3 SampleScreenSpaceReflection(
     float  depthBasisStep  = i.clipPos.w * rcp(max(viewDistance, 1.0e-3));
     float  rayStepDepth    = dot(rayInScreenBasis.xy, clipDepthGrad) + rayInScreenBasis.z * depthBasisStep;
     float  currentDepth    = max(i.clipPos.w, 1.0e-3);
-    float  maxDistance     = lerp(SSR_MAX_DISTANCE, SSR_MAX_DISTANCE * SSR_ROUGH_DISTANCE_SCALE, saturate(roughness));
-    float2 previousUV      = i.screenUV;
+    float  maxDistance     = lerp(SSR_MAX_DISTANCE, SSR_MAX_DISTANCE * SSR_ROUGH_DISTANCE_SCALE, roughness);
+    float2 previousUV      = originUV;
     float  previousDelta   = 0.0;
+    float  previousRayDepth = 0.0;
 
     [unroll]
     for (int j = 1; j <= (int)SSR_NUM_STEPS; j++) {
         float  fraction   = (float)(j - 1) / (SSR_NUM_STEPS - 1.0);
+        fraction *= fraction;
+
         float  distance   = lerp(SSR_INITIAL_STEP, maxDistance, fraction);
-        float  rayDepth   = i.clipPos.w + rayStepDepth * distance;
+        float  rayDepth   = originDepth + rayStepDepth * distance;
         float  depthValid = step(1.0e-3, rayDepth);
-        float  uvScale    = currentDepth * rcp(max(rayDepth, 1.0e-3));
-        float2 uv         = i.screenUV + rayStepUV * distance * uvScale;
+        float  uvScale    = currentDepth * rcp(max(rayDepth, 1.0e-16));
+        float2 uv         = originUV + rayStepUV * distance * uvScale;
         float  edgeFade   = ScreenEdgeFade(uv);
         if (j > 1 && edgeFade <= 0.0) break;
 
-        float4 fb         = tex2Dlod(FrameBuffer, float4(saturate(uv), 0.0, 0.0));
-        float  fbDepth    = fb.a * DepthWriteConstant;
-        float  depthDelta = rayDepth - fbDepth;
-        float  thickness  = lerp(SSR_THICKNESS_MIN, SSR_THICKNESS_MAX, fraction);
-        float  crossed    = j == 1 ? 0.0 : step(previousDelta, 0.0) * step(0.0, depthDelta);
-        float  nearHit    = 1.0 - smoothstep(thickness, thickness * SSR_THICKNESS_FADE_SCALE, depthDelta);
-        float  directHit  = step(0.0, depthDelta) * nearHit;
-        float  distanceFade = 1.0 - smoothstep(SSR_DISTANCE_FADE_START, 1.0, fraction);
+        float4 fb        = tex2Dlod(FrameBuffer, float4(uv, 0.0, 0.0));
+        float fbDepth    = fb.a * DepthWriteConstant;
+        float depthDelta = rayDepth - fbDepth;
+        float thickness  = lerp(SSR_THICKNESS_MIN, SSR_THICKNESS_MAX, fraction);
+        float deltaSpan  = depthDelta - previousDelta;
+        float spanConfidence = 1.0 - smoothstep(thickness * 4.0, thickness * 16.0, abs(deltaSpan));
+        float crossed = step(1.5, (float)j) * step(previousDelta, 0.0) * step(0.0, depthDelta) * spanConfidence;
+        float distanceFade = 1.0 - smoothstep(SSR_DISTANCE_FADE_START, 1.0, fraction);
 
         if (crossed > 0.0) {
             float hitFraction = saturate(previousDelta / (previousDelta - depthDelta));
             float2 hitUV = lerp(previousUV, uv, hitFraction);
-            float4 hit = tex2Dlod(FrameBuffer, float4(saturate(hitUV), 0.0, 0.0));
-            float visibility = basisValid * depthValid * distanceFade * ScreenEdgeFade(hitUV);
-            return hit.rgb / g_TonemapScale * visibility;
+            float hitEdgeFade = ScreenEdgeFade(hitUV);
+            if (hitEdgeFade <= 0.0) break;
+            float4 hit = tex2Dlod(FrameBuffer, float4(hitUV, 0.0, 0.0));
+            float hitRayDepth = lerp(previousRayDepth, rayDepth, hitFraction);
+            float hitDepth = hit.a * DepthWriteConstant;
+            float hitDelta = hitRayDepth - hitDepth;
+            float thicknessConfidence = 1.0 - smoothstep(thickness, thickness * 2.0, abs(hitDelta));
+            float visibility = basisValid * depthValid * distanceFade * hitEdgeFade
+                * spanConfidence * thicknessConfidence;
+            return float4(hit.rgb / g_TonemapScale, visibility);
         }
-
-        float visibility = basisValid * depthValid * distanceFade * edgeFade * directHit;
-        if (visibility > 0.0) return fb.rgb / g_TonemapScale * visibility;
 
         previousUV = uv;
         previousDelta = depthDelta;
+        previousRayDepth = rayDepth;
     }
 
-    return float3(0.0, 0.0, 0.0);
+    return float4(0.0, 0.0, 0.0, 0.0);
 }
 
 float4 main(const PS_INPUT rawInput) : COLOR0 {
@@ -648,7 +662,7 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
 
     // Compute and apply diffuse lighting factors using bumped lightmap basis
     float3 geometryLit = FetchGeometrySamples(i, uv, lightmapFinalColor) * params.multiplicative;
-    float3 inkLit      = params.additive * CalcFinalLightmapColor(lightmapColors, lightmapFactors);
+    float3 inkLit      = params.additive * lightmapFinalColor;
     float3 albedo      = geometryLit + inkLit;
 
     // Modulate surface albedo and add ink color
@@ -703,7 +717,10 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
 
 #ifdef g_EnvmapEnabled
     // Apply envmap contribution
-    float3 envmapSpecular = SampleScreenSpaceReflection(i, viewDir, worldSpaceNormal, params.pbr.roughness);
+    float3 reflectDir     = reflect(-viewDir, worldSpaceNormal);
+    float3 envmapSample   = texCUBE(Envmap, reflectDir).rgb * g_EnvmapScale;
+    float4 envmapSSR      = SampleScreenSpaceReflection(i, viewDir, worldSpaceNormal, params.pbr.roughness, params.height);
+    float3 envmapSpecular = lerp(envmapSample, envmapSSR.rgb, envmapSSR.a);
     float3 envmapFresnel  = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);
     float  envmapScale    = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, params.pbr.roughness * params.pbr.roughness);
     float3 envmapAlbedo   = lerp(float3(1.0, 1.0, 1.0), albedo, params.pbr.metallic);

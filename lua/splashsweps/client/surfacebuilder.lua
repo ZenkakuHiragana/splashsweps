@@ -3,6 +3,7 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local EnvmapDefault       = "editor/cubemap" .. (render.GetHDREnabled() and ".hdr" or "")
 local LightmapInfoMeta    = getmetatable(ss.new "PrecachedData.LightmapInfo")
 local StaticPropMeta      = getmetatable(ss.new "PrecachedData.StaticProp")
 local StaticPropUVMeta    = getmetatable(ss.new "PrecachedData.StaticProp.UVInfo")
@@ -43,6 +44,7 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---@field BaseTexture          string?   Value of $basetexture.
 ---@field Bumpmap              string?   Value of $bumpmap.
 ---@field Detail               string?   Value of $detail.
+---@field Envmap               string?   Value of $envmap, which is already resolved by VBSP.
 ---@field BumpTextureTransform VMatrix?  Value of $bumptransform.
 ---@field BaseTextureTransform VMatrix?  Value of $basetexturetransform.
 ---@field BlendMaskTransform   VMatrix?  Value of $blendmasktransform.
@@ -60,6 +62,7 @@ ss.struct "SurfaceBuilder.MaterialInfo" {
     BaseTexture          = nil,
     Bumpmap              = nil,
     Detail               = nil,
+    Envmap               = nil,
     BumpTextureTransform = nil,
     BaseTextureTransform = nil,
     BlendMaskTransform   = nil,
@@ -183,6 +186,7 @@ local function enumerateMaterials(materialsInMap)
                     BaseTexture          = mat:GetString "$basetexture",
                     Bumpmap              = mat:GetString "$bumpmap",
                     Detail               = baseTexture2 or mat:GetString "$detail",
+                    Envmap               = mat:GetString "$envmap",
                     BaseTextureTransform = mat:GetMatrix "$basetexturetransform",
                     BumpTextureTransform = mat:GetMatrix "$bumptransform",
                     BlendMaskTransform   = mat:GetMatrix "$blendmasktransform",
@@ -393,7 +397,7 @@ local function buildBaseInkMeshMaterialParams()
         ["$basetexture"]            = ss.RenderTarget.StaticTextures.InkMap:GetName(),
         ["$texture1"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
         ["$texture2"]               = "__rt_supertexture1",
-        ["$texture7"]               = "shadertest/cubemap",
+        ["$texture7"]               = EnvmapDefault,
         ["$linearread_basetexture"] = "1",
         ["$linearread_texture1"]    = "1",
         ["$linearread_texture2"]    = "1",
@@ -401,7 +405,7 @@ local function buildBaseInkMeshMaterialParams()
         ["$linearread_texture4"]    = "1",
         ["$linearread_texture5"]    = "1",
         ["$linearread_texture6"]    = render.GetHDREnabled() and "1" or "0",
-        ["$linearread_texture7"]    = "1",
+        ["$linearread_texture7"]    = render.GetHDREnabled() and "1" or "0",
         ["$alpha_blend"]            = "1",
         ["$alphablend"]             = "1",
         ["$alphatested"]            = "0",
@@ -449,6 +453,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$texture4"] = materialInfo.Bumpmap or "null-bumpmap"
         materialParams["$texture5"] = materialInfo.Detail or "white"
         materialParams["$texture6"] = lightmapTextureName
+        materialParams["$texture7"] = materialInfo.Envmap or EnvmapDefault
         materialParams["$c0_w"]     = detailBlendMode
         materialParams["$c1_y"]     = (materialInfo.NeedsBumpedLightmaps and 1 or 0)
                                     + (materialInfo.HasBaseTexture2 and 2 or 0)
