@@ -24,7 +24,7 @@ struct UVs {
     float2 detail;
     float2 lightmap;
     float2 screen;
-    float  isedge;
+    float  edgefade;
     float  blend;
     float  depth;
 };
@@ -86,6 +86,14 @@ static const float RIM_METALIC_MAX    = 0.0625; // Rim lighting strength at meta
 static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
+static const float SSR_INITIAL_STEP   = 4.0;    // Ray start offset in Hammer units to skip the source surface
+static const float SSR_MAX_DISTANCE   = 4096.0; // Maximum reflection ray distance in Hammer units
+static const float SSR_NUM_STEPS      = 16.0;
+static const float SSR_DISTANCE_FADE_START = 0.85;
+static const float SSR_ROUGH_DISTANCE_SCALE = 0.25;
+static const float SSR_THICKNESS_FADE_SCALE = 2.0;
+static const float SSR_THICKNESS_MIN  = 4.0;    // Minimum accepted screen-depth thickness in Hammer units
+static const float SSR_THICKNESS_MAX  = 64.0;   // Accepted thickness at the far end of the ray
 static const float DepthWriteConstant = 4000.0; // Used by DepthWrite / _rt_resolvedfullframedepth
 static const float3 GrayScaleFactor   = { 0.2126, 0.7152, 0.0722 };
 static const float3x3 BumpBasis = {
@@ -193,6 +201,11 @@ float3 CalcFresnel(float3 normal, float3 viewDirection, float3 f0) {
     return lerp(f0, float3(1.0, 1.0, 1.0), pow(1.0 - nDotV, 5.0));
 }
 
+float ScreenEdgeFade(float2 uv) {
+    float edge = min(min(uv.x, uv.y), 1.0 - max(uv.x, uv.y));
+    return smoothstep(0.0, 0.0625, edge);
+}
+
 float4 CalcNearFarZ(float projPosZ, float projPosW) {
     // Construct near and far Z from projected position Z and W
     // Projection matrix looks like
@@ -226,6 +239,30 @@ float4 CalcNearFarZ(float projPosZ, float projPosW) {
     return float4(nearZ, farZ, projMatrixPropotional, projMatrixOffset);
 }
 
+// Solves X = float3(x, y, det) such that v = x*a + y*b
+float3 DecomposeBasis(float2 a, float2 b, float2 v) {
+    float det = a.x * b.y - b.x * a.y;
+    float invDet = SAFERCP(det);
+    return float3(
+        (v.x * b.y - b.x * v.y) * invDet,
+        (a.x * v.y - v.x * a.y) * invDet,
+        det);
+}
+
+// Solves X = float4(x, y, z, det) such that v = x*a + y*b + z*c
+float4 DecomposeBasis(float3 a, float3 b, float3 c, float3 v) {
+    float3 bCrossC = cross(b, c);
+    float3 cCrossA = cross(c, a);
+    float3 aCrossB = cross(a, b);
+    float det      = dot(a, bCrossC);
+    float invDet   = SAFERCP(det);
+    return float4(
+        dot(v, bCrossC) * invDet,
+        dot(v, cCrossA) * invDet,
+        dot(v, aCrossB) * invDet,
+        det);
+}
+
 // Estimate the screen-space pixel offset where the perspective-correct UV would
 // become targetUV.  Around the current pixel, the rasterizer interpolates uv / w
 // and 1 / w linearly in screen space:
@@ -242,11 +279,7 @@ float2 ProjectiveUVToScreenOffset(float2 uv, float2 targetUV, float clipW) {
     float2 a         = uvOverWdx - targetUV * invWdx;
     float2 b         = uvOverWdy - targetUV * invWdy;
     float2 c         = targetUV * invW - uvOverW;
-    float  det       = a.x * b.y - b.x * a.y;
-    float  invDet    = sign(det) * rcp(max(abs(det), 1.0e-20));
-    return float2(
-        (c.x * b.y - b.x * c.y) * invDet,
-        (a.x * c.y - c.x * a.y) * invDet);
+    return DecomposeBasis(a, b, c).xy;
 }
 
 float ModulateBlend(float raw, float2 uv) {
@@ -300,7 +333,7 @@ float4 ApplyDetailSample(float4 albedo, float4 detailSample) {
         albedo.rgb *= lerp(1.0, 2.0 * detailSample.rgb, g_DetailBlendFactor);
     }
     else if (mode == 1) {
-        albedo.rgb += g_DetailBlendFactor * pow(detailSample.rgb, 2.2);
+        albedo.rgb += g_DetailBlendFactor * pow(abs(detailSample.rgb), 2.2);
     }
     else if (mode == 2) {
         albedo.rgb = lerp(albedo.rgb, detailSample.rgb, g_DetailBlendFactor * detailSample.a);
@@ -452,10 +485,10 @@ float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
 
 // Samples already-lit geometry sample from geometry textures
 float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapFinalColor) {
-    float fbRatio = uv.isedge;
+    float fbRatio = uv.edgefade;
     float4 fb = tex2Dlod(FrameBuffer, float4(uv.screen, 0.0, 0.0));
     if (fb.a * DepthWriteConstant < uv.depth - max(2.0, uv.depth * 0.015)) {
-        fbRatio = 1.0;
+        fbRatio = 0.0;
     }
     if (g_Is4WayBlend) {
         float4 sample = tex2Dlod(FrameBuffer, float4(i.screenUV, 0.0, 0.0));
@@ -472,14 +505,14 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
             frac(uv.base) * 0.5 + float2(0.5, 0.0), wdx * 0.5, wdy * 0.5);
         float4 detail = tex2Dgrad(UnderlayAtlas,
             frac(uv.detail) * 0.5, ddx(duv) * 0.5, ddy(duv) * 0.5) * g_DetailTint;
-        albedo2.rgb = pow(albedo2.rgb, 2.2);
+        albedo2.rgb = pow(abs(albedo2.rgb), 2.2);
         albedo.rgb = ApplyDetailSample(lerp(albedo, albedo2, uv.blend), detail).rgb * g_Color;
-        return lerp(fb.rgb, albedo.rgb * lightmapFinalColor, fbRatio);
+        return lerp(albedo.rgb * lightmapFinalColor, fb.rgb, fbRatio);
     }
     else {
         float4 detail = tex2Dgrad(UnderlayDetail, uv.detail, ddx(duv), ddy(duv)) * g_DetailTint;
         albedo.rgb = ApplyDetailSample(albedo, detail).rgb * g_Color;
-        return lerp(fb.rgb, albedo.rgb * lightmapFinalColor, fbRatio);
+        return lerp(albedo.rgb * lightmapFinalColor, fb.rgb, fbRatio);
     }
 }
 
@@ -552,22 +585,75 @@ UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params) {
     uv.detail   = ApplyDetailTransform(worldUVParallax);
     uv.lightmap = i.lightmapUV + lightmapParallax;
 
-    float4 dUdxy  = { ddx(i.worldUV), ddy(i.worldUV) };
-    float2 dbdxy  = { ddx(i.baseTextureBlend), ddy(i.baseTextureBlend) };
-    float  invdet = SAFERCP(dUdxy.x * dUdxy.w - dUdxy.y * dUdxy.z);
-    float2 blendGrad = {
-        (dbdxy.x * dUdxy.w - dUdxy.y * dbdxy.y) * invdet,
-        (dUdxy.x * dbdxy.y - dbdxy.x * dUdxy.z) * invdet,
-    };
-    float2 offset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + uvOffset, i.clipPos.w);
-    float2 s  = i.screenUV + offset * g_FbSize;
-    uv.isedge = 1.0 - smoothstep(0.0, 0.0625, min(min(s.x, s.y), 1.0 - max(s.x, s.y)));
-    uv.screen = saturate(s);
-
-    float2 uvbmt = ApplyBlendMaskTransform(worldUVParallax);
-    uv.blend  = ModulateBlend(i.baseTextureBlend + dot(blendGrad, uvOffset), uvbmt);
-    uv.depth  = i.clipPos.w + ddx(i.clipPos.w) * offset.x + ddy(i.clipPos.w) * offset.y;
+    float2 dUdx      = ddx(i.worldUV);
+    float2 dUdy      = ddy(i.worldUV);
+    float2 dBdxy     = { ddx(i.baseTextureBlend), ddy(i.baseTextureBlend) };
+    float2 blendGrad = DecomposeBasis(dUdx, dUdy, dBdxy).xy;
+    float2 offset    = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + uvOffset, i.clipPos.w);
+    float2 s         = i.screenUV + offset * g_FbSize;
+    float2 uvbmt     = ApplyBlendMaskTransform(worldUVParallax);
+    uv.edgefade      = ScreenEdgeFade(s);
+    uv.screen        = saturate(s);
+    uv.blend         = ModulateBlend(i.baseTextureBlend + dot(blendGrad, uvOffset), uvbmt);
+    uv.depth         = i.clipPos.w + ddx(i.clipPos.w) * offset.x + ddy(i.clipPos.w) * offset.y;
     return uv;
+}
+
+float3 SampleScreenSpaceReflection(
+    const PsVertexInfo i, float3 viewDir, float3 worldSpaceNormal, float roughness) {
+    float3 reflectionDir = normalize(reflect(-viewDir, worldSpaceNormal));
+    float3 screenBasisX  = ddx(i.worldPos);
+    float3 screenBasisY  = ddy(i.worldPos);
+    float3 depthBasis    = -viewDir;
+    float4 rayInScreenBasis = DecomposeBasis(screenBasisX, screenBasisY, depthBasis, reflectionDir);
+    float basisValid = step(1.0e-6, abs(rayInScreenBasis.a));
+
+    float2 rayStepUV       = rayInScreenBasis.xy * g_FbSize;
+    float2 clipDepthGrad   = float2(ddx(i.clipPos.w), ddy(i.clipPos.w));
+    float  viewDistance    = length(g_EyePos.xyz - i.worldPos);
+    float  depthBasisStep  = i.clipPos.w * rcp(max(viewDistance, 1.0e-3));
+    float  rayStepDepth    = dot(rayInScreenBasis.xy, clipDepthGrad) + rayInScreenBasis.z * depthBasisStep;
+    float  currentDepth    = max(i.clipPos.w, 1.0e-3);
+    float  maxDistance     = lerp(SSR_MAX_DISTANCE, SSR_MAX_DISTANCE * SSR_ROUGH_DISTANCE_SCALE, saturate(roughness));
+    float2 previousUV      = i.screenUV;
+    float  previousDelta   = 0.0;
+
+    [unroll]
+    for (int j = 1; j <= (int)SSR_NUM_STEPS; j++) {
+        float  fraction   = (float)(j - 1) / (SSR_NUM_STEPS - 1.0);
+        float  distance   = lerp(SSR_INITIAL_STEP, maxDistance, fraction);
+        float  rayDepth   = i.clipPos.w + rayStepDepth * distance;
+        float  depthValid = step(1.0e-3, rayDepth);
+        float  uvScale    = currentDepth * rcp(max(rayDepth, 1.0e-3));
+        float2 uv         = i.screenUV + rayStepUV * distance * uvScale;
+        float  edgeFade   = ScreenEdgeFade(uv);
+        if (j > 1 && edgeFade <= 0.0) break;
+
+        float4 fb         = tex2Dlod(FrameBuffer, float4(saturate(uv), 0.0, 0.0));
+        float  fbDepth    = fb.a * DepthWriteConstant;
+        float  depthDelta = rayDepth - fbDepth;
+        float  thickness  = lerp(SSR_THICKNESS_MIN, SSR_THICKNESS_MAX, fraction);
+        float  crossed    = j == 1 ? 0.0 : step(previousDelta, 0.0) * step(0.0, depthDelta);
+        float  nearHit    = 1.0 - smoothstep(thickness, thickness * SSR_THICKNESS_FADE_SCALE, depthDelta);
+        float  directHit  = step(0.0, depthDelta) * nearHit;
+        float  distanceFade = 1.0 - smoothstep(SSR_DISTANCE_FADE_START, 1.0, fraction);
+
+        if (crossed > 0.0) {
+            float hitFraction = saturate(previousDelta / (previousDelta - depthDelta));
+            float2 hitUV = lerp(previousUV, uv, hitFraction);
+            float4 hit = tex2Dlod(FrameBuffer, float4(saturate(hitUV), 0.0, 0.0));
+            float visibility = basisValid * depthValid * distanceFade * ScreenEdgeFade(hitUV);
+            return hit.rgb / g_TonemapScale * visibility;
+        }
+
+        float visibility = basisValid * depthValid * distanceFade * edgeFade * directHit;
+        if (visibility > 0.0) return fb.rgb / g_TonemapScale * visibility;
+
+        previousUV = uv;
+        previousDelta = depthDelta;
+    }
+
+    return float3(0.0, 0.0, 0.0);
 }
 
 float4 main(const PS_INPUT rawInput) : COLOR0 {
@@ -610,6 +696,8 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
     // -------------------------------------------------------------------------
     // v Specular component (accumulates to the final result)
 
+    float3 tangentViewDir = mul(i.worldTransform, viewDir);
+
 #ifdef g_PhongEnabled
     float  phongExponent = lerp(PHONG_EXPONENT_MIN, PHONG_EXPONENT_MAX, params.pbr.roughness);
     float3 phongFresnel  = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);
@@ -623,7 +711,6 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
 
     float spec = CalcBlinnPhongSpec(worldSpaceNormal, phongLightDir, viewDir, phongExponent);
     float3 phongSpecular = mul(lightmapFactors * spec, lightmapColors);
-    float3 tangentViewDir = mul(i.worldTransform, viewDir);
     phongSpecular *= CalcFresnel(tangentSpaceNormal, tangentViewDir, phongFresnel);
     phongSpecular *= ambientOcclusion;
     phongSpecular *= params.pbr.specularScale;
@@ -652,25 +739,11 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
 #endif
 
 #ifdef g_EnvmapEnabled
-    // Envmap specular component
-    float3 envmapReflect = reflect(tangentViewDir, tangentSpaceNormal);
-    float2 envmapUVOffset = envmapReflect.xy * 7.0;
-    float2 tangentScaleSqr = {
-        dot(i.worldTransform[0], i.worldTransform[0]),
-        dot(i.worldTransform[1], i.worldTransform[1]),
-    };
-    envmapUVOffset /= max(tangentScaleSqr, 1.0e-3);
-    float2 screenOffset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + envmapUVOffset, i.clipPos.w);
-    float2 fakeSSRUV = saturate(i.screenUV - screenOffset * g_FbSize);
-    float3 envmapSpecular = tex2Dlod(FrameBuffer, float4(fakeSSRUV, 0.0, 0.0)).rgb;
-    envmapSpecular /= g_TonemapScale;
-    envmapSpecular *= smoothstep(-0.35, 0.35, envmapReflect.z);
-    envmapSpecular *= step(abs(i.clipPos.w), 1e-3);
-
     // Apply envmap contribution
-    float3 envmapFresnel = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);
-    float  envmapScale   = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, params.pbr.roughness * params.pbr.roughness);
-    float3 envmapAlbedo  = lerp(float3(1.0, 1.0, 1.0), albedo, params.pbr.metallic);
+    float3 envmapSpecular = SampleScreenSpaceReflection(i, viewDir, worldSpaceNormal, params.pbr.roughness);
+    float3 envmapFresnel  = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);
+    float  envmapScale    = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, params.pbr.roughness * params.pbr.roughness);
+    float3 envmapAlbedo   = lerp(float3(1.0, 1.0, 1.0), albedo, params.pbr.metallic);
     envmapSpecular *= envmapAlbedo;
     envmapSpecular *= CalcFresnel(worldSpaceNormal, viewDir, envmapFresnel);
     envmapSpecular *= envmapScale;

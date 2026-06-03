@@ -16,7 +16,7 @@
 #define TO_UNSIGNED(x) saturate((x) * 0.5 + 0.5)
 
 // Safe rcp that avoids division by zero
-#define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-21)))
+#define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-16)))
 
 static const float  HEIGHT_TO_HU = 24.0;
 static const float4 GROUND_PROPERTIES[8] = {
