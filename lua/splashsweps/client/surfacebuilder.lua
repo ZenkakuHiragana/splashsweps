@@ -466,7 +466,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$c3_x"]     = materialInfo.Color and materialInfo.Color.x or 1
         materialParams["$c3_y"]     = materialInfo.Color and materialInfo.Color.y or 1
         materialParams["$c3_z"]     = materialInfo.Color and materialInfo.Color.z or 1
-        materialParams["$c3_w"]     = hasDetail and (materialInfo.DetailBlendFactor or 1) or 0
+        materialParams["$c3_w"]     = ss.RenderTarget.StaticTextures.Albedo:Height()
 
         local mat = CreateMaterial(
             string.format("splashsweps_mesh_%d_%s", sortID, game.GetMap()),
@@ -487,7 +487,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
             materialInfo.BumpTextureTransform:GetField(2, 1),
             materialInfo.BumpTextureTransform:GetField(2, 2),
             materialInfo.BumpTextureTransform:GetField(2, 4),
-            ss.RenderTarget.StaticTextures.Albedo:Height())
+            hasDetail and (materialInfo.DetailBlendFactor or 1) or 0)
         mat:SetMatrix("$viewprojmat", m)
         m:SetUnpacked(
             materialInfo.BlendMaskTransform:GetField(1, 1),
