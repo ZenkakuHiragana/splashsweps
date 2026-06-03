@@ -3,7 +3,7 @@
     "$pixshader"              "splashsweps/drawink_ps30"
     "$vertexshader"           "splashsweps/drawink_vs30"
     "$basetexture"            "splashsweps_inkmap2"
-    "$texture1"               "splashsweps_params"
+    "$texture1"               "splashsweps_details"
     "$texture2"               "splashsweps_albedo"
     "$texture3"               "splashsweps_tint"
     "$alpha_blend"            "0"

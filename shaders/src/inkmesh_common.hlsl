@@ -45,3 +45,41 @@ struct VertexInfo {
     float4 worldPos           : TEXCOORD8; // w:  unused
     float4 clipPos            : TEXCOORD9;
 };
+
+// Constants
+const float4 c0        : register(c0);
+const float4 c1        : register(c1);
+const float4 c2        : register(c2);
+const float4 c3        : register(c3);
+const float2 s0Size    : register(c4);
+const float2 s1Size    : register(c5);
+const float2 s2Size    : register(c6);
+const float2 s3Size    : register(c7);
+const float4 c8        : register(c8);
+const float4 c9        : register(c9);
+const float4 g_EyePos  : register(c10); // xyz: eye position
+const float4 c11       : register(c11); // $viewprojmat
+const float4 c12       : register(c12);
+const float4 c13       : register(c13);
+const float4 c14       : register(c14);
+const float4 c15       : register(c15); // w: unused
+const float4 c16       : register(c16); // w: unused
+const float2x4 c17     : register(c15); // $invviewprojmat
+const float4 HDRParams : register(c30);
+
+const sampler InkDataDetail : register(s1);
+static const float2 g_DataRTSize     = s1Size.xy;
+static const float  g_InkDataOffsetV = c3.w;
+float4 FetchDataPixel(int id, int index) {
+    if (id == 0) {
+        return GROUND_PROPERTIES[index];
+    }
+    else {
+        return tex2Dlod(InkDataDetail, float4(
+            (id    - 0.5) * g_DataRTSize.x,
+            (index + g_InkDataOffsetV + 0.5) * g_DataRTSize.y,
+            0.0,
+            0.0));
+    }
+}
+

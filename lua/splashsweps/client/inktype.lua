@@ -138,17 +138,18 @@ function ss.LoadInkTypesRT()
     PrintTable(heightTextureNames)
     if #parameters == 0 then return end
 
-    -- 256 + 512 + 1024 + 32768 + 8388608
-    -- = POINTSAMPLE | NOMIP | NOLOD | ALL_MIPS | RENDERTARGET | NODEPTHBUFFER
-    -- GMOD can't change the size of render target without restart
-    -- so I reserve twice the number of ink types.
-    ss.RenderTarget.StaticTextures.Params = GetRenderTargetEx(
-        "splashsweps_params",
-        #parameters * 2, #parameters[1],
+    -- 512 + 1024 + 32768 + 8388608
+    -- = NOMIP | NOLOD | ALL_MIPS | RENDERTARGET | NODEPTHBUFFER
+    local rtWidth = ss.RenderTarget.StaticTextures.Albedo:Width()
+    local rtHeight = ss.RenderTarget.StaticTextures.Albedo:Height()
+    ss.RenderTarget.StaticTextures.Details = GetRenderTargetEx(
+        "splashsweps_details",
+        math.max(rtWidth, #parameters), rtHeight + #parameters[1],
         RT_SIZE_NO_CHANGE,
         MATERIAL_RT_DEPTH_NONE,
-        1 + 256 + 512 + 1024 + 32768 + 8388608, 0,
+        1 + 512 + 1024 + 32768 + 8388608, 0,
         IMAGE_FORMAT_RGBA8888)
+    Material "splashsweps/shaders/drawink" :SetFloat("$c3_w", rtHeight)
 
     -- I couldn't make it work with surface.DrawTexturedRect for some reason;
     -- sometimes all TEXCOORD0 are (0.5, 0.5), so I use the mesh library instead.
@@ -276,9 +277,8 @@ function ss.LoadInkTypesRT()
         render.PopRenderTarget()
 
         -- Writes material parameters to data texture so that they can be read in the shader
-        rt = ss.RenderTarget.StaticTextures.Params
+        rt = ss.RenderTarget.StaticTextures.Details
         render.PushRenderTarget(rt)
-        render.Clear(0, 0, 0, 0)
         cam.Start2D()
             cp:SetTexture("$basetexture", white)
             cp:SetInt("$c0_x", 3)
@@ -287,7 +287,7 @@ function ss.LoadInkTypesRT()
             mesh.Begin(MATERIAL_POINTS, #parameters[1] * #parameters)
             for i, param in ipairs(parameters) do
                 for j, float4 in ipairs(param) do
-                    mesh.Position(i, j, 0)
+                    mesh.Position(i, j + rtHeight, 0)
                     mesh.TexCoord(0, 0.5, 0.5)
                     mesh.TexCoord(1, unpack(float4))
                     mesh.AdvanceVertex()
@@ -300,7 +300,7 @@ function ss.LoadInkTypesRT()
             for i, inktype in ipairs(ss.InkTypes) do
                 local heightbaseline = parameters[i][4][4]
                 if heightbaseline < 0 then
-                    draw(baseTextureNames[inktype.Index], ss.MakeRectangle(1, 1, i - 1, 4 - 1), false, true)
+                    draw(baseTextureNames[inktype.Index], ss.MakeRectangle(1, 1, i - 1, 4 - 1 + rtHeight), false, true)
                 end
             end
         cam.End2D()

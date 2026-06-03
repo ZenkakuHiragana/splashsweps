@@ -2,7 +2,6 @@
 #include "inkmesh_common.hlsl"
 
 sampler InkMap             : register(s0);
-sampler DataSampler        : register(s1);
 sampler BaseTextureAtlas   : register(s2);
 sampler TintTextureAtlas   : register(s3);
 const float2 RcpRTSize     : register(c4); // One over render target size
@@ -31,19 +30,6 @@ static const float eps = 5e-3;
 
 int GetSurfaceIndex(float4 indexSample) {
     return int(lerp(indexSample.r, indexSample.g, ceil(indexSample.b)) * 255);
-}
-
-float4 FetchDataPixel(int id, int index) {
-    if (id == 0) {
-        return GROUND_PROPERTIES[index];
-    }
-    else {
-        return tex2Dlod(DataSampler, float4(
-            (id    - 0.5) * RcpDataRTSize.x,
-            (index + 0.5) * RcpDataRTSize.y,
-            0.0,
-            0.0));
-    }
 }
 
 // oldPixelValue = switch (regionID) {

@@ -87,11 +87,8 @@ static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
 static const float SSR_INITIAL_STEP   = 4.0;    // Ray start offset in Hammer units to skip the source surface
-static const float SSR_MAX_DISTANCE   = 4096.0; // Maximum reflection ray distance in Hammer units
-static const float SSR_NUM_STEPS      = 16.0;
-static const float SSR_DISTANCE_FADE_START = 0.85;
-static const float SSR_ROUGH_DISTANCE_SCALE = 0.25;
-static const float SSR_THICKNESS_FADE_SCALE = 2.0;
+static const float SSR_MAX_DISTANCE   = 2048.0; // Maximum reflection ray distance in Hammer units
+static const float SSR_NUM_STEPS      = 8.0;
 static const float SSR_THICKNESS_MIN  = 4.0;    // Minimum accepted screen-depth thickness in Hammer units
 static const float SSR_THICKNESS_MAX  = 64.0;   // Accepted thickness at the far end of the ray
 static const float DepthWriteConstant = 4000.0; // Used by DepthWrite / _rt_resolvedfullframedepth
@@ -105,38 +102,15 @@ static const float3x3 BumpBasis = {
 
 // Samplers
 sampler InkMap          : register(s0);
-sampler InkData         : register(s1);
 sampler FrameBuffer     : register(s2);
 sampler UnderlayAlbedo  : register(s3);
 sampler UnderlayBumpmap : register(s4);
 sampler TextureSampler5 : register(s5);
 sampler Lightmap        : register(s6);
-sampler InkDetail       : register(s7);
+sampler Envmap          : register(s7);
 
-#define UnderlayDetail TextureSampler5 // g_HasUnderlayAtlas == 0.0
-#define UnderlayAtlas  TextureSampler5 // g_HasUnderlayAtlas != 0.0
-
-// Constants
-const float4 c0        : register(c0);
-const float4 c1        : register(c1);
-const float4 c2        : register(c2);
-const float4 c3        : register(c3);
-const float2 s0Size    : register(c4);
-const float2 s1Size    : register(c5);
-const float2 s2Size    : register(c6);
-const float2 s3Size    : register(c7);
-const float4 c8        : register(c8);
-const float4 c9        : register(c9);
-const float4 g_EyePos  : register(c10); // xyz: eye position
-const float4 c11       : register(c11); // $viewprojmat
-const float4 c12       : register(c12);
-const float4 c13       : register(c13);
-const float4 c14       : register(c14); // w: unused
-const float4 c15       : register(c15); // w: unused
-const float4 c16       : register(c16); // w: unused
-const float2x4 c17     : register(c15); // $invviewprojmat
-const float4 HDRParams : register(c30);
-
+static const sampler UnderlayDetail      = TextureSampler5; // g_HasUnderlayAtlas == 0.0
+static const sampler UnderlayAtlas       = TextureSampler5; // g_HasUnderlayAtlas != 0.0
 static const float3 BaseTransform[2]     = { c11.xyz, c12.xyz };
 static const float3 BumpTransform[2]     = { c13.xyz, c14.xyz };
 static const float3 BlendTransform[2]    = { c15.xyz, c16.xyz };
@@ -148,9 +122,8 @@ static const float  g_MaterialFlags      = c1.y;
 static const float2 g_LightmapSize       = c2.xy;  // One over lightmap size
 static const float2 g_DetailScale        = c2.zw;
 static const float3 g_Color              = c3.rgb;
-static const float  g_DetailBlendFactor  = c3.w;
+static const float  g_DetailBlendFactor  = c14.w;
 static const float2 g_RTSize             = s0Size; // One over ink map size
-static const float2 g_DataRTSize         = s1Size; // One over data look-up table size
 static const float2 g_FbSize             = s2Size; // One over frame buffer size
 static const float2 g_UnderlayAlbedoSize = s3Size; // One over $basetexture size
 static const float  g_TonemapScale       = HDRParams.x;
@@ -361,19 +334,6 @@ float4 ApplyDetailSample(float4 albedo, float4 detailSample) {
     return albedo;
 }
 
-float4 FetchDataPixel(int id, int index) {
-    if (id == 0) {
-        return GROUND_PROPERTIES[index];
-    }
-    else {
-        return tex2Dlod(InkData, float4(
-            (id    - 0.5) * g_DataRTSize.x,
-            (index + 0.5) * g_DataRTSize.y,
-            0.0,
-            0.0));
-    }
-}
-
 // Samples only height value to apply parallax effect to the ink
 float FetchHeight(float2 uv) {
     return TO_SIGNED(tex2Dlod(InkMap, float4(uv, 0.0, 0.0)).a);
@@ -520,7 +480,7 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
 float3 ApplyParallaxInk(const PsVertexInfo i) {
     const float PIXELS_PER_STEP_RCP = rcp(16.0);
     const float MIN_STEPS = 2.0;
-    const float MAX_STEPS = 16.0;
+    const float MAX_STEPS = 8.0;
     float3 worldPos = i.worldPos;
     float3 inkUV    = i.inkUV;
     float3x3 tangentSpaceInk = i.inkTransform;
@@ -601,6 +561,9 @@ UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params) {
 
 float3 SampleScreenSpaceReflection(
     const PsVertexInfo i, float3 viewDir, float3 worldSpaceNormal, float roughness) {
+    static const float SSR_DISTANCE_FADE_START = 0.85;
+    static const float SSR_ROUGH_DISTANCE_SCALE = 0.25;
+    static const float SSR_THICKNESS_FADE_SCALE = 2.0;
     float3 reflectionDir = normalize(reflect(-viewDir, worldSpaceNormal));
     float3 screenBasisX  = ddx(i.worldPos);
     float3 screenBasisY  = ddy(i.worldPos);

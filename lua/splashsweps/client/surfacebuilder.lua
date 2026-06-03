@@ -391,9 +391,9 @@ local function buildBaseInkMeshMaterialParams()
         ["$vertexshader"]           = "splashsweps/inkmesh_vs30",
         ["$pixshader"]              = "splashsweps/inkmesh_ps30",
         ["$basetexture"]            = ss.RenderTarget.StaticTextures.InkMap:GetName(),
-        ["$texture1"]               = ss.RenderTarget.StaticTextures.Params:GetName(),
+        ["$texture1"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
         ["$texture2"]               = "__rt_supertexture1",
-        ["$texture7"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
+        ["$texture7"]               = "shadertest/cubemap",
         ["$linearread_basetexture"] = "1",
         ["$linearread_texture1"]    = "1",
         ["$linearread_texture2"]    = "1",
@@ -482,7 +482,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
             materialInfo.BumpTextureTransform:GetField(2, 1),
             materialInfo.BumpTextureTransform:GetField(2, 2),
             materialInfo.BumpTextureTransform:GetField(2, 4),
-            0)
+            ss.RenderTarget.StaticTextures.Albedo:Height())
         mat:SetMatrix("$viewprojmat", m)
         m:SetUnpacked(
             materialInfo.BlendMaskTransform:GetField(1, 1),

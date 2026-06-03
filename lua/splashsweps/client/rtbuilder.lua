@@ -43,7 +43,6 @@ local RTNAMES = {
     INKMAP2 = "splashsweps_inkmap2",
     ALBEDO  = "splashsweps_albedo",
     TINT    = "splashsweps_tint",
-    DETAILS = "splashsweps_details",
 }
 local COMMON_FLAGS = bit.bor(
     TEXTUREFLAGS.NOMIP,
@@ -54,7 +53,6 @@ local RTFLAGS = {
     INKMAP  = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NORMAL),
     ALBEDO  = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
     TINT    = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
-    DETAILS = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
 }
 
 if not ss.RenderTarget then
@@ -67,7 +65,6 @@ if not ss.RenderTarget then
             Albedo  = nil, ---@type ITexture
             Tint    = nil, ---@type ITexture
             Details = nil, ---@type ITexture
-            Params  = nil, ---@type ITexture
         },
         ---List of render target resolutions available.
         Resolutions = {
@@ -119,14 +116,6 @@ function ss.SetupRenderTargets()
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
         RTFLAGS.TINT,
-        CREATERENDERTARGETFLAGS_NONE,
-        IMAGE_FORMAT_RGBA8888)
-    rt.StaticTextures.Details = GetRenderTargetEx(
-        RTNAMES.DETAILS,
-        rtSize, rtSize,
-        RT_SIZE_LITERAL,
-        MATERIAL_RT_DEPTH_NONE,
-        RTFLAGS.DETAILS,
         CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA8888)
     ss.ClearAllInk()
