@@ -19,7 +19,7 @@ local net_WriteInt = net.WriteInt
 local net_SendOmit = net.SendOmit
 
 ---Maximum paint scale of a single drop to be networked
-local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS) - 1
+local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS + 1) - 1
 
 ---Maximum angle difference allowed to paint.
 local MAX_COS = math.cos(math.rad(45))

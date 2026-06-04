@@ -418,6 +418,18 @@ local function SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
     end
 end
 
+---Collects the flattened paint-grid vertices used by a displacement surface.
+---@param surf ss.PrecachedData.Surface
+---@return Vector[] vertices
+local function CollectDisplacementPaintOrigins(surf)
+    local vertices = {} ---@type Vector[]
+    for i, v in ipairs(surf.Vertices) do
+        vertices[i] = v.DispPaintOrigin or v.Translation
+    end
+
+    return vertices
+end
+
 ---@param surf ss.PrecachedData.Surface
 local function CalculateTriangleComponents(surf)
     local WorldToLocalRotation = Matrix()
@@ -843,7 +855,7 @@ local function BuildFromBrushFace(bsp, rawFace)
 
     if isDisplacement then
         local surf = BuildFromDisplacement(bsp, rawFace, filteredVertices, texInfo)
-        local mbrMatrix, mbrSize = FindMBR(filteredVertices, angle) -- For the flat mesh
+        local mbrMatrix, mbrSize = FindMBR(CollectDisplacementPaintOrigins(surf), angle)
         local mbbMatrix, mbbSize = FindMinimumOBB(surf.Vertices) -- For the deformed mesh
         local aabbSize = surf.AABBMax - surf.AABBMin
         if mbbSize.x * mbbSize.y * mbbSize.z < aabbSize.x * aabbSize.y * aabbSize.z then
