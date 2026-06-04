@@ -622,10 +622,12 @@ ss.bstruct "BSP.DISP_VERTS" {
 ---@class ss.Binary.BSP.CUBEMAPS
 ---@field origin Vector
 ---@field size   integer
+---@field padding integer[]
 ss.bstruct "BSP.CUBEMAPS" {
     Size = 16,
     "LongVector origin",
-    "Long       size",
+    "Byte       size",
+    "Byte       padding 3",
 }
 
 ---@class ss.Binary.BSP.GAME_LUMP
@@ -746,6 +748,7 @@ ss.bstruct "BSP.GAME_LUMP.sprp" { -- Static Props
 ---@field FACES                     ss.Binary.BSP.FACES[]
 ---@field FACES_HDR                 ss.Binary.BSP.FACES_HDR[]
 ---@field LEAFS                     ss.Binary.BSP.LEAFS[]
+---@field CUBEMAPS                  ss.Binary.BSP.CUBEMAPS[]
 ---@field TEXINFO                   ss.Binary.BSP.TEXINFO[]
 ---@field TEXDATA                   ss.Binary.BSP.TEXDATA[]
 ---@field TEXDATA_STRING_TABLE      integer[]
@@ -774,6 +777,7 @@ ss.struct "RawBSPResults" {
     FACES = {},
     FACES_HDR = {},
     LEAFS = {},
+    CUBEMAPS = {},
     TEXINFO = {},
     TEXDATA = {},
     TEXDATA_STRING_TABLE = {},
@@ -818,7 +822,7 @@ local LumpsToRead = {
     DISP_TRIS            = "UShort",
     LIGHTING             = "Raw",
     LIGHTING_HDR         = "Raw",
-    CUBEMAPS             = false,
+    CUBEMAPS             = "BSP.CUBEMAPS",
     GAME_LUMP            = "BSP.GAME_LUMP",
 }
 

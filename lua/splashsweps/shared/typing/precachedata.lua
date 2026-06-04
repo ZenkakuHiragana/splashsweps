@@ -311,6 +311,32 @@ ss.struct "PrecachedData.LightmapInfo" (setmetatable({
     __newindex     = newindexer,
 }))
 
+---Cubemap sample and the paintable face bounds that use it.
+---@class ss.PrecachedData.CubemapInfo
+---@field Envmap    string  Resolved cubemap texture name, e.g. `maps/<map>/cX_Y_Z`.
+---@field Origin    Vector  Cubemap sample origin in world coordinates.
+---@field BoxMin    Vector  Minimum corner of paintable face bounds using this cubemap.
+---@field BoxMax    Vector  Maximum corner of paintable face bounds using this cubemap.
+---@field FaceCount integer Number of paintable faces accumulated into this box.
+---@field Blend     number  Parallax correction blend ratio. 0 disables correction.
+ss.struct "PrecachedData.CubemapInfo" (setmetatable({
+    "",
+    Vector(),
+    Vector(),
+    Vector(),
+    0,
+    0,
+}, {
+    Envmap     = 1,
+    Origin     = 2,
+    BoxMin     = 3,
+    BoxMax     = 4,
+    FaceCount  = 5,
+    Blend      = 6,
+    __index    = indexer,
+    __newindex = newindexer,
+}))
+
 ---Defines playable area in the map.
 ---@class ss.MinimapAreaBounds
 ---@field maxs Vector
@@ -331,7 +357,9 @@ ss.struct "MinimapAreaBounds" (setmetatable({
 ---@field Surfaces    ss.PrecachedData.Surface[] Array of paintable surfaces.
 ---@field SurfaceHash table<integer, integer[]> = `ss.SurfaceHash`
 ---@field UVScales    number[]  Render target size index -> Hammer units to UV multiplier
+---@field Cubemaps    ss.PrecachedData.CubemapInfo[] Cubemap samples and paintable face bounds using them.
 ss.struct "PrecachedData.SurfaceInfo" (setmetatable({
+    {},
     {},
     {},
     {},
@@ -341,6 +369,7 @@ ss.struct "PrecachedData.SurfaceInfo" (setmetatable({
     Surfaces    = 2,
     SurfaceHash = 3,
     UVScales    = 4,
+    Cubemaps    = 5,
     __index     = indexer,
     __newindex  = newindexer,
 }))

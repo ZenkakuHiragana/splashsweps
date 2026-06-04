@@ -108,27 +108,31 @@ sampler TextureSampler5 : register(s5);
 sampler Lightmap        : register(s6);
 sampler Envmap          : register(s7);
 
-static const sampler UnderlayDetail      = TextureSampler5; // g_HasUnderlayAtlas == 0.0
-static const sampler UnderlayAtlas       = TextureSampler5; // g_HasUnderlayAtlas != 0.0
-static const float3 BaseTransform[2]     = { c11.xyz, c12.xyz };
-static const float3 BumpTransform[2]     = { c13.xyz, c14.xyz };
-static const float3 BlendTransform[2]    = { c15.xyz, c16.xyz };
-static const float4 g_DetailTint         = { c11.w, c12.w, c13.w, 1.0 };
-static const float3 g_SunDirection       = c0.xyz; // in world space
-static const float  g_DetailBlendMode    = c0.w;
-static const float  g_HammerUnitsToUV    = c1.x;   // = ss.RenderTarget.HammerUnitsToUV * 0.5
-static const float  g_MaterialFlags      = c1.y;
-static const float2 g_LightmapSize       = c2.xy;  // One over lightmap size
-static const float2 g_DetailScale        = c2.zw;
-static const float3 g_Color              = c3.rgb;
-static const float  g_DetailBlendFactor  = c14.w;
-static const float2 g_RTSize             = s0Size; // One over ink map size
-static const float2 g_FbSize             = s2Size; // One over frame buffer size
-static const float2 g_UnderlayAlbedoSize = s3Size; // One over $basetexture size
-static const float  g_TonemapScale       = HDRParams.x;
-static const float  g_LightmapScale      = HDRParams.y;
-static const float  g_EnvmapScale        = HDRParams.z;
-static const float  g_GammaScale         = HDRParams.w; // = TonemapScale ^ (1 / 2.2)
+static const sampler UnderlayDetail       = TextureSampler5; // g_HasUnderlayAtlas == 0.0
+static const sampler UnderlayAtlas        = TextureSampler5; // g_HasUnderlayAtlas != 0.0
+static const float3 g_SunDirection        = c0.xyz; // in world space
+static const float  g_DetailBlendMode     = c0.w;
+static const float  g_HammerUnitsToUV     = c1.x;   // = ss.RenderTarget.HammerUnitsToUV * 0.5
+static const float  g_MaterialFlags       = c1.y;
+static const float2 g_LightmapSize        = c2.xy;  // One over lightmap size
+static const float2 g_DetailScale         = c2.zw;
+static const float3 g_Color               = c3.rgb;
+static const float2 g_RTSize              = s0Size; // One over ink map size
+static const float2 g_FbSize              = s2Size; // One over frame buffer size
+static const float2 g_UnderlayAlbedoSize  = s3Size; // One over $basetexture size
+static const float3 BaseTransform[2]      = { c11.xyz, c12.xyz };
+static const float3 BumpTransform[2]      = { c13.xyz, c14.xyz };
+static const float3 BlendTransform[2]     = { c15.xyz, c16.xyz };
+static const float3 g_EnvmapOrigin        = { c15.w, c16.w, c17.w };
+static const float4 g_DetailTint          = { c11.w, c12.w, c13.w, 1.0 };
+static const float  g_DetailBlendFactor   = c14.w;
+static const float3 g_EnvmapBoxMin        = c17.xyz;
+static const float3 g_EnvmapBoxMax        = c18.xyz;
+static const float  g_EnvmapParallaxBlend = c18.w;
+static const float  g_TonemapScale        = HDRParams.x;
+static const float  g_LightmapScale       = HDRParams.y;
+static const float  g_EnvmapScale         = HDRParams.z;
+static const float  g_GammaScale          = HDRParams.w; // = TonemapScale ^ (1 / 2.2)
 
 // Bit flags:
 //   0x01 .. has $bumpmap
@@ -640,6 +644,20 @@ float4 SampleScreenSpaceReflection(
     return float4(0.0, 0.0, 0.0, 0.0);
 }
 
+float3 BoxProjectEnvmap(float3 reflectDir, float3 worldPos) {
+    float blend = saturate(g_EnvmapParallaxBlend);
+    if (blend <= 0.0) return reflectDir;
+
+    float3 invReflectDir = SAFERCP(reflectDir);
+    float3 intersectMin = (g_EnvmapBoxMin - worldPos) * invReflectDir;
+    float3 intersectMax = (g_EnvmapBoxMax - worldPos) * invReflectDir;
+    float3 farPlanes = max(intersectMin, intersectMax);
+    float  distance = min(min(farPlanes.x, farPlanes.y), farPlanes.z);
+    float3 hitPos = worldPos + reflectDir * distance;
+    float3 correctedDir = hitPos - g_EnvmapOrigin;
+    return lerp(reflectDir, correctedDir, blend);
+}
+
 float4 main(const PS_INPUT rawInput) : COLOR0 {
     PsVertexInfo i = DecomposeInput(rawInput);
     // Z = final ray marching height
@@ -725,7 +743,9 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
 #ifdef g_EnvmapEnabled
     // Apply envmap contribution
     float3 reflectDir     = reflect(-viewDir, worldSpaceNormal);
-    float3 envmapSample   = texCUBE(Envmap, reflectDir).rgb * g_EnvmapScale;
+    float3 envmapWorldPos = i.worldPos + i.worldTransform[2] * params.height * HEIGHT_TO_HU;
+    float3 envmapDir      = BoxProjectEnvmap(reflectDir, envmapWorldPos);
+    float3 envmapSample   = texCUBE(Envmap, envmapDir).rgb * g_EnvmapScale;
     float4 envmapSSR      = SampleScreenSpaceReflection(i, viewDir, worldSpaceNormal, params.pbr.roughness, params.height);
     float3 envmapSpecular = lerp(envmapSample, envmapSSR.rgb, envmapSSR.a);
     float3 envmapFresnel  = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);

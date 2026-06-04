@@ -155,7 +155,7 @@ function ss.BuildMapCache()
     if not bsp then return end
     local cache = ss.new "PrecachedData"
     local mapCRC = util.CRC(file.Read("maps/" .. game.GetMap() .. ".bsp", "GAME") or "")
-    cache.CacheVersion  = 1 -- TODO: Better versioning
+    cache.CacheVersion  = ss.CACHE_VERSION
     cache.MapCRC        = tonumber(mapCRC) or 0
     cache.MinimapBounds = BuildMinimapBounds(bsp)
     cache.NumModels     = #bsp.MODELS

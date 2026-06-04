@@ -33,9 +33,15 @@
 - Use the correct LuaLS realm config for edits: `.luarc.server.json` treats `lua/autorun/client` and `lua/splashsweps/client` as ignored, while `.luarc.client.json` ignores the server equivalents.
 - `lua/types/` is gitignored/generated but referenced by both `.luarc.*.json` files as workspace library input. Diagnostics in a clean clone may differ until those types exist.
 - Do not assume `stylua .` will touch Lua files here: `.styluaignore` currently excludes `*.lua` and `**/*.lua`.
+- Do not "clean up" or revert build-script side effects just because they look like generated churn. First check this file, the build script behavior, and whether the change is required for the current runtime workflow.
+- Before reverting any modified file, distinguish repo-irrelevant accidental edits from user/runtime-required edits. If the reason to revert is not explicitly grounded in project rules or the user's request, leave it alone.
+- Treat edits to `lua/weapons/weapon_splashsweps_test.lua` as possible in-game smoke-test controls, not disposable noise. Preserve radius, ink type, or debug behavior tweaks unless the current task explicitly says to reset them.
 
 ## Exact commands worth knowing
 
 - Compile a shader with the repo's wrapper: `pwsh -ExecutionPolicy Bypass -File "shaders/src/build.ps1" "shaders/src/debug_vs30.hlsl"`
 - `shaders/src/build.ps1` compiles both shader stages for the base name, updates `materials/splashsweps/shaders/*.vmt`, writes `shaders/fxc/splashsweps/*.vcs`, and bumps `.vscode/refresh_count_{vs,ps}.txt` for hot reload when GMOD is running.
+- Do not revert the shader names that `shaders/src/build.ps1` writes into `materials/splashsweps/shaders/*.vmt`. Numbered names such as `splashsweps/2_inkmesh_ps30` are intentional hot-reload targets while GMOD is running, not accidental churn.
+- When validating shader changes, run the wrapper from `shaders/src` if the direct repo-root invocation cannot find sibling shader sources. Preserve the wrapper's resulting VMT shader names and `.vcs` outputs unless the user explicitly asks otherwise.
+- Do not normalize shader material stubs after debugging just because values look temporary. Sampler bindings such as `$texture7 "shadertest/cubemap"` may be intentional shader-input probes; keep them unless the current task or user says to restore defaults.
 - For shader-input debugging, the client debug harness in `lua/splashsweps/client/debug_mesh.lua` registers `ss_debug_mesh_probe`, `ss_debug_mesh_probe_spawn`, and `ss_debug_mesh_probe_skin`.

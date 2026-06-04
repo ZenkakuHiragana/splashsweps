@@ -46,6 +46,83 @@ local function GetMaterial(name)
     return MaterialCache[name]
 end
 
+---Converts \\ to /, strips the extension, and hdr variant
+---@param name string?
+---@return string?
+local function NormalizeTextureName(name)
+    if not name or name == "" then return end
+    local normalized = name:lower():gsub("\\", "/"):gsub("%.vtf$", ""):gsub("%.hdr$", "")
+    return normalized
+end
+
+---Gets the string "<X>_<Y>_<Z>" from given vector (X, Y, Z).
+---@param origin Vector
+---@return string
+local function CubemapOriginKey(origin)
+    return string.format("%d_%d_%d", round(origin.x), round(origin.y), round(origin.z))
+end
+
+---Parses resolved cubemap texture name and returns its origin key "<X>_<Y>_<Z>".
+---@param name string?
+---@return string?
+local function ParseCubemapOriginKey(name)
+    name = NormalizeTextureName(name)
+    if not name then return end
+
+    local x, y, z = name:match("/c(%-?%d+)_(%-?%d+)_(%-?%d+)$")
+    if not x then
+        x, y, z = name:match("^c(%-?%d+)_(%-?%d+)_(%-?%d+)$")
+    end
+    if not x then
+        x, y, z = name:match("_(%-?%d+)_(%-?%d+)_(%-?%d+)$")
+    end
+    if not x then return end
+
+    return string.format("%d_%d_%d", tonumber(x), tonumber(y), tonumber(z))
+end
+
+---@param bsp ss.RawBSPResults
+---@return ss.PrecachedData.CubemapInfo[] cubemaps
+---@return table<string, ss.PrecachedData.CubemapInfo> cubemapsByOrigin
+local function BuildCubemapEntries(bsp)
+    local cubemaps = {} ---@type ss.PrecachedData.CubemapInfo[]
+    local cubemapsByOrigin = {} ---@type table<string, ss.PrecachedData.CubemapInfo>
+    local mapName = game.GetMap():lower()
+    for _, sample in ipairs(bsp.CUBEMAPS or {}) do
+        local origin = Vector(round(sample.origin.x), round(sample.origin.y), round(sample.origin.z))
+        local cubemap = ss.new "PrecachedData.CubemapInfo"
+        cubemap.Envmap = string.format("maps/%s/c%d_%d_%d", mapName, origin.x, origin.y, origin.z)
+        cubemap.Origin:Set(origin)
+        cubemap.BoxMin:Set(ss.vector_one * math.huge)
+        cubemap.BoxMax:Set(ss.vector_one * -math.huge)
+        cubemaps[#cubemaps + 1] = cubemap
+        cubemapsByOrigin[CubemapOriginKey(origin)] = cubemap
+    end
+
+    return cubemaps, cubemapsByOrigin
+end
+
+---@param cubemap ss.PrecachedData.CubemapInfo?
+---@param surf ss.PrecachedData.Surface
+local function AccumulateCubemapBox(cubemap, surf)
+    if not cubemap then return end
+    cubemap.BoxMin:Set(ss.MinVector(cubemap.BoxMin, surf.AABBMin))
+    cubemap.BoxMax:Set(ss.MaxVector(cubemap.BoxMax, surf.AABBMax))
+    cubemap.FaceCount = cubemap.FaceCount + 1
+    cubemap.Blend = 1
+end
+
+---@param cubemaps ss.PrecachedData.CubemapInfo[]
+local function FinalizeCubemapEntries(cubemaps)
+    for _, cubemap in ipairs(cubemaps) do
+        if cubemap.FaceCount == 0 then
+            cubemap.BoxMin:Set(cubemap.Origin)
+            cubemap.BoxMax:Set(cubemap.Origin)
+            cubemap.Blend = 0
+        end
+    end
+end
+
 ---Compares two vertices used by table.sort
 ---@param a Vector
 ---@param b Vector
@@ -852,15 +929,18 @@ function ss.BuildSurfaceCache(bsp, ishdr)
     local surf = surfInfo.Surfaces
     local water = {} ---@type ss.PrecachedData.Surface[]
     local lump = ishdr and bsp.FACES_HDR or bsp.FACES or {}
+    local cubemaps, cubemapsByOrigin = BuildCubemapEntries(bsp)
     local faceIndexToModelIndex = {} ---@type integer[]
     for i, mdl in ipairs(bsp.MODELS) do
         for j = mdl.firstFace + 1, mdl.firstFace + mdl.numFaces do
             faceIndexToModelIndex[j] = i
         end
     end
+    surfInfo.Cubemaps = cubemaps
 
     print("Generating inkable surfaces for " .. (ishdr and "HDR" or "LDR") .. "...")
     local validFaces  = {} ---@type boolean[] face index --> is paintable
+    local faceCubemaps = {} ---@type table<integer, ss.PrecachedData.CubemapInfo>
     for i, face in ipairs(lump) do
         local rawTexInfo = bsp.TEXINFO[face.texInfo + 1]
         if bit.band(rawTexInfo.flags, TextureFilterBits) == 0 then
@@ -873,6 +953,9 @@ function ss.BuildSurfaceCache(bsp, ishdr)
             local surfaceData = util.GetSurfaceData(util.GetSurfaceIndex(surfaceProp)) or {}
             if surfaceData.material ~= MAT_GRATE then
                 validFaces[i] = true
+                local envmap = texMaterial:GetString "$envmap"
+                local cubemapKey = ParseCubemapOriginKey(envmap) or ParseCubemapOriginKey(texName)
+                faceCubemaps[i] = cubemapKey and cubemapsByOrigin[cubemapKey] or nil
             end
         end
     end
@@ -886,11 +969,13 @@ function ss.BuildSurfaceCache(bsp, ishdr)
                 else
                     s.FaceLumpIndex = i
                     s.ModelIndex = faceIndexToModelIndex[i]
+                    AccumulateCubemapBox(faceCubemaps[i], s)
                     surf[#surf + 1] = s
                 end
             end
         end
     end
+    FinalizeCubemapEntries(cubemaps)
     print("    Generated " .. #lump .. " surfaces for " .. (ishdr and "HDR" or "LDR"))
 
     local elapsed = round((SysTime() - t0) * 1000, 2)

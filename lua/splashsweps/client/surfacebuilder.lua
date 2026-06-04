@@ -4,6 +4,7 @@ local ss = SplashSWEPs
 if not ss then return end
 
 local EnvmapDefault       = "editor/cubemap" .. (render.GetHDREnabled() and ".hdr" or "")
+local CubemapInfoMeta     = getmetatable(ss.new "PrecachedData.CubemapInfo")
 local LightmapInfoMeta    = getmetatable(ss.new "PrecachedData.LightmapInfo")
 local StaticPropMeta      = getmetatable(ss.new "PrecachedData.StaticProp")
 local StaticPropUVMeta    = getmetatable(ss.new "PrecachedData.StaticProp.UVInfo")
@@ -44,7 +45,6 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---@field BaseTexture          string?   Value of $basetexture.
 ---@field Bumpmap              string?   Value of $bumpmap.
 ---@field Detail               string?   Value of $detail.
----@field Envmap               string?   Value of $envmap, which is already resolved by VBSP.
 ---@field BumpTextureTransform VMatrix?  Value of $bumptransform.
 ---@field BaseTextureTransform VMatrix?  Value of $basetexturetransform.
 ---@field BlendMaskTransform   VMatrix?  Value of $blendmasktransform.
@@ -53,6 +53,7 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---@field DetailScale          Vector?   Value of $detailscale.
 ---@field DetailTint           Vector?   Value of $detailtint.
 ---@field Color                Vector?   Value of $color.
+---@field Cubemap              ss.PrecachedData.CubemapInfo? Resolved $envmap plus cubemap sample correction data.
 ss.struct "SurfaceBuilder.MaterialInfo" {
     Material             = Material "color",
     ArrayIndex           = 0,
@@ -62,7 +63,6 @@ ss.struct "SurfaceBuilder.MaterialInfo" {
     BaseTexture          = nil,
     Bumpmap              = nil,
     Detail               = nil,
-    Envmap               = nil,
     BumpTextureTransform = nil,
     BaseTextureTransform = nil,
     BlendMaskTransform   = nil,
@@ -71,6 +71,7 @@ ss.struct "SurfaceBuilder.MaterialInfo" {
     DetailScale          = nil,
     DetailTint           = nil,
     Color                = nil,
+    Cubemap              = nil,
 }
 
 ---Stores packed lightmap information for each SortID.
@@ -144,11 +145,53 @@ local function lightmapLess(a, b)
     return aArea > bArea
 end
 
+---@param name string?
+---@return string?
+local function normalizeEnvmapName(name)
+    if not name or name == "" then return end
+    local normalized = name:lower():gsub("\\", "/"):gsub("%.vtf$", ""):gsub("%.hdr$", "")
+    return normalized
+end
+
+---@param cubemaps ss.PrecachedData.CubemapInfo[]?
+---@return table<string, ss.PrecachedData.CubemapInfo>
+local function buildCubemapLookup(cubemaps)
+    local lookup = {} ---@type table<string, ss.PrecachedData.CubemapInfo>
+    for _, cubemap in ipairs(cubemaps or {}) do
+        setmetatable(cubemap, CubemapInfoMeta)
+        local name = normalizeEnvmapName(cubemap.Envmap)
+        if name then lookup[name] = cubemap end
+    end
+    return lookup
+end
+
+---@param envmap string?
+---@param cubemapLookup table<string, ss.PrecachedData.CubemapInfo>
+---@return ss.PrecachedData.CubemapInfo?
+local function resolveMaterialCubemap(envmap, cubemapLookup)
+    local name = normalizeEnvmapName(envmap)
+    if not name then return end ---@cast envmap -?
+
+    local cached = cubemapLookup[name]
+    local cubemap = ss.new "PrecachedData.CubemapInfo"
+    cubemap.Envmap = envmap
+    if cached then
+        cubemap.Origin:Set(cached.Origin)
+        cubemap.BoxMin:Set(cached.BoxMin)
+        cubemap.BoxMax:Set(cached.BoxMax)
+        cubemap.FaceCount = cached.FaceCount
+        cubemap.Blend = cached.Blend
+    end
+
+    return cubemap
+end
+
 ---Assigns enumeration ID to materials in the map,
 ---considering the global string table in the engine.
 ---@param materialsInMap string[]
+---@param cubemapLookup table<string, ss.PrecachedData.CubemapInfo>
 ---@return ss.SurfaceBuilder.MaterialInfo[] materialInfo
-local function enumerateMaterials(materialsInMap)
+local function enumerateMaterials(materialsInMap, cubemapLookup)
     local materialNames = materialsInMap
     local enumerationIDToArrayIndex = {} ---@type integer[]
     if not ss.IsFirstRunInSession() then
@@ -177,6 +220,7 @@ local function enumerateMaterials(materialsInMap)
             if mat and not mat:IsError() then
                 local baseTexture2 = mat:GetString "$basetexture2"
                 local baseTexture3 = mat:GetString "$basetexture3"
+                local envmap = mat:GetString "$envmap"
                 materialInfo[enumerationID] = {
                     Material             = mat,
                     ArrayIndex           = enumerationIDToArrayIndex[enumerationID],
@@ -186,7 +230,6 @@ local function enumerateMaterials(materialsInMap)
                     BaseTexture          = mat:GetString "$basetexture",
                     Bumpmap              = mat:GetString "$bumpmap",
                     Detail               = baseTexture2 or mat:GetString "$detail",
-                    Envmap               = mat:GetString "$envmap",
                     BaseTextureTransform = mat:GetMatrix "$basetexturetransform",
                     BumpTextureTransform = mat:GetMatrix "$bumptransform",
                     BlendMaskTransform   = mat:GetMatrix "$blendmasktransform",
@@ -194,6 +237,7 @@ local function enumerateMaterials(materialsInMap)
                     DetailBlendMode      = mat:GetInt    "$detailblendmode",
                     DetailScale          = mat:GetVector "$detailscale",
                     DetailTint           = baseTexture2 and ss.vector_one or mat:GetVector "$detailtint",
+                    Cubemap              = resolveMaterialCubemap(envmap, cubemapLookup),
                     Color = (mat:GetVector "$color" or ss.vector_one)
                           * (mat:GetVector "$color2" or ss.vector_one),
                 }
@@ -443,6 +487,11 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         local lightmapGroup         = lightmapLayout.Groups[sortID]
         local pageWidth, pageHeight = getLightmapPageSize(lightmapLayout, lightmapGroup)
         local materialInfo          = lightmapGroup.Material
+        local cubemapInfo           = materialInfo.Cubemap
+        local cubemapOrigin         = cubemapInfo and cubemapInfo.Origin or vector_origin
+        local cubemapBoxMin         = cubemapInfo and cubemapInfo.BoxMin or vector_origin
+        local cubemapBoxMax         = cubemapInfo and cubemapInfo.BoxMax or vector_origin
+        local cubemapBlend          = cubemapInfo and cubemapInfo.Blend or 0
         local page                  = lightmapGroup.LightmapPage
         local lightmapTextureName   = page and string.format("\\[lightmap%d]", page) or "white"
         local materialParams        = buildBaseInkMeshMaterialParams()
@@ -453,7 +502,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$texture4"] = materialInfo.Bumpmap or "null-bumpmap"
         materialParams["$texture5"] = materialInfo.Detail or "white"
         materialParams["$texture6"] = lightmapTextureName
-        materialParams["$texture7"] = materialInfo.Envmap or EnvmapDefault
+        materialParams["$texture7"] = cubemapInfo and cubemapInfo.Envmap or EnvmapDefault
         materialParams["$c0_w"]     = detailBlendMode
         materialParams["$c1_y"]     = (materialInfo.NeedsBumpedLightmaps and 1 or 0)
                                     + (materialInfo.HasBaseTexture2 and 2 or 0)
@@ -492,12 +541,12 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         m:SetUnpacked(
             materialInfo.BlendMaskTransform:GetField(1, 1),
             materialInfo.BlendMaskTransform:GetField(1, 2),
-            materialInfo.BlendMaskTransform:GetField(1, 4), 0,
+            materialInfo.BlendMaskTransform:GetField(1, 4), cubemapOrigin.x,
             materialInfo.BlendMaskTransform:GetField(2, 1),
             materialInfo.BlendMaskTransform:GetField(2, 2),
-            materialInfo.BlendMaskTransform:GetField(2, 4), 0,
-            0, 0, 0, 0,
-            0, 0, 0, 0)
+            materialInfo.BlendMaskTransform:GetField(2, 4), cubemapOrigin.y,
+            cubemapBoxMin.x, cubemapBoxMin.y, cubemapBoxMin.z, cubemapOrigin.z,
+            cubemapBoxMax.x, cubemapBoxMax.y, cubemapBoxMax.z, cubemapBlend)
         mat:SetMatrix("$invviewprojmat", m)
         local matf = CreateMaterial(
             string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
@@ -668,7 +717,7 @@ end
 ---@param surfaceInfo    ss.PrecachedData.SurfaceInfo Cached BSP surface data used to build ink meshes.
 ---@param materialsInMap string[]                     Map material names, usually from game.GetMap():GetMaterials().
 local function BuildInkMesh(surfaceInfo, materialsInMap)
-    local materialInfo = enumerateMaterials(materialsInMap)
+    local materialInfo = enumerateMaterials(materialsInMap, buildCubemapLookup(surfaceInfo.Cubemaps))
     local lightmapLayout = packLightmaps(surfaceInfo, materialInfo)
     local meshGroupsByModel, bumpmapOffsetsByFace = buildMeshGroupsAndApplyLightmapUVs(surfaceInfo, lightmapLayout)
     ss.BuildMaterialWatchList(materialInfo)

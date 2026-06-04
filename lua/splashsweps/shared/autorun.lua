@@ -62,6 +62,9 @@ ss.MARGIN_HAMMER_UNITS = 8
 ---Guard margin in pixels to prevent bilinear filtering from bleeding across packed rectangles.
 ss.RT_BILINEAR_GUARD_PIXELS = 1
 
+---Version of generated map cache files.
+ss.CACHE_VERSION = 2
+
 ---Indicates if this game is a single player game.
 ss.sp = game.SinglePlayer()
 
