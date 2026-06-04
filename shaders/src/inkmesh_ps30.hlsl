@@ -62,7 +62,6 @@ struct DetailParams {
 struct MaterialParams {
     float  height;
     float  depth;
-    float2 depthGradient;
     float3 additive;
     float3 multiplicative;
     float3 normal;
@@ -345,18 +344,32 @@ float FetchDepth(float2 uv) {
 }
 
 // Samples additive color and height value
-void FetchAdditiveAndHeight(float2 uv, inout MaterialParams params) {
+void FetchAdditiveAndHeight(const PsVertexInfo i, float2 uv, inout MaterialParams params) {
     float4 uv4 = { uv, 0.0, 0.0 };
     float4 s = tex2Dlod(InkMap, uv4);
     params.additive = pow(abs(s.rgb), 2.2); // Manually correct gamma
     params.height   = TO_SIGNED(s.a);
 
     // Additional samples to calculate tangent space normal
-    float hx = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(g_RTSize.x, 0.0, 0.0, 0.0)).a);
-    float hy = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(0.0, g_RTSize.y, 0.0, 0.0)).a);
-    float dx = hx - params.height;
-    float dy = hy - params.height;
-    params.normal = normalize(float3(-dx, -dy, 1.0));
+    // 1 px difference = g_RTSize UV difference = (g_RTSize / g_HammerUnitsToUV) HU difference
+    float2 deltaUV = g_RTSize * 2.0;
+    float2 rcpDiffInHU = g_HammerUnitsToUV / max(2.0 * deltaUV, 1.0e-8);
+    float hx = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(deltaUV.x, 0.0, 0.0, 0.0)).a);
+    float hy = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(0.0, deltaUV.y, 0.0, 0.0)).a);
+
+    // Central difference over 2 * deltaUV.
+    float dzdu = (hx - params.height) * HEIGHT_TO_HU * rcpDiffInHU.x;
+    float dzdv = (hy - params.height) * HEIGHT_TO_HU * rcpDiffInHU.y;
+
+    // Normal in ink tangent space.
+    float3 inkTangentNormal = normalize(float3(-dzdu, -dzdv, 1.0));
+
+    // Convert ink tangent normal -> world normal.
+    float3 worldInkNormal = normalize(mul(inkTangentNormal, i.inkTransform));
+
+    // Convert world normal -> underlay/world-material tangent space,
+    // because the later code treats params.normal as compatible with geometryNormal.
+    params.normal = normalize(mul(i.worldTransform, worldInkNormal));
 }
 
 // Samples multiplicative color and ground depth
@@ -365,11 +378,6 @@ void FetchMultiplicativeAndDepth(float2 uv, inout MaterialParams params) {
     float4 s = tex2Dlod(InkMap, uv4);
     params.multiplicative = pow(abs(s.rgb), 2.2); // Manually correct gamma
     params.depth          = s.a;
-
-    // Additional samples to calculate depth gradient
-    float dx = tex2Dlod(InkMap, uv4 + float4(g_RTSize.x, 0.0, 0.0, 0.0)).a;
-    float dy = tex2Dlod(InkMap, uv4 + float4(0.0, g_RTSize.y, 0.0, 0.0)).a;
-    params.depthGradient = float2(dx, dy) - params.depth;
 }
 
 // Samples lighting parameters from texture sampler
@@ -480,24 +488,24 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
 float3 ApplyParallaxInk(const PsVertexInfo i) {
     const float PIXELS_PER_STEP_RCP = rcp(16.0);
     const float MIN_STEPS = 2.0;
-    const float MAX_STEPS = 8.0;
+    const float MAX_STEPS = 12.0;
     float3 worldPos = i.worldPos;
     float3 inkUV    = i.inkUV;
     float3x3 tangentSpaceInk = i.inkTransform;
     tangentSpaceInk[2] /= HEIGHT_TO_HU;
 
-    float3 boxMin        = { i.minUV, -1.0 - 1e-5 };
-    float3 boxMax        = { i.maxUV,  0.0        };
-    float3 viewDir       = mul(tangentSpaceInk, g_EyePos.xyz - worldPos);
-    float3 viewDirInv    = SAFERCP(viewDir);
-    float3 fractionMin   = (boxMin - inkUV) * viewDirInv;
-    float3 fractionMax   = (boxMax - inkUV) * viewDirInv;
-    float3 fractionFar   = min(fractionMin, fractionMax);
-    float  fractionEnd   = max(max(fractionFar.x, fractionFar.y), fractionFar.z);
-    float3 rayStart      = inkUV;
-    float3 rayEnd        = inkUV + viewDir * fractionEnd;
-    float  pixelPerUV    = rcp(max(min(length(ddx(inkUV.xy)), length(ddy(inkUV.xy))), 1.0e-8));
-    float  numSteps      = distance(rayStart.xy, rayEnd.xy);
+    float3 boxMin      = { i.minUV, -1.0 - 1e-5 };
+    float3 boxMax      = { i.maxUV,  0.0        };
+    float3 viewDir     = mul(tangentSpaceInk, g_EyePos.xyz - worldPos);
+    float3 viewDirInv  = SAFERCP(viewDir);
+    float3 fractionMin = (boxMin - inkUV) * viewDirInv;
+    float3 fractionMax = (boxMax - inkUV) * viewDirInv;
+    float3 fractionFar = min(fractionMin, fractionMax);
+    float  fractionEnd = max(max(fractionFar.x, fractionFar.y), fractionFar.z);
+    float3 rayStart    = inkUV;
+    float3 rayEnd      = inkUV + viewDir * fractionEnd;
+    float  pixelPerUV  = rcp(max(min(length(ddx(inkUV.xy)), length(ddy(inkUV.xy))), 1.0e-8));
+    float  numSteps    = distance(rayStart.xy, rayEnd.xy);
     numSteps *= PIXELS_PER_STEP_RCP * pixelPerUV;
     numSteps = clamp(round(numSteps), MIN_STEPS, MAX_STEPS);
     float3 previousRay;
@@ -565,7 +573,6 @@ float4 SampleScreenSpaceReflection(
     static const float SSR_ROUGH_DISTANCE_SCALE = 0.25;
     static const float SSR_THICKNESS_FADE_SCALE = 2.0;
     float3 worldOffset   = i.worldTransform[2] * height * HEIGHT_TO_HU;
-    float3 originWorld   = i.worldPos + worldOffset;
     float  originDepth   = i.clipPos.w - dot(worldOffset, viewDir)
         * (i.clipPos.w / max(length(g_EyePos.xyz - i.worldPos), 1.0e-3));
     float3 reflectionDir = normalize(reflect(-viewDir, worldSpaceNormal));
@@ -582,7 +589,7 @@ float4 SampleScreenSpaceReflection(
     float  viewDistance    = length(g_EyePos.xyz - i.worldPos);
     float  depthBasisStep  = i.clipPos.w * rcp(max(viewDistance, 1.0e-3));
     float  rayStepDepth    = dot(rayInScreenBasis.xy, clipDepthGrad) + rayInScreenBasis.z * depthBasisStep;
-    float  currentDepth    = max(i.clipPos.w, 1.0e-3);
+    float  currentDepth    = max(originDepth, 1.0e-3);
     float  maxDistance     = lerp(SSR_MAX_DISTANCE, SSR_MAX_DISTANCE * SSR_ROUGH_DISTANCE_SCALE, roughness);
     float2 previousUV      = originUV;
     float  previousDelta   = 0.0;
@@ -646,7 +653,7 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
 
     // Samples ink parameters
     MaterialParams params;
-    FetchAdditiveAndHeight(inkUV.xy, params);
+    FetchAdditiveAndHeight(i, inkUV.xy, params);
     FetchMultiplicativeAndDepth(inkUV.xy, params);
     FetchInkMaterial(IDs, params.pbr);
     FetchInkDetails(IDs, params.detail);
