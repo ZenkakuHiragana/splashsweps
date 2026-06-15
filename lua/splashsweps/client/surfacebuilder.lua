@@ -786,6 +786,8 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
     ---@param flags Enum.STUDIO
     local function RenderOverride(self, flags)
         if LocalPlayer():KeyDown(IN_RELOAD) then return end
+        if bit.band(flags, STUDIO_SSAODEPTHTEXTURE) ~= 0 then return end
+        if bit.band(flags, STUDIO_SHADOWDEPTHTEXTURE) ~= 0 then return end
         if not drawStaticProps:GetBool() then return end
         if self.FadeMaxSqr and self:GetPos():DistToSqr(EyePos()) > self.FadeMaxSqr then return end
         view:SetTranslation(EyePos())

@@ -85,11 +85,6 @@ static const float RIM_METALIC_MAX    = 0.0625; // Rim lighting strength at meta
 static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
-static const float SSR_INITIAL_STEP   = 4.0;    // Ray start offset in Hammer units to skip the source surface
-static const float SSR_MAX_DISTANCE   = 1024.0; // Maximum reflection ray distance in Hammer units
-static const float SSR_NUM_STEPS      = 12.0;
-static const float SSR_THICKNESS_MIN  = 16.0;   // Minimum accepted screen-depth thickness in Hammer units
-static const float SSR_THICKNESS_MAX  = 64.0;   // Accepted thickness at the far end of the ray
 static const float DepthWriteConstant = 4000.0; // Used by DepthWrite / _rt_resolvedfullframedepth
 static const float3 GrayScaleFactor   = { 0.2126, 0.7152, 0.0722 };
 static const float3x3 BumpBasis = {
@@ -244,9 +239,9 @@ float4 DecomposeBasis(float3 a, float3 b, float3 c, float3 v) {
 // and 1 / w linearly in screen space:
 //     U(x, y) = (uvOverW + d(uvOverW)/dx * x + d(uvOverW)/dy * y)
 //             / (invW    + d(invW)   /dx * x + d(invW)   /dy * y)
-// Solving U(x, y) = targetUV gives a 2D linear system for x and y.  The returned
-// offset is in screen pixels; callers multiply by g_FbSize to convert it to
-// normalized framebuffer UVs.
+// Solving U(x, y) = targetUV gives a 2D linear system for x and y.
+// The returned offset is in screen pixels; callers multiply by g_FbSize
+// to convert it to normalized framebuffer UVs.
 float2 ProjectiveUVToScreenOffset(float2 uv, float2 targetUV, float clipW) {
     float  invW      = rcp(max(clipW, 1.0e-12));
     float2 uvOverW   = uv * invW;
@@ -463,9 +458,7 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
         fbRatio = 0.0;
     }
     if (g_Is4WayBlend) {
-        float4 sample = tex2Dlod(FrameBuffer, float4(i.screenUV, 0.0, 0.0));
-        fb.rgb = sample.rgb / g_TonemapScale;
-        fb.a = sample.a;
+        fb = tex2Dlod(FrameBuffer, float4(i.screenUV, 0.0, 0.0));
     }
 
     float2 duv = ApplyDetailTransform(i.worldUV);
@@ -571,77 +564,204 @@ UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params) {
     return uv;
 }
 
+float ComputeSSRThickness(float depth, float rayDepthSpan, float roughness) {
+    static const float SSR_FOV_Y           = radians(75.0);
+    static const float SSR_TAN_HALF_FOV    = tan(SSR_FOV_Y * 0.5);
+    static const float SSR_THICKNESS_MIN   = 8.0;  // Minimum accepted screen-depth thickness in Hammer units
+    static const float SSR_THICKNESS_MAX   = 32.0; // Accepted thickness at the far end of the ray
+    static const float SSR_RAY_SPAN_SCALE  = 0.25; // Scale factor for jumping depth between steps
+    static const float SSR_ROUGHNESS_SCALE = 4.0;  // Scale factor for roughness
+    float pixelSizeHU = 2.0 * depth * SSR_TAN_HALF_FOV * g_FbSize.y;
+    float roughnessScale = lerp(1.0, SSR_ROUGHNESS_SCALE, roughness);
+    return clamp(
+        max(pixelSizeHU * roughnessScale, rayDepthSpan * SSR_RAY_SPAN_SCALE),
+        SSR_THICKNESS_MIN, SSR_THICKNESS_MAX);
+}
+
+// -1 -> clear:         ray is in front of the depth shell
+//  0 -> hit candidate: ray overlaps the depth shell
+// +1 -> occluded:      ray is behind the depth shell
+float ClassifySSRSegment(float rayMin, float rayMax, float sceneDepth, float thickness) {
+    float sceneMin = sceneDepth;
+    float sceneMax = sceneDepth + thickness;
+
+    // 1 when ray is strictly in front of the shell.
+    // rayMin    rayMax    sceneMin    sceneMax
+    //   *---------*          +===========+
+    float clear = 1.0 - step(sceneMin, rayMax);
+
+    // 1 when ray is strictly behind the shell.
+    // sceneMin    sceneMax   rayMin    rayMax
+    //    +===========+         *---------*
+    float behind = 1.0 - step(rayMin, sceneMax);
+    return behind - clear;
+}
+
 float4 SampleScreenSpaceReflection(
     const PsVertexInfo i, float3 viewDir, float3 worldSpaceNormal, float roughness, float height) {
-    static const float SSR_DISTANCE_FADE_START = 0.85;
-    static const float SSR_ROUGH_DISTANCE_SCALE = 0.25;
-    static const float SSR_THICKNESS_FADE_SCALE = 2.0;
-    float3 worldOffset   = i.worldTransform[2] * height * HEIGHT_TO_HU;
-    float  originDepth   = i.clipPos.w - dot(worldOffset, viewDir)
-        * (i.clipPos.w / max(length(g_EyePos.xyz - i.worldPos), 1.0e-3));
-    float3 reflectionDir = normalize(reflect(-viewDir, worldSpaceNormal));
-    float3 screenBasisX  = ddx(i.worldPos);
-    float3 screenBasisY  = ddy(i.worldPos);
-    float3 depthBasis    = -viewDir;
-    float4 rayInScreenBasis = DecomposeBasis(screenBasisX, screenBasisY, depthBasis, reflectionDir);
-    float4 originInScreenBasis = DecomposeBasis(screenBasisX, screenBasisY, depthBasis, worldOffset);
-    float2 originUV = i.screenUV + originInScreenBasis.xy * g_FbSize;
-    float basisValid = step(1.0e-6, abs(rayInScreenBasis.a));
+    static const int   SSR_MAX_STEPS         = 64;       // Maximum screen-space samples
+    static const int   SSR_BINARY_STEPS      = 2;        // Binary search refinement steps
+    static const float SSR_STEP_PIXEL_RCP    = rcp(8.0); // Target screen-space distance between samples
+    static const float SSR_INITIAL_BIAS_HU   = 2.0;      // Ray start offset in Hammer units to skip the source surface
+    static const float SSR_STITCH_GAP_MIN_HU = 16.0;
+    static const float SSR_STITCH_ALPHA      = 1.0;
+    float3 P = i.worldPos;
+    float  W = max(i.clipPos.w, 1.0e-3);
+    float3 viewAway = -viewDir;
+    float  viewDist = distance(g_EyePos.xyz, P);
+    float2 fbPixels = rcp(g_FbSize);
 
-    float2 rayStepUV       = rayInScreenBasis.xy * g_FbSize;
-    float2 clipDepthGrad   = float2(ddx(i.clipPos.w), ddy(i.clipPos.w));
-    float  viewDistance    = length(g_EyePos.xyz - i.worldPos);
-    float  depthBasisStep  = i.clipPos.w * rcp(max(viewDistance, 1.0e-3));
-    float  rayStepDepth    = dot(rayInScreenBasis.xy, clipDepthGrad) + rayInScreenBasis.z * depthBasisStep;
-    float  currentDepth    = max(originDepth, 1.0e-3);
-    float  maxDistance     = lerp(SSR_MAX_DISTANCE, SSR_MAX_DISTANCE * SSR_ROUGH_DISTANCE_SCALE, roughness);
-    float2 previousUV      = originUV;
-    float  previousDelta   = 0.0;
-    float  previousRayDepth = 0.0;
+    // Represents the world position movement amount in world coordinates:
+    //   x: ∂P/∂u -- per 1.0 horizontal UV movement on the frame buffer
+    //   y: ∂P/∂v -- per 1.0 vertical UV movement on the frame buffer
+    //   z: ∂P/∂r -- per 1.0 Hammer Unit along view direction
+    float3x3 screenSpaceAxesInWorld = { ddx(P) * fbPixels.x, ddy(P) * fbPixels.y, viewAway };
 
-    [unroll]
-    for (int j = 1; j <= (int)SSR_NUM_STEPS; j++) {
-        float  fraction   = (float)(j - 1) / (SSR_NUM_STEPS - 1.0);
-        fraction *= fraction;
+    // Difference of clipPos.w along the screen space coordinates (u, v, r)
+    //   x: ∂W/∂u,  y: ∂W/∂v,  z: ∂W/∂r
+    float3 clipWPerScreenSpaceAxis = { ddx(W) * fbPixels.x, ddy(W) * fbPixels.y, W / viewDist };
 
-        float  distance   = lerp(SSR_INITIAL_STEP, maxDistance, fraction);
-        float  rayDepth   = originDepth + rayStepDepth * distance;
-        float  depthValid = step(1.0e-3, rayDepth);
-        float  uvScale    = currentDepth * rcp(max(rayDepth, 1.0e-16));
-        float2 uv         = originUV + rayStepUV * distance * uvScale;
-        float  edgeFade   = ScreenEdgeFade(uv);
-        if (j > 1 && edgeFade <= 0.0) break;
+    // Surface displacement by the hight map in screen space coordinates (u, v, r)
+    // (u, v) .. Frame buffer UV, r .. Depth in Hammer units
+    // screenSpaceOffset = ds = (du, dv, dr)
+    float4 screenSpaceOffset = DecomposeBasis(
+        screenSpaceAxesInWorld[0],
+        screenSpaceAxesInWorld[1],
+        screenSpaceAxesInWorld[2],
+        i.worldTransform[2] * (height * HEIGHT_TO_HU + SSR_INITIAL_BIAS_HU));
 
-        float4 fb        = tex2Dlod(FrameBuffer, float4(uv, 0.0, 0.0));
-        float fbDepth    = fb.a * DepthWriteConstant;
-        float depthDelta = rayDepth - fbDepth;
-        float thickness  = lerp(SSR_THICKNESS_MIN, SSR_THICKNESS_MAX, fraction);
-        float deltaSpan  = depthDelta - previousDelta;
-        float spanConfidence = 1.0 - smoothstep(thickness * 4.0, thickness * 16.0, abs(deltaSpan));
-        float crossed = step(1.5, (float)j) * step(previousDelta, 0.0) * step(0.0, depthDelta) * spanConfidence;
-        float distanceFade = 1.0 - smoothstep(SSR_DISTANCE_FADE_START, 1.0, fraction);
+    // Reflection ray direction in screen space coordinates
+    //   The point on the reflection ray R = P + reflect(...) * t, where t is a parameter
+    //   screenSpaceRayDirection = dR/dt = (dRu/dt, dRv/dt, dRr/dt)
+    float4 screenSpaceRayDirection = DecomposeBasis(
+        screenSpaceAxesInWorld[0],
+        screenSpaceAxesInWorld[1],
+        screenSpaceAxesInWorld[2],
+        reflect(viewAway, worldSpaceNormal));
 
-        if (crossed > 0.0) {
-            float hitFraction = saturate(previousDelta / (previousDelta - depthDelta));
-            float2 hitUV = lerp(previousUV, uv, hitFraction);
-            float hitEdgeFade = ScreenEdgeFade(hitUV);
-            if (hitEdgeFade <= 0.0) break;
-            float4 hit = tex2Dlod(FrameBuffer, float4(hitUV, 0.0, 0.0));
-            float hitRayDepth = lerp(previousRayDepth, rayDepth, hitFraction);
-            float hitDepth = hit.a * DepthWriteConstant;
-            float hitDelta = hitRayDepth - hitDepth;
-            float thicknessConfidence = 1.0 - smoothstep(thickness, thickness * 2.0, abs(hitDelta));
-            float visibility = basisValid * depthValid * distanceFade * hitEdgeFade
-                * spanConfidence * thicknessConfidence;
-            return float4(hit.rgb / g_TonemapScale, visibility);
+    // UVQ coordinate:
+    //   xy: framebuffer UV
+    //   z : reciprocal clip.w, q = 1 / w
+    //
+    // This is the marching coordinate. A linear segment in UVQ gives
+    // evenly spaced screen-space samples and a reciprocal-depth value
+    // that can be converted back to clip.w for depth comparison.
+    float3 rayStartUVQ = {
+        i.screenUV + screenSpaceOffset.xy,
+        // W + dW = W + ∂W/∂u * du + ∂W/∂v * dv + ∂W/∂r * dr = W + dot(∂W, ds)
+        rcp(max(W + dot(screenSpaceOffset.xyz, clipWPerScreenSpaceAxis), 1.0e-6)),
+    };
+
+    // dQ/dt = -1/W² * dW/dt = -Q² * dW/dt
+    // dW/dt = ∂W/∂u * dQu/dt
+    //       + ∂W/∂v * dQv/dt
+    //       + ∂W/∂r * dQr/dt = dot(∂W, dQ/dt)
+    float3 rayDirectionUVQ = {
+        screenSpaceRayDirection.xy,
+        -rayStartUVQ.z * rayStartUVQ.z
+            * dot(screenSpaceRayDirection.xyz, clipWPerScreenSpaceAxis),
+    };
+
+    float2 axisInvalid   = step(abs(rayDirectionUVQ.xy), 1.0e-8);
+    float  qLimitInvalid = step(-rayDirectionUVQ.z, 1.0e-8);
+    float2 exitEdges     = step(0.0, rayDirectionUVQ.xy);
+    float2 tEdges        = lerp((exitEdges - rayStartUVQ.xy) * SAFERCP(rayDirectionUVQ.xy), 1.0e20, axisInvalid);
+    float  tQ            = lerp((1.0e-6 - rayStartUVQ.z) * SAFERCP(rayDirectionUVQ.z), 1.0e20, qLimitInvalid);
+    float  tExit         = min(min(tEdges.x, tEdges.y), tQ);
+    float3 rayEndUVQ     = rayStartUVQ + rayDirectionUVQ * tExit;
+    float  rayLengthPx   = distance(rayStartUVQ.xy / g_FbSize, rayEndUVQ.xy / g_FbSize);
+    float  numSteps      = clamp(ceil(rayLengthPx * SSR_STEP_PIXEL_RCP), 1.0, SSR_MAX_STEPS);
+
+    float4 prevUVQC          = { rayStartUVQ, -1.0 }; // UVQ + Classify result
+    float  prevFbDepth       = 1.0e20;
+    float3 lastClearRay      = rayStartUVQ; // Last ray that was in front of the depth
+    float3 lastClearColor    = 0.0;
+    float  lastClearDistance = 0.0;
+    float4 stitchCandidate   = 0.0;
+
+    [loop]
+    for (int j = 1; j <= SSR_MAX_STEPS; j++) {
+        if ((float)j > numSteps) break;
+
+        float t = (float)j * rcp(numSteps);
+        float3 uvq = lerp(rayStartUVQ, rayEndUVQ, t);
+        if (ScreenEdgeFade(uvq.xy)<= 0.0) break;
+
+        float4 fb = tex2Dlod(FrameBuffer, float4(uvq.xy, 0.0, 0.0));
+        float fbDepth = fb.a * DepthWriteConstant;
+        if (fbDepth <= 1.0e-3) continue; // Seems like the ray is on the viewmodel, skipping...
+
+        float prevRayDepth    = rcp(max(prevUVQC.z, 1.0e-6));
+        float currentRayDepth = rcp(max(uvq.z, 1.0e-6));
+        float rayMin          = min(prevRayDepth, currentRayDepth);
+        float rayMax          = max(prevRayDepth, currentRayDepth);
+        float rayDepthSpan    = rayMax - rayMin;
+        float thickness       = ComputeSSRThickness(fbDepth, rayDepthSpan, roughness);
+        float classification  = ClassifySSRSegment(rayMin, rayMax, fbDepth, thickness);
+        if (prevUVQC.w < 0.0 && abs(classification) < 1.0e-3) {
+            [unroll]
+            for (int k = 0; k < SSR_BINARY_STEPS; k++) {
+                float3 midUVQ = lerp(prevUVQC.xyz, uvq, 0.5);
+                float4 fbMid = tex2Dlod(FrameBuffer, float4(midUVQ.xy, 0.0, 0.0));
+                float fbMidDepth = fbMid.a * DepthWriteConstant;
+
+                // fbDepth
+                //  *   * uvq
+                //  |  /
+                //  | * midUVQ
+                //   X
+                //  / \
+                // *   * previous fbDepth
+                // prevUVQ
+                if (fbMidDepth < rcp(midUVQ.z)) {
+                    uvq = midUVQ;
+                } else {
+                    prevUVQC.xyz = midUVQ;
+                }
+            }
+            return float4(
+                tex2Dlod(FrameBuffer, float4(uvq.xy, 0.0, 0.0)).rgb,
+                ScreenEdgeFade(uvq.xy));
         }
 
-        previousUV = uv;
-        previousDelta = depthDelta;
-        previousRayDepth = rayDepth;
+        float depthJump = fbDepth - prevFbDepth;
+        float gapThreshold = max(thickness, SSR_STITCH_GAP_MIN_HU);
+        float foundStitchGap
+            = (1.0 - step(prevUVQC.w, 0.0))  // previously occluded
+            * step(0.0, classification)      // and now occluded or hit candidate
+            * step(gapThreshold, depthJump); // and depth jumps
+        if (foundStitchGap > 0.0) {
+            [unroll]
+            for (int k = 0; k < SSR_BINARY_STEPS; k++) {
+                float3 midUVQ = lerp(prevUVQC.xyz, uvq, 0.5);
+                float4 midFb = tex2Dlod(FrameBuffer, float4(midUVQ.xy, 0.0, 0.0));
+                float  midFbDepth = midFb.a * DepthWriteConstant;
+                if (midFbDepth - prevFbDepth > gapThreshold) {
+                    uvq = midUVQ;
+                    currentRayDepth = rcp(max(uvq.z, 1.0e-6));
+                    fb = midFb;
+                    fbDepth = midFbDepth;
+                } else {
+                    prevUVQC.xyz = midUVQ;
+                }
+            }
+            float currentDistanceToDepth = abs(fbDepth - currentRayDepth);
+            float stitchWeight = lastClearDistance * rcp(max(lastClearDistance + currentDistanceToDepth, 1.0e-3));
+            float3 stitchedColor = lerp(lastClearColor.rgb, fb.rgb, stitchWeight);
+            float stitchAlpha = lerp(ScreenEdgeFade(lastClearRay.xy), ScreenEdgeFade(uvq.xy), stitchWeight);
+            stitchCandidate = float4(stitchedColor, stitchAlpha);
+        }
+
+        prevUVQC = float4(uvq, classification);
+        prevFbDepth = fbDepth;
+        if (classification < 0.0) {
+            lastClearRay = uvq;
+            lastClearColor = fb.rgb;
+            lastClearDistance = fbDepth - currentRayDepth;
+        }
     }
 
-    return float4(0.0, 0.0, 0.0, 0.0);
+    return stitchCandidate;
 }
 
 float3 BoxProjectEnvmap(float3 reflectDir, float3 worldPos) {

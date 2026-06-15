@@ -254,7 +254,8 @@ hook.Add("PreDrawTranslucentRenderables", "SplashSWEPs: Draw ink",
 function(bDrawingDepth, bDrawingSkybox)
     -- if ss.GetOption "hideink" then return end
     if LocalPlayer():KeyDown(IN_RELOAD) then return end
-    if bDrawingSkybox or CVarWireframe:GetBool() or CVarMinecraft:GetBool() then return end
+    if bDrawingDepth or bDrawingSkybox then return end
+    if CVarWireframe:GetBool() or CVarMinecraft:GetBool() then return end
     local rt = render.GetRenderTarget()
     local isDrawingWater = rt and rt:GetName():find "_rt_waterref"
     if isDrawingWater then
