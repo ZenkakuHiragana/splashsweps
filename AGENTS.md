@@ -30,7 +30,7 @@
 ## Verification and tooling
 
 - There is no repo test suite or CI lint/typecheck workflow. `.github/workflows/actions.yml` only uploads a `git archive` zip on pushes to `master`.
-- Use the correct LuaLS realm config for edits: `.luarc.server.json` treats `lua/autorun/client` and `lua/splashsweps/client` as ignored, while `.luarc.client.json` ignores the server equivalents.
+- Use the correct LuaLS realm config for edits, and check through warnings, not only errors. `.luarc.server.json` treats `lua/autorun/client` and `lua/splashsweps/client` as ignored, while `.luarc.client.json` ignores the server equivalents.
 - `lua/types/` is gitignored/generated but referenced by both `.luarc.*.json` files as workspace library input. Diagnostics in a clean clone may differ until those types exist.
 - Do not assume `stylua .` will touch Lua files here: `.styluaignore` currently excludes `*.lua` and `**/*.lua`.
 - Do not "clean up" or revert build-script side effects just because they look like generated churn. First check this file, the build script behavior, and whether the change is required for the current runtime workflow.
@@ -42,6 +42,8 @@
 - Compile a shader with the repo's wrapper: `pwsh -ExecutionPolicy Bypass -File "shaders/src/build.ps1" "shaders/src/debug_vs30.hlsl"`
 - `shaders/src/build.ps1` compiles both shader stages for the base name, updates `materials/splashsweps/shaders/*.vmt`, writes `shaders/fxc/splashsweps/*.vcs`, and bumps `.vscode/refresh_count_{vs,ps}.txt` for hot reload when GMOD is running.
 - Do not revert the shader names that `shaders/src/build.ps1` writes into `materials/splashsweps/shaders/*.vmt`. Numbered names such as `splashsweps/2_inkmesh_ps30` are intentional hot-reload targets while GMOD is running, not accidental churn.
+- GMOD loads a shader file into memory only the first time that shader name is read. `build.ps1` hot reload works for material stubs because it writes new numbered shader names into the matching VMT. Materials created through `CreateMaterial` do not get that VMT rewrite automatically; after compiling, update those live `IMaterial`s with `SetString("$vertexshader", "splashsweps/<numbered>_..._vs30")`, `SetString("$pixshader", "splashsweps/<numbered>_..._ps30")`, then `Recompute()`. Use `ss_reload_shader` in `lua/splashsweps/client/debug_mesh.lua` as the local example.
 - When validating shader changes, run the wrapper from `shaders/src` if the direct repo-root invocation cannot find sibling shader sources. Preserve the wrapper's resulting VMT shader names and `.vcs` outputs unless the user explicitly asks otherwise.
+- Do not run multiple `shaders/src/build.ps1` shader compiles in parallel; the wrapper uses shared intermediate/output paths and can race with itself. Compile shader pairs sequentially.
 - Do not normalize shader material stubs after debugging just because values look temporary. Sampler bindings such as `$texture7 "shadertest/cubemap"` may be intentional shader-input probes; keep them unless the current task or user says to restore defaults.
 - For shader-input debugging, the client debug harness in `lua/splashsweps/client/debug_mesh.lua` registers `ss_debug_mesh_probe`, `ss_debug_mesh_probe_spawn`, and `ss_debug_mesh_probe_skin`.
