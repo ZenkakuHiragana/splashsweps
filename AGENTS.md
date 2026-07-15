@@ -26,11 +26,18 @@
 
 - Shared typed data is built with `ss.struct "TypeName" { ... }` and instantiated with `ss.new "TypeName"`; follow that pattern when adding new structured shared data.
 - LuaLS annotations are pervasive in `lua/splashsweps/**`. Mirror `---@class` and `---@type` usage, especially for structured tables and empty table initializers, to keep realm-specific diagnostics useful.
+- Do not define `SplashSWEPs` namespace state from shared realm files. Realm-specific state belongs to that realm's autorun bootstrap or a file-local `ss.Locals` table.
+- Prefer designs where one file owns one responsibility. If state is file-local, define `ss.Locals.<short role>` at the top of that file, mirror existing annotations, alias the local table, and keep fields under that table.
+- If `SplashSWEPs` state must be shared across files in a realm, define it in the `SplashSWEPs` bootstrap block in that realm's `autorun.lua`.
+- `autorun.lua` and `ss.Locals` table guards are the hot-reload boundary. Do not add per-field `or {}` reinitialization guards for namespace state.
 
 ## Verification and tooling
 
 - There is no repo test suite or CI lint/typecheck workflow. `.github/workflows/actions.yml` only uploads a `git archive` zip on pushes to `master`.
 - Use the correct LuaLS realm config for edits, and check through warnings, not only errors. `.luarc.server.json` treats `lua/autorun/client` and `lua/splashsweps/client` as ignored, while `.luarc.client.json` ignores the server equivalents.
+- Run LuaLS checks from the repo root and keep `--check=.` as the workspace when using the repo configs. The relative `workspace.ignoreDir` and `workspace.library` entries in `.luarc.client.json` and `.luarc.server.json` are written for that workspace shape.
+- Gate-style LuaLS commands: `lua-language-server --check=. --configpath=.luarc.client.json --checklevel=Error --check_format=pretty` and `lua-language-server --check=. --configpath=.luarc.server.json --checklevel=Error --check_format=pretty`.
+- For warning review, rerun the same realm command without narrowing to `--checklevel=Error`, then separate real code warnings from environment noise caused by missing generated type libraries.
 - `lua/types/` is gitignored/generated but referenced by both `.luarc.*.json` files as workspace library input. Diagnostics in a clean clone may differ until those types exist.
 - Do not assume `stylua .` will touch Lua files here: `.styluaignore` currently excludes `*.lua` and `**/*.lua`.
 - Do not "clean up" or revert build-script side effects just because they look like generated churn. First check this file, the build script behavior, and whether the change is required for the current runtime workflow.
