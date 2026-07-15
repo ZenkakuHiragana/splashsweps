@@ -1,4 +1,4 @@
--- GMOD LuaLS configuration for Neovim 0.12+
+-- GMOD LuaLS and highlighting configuration for Neovim 0.12+
 -- Copy to .nvim.lua and trust with :trust. Requires vim.o.exrc = true.
 --
 -- Neovim loads current-directory exrc during startup, before plugins and before
@@ -46,6 +46,33 @@ local function normalize_bufnr(bufnr)
         return vim.api.nvim_get_current_buf()
     end
     return bufnr
+end
+
+local function is_treesitter_active(bufnr)
+    local active = vim.treesitter
+        and vim.treesitter.highlighter
+        and vim.treesitter.highlighter.active
+    return active and active[bufnr] ~= nil or false
+end
+
+local function stabilize_gmod_highlight(bufnr)
+    bufnr = normalize_bufnr(bufnr)
+    if not vim.api.nvim_buf_is_loaded(bufnr) then
+        return
+    end
+
+    if not is_gmod(vim.api.nvim_buf_get_name(bufnr)) then
+        return
+    end
+
+    -- GLua editing can use symbols that LuaLS accepts via .luarc.*.json but the
+    -- standard Lua Tree-sitter highlighter cannot parse while code is in-flight.
+    -- Prefer boring regex Lua syntax for addon Lua buffers; keep Tree-sitter for
+    -- .nvim.lua/.nvim-example.lua and other plain Lua files.
+    if vim.treesitter and vim.treesitter.stop then
+        pcall(vim.treesitter.stop, bufnr)
+    end
+    vim.bo[bufnr].syntax = "lua"
 end
 
 local function ensure_gmod_configs()
@@ -119,6 +146,7 @@ local function start_gmod(bufnr)
     if not is_gmod(path) then
         return
     end
+    stabilize_gmod_highlight(bufnr)
     if not ensure_gmod_configs() then
         return
     end
@@ -282,13 +310,15 @@ vim.api.nvim_create_user_command("GLuaLsp", function()
                 return client.name
             end, vim.lsp.get_clients { bufnr = bufnr })
             lines[#lines + 1] = string.format(
-                "buf%d: %s [%s] gmod=%s realm=%s forced=%s",
+                "buf%d: %s [%s] gmod=%s realm=%s forced=%s syntax=%s treesitter=%s",
                 bufnr,
                 vim.fn.fnamemodify(path, ":t"),
                 table.concat(names, ","),
                 tostring(is_gmod(path)),
                 is_gmod(path) and get_realm(path) or "n/a",
-                forced_realms[bufnr] or "n/a"
+                forced_realms[bufnr] or "n/a",
+                vim.bo[bufnr].syntax,
+                tostring(is_treesitter_active(bufnr))
             )
         end
     end
