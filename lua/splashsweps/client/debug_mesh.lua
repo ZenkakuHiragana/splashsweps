@@ -224,17 +224,43 @@ concommand.Add("ss_debug_shader_screen", function(_, _, args)
 end)
 
 concommand.Add("ss_reload_shader", function(_, _, _)
-    local vs = file.Find("shaders/fxc/splashsweps/*_inkmesh_vs30.vcs", "GAME", "datedesc")
-    local ps = file.Find("shaders/fxc/splashsweps/*_inkmesh_ps30.vcs", "GAME", "datedesc")
-    if not (vs and ps) then return end
-    print(string.format("Reloading shader: %s, %s", vs[1], ps[1]))
+    ---@param baseName string
+    ---@return string? vertexShader
+    ---@return string? pixelShader
+    local function FindLatestShaderPair(baseName)
+        local vs = file.Find(
+            "shaders/fxc/splashsweps/*_" .. baseName .. "_vs30.vcs", "GAME", "datedesc")
+        local ps = file.Find(
+            "shaders/fxc/splashsweps/*_" .. baseName .. "_ps30.vcs", "GAME", "datedesc")
+        if not (vs and vs[1] and ps and ps[1]) then return end
+        return "splashsweps/" .. vs[1]:sub(1, -5), "splashsweps/" .. ps[1]:sub(1, -5)
+    end
+
+    local inkVS, inkPS = FindLatestShaderPair "inkmesh"
+    local ssrVS, ssrPS = FindLatestShaderPair "inkmesh_ssr"
+    if not (inkVS and inkPS and ssrVS and ssrPS) then
+        print "[SplashSWEPs] Could not find both inkmesh and inkmesh_ssr shader pairs."
+        return
+    end
+
+    print(string.format("Reloading shaders: %s, %s, %s, %s", inkVS, inkPS, ssrVS, ssrPS))
     for _, batch in ipairs(ss.RenderBatches) do
         for _, model in ipairs(batch) do
-            model.Material:SetString("$vertexshader", "splashsweps/" .. vs[1]:sub(1, -5))
-            model.Material:SetString("$pixshader", "splashsweps/" .. ps[1]:sub(1, -5))
+            model.Material:SetString("$vertexshader", inkVS)
+            model.Material:SetString("$pixshader", inkPS)
             model.Material:Recompute()
         end
     end
+
+    local waterMaterial = Material "splashsweps/shaders/inkmesh"
+    waterMaterial:SetString("$vertexshader", inkVS)
+    waterMaterial:SetString("$pixshader", inkPS)
+    waterMaterial:Recompute()
+
+    local ssrMaterial = Material "splashsweps/shaders/inkmesh_ssr"
+    ssrMaterial:SetString("$vertexshader", ssrVS)
+    ssrMaterial:SetString("$pixshader", ssrPS)
+    ssrMaterial:Recompute()
     ss.ClearAllInk()
 end)
 

@@ -14,8 +14,10 @@ struct PS_INPUT {
 };
 
 struct PS_OUTPUT {
-    float4 color : COLOR0;
-    float  depth : DEPTH0;
+    float4 color0 : COLOR0;
+    float4 color1 : COLOR1;
+    float4 color2 : COLOR2;
+    float4 color3 : COLOR3;
 };
 
 struct UVs {
@@ -118,12 +120,8 @@ static const float2 g_UnderlayAlbedoSize  = s3Size; // One over $basetexture siz
 static const float3 BaseTransform[2]      = { c11.xyz, c12.xyz };
 static const float3 BumpTransform[2]      = { c13.xyz, c14.xyz };
 static const float3 BlendTransform[2]     = { c15.xyz, c16.xyz };
-static const float3 g_EnvmapOrigin        = { c15.w, c16.w, c17.w };
 static const float4 g_DetailTint          = { c11.w, c12.w, c13.w, 1.0 };
 static const float  g_DetailBlendFactor   = c14.w;
-static const float3 g_EnvmapBoxMin        = c17.xyz;
-static const float3 g_EnvmapBoxMax        = c18.xyz;
-static const float  g_EnvmapParallaxBlend = c18.w;
 static const float  g_TonemapScale        = HDRParams.x;
 static const float  g_LightmapScale       = HDRParams.y;
 static const float  g_EnvmapScale         = HDRParams.z;
@@ -764,22 +762,15 @@ float4 SampleScreenSpaceReflection(
     return stitchCandidate;
 }
 
-float3 BoxProjectEnvmap(float3 reflectDir, float3 worldPos) {
-    float blend = saturate(g_EnvmapParallaxBlend);
-    if (blend <= 0.0) return reflectDir;
-
-    float3 invReflectDir = SAFERCP(reflectDir);
-    float3 intersectMin = (g_EnvmapBoxMin - worldPos) * invReflectDir;
-    float3 intersectMax = (g_EnvmapBoxMax - worldPos) * invReflectDir;
-    float3 farPlanes = max(intersectMin, intersectMax);
-    float  distance = min(min(farPlanes.x, farPlanes.y), farPlanes.z);
-    float3 hitPos = worldPos + reflectDir * distance;
-    float3 correctedDir = hitPos - g_EnvmapOrigin;
-    return lerp(reflectDir, correctedDir, blend);
-}
-
-float4 main(const PS_INPUT rawInput) : COLOR0 {
+PS_OUTPUT main(const PS_INPUT rawInput) {
     PsVertexInfo i = DecomposeInput(rawInput);
+    if (!g_Simplified) {
+        float sceneViewDepthHU = tex2Dlod(FrameBuffer, float4(i.screenUV, 0.0, 0.0)).a
+            * DepthWriteConstant;
+        float depthToleranceHU = max(2.0, i.clipPos.w * 0.015);
+        clip(sceneViewDepthHU - i.clipPos.w + depthToleranceHU);
+    }
+
     // Z = final ray marching height
     float3 inkUV   = g_Simplified ? i.inkUV : ApplyParallaxInk(i);
     float3 viewVec = g_EyePos.xyz - i.worldPos;
@@ -861,26 +852,40 @@ float4 main(const PS_INPUT rawInput) : COLOR0 {
 #endif
 
 #ifdef g_EnvmapEnabled
-    // Apply envmap contribution
     float3 reflectDir     = reflect(-viewDir, worldSpaceNormal);
-    float3 envmapWorldPos = i.worldPos + i.worldTransform[2] * params.height * HEIGHT_TO_HU;
-    float3 envmapDir      = BoxProjectEnvmap(reflectDir, envmapWorldPos);
-    float3 envmapSample   = texCUBE(Envmap, envmapDir).rgb * g_EnvmapScale;
-    float4 envmapSSR      = SampleScreenSpaceReflection(i, viewDir, worldSpaceNormal, params.pbr.roughness, params.height);
-    float3 envmapSpecular = lerp(envmapSample, envmapSSR.rgb, envmapSSR.a);
+    float3 envmapSample   = texCUBE(Envmap, reflectDir).rgb * g_EnvmapScale;
     float3 envmapFresnel  = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);
     float  envmapScale    = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, params.pbr.roughness * params.pbr.roughness);
     float3 envmapAlbedo   = lerp(float3(1.0, 1.0, 1.0), albedo, params.pbr.metallic);
-    envmapSpecular *= envmapAlbedo;
-    envmapSpecular *= CalcFresnel(worldSpaceNormal, viewDir, envmapFresnel);
-    envmapSpecular *= envmapScale;
-    envmapSpecular *= ambientOcclusion;
-    envmapSpecular *= params.pbr.specularScale;
-    envmapSpecular *= g_LightmapScale;
-    result += envmapSpecular;
+    float3 reflectionWeight = envmapAlbedo;
+    reflectionWeight *= CalcFresnel(worldSpaceNormal, viewDir, envmapFresnel);
+    reflectionWeight *= envmapScale;
+    reflectionWeight *= ambientOcclusion;
+    reflectionWeight *= params.pbr.specularScale;
+    reflectionWeight *= g_LightmapScale;
 #endif
 
     // ^ Specular component (accumulates to the final result)
     // -------------------------------------------------------------------------
-    return float4(result * g_TonemapScale, 1.0);
+    PS_OUTPUT o;
+    if (g_Simplified) {
+#ifdef g_EnvmapEnabled
+        float4 envmapSSR = SampleScreenSpaceReflection(
+            i, viewDir, worldSpaceNormal, params.pbr.roughness, params.height);
+        result += lerp(envmapSample, envmapSSR.rgb, envmapSSR.a) * reflectionWeight;
+#endif
+        o.color0 = float4(result * g_TonemapScale, 1.0);
+        o.color1 = 0.0;
+        o.color2 = 0.0;
+        o.color3 = 0.0;
+        return o;
+    }
+
+    o.color0 = float4(result, 1.0);
+    o.color1 = float4(
+        EncodeOctahedralUnitVector(worldSpaceNormal),
+        EncodeOctahedralUnitVector(normalize(i.worldTransform[2])));
+    o.color2 = float4(reflectionWeight, params.height);
+    o.color3 = float4(envmapSample, params.pbr.roughness);
+    return o;
 }

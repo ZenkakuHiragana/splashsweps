@@ -39,10 +39,14 @@ local TEXTUREFLAGS = {
     SSBUMP            = 134217728,
 }
 local RTNAMES = {
-    INKMAP  = "splashsweps_inkmap",
-    INKMAP2 = "splashsweps_inkmap2",
-    ALBEDO  = "splashsweps_albedo",
-    TINT    = "splashsweps_tint",
+    INKMAP      = "splashsweps_inkmap",
+    INKMAP2     = "splashsweps_inkmap2",
+    ALBEDO      = "splashsweps_albedo",
+    TINT        = "splashsweps_tint",
+    FORWARD0    = "splashsweps_forward0",
+    FORWARD1    = "splashsweps_forward1",
+    FORWARD2    = "splashsweps_forward2",
+    FORWARD3    = "splashsweps_forward3",
 }
 local COMMON_FLAGS = bit.bor(
     TEXTUREFLAGS.NOMIP,
@@ -53,6 +57,11 @@ local RTFLAGS = {
     INKMAP  = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NORMAL),
     ALBEDO  = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
     TINT    = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
+    FRAME   = bit.bor(
+        COMMON_FLAGS,
+        TEXTUREFLAGS.CLAMPS,
+        TEXTUREFLAGS.CLAMPT,
+        TEXTUREFLAGS.NODEBUGOVERRIDE),
 }
 
 if not ss.RenderTarget then
@@ -65,6 +74,15 @@ if not ss.RenderTarget then
             Albedo  = nil, ---@type ITexture
             Tint    = nil, ---@type ITexture
             Details = nil, ---@type ITexture
+        },
+        ---One-frame textures for forward MRT shading and SSR composition.
+        ---@class ss.RenderTarget.FrameTextures
+        FrameTextures = {
+            SceneColorDepth = nil, ---@type ITexture
+            Forward0 = nil, ---@type ITexture
+            Forward1 = nil, ---@type ITexture
+            Forward2 = nil, ---@type ITexture
+            Forward3 = nil, ---@type ITexture
         },
         ---List of render target resolutions available.
         Resolutions = {
@@ -82,6 +100,24 @@ end
 ---Reserves render targets.
 function ss.SetupRenderTargets()
     local rt = ss.RenderTarget
+    local frame = rt.FrameTextures
+    local function CreateFrameTarget(name, depthMode)
+        return GetRenderTargetEx(
+            name,
+            ScrW(), ScrH(),
+            RT_SIZE_FULL_FRAME_BUFFER,
+            depthMode,
+            RTFLAGS.FRAME,
+            CREATERENDERTARGETFLAGS_NONE,
+            IMAGE_FORMAT_RGBA16161616F)
+    end
+
+    frame.SceneColorDepth = render.GetSuperFPTex()
+    frame.Forward0 = CreateFrameTarget(RTNAMES.FORWARD0, MATERIAL_RT_DEPTH_SEPARATE)
+    frame.Forward1 = CreateFrameTarget(RTNAMES.FORWARD1, MATERIAL_RT_DEPTH_NONE)
+    frame.Forward2 = CreateFrameTarget(RTNAMES.FORWARD2, MATERIAL_RT_DEPTH_NONE)
+    frame.Forward3 = CreateFrameTarget(RTNAMES.FORWARD3, MATERIAL_RT_DEPTH_NONE)
+
     local rtIndex = #ss.RenderTarget.Resolutions
     local rtSize = rt.Resolutions[rtIndex]
     rt.StaticTextures.InkMap = GetRenderTargetEx(

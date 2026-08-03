@@ -1,4 +1,6 @@
 
+#include "inkmesh_oct.hlsl"
+
 // Data texture layout
 #define ID_COLOR_ALPHA        0
 #define ID_TINT_GEOMETRYPAINT 1
@@ -62,10 +64,10 @@ const float4 c11       : register(c11); // $viewprojmat
 const float4 c12       : register(c12);
 const float4 c13       : register(c13);
 const float4 c14       : register(c14);
-const float4 c15       : register(c15); // xyz: blend transform row 0, w: envmap origin x
-const float4 c16       : register(c16); // xyz: blend transform row 1, w: envmap origin y
-const float4 c17       : register(c17); // xyz: envmap box min,        w: envmap origin z
-const float4 c18       : register(c18); // xyz: envmap box max,        w: envmap parallax correction blend
+const float4 c15       : register(c15); // xyz: blend transform row 0
+const float4 c16       : register(c16); // xyz: blend transform row 1
+const float4 c17       : register(c17); // unused
+const float4 c18       : register(c18); // unused
 const float4 HDRParams : register(c30);
 
 const sampler InkDataDetail : register(s1);

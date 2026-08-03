@@ -440,7 +440,7 @@ local function buildBaseInkMeshMaterialParams()
         ["$pixshader"]              = "splashsweps/inkmesh_ps30",
         ["$basetexture"]            = ss.RenderTarget.StaticTextures.InkMap:GetName(),
         ["$texture1"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
-        ["$texture2"]               = "__rt_supertexture1",
+        ["$texture2"]               = ss.RenderTarget.FrameTextures.SceneColorDepth:GetName(),
         ["$texture7"]               = EnvmapDefault,
         ["$linearread_basetexture"] = "1",
         ["$linearread_texture1"]    = "1",
@@ -450,9 +450,10 @@ local function buildBaseInkMeshMaterialParams()
         ["$linearread_texture5"]    = "1",
         ["$linearread_texture6"]    = render.GetHDREnabled() and "1" or "0",
         ["$linearread_texture7"]    = render.GetHDREnabled() and "1" or "0",
-        ["$alpha_blend"]            = "1",
-        ["$alphablend"]             = "1",
+        ["$alpha_blend"]            = "0",
+        ["$alphablend"]             = "0",
         ["$alphatested"]            = "0",
+        ["$writealpha"]             = "1",
         ["$cull"]                   = "1",
         ["$depthtest"]              = "1",
         ["$vertexalpha"]            = "1",
@@ -488,10 +489,6 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         local pageWidth, pageHeight = getLightmapPageSize(lightmapLayout, lightmapGroup)
         local materialInfo          = lightmapGroup.Material
         local cubemapInfo           = materialInfo.Cubemap
-        local cubemapOrigin         = cubemapInfo and cubemapInfo.Origin or vector_origin
-        local cubemapBoxMin         = cubemapInfo and cubemapInfo.BoxMin or vector_origin
-        local cubemapBoxMax         = cubemapInfo and cubemapInfo.BoxMax or vector_origin
-        local cubemapBlend          = cubemapInfo and cubemapInfo.Blend or 0
         local page                  = lightmapGroup.LightmapPage
         local lightmapTextureName   = page and string.format("\\[lightmap%d]", page) or "white"
         local materialParams        = buildBaseInkMeshMaterialParams()
@@ -541,12 +538,12 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         m:SetUnpacked(
             materialInfo.BlendMaskTransform:GetField(1, 1),
             materialInfo.BlendMaskTransform:GetField(1, 2),
-            materialInfo.BlendMaskTransform:GetField(1, 4), cubemapOrigin.x,
+            materialInfo.BlendMaskTransform:GetField(1, 4), 0,
             materialInfo.BlendMaskTransform:GetField(2, 1),
             materialInfo.BlendMaskTransform:GetField(2, 2),
-            materialInfo.BlendMaskTransform:GetField(2, 4), cubemapOrigin.y,
-            cubemapBoxMin.x, cubemapBoxMin.y, cubemapBoxMin.z, cubemapOrigin.z,
-            cubemapBoxMax.x, cubemapBoxMax.y, cubemapBoxMax.z, cubemapBlend)
+            materialInfo.BlendMaskTransform:GetField(2, 4), 0,
+            0, 0, 0, 0,
+            0, 0, 0, 0)
         mat:SetMatrix("$invviewprojmat", m)
         local matf = CreateMaterial(
             string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
