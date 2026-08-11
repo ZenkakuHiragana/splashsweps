@@ -12,6 +12,7 @@ sampler ForwardNormals    : register(s1);
 sampler ReflectionParams  : register(s2);
 sampler EnvmapParams      : register(s3);
 sampler SceneColorDepth   : register(s4);
+sampler SSRSource         : register(s5);
 
 const float2 s0Size    : register(c4);
 const float4 c11       : register(c11);
@@ -54,6 +55,15 @@ float3 ReconstructWorldPosition(float2 uv, float viewDepth) {
         + (g_ViewForward + g_ViewRight * ndc.x + g_ViewUp * ndc.y) * viewDepth;
 }
 
+float SampleSceneDepth(float2 uv) {
+    return tex2Dlod(SceneColorDepth, float4(uv, 0.0, 0.0)).a * DepthWriteConstant;
+}
+
+float3 SampleInkAwareSSRColor(float2 uv, float3 fallback) {
+    float4 ink = tex2Dlod(ForwardColor, float4(uv, 0.0, 0.0));
+    return lerp(fallback, ink.rgb, step(0.5, ink.a));
+}
+
 float ComputeSSRThickness(float depth, float rayDepthSpan, float roughness) {
     static const float SSR_FOV_Y           = radians(75.0);
     static const float SSR_TAN_HALF_FOV    = tan(SSR_FOV_Y * 0.5);
@@ -85,9 +95,9 @@ float4 SampleScreenSpaceReflection(
     float roughness,
     float height)
 {
-    static const int   SSR_MAX_STEPS         = 64;
+    static const int   SSR_MAX_STEPS         = 32;
     static const int   SSR_BINARY_STEPS      = 2;
-    static const float SSR_STEP_PIXEL_RCP    = rcp(8.0);
+    static const float SSR_STEP_PIXEL_RCP    = rcp(16.0);
     static const float SSR_INITIAL_BIAS_HU   = 2.0;
     static const float SSR_STITCH_GAP_MIN_HU = 16.0;
     float3 P = worldPos;
@@ -160,7 +170,7 @@ float4 SampleScreenSpaceReflection(
         float3 uvq = lerp(rayStartUVQ, rayEndUVQ, t);
         if (ScreenEdgeFade(uvq.xy) <= 0.0) break;
 
-        float4 fb = tex2Dlod(SceneColorDepth, float4(uvq.xy, 0.0, 0.0));
+        float4 fb = tex2Dlod(SSRSource, float4(uvq.xy, 0.0, 0.0));
         float fbDepth = fb.a * DepthWriteConstant;
         if (fbDepth <= 1.0e-3) continue;
 
@@ -175,8 +185,7 @@ float4 SampleScreenSpaceReflection(
             [unroll]
             for (int k = 0; k < SSR_BINARY_STEPS; k++) {
                 float3 midUVQ = lerp(prevUVQC.xyz, uvq, 0.5);
-                float4 fbMid = tex2Dlod(SceneColorDepth, float4(midUVQ.xy, 0.0, 0.0));
-                float fbMidDepth = fbMid.a * DepthWriteConstant;
+                float fbMidDepth = SampleSceneDepth(midUVQ.xy);
                 if (fbMidDepth < rcp(midUVQ.z)) {
                     uvq = midUVQ;
                 }
@@ -184,8 +193,9 @@ float4 SampleScreenSpaceReflection(
                     prevUVQC.xyz = midUVQ;
                 }
             }
+            float3 ssrColor = tex2Dlod(SSRSource, float4(uvq.xy, 0.0, 0.0)).rgb;
             return float4(
-                tex2Dlod(SceneColorDepth, float4(uvq.xy, 0.0, 0.0)).rgb,
+                SampleInkAwareSSRColor(uvq.xy, ssrColor),
                 ScreenEdgeFade(uvq.xy));
         }
 
@@ -197,16 +207,19 @@ float4 SampleScreenSpaceReflection(
             * step(0.0, classification)
             * step(gapThreshold, depthJump);
         if (foundStitchGap > 0.0) {
+            float3 stitchColor = SampleInkAwareSSRColor(uvq.xy, fb.rgb);
             [unroll]
             for (int k = 0; k < SSR_BINARY_STEPS; k++) {
                 float3 midUVQ = lerp(prevUVQC.xyz, uvq, 0.5);
-                float4 midFb = tex2Dlod(SceneColorDepth, float4(midUVQ.xy, 0.0, 0.0));
-                float midFbDepth = midFb.a * DepthWriteConstant;
+                float midFbDepth = SampleSceneDepth(midUVQ.xy);
                 if (midFbDepth - prevFbDepth > gapThreshold) {
                     uvq = midUVQ;
                     currentRayDepth = rcp(max(uvq.z, 1.0e-6));
-                    fb = midFb;
                     fbDepth = midFbDepth;
+                    stitchColor = SampleInkAwareSSRColor(
+                        midUVQ.xy,
+                        tex2Dlod(
+                            SSRSource, float4(midUVQ.xy, 0.0, 0.0)).rgb);
                 }
                 else {
                     prevUVQC.xyz = midUVQ;
@@ -215,7 +228,10 @@ float4 SampleScreenSpaceReflection(
             float currentDistanceToDepth = abs(fbDepth - currentRayDepth);
             float stitchWeight = lastClearDistance
                 * rcp(max(lastClearDistance + currentDistanceToDepth, 1.0e-3));
-            float3 stitchedColor = lerp(lastClearColor, fb.rgb, stitchWeight);
+            float3 stitchedColor = lerp(
+                SampleInkAwareSSRColor(lastClearRay.xy, lastClearColor),
+                stitchColor,
+                stitchWeight);
             float stitchAlpha = lerp(
                 ScreenEdgeFade(lastClearRay.xy),
                 ScreenEdgeFade(uvq.xy),
@@ -239,10 +255,14 @@ float4 SampleScreenSpaceReflection(
 float4 main(const PS_INPUT i) : COLOR0 {
     float2 uv = i.screenPos.xy * g_FbSize;
     float4 surface = tex2Dlod(ForwardColor, float4(uv, 0.0, 0.0));
-    float4 reflectionParams = tex2Dlod(ReflectionParams, float4(uv, 0.0, 0.0));
     float4 scene = tex2Dlod(SceneColorDepth, float4(uv, 0.0, 0.0));
     if (surface.a < 0.5) {
         return float4(scene.rgb * g_TonemapScale, 1.0);
+    }
+
+    float4 reflectionParams = tex2Dlod(ReflectionParams, float4(uv, 0.0, 0.0));
+    if (dot(reflectionParams.rgb, reflectionParams.rgb) <= 0.0) {
+        return float4(surface.rgb * g_TonemapScale, 1.0);
     }
 
     float4 normals = tex2Dlod(ForwardNormals, float4(uv, 0.0, 0.0));

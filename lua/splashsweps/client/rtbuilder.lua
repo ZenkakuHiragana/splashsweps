@@ -39,14 +39,15 @@ local TEXTUREFLAGS = {
     SSBUMP            = 134217728,
 }
 local RTNAMES = {
-    INKMAP      = "splashsweps_inkmap",
-    INKMAP2     = "splashsweps_inkmap2",
-    ALBEDO      = "splashsweps_albedo",
-    TINT        = "splashsweps_tint",
-    FORWARD0    = "splashsweps_forward0",
-    FORWARD1    = "splashsweps_forward1",
-    FORWARD2    = "splashsweps_forward2",
-    FORWARD3    = "splashsweps_forward3",
+    INKMAP     = "splashsweps_inkmap",
+    INKMAP2    = "splashsweps_inkmap2",
+    ALBEDO     = "splashsweps_albedo",
+    TINT       = "splashsweps_tint",
+    FORWARD0   = "splashsweps_forward0",
+    FORWARD1   = "splashsweps_forward1",
+    FORWARD2   = "splashsweps_forward2",
+    FORWARD3   = "splashsweps_forward3",
+    SSR_SOURCE = "splashsweps_ssr_source",
 }
 local COMMON_FLAGS = bit.bor(
     TEXTUREFLAGS.NOMIP,
@@ -79,6 +80,7 @@ if not ss.RenderTarget then
         ---@class ss.RenderTarget.FrameTextures
         FrameTextures = {
             SceneColorDepth = nil, ---@type ITexture
+            SSRSource = nil, ---@type ITexture
             Forward0 = nil, ---@type ITexture
             Forward1 = nil, ---@type ITexture
             Forward2 = nil, ---@type ITexture
@@ -113,6 +115,15 @@ function ss.SetupRenderTargets()
     end
 
     frame.SceneColorDepth = render.GetSuperFPTex()
+    frame.SSRSource = GetRenderTargetEx(
+        RTNAMES.SSR_SOURCE,
+        ScrW() * 0.5,
+        ScrH() * 0.5,
+        RT_SIZE_LITERAL,
+        MATERIAL_RT_DEPTH_NONE,
+        RTFLAGS.FRAME,
+        CREATERENDERTARGETFLAGS_NONE,
+        IMAGE_FORMAT_RGBA16161616F)
     frame.Forward0 = CreateFrameTarget(RTNAMES.FORWARD0, MATERIAL_RT_DEPTH_SEPARATE)
     frame.Forward1 = CreateFrameTarget(RTNAMES.FORWARD1, MATERIAL_RT_DEPTH_NONE)
     frame.Forward2 = CreateFrameTarget(RTNAMES.FORWARD2, MATERIAL_RT_DEPTH_NONE)

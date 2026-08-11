@@ -231,6 +231,7 @@ local function UpdateSSRCompositeMaterial()
         frame.Forward2:GetName(),
         frame.Forward3:GetName(),
         frame.SceneColorDepth:GetName(),
+        frame.SSRSource:GetName(),
     }, "\0")
     if textureBindingKey ~= SSRTextureBindingKey then
         SSRCompositeMaterial:SetTexture("$basetexture", frame.Forward0)
@@ -238,6 +239,7 @@ local function UpdateSSRCompositeMaterial()
         SSRCompositeMaterial:SetTexture("$texture2", frame.Forward2)
         SSRCompositeMaterial:SetTexture("$texture3", frame.Forward3)
         SSRCompositeMaterial:SetTexture("$texture4", frame.SceneColorDepth)
+        SSRCompositeMaterial:SetTexture("$texture5", frame.SSRSource)
         SSRCompositeMaterial:Recompute()
         SSRTextureBindingKey = textureBindingKey
     end
@@ -333,6 +335,11 @@ function(bDrawingDepth, bDrawingSkybox)
     UpdateSSRCompositeMaterial()
     render.CopyRenderTargetToTexture(FullFrameFb1)
     render.PushRenderTarget(frame.SceneColorDepth)
+    render.SetMaterial(CopyFrameBufferMaterial)
+    render.DrawScreenQuad()
+    render.PopRenderTarget()
+
+    render.PushRenderTarget(frame.SSRSource)
     render.SetMaterial(CopyFrameBufferMaterial)
     render.DrawScreenQuad()
     render.PopRenderTarget()
