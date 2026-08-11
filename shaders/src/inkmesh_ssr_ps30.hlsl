@@ -259,6 +259,10 @@ float4 SampleScreenSpaceReflection(
 
 float4 main(const PS_INPUT i) : COLOR0 {
     float2 uv = i.screenPos.xy * g_RenderSizeRcp;
+    if (g_TracePass > 1.5) {
+        return tex2Dlod(SSRInput, float4(uv, 0.0, 0.0));
+    }
+
     float4 surface = tex2Dlod(ForwardColor, float4(uv, 0.0, 0.0));
     float4 scene = tex2Dlod(SceneColorDepth, float4(uv, 0.0, 0.0));
     if (surface.a < 0.5) {

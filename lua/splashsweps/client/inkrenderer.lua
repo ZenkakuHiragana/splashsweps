@@ -233,6 +233,7 @@ local function UpdateSSRCompositeMaterial()
         frame.SceneColorDepth:GetName(),
         frame.SSRSource:GetName(),
         frame.SSRResult:GetName(),
+        frame.SSRBlur:GetName(),
     }, "\0")
     if textureBindingKey ~= SSRTextureBindingKey then
         SSRCompositeMaterial:SetTexture("$basetexture", frame.Forward0)
@@ -241,7 +242,7 @@ local function UpdateSSRCompositeMaterial()
         SSRCompositeMaterial:SetTexture("$texture3", frame.Forward3)
         SSRCompositeMaterial:SetTexture("$texture4", frame.SceneColorDepth)
         SSRCompositeMaterial:SetTexture("$texture5", frame.SSRSource)
-        SSRCompositeMaterial:SetTexture("$texture6", frame.SSRResult)
+        SSRCompositeMaterial:SetTexture("$texture6", frame.SSRBlur)
         SSRCompositeMaterial:Recompute()
         SSRTextureBindingKey = textureBindingKey
     end
@@ -265,6 +266,7 @@ local function UpdateSSRCompositeMaterial()
 end
 
 ---@param target ITexture
+---@param passMode integer  -- 2: downsample SSRResult to SSRBlur, 1: trace, 0: composite
 local function SetSSRPassParameters(target, passMode)
     local frame = ss.RenderTarget.FrameTextures
     SSRCompositeMaterial:SetFloat("$c0_x", 1 / target:Width())
@@ -373,7 +375,17 @@ function(bDrawingDepth, bDrawingSkybox)
     render.DrawScreenQuad()
     render.PopRenderTarget()
 
+    -- Downsample the premultiplied result before the full-resolution composite.
     SSRCompositeMaterial:SetTexture("$texture6", frame.SSRResult)
+    SSRCompositeMaterial:Recompute()
+    SetSSRPassParameters(frame.SSRBlur, 2)
+    render.PushRenderTarget(frame.SSRBlur)
+    render.Clear(0, 0, 0, 0, false, false)
+    render.SetMaterial(SSRCompositeMaterial)
+    render.DrawScreenQuad()
+    render.PopRenderTarget()
+
+    SSRCompositeMaterial:SetTexture("$texture6", frame.SSRBlur)
     SSRCompositeMaterial:Recompute()
     SetSSRPassParameters(frame.Forward0, 0)
     render.SetMaterial(SSRCompositeMaterial)
