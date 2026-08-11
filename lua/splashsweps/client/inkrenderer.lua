@@ -232,6 +232,7 @@ local function UpdateSSRCompositeMaterial()
         frame.Forward3:GetName(),
         frame.SceneColorDepth:GetName(),
         frame.SSRSource:GetName(),
+        frame.SSRResult:GetName(),
     }, "\0")
     if textureBindingKey ~= SSRTextureBindingKey then
         SSRCompositeMaterial:SetTexture("$basetexture", frame.Forward0)
@@ -240,6 +241,7 @@ local function UpdateSSRCompositeMaterial()
         SSRCompositeMaterial:SetTexture("$texture3", frame.Forward3)
         SSRCompositeMaterial:SetTexture("$texture4", frame.SceneColorDepth)
         SSRCompositeMaterial:SetTexture("$texture5", frame.SSRSource)
+        SSRCompositeMaterial:SetTexture("$texture6", frame.SSRResult)
         SSRCompositeMaterial:Recompute()
         SSRTextureBindingKey = textureBindingKey
     end
@@ -260,6 +262,15 @@ local function UpdateSSRCompositeMaterial()
         forward.x, forward.y, forward.z, 0,
         origin.x, origin.y, origin.z, 1)
     SSRCompositeMaterial:SetMatrix("$viewprojmat", m)
+end
+
+---@param target ITexture
+local function SetSSRPassParameters(target, passMode)
+    local frame = ss.RenderTarget.FrameTextures
+    SSRCompositeMaterial:SetFloat("$c0_x", 1 / target:Width())
+    SSRCompositeMaterial:SetFloat("$c0_y", 1 / target:Height())
+    SSRCompositeMaterial:SetFloat("$c0_z", target:Width() / frame.Forward0:Width())
+    SSRCompositeMaterial:SetFloat("$c0_w", passMode)
 end
 
 hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
@@ -352,6 +363,19 @@ function(bDrawingDepth, bDrawingSkybox)
     render.OverrideDepthEnable(false)
     PopForwardMRT(forwardTargets)
 
+    -- The trace pass must not bind its output texture as an input sampler. D3D9 does not define read/write feedback.
+    SSRCompositeMaterial:SetTexture("$texture6", frame.Forward0)
+    SSRCompositeMaterial:Recompute()
+    SetSSRPassParameters(frame.SSRResult, 1)
+    render.PushRenderTarget(frame.SSRResult)
+    render.Clear(0, 0, 0, 0, false, false)
+    render.SetMaterial(SSRCompositeMaterial)
+    render.DrawScreenQuad()
+    render.PopRenderTarget()
+
+    SSRCompositeMaterial:SetTexture("$texture6", frame.SSRResult)
+    SSRCompositeMaterial:Recompute()
+    SetSSRPassParameters(frame.Forward0, 0)
     render.SetMaterial(SSRCompositeMaterial)
     render.DrawScreenQuad()
     render.OverrideBlend(true,

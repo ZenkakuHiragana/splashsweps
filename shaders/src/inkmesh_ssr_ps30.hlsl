@@ -13,8 +13,10 @@ sampler ReflectionParams  : register(s2);
 sampler EnvmapParams      : register(s3);
 sampler SceneColorDepth   : register(s4);
 sampler SSRSource         : register(s5);
+sampler SSRInput          : register(s6);
 
-const float2 s0Size    : register(c4);
+const float2 s0Size       : register(c4);
+const float4 SSRPassParams : register(c0);
 const float4 c11       : register(c11);
 const float4 c12       : register(c12);
 const float4 c13       : register(c13);
@@ -24,6 +26,9 @@ const float4 HDRParams : register(c30);
 static const float  HEIGHT_TO_HU        = 24.0;
 static const float  DepthWriteConstant  = 4000.0;
 static const float2 g_FbSize            = s0Size;
+static const float2 g_RenderSizeRcp     = SSRPassParams.xy;
+static const float  g_TraceScale        = SSRPassParams.z;
+static const float  g_TracePass         = SSRPassParams.w;
 static const float3 g_ViewRight         = c11.xyz;
 static const float3 g_ViewUp            = c12.xyz;
 static const float3 g_ViewForward       = c13.xyz;
@@ -104,7 +109,7 @@ float4 SampleScreenSpaceReflection(
     float  W = max(viewDepth, 1.0e-3);
     float3 viewAway = -viewDir;
     float  viewDist = distance(g_ViewOrigin, P);
-    float2 fbPixels = rcp(g_FbSize);
+    float2 fbPixels = rcp(g_FbSize) * g_TraceScale;
 
     float3x3 screenSpaceAxesInWorld = {
         ddx(P) * fbPixels.x,
@@ -253,18 +258,26 @@ float4 SampleScreenSpaceReflection(
 }
 
 float4 main(const PS_INPUT i) : COLOR0 {
-    float2 uv = i.screenPos.xy * g_FbSize;
+    float2 uv = i.screenPos.xy * g_RenderSizeRcp;
     float4 surface = tex2Dlod(ForwardColor, float4(uv, 0.0, 0.0));
     float4 scene = tex2Dlod(SceneColorDepth, float4(uv, 0.0, 0.0));
     if (surface.a < 0.5) {
+        if (g_TracePass > 0.5) return float4(0.0, 0.0, 0.0, 0.0);
         return float4(scene.rgb * g_TonemapScale, 1.0);
     }
-
     float4 reflectionParams = tex2Dlod(ReflectionParams, float4(uv, 0.0, 0.0));
     if (dot(reflectionParams.rgb, reflectionParams.rgb) <= 0.0) {
+        if (g_TracePass > 0.5) return float4(0.0, 0.0, 0.0, 0.0);
         return float4(surface.rgb * g_TonemapScale, 1.0);
     }
-
+    if (g_TracePass <= 0.5) {
+        float4 envmapParams = tex2Dlod(EnvmapParams, float4(uv, 0.0, 0.0));
+        float4 ssrResult = tex2Dlod(SSRInput, float4(uv, 0.0, 0.0));
+        float3 reflection = (
+            envmapParams.rgb * (1.0 - ssrResult.a)
+            + ssrResult.rgb) * reflectionParams.rgb;
+        return float4((surface.rgb + reflection) * g_TonemapScale, 1.0);
+    }
     float4 normals = tex2Dlod(ForwardNormals, float4(uv, 0.0, 0.0));
     float4 envmapParams = tex2Dlod(EnvmapParams, float4(uv, 0.0, 0.0));
     float viewDepth = scene.a * DepthWriteConstant;
@@ -281,6 +294,5 @@ float4 main(const PS_INPUT i) : COLOR0 {
         worldNormal,
         envmapParams.a,
         reflectionParams.a);
-    float3 reflection = lerp(envmapParams.rgb, ssr.rgb, ssr.a) * reflectionParams.rgb;
-    return float4((surface.rgb + reflection) * g_TonemapScale, 1.0);
+    return float4(ssr.rgb * ssr.a, ssr.a);
 }
