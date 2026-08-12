@@ -8,7 +8,7 @@
     "$texture3"               "splashsweps_forward3"
     "$texture4"               "__rt_supertexture1"
     "$texture5"               "splashsweps_ssr_source"
-    "$texture6"               "splashsweps_ssr_blur"
+    "$texture6"               "splashsweps_ssr_contour"
     "$linearread_basetexture" "1"
     "$linearread_texture1"    "1"
     "$linearread_texture2"    "1"

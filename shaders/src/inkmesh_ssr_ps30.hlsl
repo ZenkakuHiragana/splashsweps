@@ -23,9 +23,10 @@ const float4 c13       : register(c13);
 const float4 c14       : register(c14);
 const float4 HDRParams : register(c30);
 
-static const float  HEIGHT_TO_HU        = 24.0;
-static const float  DepthWriteConstant  = 4000.0;
-static const float2 g_FbSize            = s0Size;
+static const float  HEIGHT_TO_HU                = 24.0;
+static const float  DepthWriteConstant          = 4000.0;
+static const float  SSR_CONTOUR_ALPHA_THRESHOLD = rcp(255.0);
+static const float2 g_FbSize                    = s0Size;
 static const float2 g_RenderSizeRcp     = SSRPassParams.xy;
 static const float  g_TraceScale        = SSRPassParams.z;
 static const float  g_TracePass         = SSRPassParams.w;
@@ -257,11 +258,32 @@ float4 SampleScreenSpaceReflection(
     return stitchCandidate;
 }
 
+float4 FilterSSRContour(float2 uv) {
+    float2 texel = g_RenderSizeRcp;
+    float4 center = tex2Dlod(SSRInput, float4(uv, 0.0, 0.0));
+    float4 left   = tex2Dlod(SSRInput, float4(uv - float2(texel.x, 0.0), 0.0, 0.0));
+    float4 right  = tex2Dlod(SSRInput, float4(uv + float2(texel.x, 0.0), 0.0, 0.0));
+    float4 up     = tex2Dlod(SSRInput, float4(uv - float2(0.0, texel.y), 0.0, 0.0));
+    float4 down   = tex2Dlod(SSRInput, float4(uv + float2(0.0, texel.y), 0.0, 0.0));
+
+    float alphaMin = min(center.a, min(min(left.a, right.a), min(up.a, down.a)));
+    float alphaMax = max(center.a, max(max(left.a, right.a), max(up.a, down.a)));
+    if (alphaMax - alphaMin <= SSR_CONTOUR_ALPHA_THRESHOLD) return center;
+
+    float2 axisVariation = {
+        abs(left.a - center.a) + abs(right.a - center.a),
+        abs(up.a - center.a) + abs(down.a - center.a),
+    };
+    float4 acrossContour = (
+        (left + right) * axisVariation.x
+        + (up + down) * axisVariation.y)
+        * (0.5 / (axisVariation.x + axisVariation.y));
+    return lerp(center, acrossContour, 0.5);
+}
+
 float4 main(const PS_INPUT i) : COLOR0 {
     float2 uv = i.screenPos.xy * g_RenderSizeRcp;
-    if (g_TracePass > 1.5) {
-        return tex2Dlod(SSRInput, float4(uv, 0.0, 0.0));
-    }
+    if (g_TracePass > 1.5) return FilterSSRContour(uv);
 
     float4 surface = tex2Dlod(ForwardColor, float4(uv, 0.0, 0.0));
     float4 scene = tex2Dlod(SceneColorDepth, float4(uv, 0.0, 0.0));

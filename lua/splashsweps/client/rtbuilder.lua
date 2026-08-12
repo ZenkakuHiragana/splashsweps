@@ -47,9 +47,9 @@ local RTNAMES = {
     FORWARD1   = "splashsweps_forward1",
     FORWARD2   = "splashsweps_forward2",
     FORWARD3   = "splashsweps_forward3",
-    SSR_SOURCE = "splashsweps_ssr_source",
-    SSR_RESULT = "splashsweps_ssr_result",
-    SSR_BLUR   = "splashsweps_ssr_blur",
+    SSR_SOURCE  = "splashsweps_ssr_source",
+    SSR_RESULT  = "splashsweps_ssr_result",
+    SSR_CONTOUR = "splashsweps_ssr_contour",
 }
 local COMMON_FLAGS = bit.bor(
     TEXTUREFLAGS.NOMIP,
@@ -82,9 +82,9 @@ if not ss.RenderTarget then
         ---@class ss.RenderTarget.FrameTextures
         FrameTextures = {
             SceneColorDepth = nil, ---@type ITexture
-            SSRSource = nil, ---@type ITexture
-            SSRResult = nil, ---@type ITexture
-            SSRBlur   = nil, ---@type ITexture
+            SSRSource  = nil, ---@type ITexture
+            SSRResult  = nil, ---@type ITexture
+            SSRContour = nil, ---@type ITexture
             Forward0 = nil, ---@type ITexture
             Forward1 = nil, ---@type ITexture
             Forward2 = nil, ---@type ITexture
@@ -121,8 +121,8 @@ function ss.SetupRenderTargets()
     frame.SceneColorDepth = render.GetSuperFPTex()
     frame.SSRSource = GetRenderTargetEx(
         RTNAMES.SSR_SOURCE,
-        ScrW() * 0.5,
-        ScrH() * 0.5,
+        ScrW() * 0.25,
+        ScrH() * 0.25,
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
         RTFLAGS.FRAME,
@@ -130,15 +130,15 @@ function ss.SetupRenderTargets()
         IMAGE_FORMAT_RGBA16161616F)
     frame.SSRResult = GetRenderTargetEx(
         RTNAMES.SSR_RESULT,
-        ScrW() * 0.5,
-        ScrH() * 0.5,
+        ScrW() * 0.25,
+        ScrH() * 0.25,
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
         RTFLAGS.FRAME,
         CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA16161616F)
-    frame.SSRBlur = GetRenderTargetEx(
-        RTNAMES.SSR_BLUR,
+    frame.SSRContour = GetRenderTargetEx(
+        RTNAMES.SSR_CONTOUR,
         ScrW() * 0.25,
         ScrH() * 0.25,
         RT_SIZE_LITERAL,
