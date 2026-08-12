@@ -64,6 +64,19 @@ float3 SampleInkAwareSSRColor(float2 uv, float3 fallback) {
     return lerp(fallback, ink.rgb, step(0.5, ink.a));
 }
 
+float3 SampleRefinedInkAwareSSRColor(
+    float2 uv, float3 fallback, bool fallbackNeedsSample)
+{
+    float4 ink = tex2Dlod(ForwardColor, float4(uv, 0.0, 0.0));
+    [branch]
+    if (ink.a >= 0.5) return ink.rgb;
+    [branch]
+    if (fallbackNeedsSample) {
+        return tex2Dlod(SSRSource, float4(uv, 0.0, 0.0)).rgb;
+    }
+    return fallback;
+}
+
 float ComputeSSRThickness(float depth, float rayDepthSpan, float roughness) {
     static const float SSR_FOV_Y           = radians(75.0);
     static const float SSR_TAN_HALF_FOV    = tan(SSR_FOV_Y * 0.5);
@@ -182,20 +195,21 @@ float4 SampleScreenSpaceReflection(
         float thickness       = ComputeSSRThickness(fbDepth, rayDepthSpan, roughness);
         float classification  = ClassifySSRSegment(rayMin, rayMax, fbDepth, thickness);
         if (rayArmed && prevUVQC.w < 0.0 && abs(classification) < 1.0e-3) {
+            bool hitRefined = false;
             [unroll]
             for (int k = 0; k < SSR_BINARY_STEPS; k++) {
                 float3 midUVQ = lerp(prevUVQC.xyz, uvq, 0.5);
                 float fbMidDepth = SampleSceneDepth(midUVQ.xy);
                 if (fbMidDepth < rcp(midUVQ.z)) {
                     uvq = midUVQ;
+                    hitRefined = true;
                 }
                 else {
                     prevUVQC.xyz = midUVQ;
                 }
             }
-            float3 ssrColor = tex2Dlod(SSRSource, float4(uvq.xy, 0.0, 0.0)).rgb;
             return float4(
-                SampleInkAwareSSRColor(uvq.xy, ssrColor),
+                SampleRefinedInkAwareSSRColor(uvq.xy, fb.rgb, hitRefined),
                 ScreenEdgeFade(uvq.xy));
         }
 
@@ -207,7 +221,7 @@ float4 SampleScreenSpaceReflection(
             * step(0.0, classification)
             * step(gapThreshold, depthJump);
         if (foundStitchGap > 0.0) {
-            float3 stitchColor = SampleInkAwareSSRColor(uvq.xy, fb.rgb);
+            bool stitchRefined = false;
             [unroll]
             for (int k = 0; k < SSR_BINARY_STEPS; k++) {
                 float3 midUVQ = lerp(prevUVQC.xyz, uvq, 0.5);
@@ -216,15 +230,14 @@ float4 SampleScreenSpaceReflection(
                     uvq = midUVQ;
                     currentRayDepth = rcp(max(uvq.z, 1.0e-6));
                     fbDepth = midFbDepth;
-                    stitchColor = SampleInkAwareSSRColor(
-                        midUVQ.xy,
-                        tex2Dlod(
-                            SSRSource, float4(midUVQ.xy, 0.0, 0.0)).rgb);
+                    stitchRefined = true;
                 }
                 else {
                     prevUVQC.xyz = midUVQ;
                 }
             }
+            float3 stitchColor = SampleRefinedInkAwareSSRColor(
+                uvq.xy, fb.rgb, stitchRefined);
             float currentDistanceToDepth = abs(fbDepth - currentRayDepth);
             float stitchWeight = lastClearDistance
                 * rcp(max(lastClearDistance + currentDistanceToDepth, 1.0e-3));
@@ -255,27 +268,29 @@ float4 SampleScreenSpaceReflection(
 float4 main(const PS_INPUT i) : COLOR0 {
     float2 uv = i.screenPos.xy * g_FbSize;
     float4 surface = tex2Dlod(ForwardColor, float4(uv, 0.0, 0.0));
-    float4 scene = tex2Dlod(SceneColorDepth, float4(uv, 0.0, 0.0));
+    [branch]
     if (surface.a < 0.5) {
-        return float4(scene.rgb * g_TonemapScale, 1.0);
+        float3 sceneColor = tex2Dlod(SceneColorDepth, float4(uv, 0.0, 0.0)).rgb;
+        return float4(sceneColor * g_TonemapScale, 1.0);
     }
 
     float4 reflectionParams = tex2Dlod(ReflectionParams, float4(uv, 0.0, 0.0));
+    [branch]
     if (dot(reflectionParams.rgb, reflectionParams.rgb) <= 0.0) {
         return float4(surface.rgb * g_TonemapScale, 1.0);
     }
 
     float4 normals = tex2Dlod(ForwardNormals, float4(uv, 0.0, 0.0));
     float4 envmapParams = tex2Dlod(EnvmapParams, float4(uv, 0.0, 0.0));
-    float viewDepth = scene.a * DepthWriteConstant;
-    float3 worldPos = ReconstructWorldPosition(uv, viewDepth);
+    float sceneDepth = SampleSceneDepth(uv);
+    float3 worldPos = ReconstructWorldPosition(uv, sceneDepth);
     float3 viewDir = normalize(g_ViewOrigin - worldPos);
     float3 worldNormal = DecodeOctahedralUnitVector(normals.xy);
     float3 geometryNormal = DecodeOctahedralUnitVector(normals.zw);
     float4 ssr = SampleScreenSpaceReflection(
         uv,
         worldPos,
-        viewDepth,
+        sceneDepth,
         viewDir,
         geometryNormal,
         worldNormal,
