@@ -22,6 +22,11 @@
 - Multiplayer testing has an asset-distribution constraint from `README.md`: all players need the addon assets. Missing materials on one client can look like a code bug.
 - Client readiness is explicit networking state, not just player spawn. `ss.PlayersReady` is filled only after the client sends `SplashSWEPs: PlayerInitialSpawn` in `client/autorun.lua` and `server/playerconnection.lua`.
 
+## Runtime access via MCP bridge
+
+- A running Garry's Mod instance can be controlled and observed through the MCP bridge. `gmod_`-prefixed tools cover host launch and close, console execution, Lua execution, cvar state, screenshots, and debug hooks in both client and server realms.
+- MCP-driven sessions run with the game window unfocused. Frame-rate limiters that apply while unfocused (such as `fps_max_nofocus`) are readable through `gmod_cvar_state_cl`, but their values are environment-dependent. Do not assume or document a fixed value.
+
 ## Code conventions that matter here
 
 - Shared typed data is built with `ss.struct "TypeName" { ... }` and instantiated with `ss.new "TypeName"`; follow that pattern when adding new structured shared data.
@@ -49,8 +54,7 @@
 - Compile a shader with the repo's wrapper: `pwsh -ExecutionPolicy Bypass -File "shaders/src/build.ps1" "shaders/src/debug_vs30.hlsl"`
 - `shaders/src/build.ps1` compiles both shader stages for the base name, updates `materials/splashsweps/shaders/*.vmt`, writes `shaders/fxc/splashsweps/*.vcs`, and bumps `.vscode/refresh_count_{vs,ps}.txt` for hot reload when GMOD is running.
 - Do not revert the shader names that `shaders/src/build.ps1` writes into `materials/splashsweps/shaders/*.vmt`. Numbered names such as `splashsweps/2_inkmesh_ps30` are intentional hot-reload targets while GMOD is running, not accidental churn.
-- GMOD loads a shader file into memory only the first time that shader name is read. `build.ps1` hot reload works for material stubs because it writes new numbered shader names into the matching VMT. Materials created through `CreateMaterial` do not get that VMT rewrite automatically; after compiling, update those live `IMaterial`s with `SetString("$vertexshader", "splashsweps/<numbered>_..._vs30")`, `SetString("$pixshader", "splashsweps/<numbered>_..._ps30")`, then `Recompute()`. Use `ss_reload_shader` in `lua/splashsweps/client/debug_mesh.lua` as the local example.
+- GMOD loads a shader file into memory only the first time that shader name is read. `build.ps1` hot reload works for material stubs because it writes new numbered shader names into the matching VMT. Materials created through `CreateMaterial` do not get that VMT rewrite automatically; after compiling, update those live `IMaterial`s with `SetString("$vertexshader", "splashsweps/<numbered>_..._vs30")`, `SetString("$pixshader", "splashsweps/<numbered>_..._ps30")`, then `Recompute()`.
 - When validating shader changes, run the wrapper from `shaders/src` if the direct repo-root invocation cannot find sibling shader sources. Preserve the wrapper's resulting VMT shader names and `.vcs` outputs unless the user explicitly asks otherwise.
 - Do not run multiple `shaders/src/build.ps1` shader compiles in parallel; the wrapper uses shared intermediate/output paths and can race with itself. Compile shader pairs sequentially.
 - Do not normalize shader material stubs after debugging just because values look temporary. Sampler bindings such as `$texture7 "shadertest/cubemap"` may be intentional shader-input probes; keep them unless the current task or user says to restore defaults.
-- For shader-input debugging, the client debug harness in `lua/splashsweps/client/debug_mesh.lua` registers `ss_debug_mesh_probe`, `ss_debug_mesh_probe_spawn`, and `ss_debug_mesh_probe_skin`.
