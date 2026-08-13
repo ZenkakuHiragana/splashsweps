@@ -40,6 +40,8 @@ local NUM_REGION, NUM_VERTEX = 4, 4
 local MAX_QUEUE = math.floor(32768 / (NUM_VERTEX * NUM_REGION))
 local FullFrameFb1 = render.GetScreenEffectTexture(1)
 local CopyFrameBufferMaterial = Material "splashsweps/shaders/copyfb"
+local SSRTraceMaterial = Material "splashsweps/shaders/inkmesh_ssr_trace"
+local SSRFilterMaterial = Material "splashsweps/shaders/inkmesh_ssr_filter"
 local SSRCompositeMaterial = Material "splashsweps/shaders/inkmesh_ssr"
 local InkWaterMaterial = Material "splashsweps/shaders/inkmesh"
 local InkDrawMaterial = Material "splashsweps/shaders/drawink"
@@ -50,7 +52,6 @@ local net_ReadInt = net.ReadInt
 local net_ReadUInt = net.ReadUInt
 local Vector, Angle = Vector, Angle
 local SSRTextureBindingKey = ""
-
 ---CurTime() based time to perform traces to check player's ink state.
 ---@type ss.Locals.Renderer.Queue[]
 local Queue = locals.Renderer.Queue
@@ -223,27 +224,39 @@ local function PopForwardMRT(targets)
     render.SetViewPort(0, 0, ScrW(), ScrH())
 end
 
-local function UpdateSSRCompositeMaterial()
+local function UpdateSSRMaterials()
     local frame = ss.RenderTarget.FrameTextures
     local textureBindingKey = table.concat({
-        frame.Forward0:GetName(),
-        frame.Forward1:GetName(),
-        frame.Forward2:GetName(),
-        frame.Forward3:GetName(),
-        frame.SceneColorDepth:GetName(),
-        frame.SSRSource:GetName(),
+        frame.Forward0:GetName(), frame.Forward1:GetName(),
+        frame.Forward2:GetName(), frame.Forward3:GetName(),
+        frame.SceneColorDepth:GetName(), frame.SSRSource:GetName(),
+        frame.SSRResult:GetName(), frame.SSRFilter:GetName(),
     }, "\0")
     if textureBindingKey ~= SSRTextureBindingKey then
+        SSRTraceMaterial:SetTexture("$basetexture", frame.Forward0)
+        SSRTraceMaterial:SetTexture("$texture1", frame.Forward1)
+        SSRTraceMaterial:SetTexture("$texture2", frame.Forward2)
+        SSRTraceMaterial:SetTexture("$texture3", frame.Forward3)
+        SSRTraceMaterial:SetTexture("$texture4", frame.SceneColorDepth)
+        SSRTraceMaterial:SetTexture("$texture5", frame.SSRSource)
+        SSRTraceMaterial:SetFloat("$c0_x", 2 / frame.Forward0:Width())
+        SSRTraceMaterial:SetFloat("$c0_y", 2 / frame.Forward0:Height())
+        SSRTraceMaterial:SetFloat("$c0_z", 0.5)
+        SSRTraceMaterial:Recompute()
+        SSRFilterMaterial:SetTexture("$basetexture", frame.SSRResult)
+        SSRFilterMaterial:Recompute()
         SSRCompositeMaterial:SetTexture("$basetexture", frame.Forward0)
         SSRCompositeMaterial:SetTexture("$texture1", frame.Forward1)
         SSRCompositeMaterial:SetTexture("$texture2", frame.Forward2)
         SSRCompositeMaterial:SetTexture("$texture3", frame.Forward3)
         SSRCompositeMaterial:SetTexture("$texture4", frame.SceneColorDepth)
-        SSRCompositeMaterial:SetTexture("$texture5", frame.SSRSource)
+        SSRCompositeMaterial:SetTexture("$texture5", frame.SSRFilter)
+        SSRCompositeMaterial:SetFloat("$c0_x", 1 / frame.Forward0:Width())
+        SSRCompositeMaterial:SetFloat("$c0_y", 1 / frame.Forward0:Height())
+        SSRCompositeMaterial:SetFloat("$c0_z", 1.0)
         SSRCompositeMaterial:Recompute()
         SSRTextureBindingKey = textureBindingKey
     end
-
     local view = render.GetViewSetup()
     local origin = view.origin
     local angles = view.angles
@@ -259,6 +272,8 @@ local function UpdateSSRCompositeMaterial()
         up.x, up.y, up.z, 0,
         forward.x, forward.y, forward.z, 0,
         origin.x, origin.y, origin.z, 1)
+    SSRTraceMaterial:SetMatrix("$viewprojmat", m)
+    SSRFilterMaterial:SetMatrix("$viewprojmat", m)
     SSRCompositeMaterial:SetMatrix("$viewprojmat", m)
 end
 
@@ -332,18 +347,16 @@ function(bDrawingDepth, bDrawingSkybox)
     end
 
     local frame = ss.RenderTarget.FrameTextures
-    UpdateSSRCompositeMaterial()
+    UpdateSSRMaterials()
     render.CopyRenderTargetToTexture(FullFrameFb1)
     render.PushRenderTarget(frame.SceneColorDepth)
     render.SetMaterial(CopyFrameBufferMaterial)
     render.DrawScreenQuad()
     render.PopRenderTarget()
-
     render.PushRenderTarget(frame.SSRSource)
     render.SetMaterial(CopyFrameBufferMaterial)
     render.DrawScreenQuad()
     render.PopRenderTarget()
-
     local forwardTargets = { frame.Forward0, frame.Forward1, frame.Forward2, frame.Forward3 }
     ClearForwardTargets(forwardTargets, true)
     PushForwardMRT(forwardTargets)
@@ -351,7 +364,16 @@ function(bDrawingDepth, bDrawingSkybox)
     DrawMesh(NormalMeshHandler())
     render.OverrideDepthEnable(false)
     PopForwardMRT(forwardTargets)
-
+    render.PushRenderTarget(frame.SSRResult)
+    render.Clear(0, 0, 0, 0)
+    render.SetMaterial(SSRTraceMaterial)
+    render.DrawScreenQuad()
+    render.PopRenderTarget()
+    render.PushRenderTarget(frame.SSRFilter)
+    render.Clear(0, 0, 0, 0)
+    render.SetMaterial(SSRFilterMaterial)
+    render.DrawScreenQuad()
+    render.PopRenderTarget()
     render.SetMaterial(SSRCompositeMaterial)
     render.DrawScreenQuad()
     render.OverrideBlend(true,

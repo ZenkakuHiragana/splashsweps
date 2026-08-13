@@ -1,0 +1,12 @@
+"Screenspace_General_8Tex"
+{
+    "$vertexshader"           "splashsweps/inkmesh_ssr_filter_vs30"
+    "$pixshader"              "splashsweps/inkmesh_ssr_filter_ps30"
+    "$basetexture"            "splashsweps_ssr_result"
+    "$writealpha"             "1"
+    "$alpha_blend"            "0"
+    "$alphatested"            "0"
+    "$cull"                   "0"
+    "$depthtest"              "0"
+    "$viewprojmat"            "[ 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 ]"
+}
