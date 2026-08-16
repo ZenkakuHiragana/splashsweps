@@ -199,24 +199,6 @@ local function DrawFlashlightMeshes()
     DrawMesh(DrawFlashlightMesh)
 end
 
----@param frame ss.RenderTarget.FrameTextures
-local function PushForwardMRT(frame)
-    render.SetRenderTargetEx(0, frame.Forward0)
-    render.SetRenderTargetEx(1, frame.Forward1)
-    render.SetRenderTargetEx(2, frame.Forward2)
-    render.SetRenderTargetEx(3, frame.Forward3)
-    render.Clear(0, 0, 0, 0, false, false)
-    render.ClearDepth()
-end
-
-local function PopForwardMRT()
-    render.SetRenderTargetEx(3, nil)
-    render.SetRenderTargetEx(2, nil)
-    render.SetRenderTargetEx(1, nil)
-    render.SetRenderTargetEx(0, nil)
-    render.SetViewPort(0, 0, ScrW(), ScrH())
-end
-
 local SSRViewMatrix = Matrix()
 local function UpdateSSRView()
     local frame = ss.RenderTarget.FrameTextures
@@ -306,30 +288,38 @@ function(bDrawingDepth, bDrawingSkybox)
         return
     end
 
-    local frame = ss.RenderTarget.FrameTextures
     UpdateSSRView()
     render.CopyRenderTargetToTexture(FullFrameFb1)
-    render.PushRenderTarget(frame.SceneColorDepth)
+    render.PushRenderTarget(ss.RenderTarget.FrameTextures.SceneColorDepth)
     render.SetMaterial(CopyFrameBufferMaterial)
     render.DrawScreenQuad()
     render.PopRenderTarget()
-    PushForwardMRT(frame)
+
+    render.PushRenderTarget(ss.RenderTarget.FrameTextures.Forward0)
+    render.SetRenderTargetEx(1, ss.RenderTarget.FrameTextures.Forward1)
+    render.SetRenderTargetEx(2, ss.RenderTarget.FrameTextures.Forward2)
+    render.SetRenderTargetEx(3, ss.RenderTarget.FrameTextures.Forward3)
+    render.Clear(0, 0, 0, 0, true, false)
     render.OverrideDepthEnable(true, true)
     DrawNormalMeshes()
     render.OverrideDepthEnable(false)
-    PopForwardMRT()
-    render.PushRenderTarget(frame.SSRResult)
+    render.PopRenderTarget()
+
+    render.PushRenderTarget(ss.RenderTarget.FrameTextures.SSRResult)
     render.Clear(0, 0, 0, 0)
     render.SetMaterial(SSRTraceMaterial)
     render.DrawScreenQuad()
     render.PopRenderTarget()
-    render.PushRenderTarget(frame.SSRFilter)
+
+    render.PushRenderTarget(ss.RenderTarget.FrameTextures.SSRFilter)
     render.Clear(0, 0, 0, 0)
     render.SetMaterial(SSRFilterMaterial)
     render.DrawScreenQuad()
     render.PopRenderTarget()
+
     render.SetMaterial(SSRCompositeMaterial)
     render.DrawScreenQuad()
+
     render.OverrideBlend(true,
         BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD,
         BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD)
