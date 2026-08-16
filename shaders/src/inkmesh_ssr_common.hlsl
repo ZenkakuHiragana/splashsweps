@@ -12,10 +12,8 @@ sampler ForwardNormals    : register(s1);
 sampler ReflectionParams  : register(s2);
 sampler EnvmapParams      : register(s3);
 sampler SceneColorDepth   : register(s4);
-sampler SSRSource         : register(s5);
 
 const float2 s0Size    : register(c4);
-const float4 SSRPassParams : register(c0);
 const float4 c11       : register(c11);
 const float4 c12       : register(c12);
 const float4 c13       : register(c13);
@@ -25,8 +23,8 @@ const float4 HDRParams : register(c30);
 static const float  HEIGHT_TO_HU        = 24.0;
 static const float  DepthWriteConstant  = 4000.0;
 static const float2 g_FbSize            = s0Size;
-static const float2 g_RenderSizeRcp     = SSRPassParams.xy;
-static const float  g_TraceScale        = SSRPassParams.z;
+static const float2 g_RenderSizeRcp     = s0Size * 2.0;
+static const float  g_TraceScale        = 0.5;
 static const float3 g_ViewRight         = c11.xyz;
 static const float3 g_ViewUp            = c12.xyz;
 static const float3 g_ViewForward       = c13.xyz;
@@ -75,7 +73,7 @@ float3 SampleRefinedInkAwareSSRColor(
     if (ink.a >= 0.5) return ink.rgb;
     [branch]
     if (fallbackNeedsSample) {
-        return tex2Dlod(SSRSource, float4(uv, 0.0, 0.0)).rgb;
+        return tex2Dlod(SceneColorDepth, float4(uv, 0.0, 0.0)).rgb;
     }
     return fallback;
 }
@@ -186,7 +184,7 @@ float4 SampleScreenSpaceReflection(
         float3 uvq = lerp(rayStartUVQ, rayEndUVQ, t);
         if (ScreenEdgeFade(uvq.xy) <= 0.0) break;
 
-        float4 fb = tex2Dlod(SSRSource, float4(uvq.xy, 0.0, 0.0));
+        float4 fb = tex2Dlod(SceneColorDepth, float4(uvq.xy, 0.0, 0.0));
         float fbDepth = fb.a * DepthWriteConstant;
         if (fbDepth <= 1.0e-3) continue;
 

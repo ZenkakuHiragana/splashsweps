@@ -273,7 +273,6 @@ concommand.Add("ss_reload_shader", function(_, _, _)
         entry[1]:SetString("$pixshader", entry[3])
         entry[1]:Recompute()
     end
-    ss.ClearAllInk()
 end)
 
 concommand.Add("ss_debug_mesh_probe_skin", function()

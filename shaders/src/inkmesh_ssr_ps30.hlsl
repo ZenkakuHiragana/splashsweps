@@ -1,36 +1,18 @@
-#include "inkmesh_oct.hlsl"
-
 struct PS_INPUT {
     float4 screenPos : VPOS;
 };
 
 sampler ForwardColor      : register(s0);
-sampler ForwardNormals    : register(s1);
-sampler ReflectionParams  : register(s2);
-sampler EnvmapParams      : register(s3);
-sampler SceneColorDepth   : register(s4);
-sampler SSRFilter         : register(s5);
+sampler ReflectionParams  : register(s1);
+sampler EnvmapParams      : register(s2);
+sampler SceneColorDepth   : register(s3);
+sampler SSRFilter         : register(s4);
 
 const float2 s0Size    : register(c4);
-const float4 c11       : register(c11);
-const float4 c12       : register(c12);
-const float4 c13       : register(c13);
-const float4 c14       : register(c14);
 const float4 HDRParams : register(c30);
 
-static const float DepthWriteConstant = 4000.0;
-static const float2 g_FbSize = s0Size;
-static const float3 g_ViewRight = c11.xyz;
-static const float3 g_ViewUp = c12.xyz;
-static const float3 g_ViewForward = c13.xyz;
-static const float3 g_ViewOrigin = c14.xyz;
-static const float g_TonemapScale = HDRParams.x;
-
-float3 ReconstructWorldPosition(float2 uv, float viewDepth) {
-    float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
-    return g_ViewOrigin
-        + (g_ViewForward + g_ViewRight * ndc.x + g_ViewUp * ndc.y) * viewDepth;
-}
+static const float2 g_FbSize       = s0Size;
+static const float  g_TonemapScale = HDRParams.x;
 
 float4 main(const PS_INPUT i) : COLOR0 {
     float2 uv = i.screenPos.xy * g_FbSize;

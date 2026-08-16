@@ -51,7 +51,6 @@ local math_Remap = math.Remap
 local net_ReadInt = net.ReadInt
 local net_ReadUInt = net.ReadUInt
 local Vector, Angle = Vector, Angle
-local SSRTextureBindingKey = ""
 ---CurTime() based time to perform traces to check player's ink state.
 ---@type ss.Locals.Renderer.Queue[]
 local Queue = locals.Renderer.Queue
@@ -146,35 +145,28 @@ local RefreshMaterial = {
     end,
 }
 
----@return fun(m: ss.MeshData, ent: Entity?)
-local function NormalMeshHandler()
-    local currentMaterial = nil ---@type IMaterial?
-    return function(m, _)
-        local mat = m.Material
-        if currentMaterial ~= mat then
-            render.SetMaterial(mat)
-            currentMaterial = mat
-        end
-        m.Mesh:Draw()
+local currentNormalMaterial = nil ---@type IMaterial?
+local function DrawNormalMesh(m, _)
+    local mat = m.Material
+    if currentNormalMaterial ~= mat then
+        render.SetMaterial(mat)
+        currentNormalMaterial = mat
     end
+    m.Mesh:Draw()
 end
 
----@return fun(m: ss.MeshData, ent: Entity?)
-local function FlashlightHandler()
-    local currentMaterial = nil ---@type IMaterial?
-    return function(m, _)
-        local mat = m.MaterialFlashlight
-        if currentMaterial ~= mat then
-            render.SetMaterial(mat)
-            currentMaterial = mat
-        end
-        m.MeshFlashlight:Draw()
+local currentFlashlightMaterial = nil ---@type IMaterial?
+local function DrawFlashlightMesh(m, _)
+    local mat = m.MaterialFlashlight
+    if currentFlashlightMaterial ~= mat then
+        render.SetMaterial(mat)
+        currentFlashlightMaterial = mat
     end
+    m.MeshFlashlight:Draw()
 end
 
----@return fun(m: ss.MeshData, ent: Entity?)
-local function WaterHandler()
-    return function(m, _) m.Mesh:Draw() end
+local function DrawWaterMesh(m, _)
+    m.Mesh:Draw()
 end
 
 ---@param handler fun(m: ss.MeshData, ent: Entity?)
@@ -197,66 +189,37 @@ local function DrawMesh(handler)
     end
 end
 
----@param targets ITexture[]
----@param clearDepth boolean
-local function ClearForwardTargets(targets, clearDepth)
-    for index, target in ipairs(targets) do
-        render.PushRenderTarget(target)
-        render.Clear(0, 0, 0, 0, false, false)
-        if clearDepth and index == 1 then render.ClearDepth() end
-        render.PopRenderTarget()
-    end
+local function DrawNormalMeshes()
+    currentNormalMaterial = nil
+    DrawMesh(DrawNormalMesh)
 end
 
----@param targets ITexture[]
-local function PushForwardMRT(targets)
-    for index, target in ipairs(targets) do
-        render.SetRenderTargetEx(index - 1, target)
-    end
-    render.SetViewPort(0, 0, targets[1]:Width(), targets[1]:Height())
+local function DrawFlashlightMeshes()
+    currentFlashlightMaterial = nil
+    DrawMesh(DrawFlashlightMesh)
 end
 
----@param targets ITexture[]
-local function PopForwardMRT(targets)
-    for index = #targets, 1, -1 do
-        render.SetRenderTargetEx(index - 1, nil)
-    end
+---@param frame ss.RenderTarget.FrameTextures
+local function PushForwardMRT(frame)
+    render.SetRenderTargetEx(0, frame.Forward0)
+    render.SetRenderTargetEx(1, frame.Forward1)
+    render.SetRenderTargetEx(2, frame.Forward2)
+    render.SetRenderTargetEx(3, frame.Forward3)
+    render.Clear(0, 0, 0, 0, false, false)
+    render.ClearDepth()
+end
+
+local function PopForwardMRT()
+    render.SetRenderTargetEx(3, nil)
+    render.SetRenderTargetEx(2, nil)
+    render.SetRenderTargetEx(1, nil)
+    render.SetRenderTargetEx(0, nil)
     render.SetViewPort(0, 0, ScrW(), ScrH())
 end
 
-local function UpdateSSRMaterials()
+local SSRViewMatrix = Matrix()
+local function UpdateSSRView()
     local frame = ss.RenderTarget.FrameTextures
-    local textureBindingKey = table.concat({
-        frame.Forward0:GetName(), frame.Forward1:GetName(),
-        frame.Forward2:GetName(), frame.Forward3:GetName(),
-        frame.SceneColorDepth:GetName(), frame.SSRSource:GetName(),
-        frame.SSRResult:GetName(), frame.SSRFilter:GetName(),
-    }, "\0")
-    if textureBindingKey ~= SSRTextureBindingKey then
-        SSRTraceMaterial:SetTexture("$basetexture", frame.Forward0)
-        SSRTraceMaterial:SetTexture("$texture1", frame.Forward1)
-        SSRTraceMaterial:SetTexture("$texture2", frame.Forward2)
-        SSRTraceMaterial:SetTexture("$texture3", frame.Forward3)
-        SSRTraceMaterial:SetTexture("$texture4", frame.SceneColorDepth)
-        SSRTraceMaterial:SetTexture("$texture5", frame.SSRSource)
-        SSRTraceMaterial:SetFloat("$c0_x", 2 / frame.Forward0:Width())
-        SSRTraceMaterial:SetFloat("$c0_y", 2 / frame.Forward0:Height())
-        SSRTraceMaterial:SetFloat("$c0_z", 0.5)
-        SSRTraceMaterial:Recompute()
-        SSRFilterMaterial:SetTexture("$basetexture", frame.SSRResult)
-        SSRFilterMaterial:Recompute()
-        SSRCompositeMaterial:SetTexture("$basetexture", frame.Forward0)
-        SSRCompositeMaterial:SetTexture("$texture1", frame.Forward1)
-        SSRCompositeMaterial:SetTexture("$texture2", frame.Forward2)
-        SSRCompositeMaterial:SetTexture("$texture3", frame.Forward3)
-        SSRCompositeMaterial:SetTexture("$texture4", frame.SceneColorDepth)
-        SSRCompositeMaterial:SetTexture("$texture5", frame.SSRFilter)
-        SSRCompositeMaterial:SetFloat("$c0_x", 1 / frame.Forward0:Width())
-        SSRCompositeMaterial:SetFloat("$c0_y", 1 / frame.Forward0:Height())
-        SSRCompositeMaterial:SetFloat("$c0_z", 1.0)
-        SSRCompositeMaterial:Recompute()
-        SSRTextureBindingKey = textureBindingKey
-    end
     local view = render.GetViewSetup()
     local origin = view.origin
     local angles = view.angles
@@ -266,15 +229,12 @@ local function UpdateSSRMaterials()
     local right = angles:Right() * tanHalfFovX
     local up = angles:Up() * tanHalfFovY
     local forward = angles:Forward()
-    local m = Matrix()
-    m:SetUnpacked(
+    SSRViewMatrix:SetUnpacked(
         right.x, right.y, right.z, 0,
         up.x, up.y, up.z, 0,
         forward.x, forward.y, forward.z, 0,
         origin.x, origin.y, origin.z, 1)
-    SSRTraceMaterial:SetMatrix("$viewprojmat", m)
-    SSRFilterMaterial:SetMatrix("$viewprojmat", m)
-    SSRCompositeMaterial:SetMatrix("$viewprojmat", m)
+    SSRTraceMaterial:SetMatrix("$viewprojmat", SSRViewMatrix)
 end
 
 hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
@@ -342,28 +302,22 @@ function(bDrawingDepth, bDrawingSkybox)
     local isDrawingWater = rt and rt:GetName():find "_rt_waterref"
     if isDrawingWater then
         render.SetMaterial(InkWaterMaterial)
-        DrawMesh(WaterHandler())
+        DrawMesh(DrawWaterMesh)
         return
     end
 
     local frame = ss.RenderTarget.FrameTextures
-    UpdateSSRMaterials()
+    UpdateSSRView()
     render.CopyRenderTargetToTexture(FullFrameFb1)
     render.PushRenderTarget(frame.SceneColorDepth)
     render.SetMaterial(CopyFrameBufferMaterial)
     render.DrawScreenQuad()
     render.PopRenderTarget()
-    render.PushRenderTarget(frame.SSRSource)
-    render.SetMaterial(CopyFrameBufferMaterial)
-    render.DrawScreenQuad()
-    render.PopRenderTarget()
-    local forwardTargets = { frame.Forward0, frame.Forward1, frame.Forward2, frame.Forward3 }
-    ClearForwardTargets(forwardTargets, true)
-    PushForwardMRT(forwardTargets)
+    PushForwardMRT(frame)
     render.OverrideDepthEnable(true, true)
-    DrawMesh(NormalMeshHandler())
+    DrawNormalMeshes()
     render.OverrideDepthEnable(false)
-    PopForwardMRT(forwardTargets)
+    PopForwardMRT()
     render.PushRenderTarget(frame.SSRResult)
     render.Clear(0, 0, 0, 0)
     render.SetMaterial(SSRTraceMaterial)
@@ -379,7 +333,7 @@ function(bDrawingDepth, bDrawingSkybox)
     render.OverrideBlend(true,
         BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD,
         BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD)
-    render.RenderFlashlights(function() DrawMesh(FlashlightHandler()) end)
+    render.RenderFlashlights(DrawFlashlightMeshes)
     render.OverrideBlend(false)
 end)
 
