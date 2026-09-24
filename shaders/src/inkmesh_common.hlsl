@@ -103,20 +103,6 @@ float3 DecomposeBasis(float2 a, float2 b, float2 v) {
         det);
 }
 
-// Solves X = float4(x, y, z, det) such that v = x*a + y*b + z*c.
-float4 DecomposeBasis(float3 a, float3 b, float3 c, float3 v) {
-    float3 bCrossC = cross(b, c);
-    float3 cCrossA = cross(c, a);
-    float3 aCrossB = cross(a, b);
-    float det      = dot(a, bCrossC);
-    float invDet   = SAFERCP(det);
-    return float4(
-        dot(v, bCrossC) * invDet,
-        dot(v, cCrossA) * invDet,
-        dot(v, aCrossB) * invDet,
-        det);
-}
-
 float2 OctSignNotZero(float2 v) {
     return float2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0);
 }

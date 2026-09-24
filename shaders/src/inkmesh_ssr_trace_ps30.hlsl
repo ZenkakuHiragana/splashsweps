@@ -26,6 +26,20 @@ static const float3 g_ViewUp      = c12.xyz;
 static const float3 g_ViewForward = c13.xyz;
 static const float3 g_ViewOrigin  = c14.xyz;
 
+// Prepares the inverse of the basis (a, b, c), so that
+// mul(MakeBasisInverse(a, b, c), v) solves v = x*a + y*b + z*c for (x, y, z).
+// Prepare once and apply to several vectors when the basis is shared.
+float3x3 MakeBasisInverse(float3 a, float3 b, float3 c) {
+    float3 bCrossC = cross(b, c);
+    float3 cCrossA = cross(c, a);
+    float3 aCrossB = cross(a, b);
+    float invDet   = SAFERCP(dot(a, bCrossC));
+    return float3x3(
+        bCrossC * invDet,
+        cCrossA * invDet,
+        aCrossB * invDet);
+}
+
 float3 ReconstructWorldPosition(float2 uv, float viewDepth) {
     float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     return g_ViewOrigin + (g_ViewForward + g_ViewRight * ndc.x + g_ViewUp * ndc.y) * viewDepth;
@@ -140,23 +154,24 @@ float4 SampleScreenSpaceReflection(
     //   x: ∂W/∂u,  y: ∂W/∂v,  z: ∂W/∂r
     float3 clipWPerScreenSpaceAxis = { ddx(W) * g_RenderPx.x, ddy(W) * g_RenderPx.y, W / viewDist };
 
+    // Inverse of the screen space basis (u, v, r) -> world, prepared once and
+    // applied to the two vectors below:
+    //   mul(worldToUVR, v) = (du, dv, dr) such that
+    //   v = du*∂P/∂u + dv*∂P/∂v + dr*∂P/∂r
+    float3x3 worldToUVR = MakeBasisInverse(
+        screenSpaceAxesInWorld[0],
+        screenSpaceAxesInWorld[1],
+        screenSpaceAxesInWorld[2]);
+
     // Surface displacement by the height map in screen space coordinates (u, v, r)
     // (u, v) .. Frame buffer UV, r .. Depth in Hammer units
     // screenSpaceOffset = ds = (du, dv, dr)
-    float4 screenSpaceOffset = DecomposeBasis(
-        screenSpaceAxesInWorld[0],
-        screenSpaceAxesInWorld[1],
-        screenSpaceAxesInWorld[2],
-        geometryNormal * (height * HEIGHT_TO_HU + INITIAL_BIAS_HU));
+    float3 screenSpaceOffset = mul(worldToUVR, geometryNormal * (height * HEIGHT_TO_HU + INITIAL_BIAS_HU));
 
     // Reflection ray direction in screen space coordinates
     //   The point on the reflection ray R = P + reflect(...) * t, where t is a parameter
     //   screenSpaceRayDirection = dR/dt = (dRu/dt, dRv/dt, dRr/dt)
-    float4 screenSpaceRayDirection = DecomposeBasis(
-        screenSpaceAxesInWorld[0],
-        screenSpaceAxesInWorld[1],
-        screenSpaceAxesInWorld[2],
-        reflect(viewAway, worldSpaceNormal));
+    float3 screenSpaceRayDirection = mul(worldToUVR, reflect(viewAway, worldSpaceNormal));
 
     // UVQ coordinate:
     //   xy: framebuffer UV
@@ -168,7 +183,7 @@ float4 SampleScreenSpaceReflection(
     float3 rayStartUVQ = {
         screenUV + screenSpaceOffset.xy,
         // W + dW = W + ∂W/∂u * du + ∂W/∂v * dv + ∂W/∂r * dr = W + dot(∂W, ds)
-        rcp(max(W + dot(screenSpaceOffset.xyz, clipWPerScreenSpaceAxis), 1.0e-6)),
+        rcp(max(W + dot(screenSpaceOffset, clipWPerScreenSpaceAxis), 1.0e-6)),
     };
 
     // dQ/dt = -1/W² * dW/dt = -Q² * dW/dt
@@ -177,7 +192,7 @@ float4 SampleScreenSpaceReflection(
     //       + ∂W/∂r * dQr/dt = dot(∂W, dQ/dt)
     float3 rayDirectionUVQ = {
         screenSpaceRayDirection.xy,
-        -rayStartUVQ.z * rayStartUVQ.z * dot(screenSpaceRayDirection.xyz, clipWPerScreenSpaceAxis),
+        -rayStartUVQ.z * rayStartUVQ.z * dot(screenSpaceRayDirection, clipWPerScreenSpaceAxis),
     };
 
     // Building the ray
