@@ -10,7 +10,7 @@ static const int   MAX_STEPS         = 64;       // Maximum screen-space samples
 static const int   BINARY_STEPS      = 2;        // Binary search refinement steps
 static const float STEP_PIXEL_RCP    = rcp(8.0); // Target screen-space distance between samples
 static const float INITIAL_BIAS_HU   = 2.0;      // Ray start offset in Hammer units to skip the source surface
-static const float STITCH_GAP_MIN_HU = 16.0;
+static const float DEPTH_GAP_MIN_HU  = 16.0;     // Minimum depth jump that counts as crossing a depth gap
 static const float FOV_Y             = radians(75.0);
 static const float TAN_HALF_FOV      = tan(FOV_Y * 0.5);
 static const float THICKNESS_MIN     = 8.0;  // Minimum accepted screen-depth thickness in Hammer units
@@ -39,9 +39,8 @@ float3 InkAwareColor(float2 uv, float3 frameBufferColor) {
 float ComputeSSRThickness(float depth, float rayDepthSpan, float roughness) {
     float pixelSizeHU = 2.0 * depth * TAN_HALF_FOV * g_FbSize.y;
     float roughnessScale = lerp(1.0, ROUGHNESS_SCALE, roughness);
-    return clamp(
-        max(pixelSizeHU * roughnessScale, rayDepthSpan * RAY_SPAN_SCALE),
-        THICKNESS_MIN, THICKNESS_MAX);
+    float thickness = max(pixelSizeHU * roughnessScale, rayDepthSpan * RAY_SPAN_SCALE);
+    return clamp(thickness, THICKNESS_MIN, THICKNESS_MAX);
 }
 
 // -1 -> clear:         ray is in front of the depth shell
@@ -63,6 +62,59 @@ float ClassifySSRSegment(float rayMin, float rayMax, float sceneDepth, float thi
     return behind - clear;
 }
 
+// The three classification values produced by ClassifySSRSegment.
+bool SegmentIsClear(float c)        { return c < 0.0; }
+bool SegmentIsOccluded(float c)     { return c > 0.0; }
+bool SegmentIsHitCandidate(float c) { return abs(c) < 1.0e-3; }
+
+// Bisects [inFront, behind] down to where the reflection ray crosses the scene surface:
+// 'behind' converges to the first sample behind the surface,
+// 'inFront' to the last sample in front of it.
+// The scene sample at 'behind' is carried along,
+// so the caller keeps color and depth at the crossing point.
+void RefineSurfaceCrossing(inout float3 inFront, inout float3 behind, inout float4 behindSample) {
+    [unroll]
+    for (int k = 0; k < BINARY_STEPS; k++) {
+        float3 midUVQ    = lerp(inFront, behind, 0.5);
+        float4 midSample = tex2Dlod(SceneColorDepth, float4(midUVQ.xy, 0.0, 0.0));
+        if (midSample.a * DEPTHWRITE_TO_HU < rcp(midUVQ.z)) {
+            behind = midUVQ;
+            behindSample = midSample;
+        }
+        else {
+            inFront = midUVQ;
+        }
+    }
+}
+
+// Bisects [beforeGap, pastGap] down to the edge of a depth gap (a silhouette or
+// a crack between surfaces): 'pastGap' converges to the first sample that
+// already sees the far side of the gap. Its scene sample is carried along.
+void RefineGapEdge(
+    inout float3 beforeGap,
+    inout float3 pastGap,
+    inout float4 pastSample,
+    float previousDepth,
+    float gapThreshold)
+{
+    [unroll]
+    for (int k = 0; k < BINARY_STEPS; k++) {
+        float3 midUVQ    = lerp(beforeGap, pastGap, 0.5);
+        float4 midSample = tex2Dlod(SceneColorDepth, float4(midUVQ.xy, 0.0, 0.0));
+        if (midSample.a * DEPTHWRITE_TO_HU - previousDepth > gapThreshold) {
+            pastGap = midUVQ;
+            pastSample = midSample;
+        }
+        else {
+            beforeGap = midUVQ;
+        }
+    }
+}
+
+// Marches the reflection ray in UVQ space and resolves the reflection hit of one pixel.
+// A hit is either the surface crossing found by the march (returned immediately)
+// or a depth-gap bridge recorded along the way (returned when the march ends without a crossing).
+// rgb: ink-aware reflection color, a: confidence (screen-edge fade); the caller premultiplies them.
 float4 SampleScreenSpaceReflection(
     float2 screenUV,
     float3 worldPos,
@@ -139,14 +191,19 @@ float4 SampleScreenSpaceReflection(
     float  rayLengthPx   = distance(rayStartUVQ.xy / g_FbSize, rayEndUVQ.xy / g_FbSize);
     float  numSteps      = clamp(ceil(rayLengthPx * STEP_PIXEL_RCP), 1.0, MAX_STEPS);
 
-    // Temporary variables used in the loop
-    float4 prevUVQC          = { rayStartUVQ, -1.0 }; // UVQ + Classify result
-    float  prevFbDepth       = 1.0e20;
-    float3 lastClearRay      = rayStartUVQ; // Last ray that was in front of the depth
-    float3 lastClearColor    = 0.0;
-    float  lastClearDistance = 0.0;
-    float4 stitchCandidate   = 0.0;
-    bool   rayArmed          = height * HEIGHT_TO_HU + INITIAL_BIAS_HU >= 0.0;
+    // March state. 'sceneSample' is always the scene sample at 'uvq'; every
+    // refinement below carries the sample along when it moves the point.
+    float3 previousUVQ    = rayStartUVQ; // Previous sample position in UVQ
+    float  previousClass  = -1.0;        // Its classification; the biased start is assumed clear
+    float  previousDepth  = 1.0e20;      // Scene depth at the previous sample
+    float3 lastClearUVQ   = rayStartUVQ; // Near anchor of the depth-gap bridge
+    float3 lastClearColor = 0.0;         // Scene color at the anchor
+    float  lastClearance  = 0.0;         // Ray-to-surface clearance at the anchor
+    float4 bridgedHit     = 0.0;         // Fallback hit bridged across a depth gap
+
+    // A ray starting inside its own depth shell (dug ink) must reach clear
+    // space once before any hit is accepted, so it cannot hit its own surface.
+    bool canAcceptHit = height * HEIGHT_TO_HU + INITIAL_BIAS_HU >= 0.0;
 
     [loop]
     for (int j = 1; j <= MAX_STEPS; j++) {
@@ -156,86 +213,62 @@ float4 SampleScreenSpaceReflection(
         float3 uvq = lerp(rayStartUVQ, rayEndUVQ, t);
         if (ScreenEdgeFade(uvq.xy) <= 0.0) break;
 
-        float4 fb = tex2Dlod(SceneColorDepth, float4(uvq.xy, 0.0, 0.0));
-        float fbDepth = fb.a * DEPTHWRITE_TO_HU;
-        if (fbDepth <= 1.0e-3) continue; // Seems like the ray is on the viewmodel, skipping...
+        float4 sceneSample = tex2Dlod(SceneColorDepth, float4(uvq.xy, 0.0, 0.0));
+        float sceneSampleDepth = sceneSample.a * DEPTHWRITE_TO_HU;
+        if (sceneSampleDepth <= 1.0e-3) continue; // Seems like the ray is on the viewmodel, skipping...
 
-        float prevRayDepth    = rcp(max(prevUVQC.z, 1.0e-6));
-        float currentRayDepth = rcp(max(uvq.z, 1.0e-6));
-        float rayMin          = min(prevRayDepth, currentRayDepth);
-        float rayMax          = max(prevRayDepth, currentRayDepth);
-        float rayDepthSpan    = rayMax - rayMin;
-        float thickness       = ComputeSSRThickness(fbDepth, rayDepthSpan, roughness);
-        float classification  = ClassifySSRSegment(rayMin, rayMax, fbDepth, thickness);
-        if (rayArmed && prevUVQC.w < 0.0 && abs(classification) < 1.0e-3) {
-            [unroll]
-            for (int k = 0; k < BINARY_STEPS; k++) {
-                float3 midUVQ     = lerp(prevUVQC.xyz, uvq, 0.5);
-                float4 midFb      = tex2Dlod(SceneColorDepth, float4(midUVQ.xy, 0.0, 0.0));
-                float  midFbDepth = midFb.a * DEPTHWRITE_TO_HU;
+        float previousRayDepth = rcp(max(previousUVQ.z, 1.0e-6));
+        float rayDepth         = rcp(max(uvq.z, 1.0e-6));
+        float rayMin           = min(previousRayDepth, rayDepth);
+        float rayMax           = max(previousRayDepth, rayDepth);
+        float rayDepthSpan     = rayMax - rayMin;
+        float thickness        = ComputeSSRThickness(sceneSampleDepth, rayDepthSpan, roughness);
+        float classification   = ClassifySSRSegment(rayMin, rayMax, sceneSampleDepth, thickness);
 
-                // fbDepth
-                //  *   * uvq
-                //  |  /
-                //  | * midUVQ
-                //   X
-                //  / \
-                // *   * previous fbDepth
-                // prevUVQ
-                if (midFbDepth < rcp(midUVQ.z)) {
-                    uvq = midUVQ;
-                    fb = midFb;
-                }
-                else {
-                    prevUVQC.xyz = midUVQ;
-                }
-            }
-            return float4(InkAwareColor(uvq.xy, fb.rgb), ScreenEdgeFade(uvq.xy));
+        // Hard hit: the segment has just left clear space and now touches the
+        // depth shell, so the surface crossing itself is the reflection hit.
+        if (canAcceptHit && SegmentIsClear(previousClass) && SegmentIsHitCandidate(classification)) {
+            RefineSurfaceCrossing(previousUVQ, uvq, sceneSample);
+            return float4(InkAwareColor(uvq.xy, sceneSample.rgb), ScreenEdgeFade(uvq.xy));
         }
 
-        float depthJump = fbDepth - prevFbDepth;
-        float gapThreshold = max(thickness, STITCH_GAP_MIN_HU);
-        float foundStitchGap
-            = (rayArmed ? 1.0 : 0.0)
-            * (1.0 - step(prevUVQC.w, 0.0))  // previously occluded
-            * step(0.0, classification)      // and now occluded or hit candidate
-            * step(gapThreshold, depthJump); // and depth jumps
-        if (foundStitchGap > 0.0) {
-            [unroll]
-            for (int k = 0; k < BINARY_STEPS; k++) {
-                float3 midUVQ     = lerp(prevUVQC.xyz, uvq, 0.5);
-                float4 midFb      = tex2Dlod(SceneColorDepth, float4(midUVQ.xy, 0.0, 0.0));
-                float  midFbDepth = midFb.a * DEPTHWRITE_TO_HU;
-                if (midFbDepth - prevFbDepth > gapThreshold) {
-                    uvq = midUVQ;
-                    currentRayDepth = rcp(max(uvq.z, 1.0e-6));
-                    fb = midFb;
-                    fbDepth = midFbDepth;
-                }
-                else {
-                    prevUVQC.xyz = midUVQ;
-                }
-            }
-            float3 color1 = InkAwareColor(lastClearRay.xy, lastClearColor);
-            float3 color2 = InkAwareColor(uvq.xy, fb.rgb);
-            float  currentDistanceToDepth = abs(fbDepth - currentRayDepth);
-            float  stitchWeight  = lastClearDistance * rcp(max(lastClearDistance + currentDistanceToDepth, 1.0e-3));
-            float3 stitchedColor = lerp(color1, color2, stitchWeight);
-            float  stitchAlpha   = lerp(ScreenEdgeFade(lastClearRay.xy), ScreenEdgeFade(uvq.xy), stitchWeight);
-            stitchCandidate = float4(stitchedColor, stitchAlpha);
+        // Depth-gap bridge (fallback hit): the segment came out occluded and the
+        // scene depth jumped, so the ray crossed a silhouette gap or a crack
+        // between surfaces where no shell crossing can be accepted. Approximate
+        // the reflection instead: blend the anchor color (the last clear sample)
+        // and the far-side color (the first sample beyond the gap), weighted by
+        // inverse clearance so the endpoint closer to the ray dominates.
+        float depthJump    = sceneSampleDepth - previousDepth;
+        float gapThreshold = max(thickness, DEPTH_GAP_MIN_HU);
+        bool crossedDepthGap = canAcceptHit
+            && SegmentIsOccluded(previousClass) // previously occluded
+            && !SegmentIsClear(classification)  // and now occluded or hit candidate
+            && depthJump >= gapThreshold;       // and depth jumps
+        if (crossedDepthGap) {
+            RefineGapEdge(previousUVQ, uvq, sceneSample, previousDepth, gapThreshold);
+            sceneSampleDepth = sceneSample.a * DEPTHWRITE_TO_HU;
+            float  rayDepthAtGap = rcp(max(uvq.z, 1.0e-6));
+            float  gapClearance  = abs(sceneSampleDepth - rayDepthAtGap);
+            float3 anchorColor   = InkAwareColor(lastClearUVQ.xy, lastClearColor);
+            float3 farSideColor  = InkAwareColor(uvq.xy, sceneSample.rgb);
+            float  farSideWeight = lastClearance * rcp(max(lastClearance + gapClearance, 1.0e-3));
+            bridgedHit = float4(
+                lerp(anchorColor, farSideColor, farSideWeight),
+                lerp(ScreenEdgeFade(lastClearUVQ.xy), ScreenEdgeFade(uvq.xy), farSideWeight));
         }
 
-        prevUVQC = float4(uvq, classification);
-        prevFbDepth = fbDepth;
-        if (classification < 0.0) {
-            rayArmed = true;
-            lastClearRay = uvq;
-            lastClearColor = fb.rgb;
-            lastClearDistance = fbDepth - currentRayDepth;
+        previousUVQ   = uvq;
+        previousClass = classification;
+        previousDepth = sceneSampleDepth;
+        if (SegmentIsClear(classification)) {
+            canAcceptHit   = true;
+            lastClearUVQ   = uvq;
+            lastClearColor = sceneSample.rgb;
+            lastClearance  = sceneSampleDepth - rcp(max(uvq.z, 1.0e-6));
         }
     }
 
-    return stitchCandidate;
+    return bridgedHit;
 }
 
 float4 main(float4 i : VPOS) : COLOR0 {
