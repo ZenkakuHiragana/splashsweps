@@ -43,10 +43,10 @@ local RTNAMES = {
     INKMAP2    = "splashsweps_inkmap2",
     ALBEDO     = "splashsweps_albedo",
     TINT       = "splashsweps_tint",
-    FORWARD0   = "splashsweps_forward0",
-    FORWARD1   = "splashsweps_forward1",
-    FORWARD2   = "splashsweps_forward2",
-    FORWARD3   = "splashsweps_forward3",
+    GCOLOR     = "splashsweps_gbuf_inkcolor",
+    GNORMAL    = "splashsweps_gbuf_inknormals",
+    GREFLECT   = "splashsweps_gbuf_reflection",
+    GENVMAP    = "splashsweps_gbuf_envmap",
     SSR_RESULT = "splashsweps_ssr_result",
     SSR_FILTER = "splashsweps_ssr_filter",
 }
@@ -56,14 +56,10 @@ local COMMON_FLAGS = bit.bor(
     TEXTUREFLAGS.RENDERTARGET)
 local RTFLAGS = {
     -- Wish this prevents sRGB correction
-    INKMAP  = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NORMAL),
-    ALBEDO  = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
-    TINT    = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
-    FRAME   = bit.bor(
-        COMMON_FLAGS,
-        TEXTUREFLAGS.CLAMPS,
-        TEXTUREFLAGS.CLAMPT,
-        TEXTUREFLAGS.NODEBUGOVERRIDE),
+    INKMAP = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NORMAL),
+    ALBEDO = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
+    TINT   = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
+    FRAME  = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.CLAMPS, TEXTUREFLAGS.CLAMPT, TEXTUREFLAGS.NODEBUGOVERRIDE),
 }
 
 if not ss.RenderTarget then
@@ -79,14 +75,21 @@ if not ss.RenderTarget then
         },
         ---One-frame textures for forward MRT shading and SSR composition.
         ---@class ss.RenderTarget.FrameTextures
+        ---@field SceneColorDepth ITexture? Frame buffer copy + alpha channel as depth buffer
+        ---@field SSRResult  ITexture?
+        ---@field SSRFilter  ITexture?
+        ---@field InkColor   ITexture? G-Buffer to store final painted ink color without SSR component.
+        ---@field InkNormals ITexture? G-Buffer to store octahedral encoded ink normals.
+        ---@field Reflection ITexture? G-Buffer to store precomputed reflection weights and ink height.
+        ---@field Envmap     ITexture? G-Buffer to store precomputed $envmap sample and ink roughness.
         FrameTextures = {
-            SceneColorDepth = nil, ---@type ITexture
-            SSRResult = nil, ---@type ITexture
-            SSRFilter = nil, ---@type ITexture
-            Forward0 = nil, ---@type ITexture
-            Forward1 = nil, ---@type ITexture
-            Forward2 = nil, ---@type ITexture
-            Forward3 = nil, ---@type ITexture
+            SceneColorDepth = nil,
+            SSRResult  = nil,
+            SSRFilter  = nil,
+            InkColor   = nil,
+            InkNormals = nil,
+            Reflection = nil,
+            Envmap     = nil,
         },
         ---List of render target resolutions available.
         Resolutions = {
@@ -104,41 +107,16 @@ end
 ---Reserves render targets.
 function ss.SetupRenderTargets()
     local rt = ss.RenderTarget
-    local frame = rt.FrameTextures
-    local function CreateFrameTarget(name, depthMode)
-        return GetRenderTargetEx(
-            name,
-            ScrW(), ScrH(),
-            RT_SIZE_FULL_FRAME_BUFFER,
+    local function GetGBuffer(name, depthMode, scale)
+        scale = scale or 1
+        return GetRenderTargetEx(name,
+            ScrW() * scale, ScrH() * scale,
+            RT_SIZE_LITERAL,
             depthMode,
             RTFLAGS.FRAME,
             CREATERENDERTARGETFLAGS_NONE,
             IMAGE_FORMAT_RGBA16161616F)
     end
-
-    frame.SceneColorDepth = render.GetSuperFPTex()
-    frame.SSRResult = GetRenderTargetEx(
-        RTNAMES.SSR_RESULT,
-        ScrW() * 0.5,
-        ScrH() * 0.5,
-        RT_SIZE_LITERAL,
-        MATERIAL_RT_DEPTH_NONE,
-        RTFLAGS.FRAME,
-        CREATERENDERTARGETFLAGS_NONE,
-        IMAGE_FORMAT_RGBA16161616F)
-    frame.SSRFilter = GetRenderTargetEx(
-        RTNAMES.SSR_FILTER,
-        ScrW() * 0.5,
-        ScrH() * 0.5,
-        RT_SIZE_LITERAL,
-        MATERIAL_RT_DEPTH_NONE,
-        RTFLAGS.FRAME,
-        CREATERENDERTARGETFLAGS_NONE,
-        IMAGE_FORMAT_RGBA16161616F)
-    frame.Forward0 = CreateFrameTarget(RTNAMES.FORWARD0, MATERIAL_RT_DEPTH_SEPARATE)
-    frame.Forward1 = CreateFrameTarget(RTNAMES.FORWARD1, MATERIAL_RT_DEPTH_NONE)
-    frame.Forward2 = CreateFrameTarget(RTNAMES.FORWARD2, MATERIAL_RT_DEPTH_NONE)
-    frame.Forward3 = CreateFrameTarget(RTNAMES.FORWARD3, MATERIAL_RT_DEPTH_NONE)
 
     local rtIndex = #ss.RenderTarget.Resolutions
     local rtSize = rt.Resolutions[rtIndex]
@@ -176,5 +154,12 @@ function ss.SetupRenderTargets()
         RTFLAGS.TINT,
         CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA8888)
+    rt.FrameTextures.SceneColorDepth = render.GetSuperFPTex()
+    rt.FrameTextures.SSRResult  = GetGBuffer(RTNAMES.SSR_RESULT, MATERIAL_RT_DEPTH_NONE, 0.5)
+    rt.FrameTextures.SSRFilter  = GetGBuffer(RTNAMES.SSR_FILTER, MATERIAL_RT_DEPTH_NONE, 0.5)
+    rt.FrameTextures.InkColor   = GetGBuffer(RTNAMES.GCOLOR,     MATERIAL_RT_DEPTH_SEPARATE)
+    rt.FrameTextures.InkNormals = GetGBuffer(RTNAMES.GNORMAL,    MATERIAL_RT_DEPTH_NONE)
+    rt.FrameTextures.Reflection = GetGBuffer(RTNAMES.GREFLECT,   MATERIAL_RT_DEPTH_NONE)
+    rt.FrameTextures.Envmap     = GetGBuffer(RTNAMES.GENVMAP,    MATERIAL_RT_DEPTH_NONE)
     ss.ClearAllInk()
 end

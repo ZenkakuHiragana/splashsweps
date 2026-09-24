@@ -1,6 +1,4 @@
 
-#include "inkmesh_oct.hlsl"
-
 // Data texture layout
 #define ID_COLOR_ALPHA        0
 #define ID_TINT_GEOMETRYPAINT 1
@@ -20,7 +18,12 @@
 // Safe rcp that avoids division by zero
 #define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-16)))
 
+// Hardcoded in DepthWrite shader used in _rt_resolvedfullframedepth
+static const float  DEPTHWRITE_TO_HU = 4000.0;
+
+// Ink height map to hammer unit conversion constant
 static const float  HEIGHT_TO_HU = 24.0;
+
 static const float4 GROUND_PROPERTIES[8] = {
     { 1.0, 1.0, 1.0,  1.0 },
     { 1.0, 1.0, 1.0,  0.0 },
@@ -70,18 +73,68 @@ const float4 c17       : register(c17); // unused
 const float4 c18       : register(c18); // unused
 const float4 HDRParams : register(c30);
 
-const sampler InkDataDetail : register(s1);
 static const float2 g_DataRTSize     = s1Size.xy;
 static const float  g_InkDataOffsetV = c3.w;
-float4 FetchDataPixel(int id, int index) {
+float4 FetchDataPixel(sampler s, int id, int index) {
     if (id == 0) {
         return GROUND_PROPERTIES[index];
     }
     else {
-        return tex2Dlod(InkDataDetail, float4(
+        return tex2Dlod(s, float4(
             (id    - 0.5) * g_DataRTSize.x,
             (index + g_InkDataOffsetV + 0.5) * g_DataRTSize.y,
             0.0,
             0.0));
     }
+}
+
+float ScreenEdgeFade(float2 uv) {
+    float edge = min(min(uv.x, uv.y), 1.0 - max(uv.x, uv.y));
+    return smoothstep(0.0, 0.0625, edge);
+}
+
+// Solves X = float3(x, y, det) such that v = x*a + y*b
+float3 DecomposeBasis(float2 a, float2 b, float2 v) {
+    float det = a.x * b.y - b.x * a.y;
+    float invDet = SAFERCP(det);
+    return float3(
+        (v.x * b.y - b.x * v.y) * invDet,
+        (a.x * v.y - v.x * a.y) * invDet,
+        det);
+}
+
+// Solves X = float4(x, y, z, det) such that v = x*a + y*b + z*c.
+float4 DecomposeBasis(float3 a, float3 b, float3 c, float3 v) {
+    float3 bCrossC = cross(b, c);
+    float3 cCrossA = cross(c, a);
+    float3 aCrossB = cross(a, b);
+    float det      = dot(a, bCrossC);
+    float invDet   = SAFERCP(det);
+    return float4(
+        dot(v, bCrossC) * invDet,
+        dot(v, cCrossA) * invDet,
+        dot(v, aCrossB) * invDet,
+        det);
+}
+
+float2 OctSignNotZero(float2 v) {
+    return float2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0);
+}
+
+float2 EncodeOctahedralUnitVector(float3 v) {
+    v *= rcp(abs(v.x) + abs(v.y) + abs(v.z));
+    float2 encoded = v.xy;
+    if (v.z < 0.0) {
+        encoded = (1.0 - abs(encoded.yx)) * OctSignNotZero(encoded);
+    }
+    return encoded * 0.5 + 0.5;
+}
+
+float3 DecodeOctahedralUnitVector(float2 encoded) {
+    float2 f = encoded * 2.0 - 1.0;
+    float3 v = float3(f, 1.0 - abs(f.x) - abs(f.y));
+    if (v.z < 0.0) {
+        v.xy = (1.0 - abs(v.yx)) * OctSignNotZero(v.xy);
+    }
+    return normalize(v);
 }

@@ -14,10 +14,10 @@ struct PS_INPUT {
 };
 
 struct PS_OUTPUT {
-    float4 color0 : COLOR0;
-    float4 color1 : COLOR1;
-    float4 color2 : COLOR2;
-    float4 color3 : COLOR3;
+    float4 finalColorWithoutSSR : COLOR0;
+    float4 encodedNormals       : COLOR1; // encoded normal vector of xy: painted ink, zw: the mesh
+    float4 reflectionAndHeight  : COLOR2; // reflected ink color and ink height
+    float4 envmapAndRoughness   : COLOR3; // envmap sample and ink roughness
 };
 
 struct UVs {
@@ -87,7 +87,6 @@ static const float RIM_METALIC_MAX    = 0.0625; // Rim lighting strength at meta
 static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
-static const float DepthWriteConstant = 4000.0; // Used by DepthWrite / _rt_resolvedfullframedepth
 static const float3 GrayScaleFactor   = { 0.2126, 0.7152, 0.0722 };
 static const float3x3 BumpBasis = {
     // Bumped lightmap basis vectors (same as LightmappedGeneric) in tangent space
@@ -98,6 +97,7 @@ static const float3x3 BumpBasis = {
 
 // Samplers
 sampler InkMap          : register(s0);
+sampler InkDataDetail   : register(s1);
 sampler FrameBuffer     : register(s2);
 sampler UnderlayAlbedo  : register(s3);
 sampler UnderlayBumpmap : register(s4);
@@ -107,25 +107,25 @@ sampler Envmap          : register(s7);
 
 static const sampler UnderlayDetail       = TextureSampler5; // g_HasUnderlayAtlas == 0.0
 static const sampler UnderlayAtlas        = TextureSampler5; // g_HasUnderlayAtlas != 0.0
-static const float3 g_SunDirection        = c0.xyz; // in world space
-static const float  g_DetailBlendMode     = c0.w;
-static const float  g_HammerUnitsToUV     = c1.x;   // = ss.RenderTarget.HammerUnitsToUV * 0.5
-static const float  g_MaterialFlags       = c1.y;
-static const float2 g_LightmapSize        = c2.xy;  // One over lightmap size
-static const float2 g_DetailScale         = c2.zw;
-static const float3 g_Color               = c3.rgb;
-static const float2 g_RTSize              = s0Size; // One over ink map size
-static const float2 g_FbSize              = s2Size; // One over frame buffer size
-static const float2 g_UnderlayAlbedoSize  = s3Size; // One over $basetexture size
-static const float3 BaseTransform[2]      = { c11.xyz, c12.xyz };
-static const float3 BumpTransform[2]      = { c13.xyz, c14.xyz };
-static const float3 BlendTransform[2]     = { c15.xyz, c16.xyz };
-static const float4 g_DetailTint          = { c11.w, c12.w, c13.w, 1.0 };
-static const float  g_DetailBlendFactor   = c14.w;
-static const float  g_TonemapScale        = HDRParams.x;
-static const float  g_LightmapScale       = HDRParams.y;
-static const float  g_EnvmapScale         = HDRParams.z;
-static const float  g_GammaScale          = HDRParams.w; // = TonemapScale ^ (1 / 2.2)
+static const float3  g_SunDirection       = c0.xyz; // in world space
+static const float   g_DetailBlendMode    = c0.w;
+static const float   g_HammerUnitsToUV    = c1.x;   // = ss.RenderTarget.HammerUnitsToUV * 0.5
+static const float   g_MaterialFlags      = c1.y;
+static const float2  g_LightmapSize       = c2.xy;  // One over lightmap size
+static const float2  g_DetailScale        = c2.zw;
+static const float3  g_Color              = c3.rgb;
+static const float2  g_RTSize             = s0Size; // One over ink map size
+static const float2  g_FbSize             = s2Size; // One over frame buffer size
+static const float2  g_UnderlayAlbedoSize = s3Size; // One over $basetexture size
+static const float3  BaseTransform[2]     = { c11.xyz, c12.xyz };
+static const float3  BumpTransform[2]     = { c13.xyz, c14.xyz };
+static const float3  BlendTransform[2]    = { c15.xyz, c16.xyz };
+static const float4  g_DetailTint         = { c11.w, c12.w, c13.w, 1.0 };
+static const float   g_DetailBlendFactor  = c14.w;
+static const float   g_TonemapScale       = HDRParams.x;
+static const float   g_LightmapScale      = HDRParams.y;
+static const float   g_EnvmapScale        = HDRParams.z;
+static const float   g_GammaScale         = HDRParams.w; // = TonemapScale ^ (1 / 2.2)
 
 // Bit flags:
 //   0x01 .. has $bumpmap
@@ -168,68 +168,6 @@ float CalcBlinnPhongSpec(float3 normal, float3 lightDir, float3 viewDir, float e
 float3 CalcFresnel(float3 normal, float3 viewDirection, float3 f0) {
     float nDotV = saturate(dot(normal, viewDirection));
     return lerp(f0, float3(1.0, 1.0, 1.0), pow(1.0 - nDotV, 5.0));
-}
-
-float ScreenEdgeFade(float2 uv) {
-    float edge = min(min(uv.x, uv.y), 1.0 - max(uv.x, uv.y));
-    return smoothstep(0.0, 0.0625, edge);
-}
-
-float4 CalcNearFarZ(float projPosZ, float projPosW) {
-    // Construct near and far Z from projected position Z and W
-    // Projection matrix looks like
-    // / *   0               0                    0 \
-    // | 0   *               0                    0 |
-    // | 0   0            farZ / (farZ - nearZ)   1 |
-    // \ 0   0   -nearZ * farZ / (farZ - nearZ)   0 /
-    //
-    // and projected position Z and W are
-    // W = z
-    // Z = z * ( farZ / (farZ - nearZ) ) + ( -nearZ * farZ / (farZ - nearZ) )
-    //   = Propotional * W + Offset
-    //
-    // Partial derivatives of Z and W effectively estimates the projection matrix
-    // ∂Z/∂x = ∂/∂x(Propotional * W + Offset) = Propotiolal * ∂W/∂x
-    //
-    // We have two formula to estimate the Propotional factor
-    // ∂Z/∂x = Propotional * ∂W/∂x
-    // ∂Z/∂y = Propotional * ∂W/∂y
-    // float2(∂Z/∂x, ∂Z/∂y) = Propotional * float2(∂W/∂x, ∂W/∂y)
-    //
-    // The dot product of the partial derivatives are
-    // dot(∂Z/∂X, ∂W/∂X) = Propotional * dot(∂W/∂X, ∂W/∂X)
-    // <=>   Propotional = dot(∂Z/∂X, ∂W/∂X) / dot(∂W/∂X, ∂W/∂X)
-    float2 dZ = { ddx(projPosZ), ddy(projPosZ) };
-    float2 dW = { ddx(projPosW), ddy(projPosW) };
-    float projMatrixPropotional = dot(dW, dW) > 1e-6 ? dot(dZ, dW) * rcp(dot(dW, dW)) : 1.0;
-    float projMatrixOffset = projPosZ - projMatrixPropotional * projPosW;
-    float nearZ = -projMatrixOffset * SAFERCP(projMatrixPropotional);
-    float farZ = -projMatrixPropotional * nearZ / (1.0 - projMatrixPropotional);
-    return float4(nearZ, farZ, projMatrixPropotional, projMatrixOffset);
-}
-
-// Solves X = float3(x, y, det) such that v = x*a + y*b
-float3 DecomposeBasis(float2 a, float2 b, float2 v) {
-    float det = a.x * b.y - b.x * a.y;
-    float invDet = SAFERCP(det);
-    return float3(
-        (v.x * b.y - b.x * v.y) * invDet,
-        (a.x * v.y - v.x * a.y) * invDet,
-        det);
-}
-
-// Solves X = float4(x, y, z, det) such that v = x*a + y*b + z*c
-float4 DecomposeBasis(float3 a, float3 b, float3 c, float3 v) {
-    float3 bCrossC = cross(b, c);
-    float3 cCrossA = cross(c, a);
-    float3 aCrossB = cross(a, b);
-    float det      = dot(a, bCrossC);
-    float invDet   = SAFERCP(det);
-    return float4(
-        dot(v, bCrossC) * invDet,
-        dot(v, cCrossA) * invDet,
-        dot(v, aCrossB) * invDet,
-        det);
 }
 
 // Estimate the screen-space pixel offset where the perspective-correct UV would
@@ -279,21 +217,31 @@ float3 CalcFinalLightmapColor(float3x3 lightmapColors, float3 lightmapFactors) {
 }
 
 float2 ApplyBaseTransform(float2 uv) {
-    return float2(dot(float3(uv, 1.0), BaseTransform[0]), dot(float3(uv, 1.0), BaseTransform[1]));
+    return float2(
+        dot(float3(uv, 1.0), BaseTransform[0]),
+        dot(float3(uv, 1.0), BaseTransform[1]));
 }
 
 float2 ApplyBlendMaskTransform(float2 uv) {
-    return float2(dot(float3(uv, 1.0), BlendTransform[0]), dot(float3(uv, 1.0), BlendTransform[1]));
+    return float2(
+        dot(float3(uv, 1.0), BlendTransform[0]),
+        dot(float3(uv, 1.0), BlendTransform[1]));
 }
 
 float2 ApplyBumpTransform(float2 uv) {
-    return float2(dot(float3(uv, 1.0), BumpTransform[0]), dot(float3(uv, 1.0), BumpTransform[1]));
+    return float2(
+        dot(float3(uv, 1.0), BumpTransform[0]),
+        dot(float3(uv, 1.0), BumpTransform[1]));
 }
 
 float2 ApplyDetailTransform(float2 uv) {
     return float2(
-        uv.x * BaseTransform[0].x * g_DetailScale.x + uv.y * BaseTransform[0].y * g_DetailScale.y + BaseTransform[0].z * g_DetailScale.x,
-        uv.x * BaseTransform[1].x * g_DetailScale.x + uv.y * BaseTransform[1].y * g_DetailScale.y + BaseTransform[1].z * g_DetailScale.y);
+        uv.x * BaseTransform[0].x * g_DetailScale.x +
+        uv.y * BaseTransform[0].y * g_DetailScale.y +
+        BaseTransform[0].z * g_DetailScale.x,
+        uv.x * BaseTransform[1].x * g_DetailScale.x +
+        uv.y * BaseTransform[1].y * g_DetailScale.y +
+        BaseTransform[1].z * g_DetailScale.y);
 }
 
 float4 ApplyDetailSample(float4 albedo, float4 detailSample) {
@@ -333,11 +281,6 @@ float4 ApplyDetailSample(float4 albedo, float4 detailSample) {
 // Samples only height value to apply parallax effect to the ink
 float FetchHeight(float2 uv) {
     return TO_SIGNED(tex2Dlod(InkMap, float4(uv, 0.0, 0.0)).a);
-}
-
-// Samples only depth value to apply parallax effect to the ink
-float FetchDepth(float2 uv) {
-    return tex2Dlod(InkMap, float4(uv.x + 0.5, uv.y, 0.0, 0.0)).a;
 }
 
 // Samples additive color and height value
@@ -384,12 +327,12 @@ void FetchInkMaterial(float3 IDs, out PseudoPBR pbr) {
     int id2 = (int)IDs.y;
     float idBlend = IDs.z;
 
-    s = FetchDataPixel(id1, ID_MATERIAL_REFRACT);
+    s = FetchDataPixel(InkDataDetail, id1, ID_MATERIAL_REFRACT);
     pbr.metallic      = s.r;
     pbr.roughness     = s.g;
     pbr.specularScale = s.b;
     pbr.refraction    = s.a;
-    s = FetchDataPixel(id2, ID_MATERIAL_REFRACT);
+    s = FetchDataPixel(InkDataDetail, id2, ID_MATERIAL_REFRACT);
     pbr.metallic      = lerp(pbr.metallic,      s.r, idBlend);
     pbr.roughness     = lerp(pbr.roughness,     s.g, idBlend);
     pbr.specularScale = lerp(pbr.specularScale, s.b, idBlend);
@@ -403,12 +346,12 @@ void FetchInkDetails(float3 IDs, out DetailParams detail) {
     int id2 = (int)IDs.y;
     float idBlend = IDs.z;
 
-    s = FetchDataPixel(id1, ID_DETAILS_BUMPBLEND);
+    s = FetchDataPixel(InkDataDetail, id1, ID_DETAILS_BUMPBLEND);
     detail.blendMode       = s.r;
     detail.blendScale      = s.g;
     detail.bumpScale       = s.b;
     detail.bumpBlendFactor = s.a;
-    s = FetchDataPixel(id2, ID_DETAILS_BUMPBLEND);
+    s = FetchDataPixel(InkDataDetail, id2, ID_DETAILS_BUMPBLEND);
     detail.blendMode       = lerp(detail.blendMode,       s.r, idBlend);
     detail.blendScale      = lerp(detail.blendScale,      s.g, idBlend);
     detail.bumpScale       = lerp(detail.bumpScale,       s.b, idBlend);
@@ -452,7 +395,7 @@ float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
 float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapFinalColor) {
     float fbRatio = uv.edgefade;
     float4 fb = tex2Dlod(FrameBuffer, float4(uv.screen, 0.0, 0.0));
-    if (fb.a * DepthWriteConstant < uv.depth - max(2.0, uv.depth * 0.015)) {
+    if (fb.a * DEPTHWRITE_TO_HU < uv.depth - max(2.0, uv.depth * 0.015)) {
         fbRatio = 0.0;
     }
     if (g_Is4WayBlend) {
@@ -532,7 +475,7 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
 UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params) {
     UVs uv;
     float3x3 tangentSpaceLightmap = i.lightmapTransform; // TEXINFO.lightmapVecS, TEXINFO.lightmapVecT, normal
-    float3x3 tangentSpaceGeometry = i.worldTransform;    // TEXINFO.textureVecS, TEXINFO.textureVecT, normal
+    float3x3 tangentSpaceGeometry = i.worldTransform;    // TEXINFO.textureVecS,  TEXINFO.textureVecT,  normal
     tangentSpaceLightmap[2] /= HEIGHT_TO_HU;             // units are in $basetexture's texel per Hammer units
     tangentSpaceGeometry[2] /= HEIGHT_TO_HU;
     float3 viewVecLightmap  = mul(tangentSpaceLightmap, g_EyePos.xyz - i.worldPos);
@@ -562,214 +505,11 @@ UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params) {
     return uv;
 }
 
-float ComputeSSRThickness(float depth, float rayDepthSpan, float roughness) {
-    static const float SSR_FOV_Y           = radians(75.0);
-    static const float SSR_TAN_HALF_FOV    = tan(SSR_FOV_Y * 0.5);
-    static const float SSR_THICKNESS_MIN   = 8.0;  // Minimum accepted screen-depth thickness in Hammer units
-    static const float SSR_THICKNESS_MAX   = 32.0; // Accepted thickness at the far end of the ray
-    static const float SSR_RAY_SPAN_SCALE  = 0.25; // Scale factor for jumping depth between steps
-    static const float SSR_ROUGHNESS_SCALE = 4.0;  // Scale factor for roughness
-    float pixelSizeHU = 2.0 * depth * SSR_TAN_HALF_FOV * g_FbSize.y;
-    float roughnessScale = lerp(1.0, SSR_ROUGHNESS_SCALE, roughness);
-    return clamp(
-        max(pixelSizeHU * roughnessScale, rayDepthSpan * SSR_RAY_SPAN_SCALE),
-        SSR_THICKNESS_MIN, SSR_THICKNESS_MAX);
-}
-
-// -1 -> clear:         ray is in front of the depth shell
-//  0 -> hit candidate: ray overlaps the depth shell
-// +1 -> occluded:      ray is behind the depth shell
-float ClassifySSRSegment(float rayMin, float rayMax, float sceneDepth, float thickness) {
-    float sceneMin = sceneDepth;
-    float sceneMax = sceneDepth + thickness;
-
-    // 1 when ray is strictly in front of the shell.
-    // rayMin    rayMax    sceneMin    sceneMax
-    //   *---------*          +===========+
-    float clear = 1.0 - step(sceneMin, rayMax);
-
-    // 1 when ray is strictly behind the shell.
-    // sceneMin    sceneMax   rayMin    rayMax
-    //    +===========+         *---------*
-    float behind = 1.0 - step(rayMin, sceneMax);
-    return behind - clear;
-}
-
-float4 SampleScreenSpaceReflection(
-    const PsVertexInfo i, float3 viewDir, float3 worldSpaceNormal, float roughness, float height) {
-    static const int   SSR_MAX_STEPS         = 64;       // Maximum screen-space samples
-    static const int   SSR_BINARY_STEPS      = 2;        // Binary search refinement steps
-    static const float SSR_STEP_PIXEL_RCP    = rcp(8.0); // Target screen-space distance between samples
-    static const float SSR_INITIAL_BIAS_HU   = 2.0;      // Ray start offset in Hammer units to skip the source surface
-    static const float SSR_STITCH_GAP_MIN_HU = 16.0;
-    static const float SSR_STITCH_ALPHA      = 1.0;
-    float3 P = i.worldPos;
-    float  W = max(i.clipPos.w, 1.0e-3);
-    float3 viewAway = -viewDir;
-    float  viewDist = distance(g_EyePos.xyz, P);
-    float2 fbPixels = rcp(g_FbSize);
-
-    // Represents the world position movement amount in world coordinates:
-    //   x: ∂P/∂u -- per 1.0 horizontal UV movement on the frame buffer
-    //   y: ∂P/∂v -- per 1.0 vertical UV movement on the frame buffer
-    //   z: ∂P/∂r -- per 1.0 Hammer Unit along view direction
-    float3x3 screenSpaceAxesInWorld = { ddx(P) * fbPixels.x, ddy(P) * fbPixels.y, viewAway };
-
-    // Difference of clipPos.w along the screen space coordinates (u, v, r)
-    //   x: ∂W/∂u,  y: ∂W/∂v,  z: ∂W/∂r
-    float3 clipWPerScreenSpaceAxis = { ddx(W) * fbPixels.x, ddy(W) * fbPixels.y, W / viewDist };
-
-    // Surface displacement by the hight map in screen space coordinates (u, v, r)
-    // (u, v) .. Frame buffer UV, r .. Depth in Hammer units
-    // screenSpaceOffset = ds = (du, dv, dr)
-    float4 screenSpaceOffset = DecomposeBasis(
-        screenSpaceAxesInWorld[0],
-        screenSpaceAxesInWorld[1],
-        screenSpaceAxesInWorld[2],
-        i.worldTransform[2] * (height * HEIGHT_TO_HU + SSR_INITIAL_BIAS_HU));
-
-    // Reflection ray direction in screen space coordinates
-    //   The point on the reflection ray R = P + reflect(...) * t, where t is a parameter
-    //   screenSpaceRayDirection = dR/dt = (dRu/dt, dRv/dt, dRr/dt)
-    float4 screenSpaceRayDirection = DecomposeBasis(
-        screenSpaceAxesInWorld[0],
-        screenSpaceAxesInWorld[1],
-        screenSpaceAxesInWorld[2],
-        reflect(viewAway, worldSpaceNormal));
-
-    // UVQ coordinate:
-    //   xy: framebuffer UV
-    //   z : reciprocal clip.w, q = 1 / w
-    //
-    // This is the marching coordinate. A linear segment in UVQ gives
-    // evenly spaced screen-space samples and a reciprocal-depth value
-    // that can be converted back to clip.w for depth comparison.
-    float3 rayStartUVQ = {
-        i.screenUV + screenSpaceOffset.xy,
-        // W + dW = W + ∂W/∂u * du + ∂W/∂v * dv + ∂W/∂r * dr = W + dot(∂W, ds)
-        rcp(max(W + dot(screenSpaceOffset.xyz, clipWPerScreenSpaceAxis), 1.0e-6)),
-    };
-
-    // dQ/dt = -1/W² * dW/dt = -Q² * dW/dt
-    // dW/dt = ∂W/∂u * dQu/dt
-    //       + ∂W/∂v * dQv/dt
-    //       + ∂W/∂r * dQr/dt = dot(∂W, dQ/dt)
-    float3 rayDirectionUVQ = {
-        screenSpaceRayDirection.xy,
-        -rayStartUVQ.z * rayStartUVQ.z
-            * dot(screenSpaceRayDirection.xyz, clipWPerScreenSpaceAxis),
-    };
-
-    float2 axisInvalid   = step(abs(rayDirectionUVQ.xy), 1.0e-8);
-    float  qLimitInvalid = step(-rayDirectionUVQ.z, 1.0e-8);
-    float2 exitEdges     = step(0.0, rayDirectionUVQ.xy);
-    float2 tEdges        = lerp((exitEdges - rayStartUVQ.xy) * SAFERCP(rayDirectionUVQ.xy), 1.0e20, axisInvalid);
-    float  tQ            = lerp((1.0e-6 - rayStartUVQ.z) * SAFERCP(rayDirectionUVQ.z), 1.0e20, qLimitInvalid);
-    float  tExit         = min(min(tEdges.x, tEdges.y), tQ);
-    float3 rayEndUVQ     = rayStartUVQ + rayDirectionUVQ * tExit;
-    float  rayLengthPx   = distance(rayStartUVQ.xy / g_FbSize, rayEndUVQ.xy / g_FbSize);
-    float  numSteps      = clamp(ceil(rayLengthPx * SSR_STEP_PIXEL_RCP), 1.0, SSR_MAX_STEPS);
-
-    float4 prevUVQC          = { rayStartUVQ, -1.0 }; // UVQ + Classify result
-    float  prevFbDepth       = 1.0e20;
-    float3 lastClearRay      = rayStartUVQ; // Last ray that was in front of the depth
-    float3 lastClearColor    = 0.0;
-    float  lastClearDistance = 0.0;
-    float4 stitchCandidate   = 0.0;
-
-    [loop]
-    for (int j = 1; j <= SSR_MAX_STEPS; j++) {
-        if ((float)j > numSteps) break;
-
-        float t = (float)j * rcp(numSteps);
-        float3 uvq = lerp(rayStartUVQ, rayEndUVQ, t);
-        if (ScreenEdgeFade(uvq.xy)<= 0.0) break;
-
-        float4 fb = tex2Dlod(FrameBuffer, float4(uvq.xy, 0.0, 0.0));
-        float fbDepth = fb.a * DepthWriteConstant;
-        if (fbDepth <= 1.0e-3) continue; // Seems like the ray is on the viewmodel, skipping...
-
-        float prevRayDepth    = rcp(max(prevUVQC.z, 1.0e-6));
-        float currentRayDepth = rcp(max(uvq.z, 1.0e-6));
-        float rayMin          = min(prevRayDepth, currentRayDepth);
-        float rayMax          = max(prevRayDepth, currentRayDepth);
-        float rayDepthSpan    = rayMax - rayMin;
-        float thickness       = ComputeSSRThickness(fbDepth, rayDepthSpan, roughness);
-        float classification  = ClassifySSRSegment(rayMin, rayMax, fbDepth, thickness);
-        if (prevUVQC.w < 0.0 && abs(classification) < 1.0e-3) {
-            [unroll]
-            for (int k = 0; k < SSR_BINARY_STEPS; k++) {
-                float3 midUVQ = lerp(prevUVQC.xyz, uvq, 0.5);
-                float4 fbMid = tex2Dlod(FrameBuffer, float4(midUVQ.xy, 0.0, 0.0));
-                float fbMidDepth = fbMid.a * DepthWriteConstant;
-
-                // fbDepth
-                //  *   * uvq
-                //  |  /
-                //  | * midUVQ
-                //   X
-                //  / \
-                // *   * previous fbDepth
-                // prevUVQ
-                if (fbMidDepth < rcp(midUVQ.z)) {
-                    uvq = midUVQ;
-                } else {
-                    prevUVQC.xyz = midUVQ;
-                }
-            }
-            return float4(
-                tex2Dlod(FrameBuffer, float4(uvq.xy, 0.0, 0.0)).rgb,
-                ScreenEdgeFade(uvq.xy));
-        }
-
-        float depthJump = fbDepth - prevFbDepth;
-        float gapThreshold = max(thickness, SSR_STITCH_GAP_MIN_HU);
-        float foundStitchGap
-            = (1.0 - step(prevUVQC.w, 0.0))  // previously occluded
-            * step(0.0, classification)      // and now occluded or hit candidate
-            * step(gapThreshold, depthJump); // and depth jumps
-        if (foundStitchGap > 0.0) {
-            [unroll]
-            for (int k = 0; k < SSR_BINARY_STEPS; k++) {
-                float3 midUVQ = lerp(prevUVQC.xyz, uvq, 0.5);
-                float4 midFb = tex2Dlod(FrameBuffer, float4(midUVQ.xy, 0.0, 0.0));
-                float  midFbDepth = midFb.a * DepthWriteConstant;
-                if (midFbDepth - prevFbDepth > gapThreshold) {
-                    uvq = midUVQ;
-                    currentRayDepth = rcp(max(uvq.z, 1.0e-6));
-                    fb = midFb;
-                    fbDepth = midFbDepth;
-                } else {
-                    prevUVQC.xyz = midUVQ;
-                }
-            }
-            float currentDistanceToDepth = abs(fbDepth - currentRayDepth);
-            float stitchWeight = lastClearDistance * rcp(max(lastClearDistance + currentDistanceToDepth, 1.0e-3));
-            float3 stitchedColor = lerp(lastClearColor.rgb, fb.rgb, stitchWeight);
-            float stitchAlpha = lerp(ScreenEdgeFade(lastClearRay.xy), ScreenEdgeFade(uvq.xy), stitchWeight);
-            stitchCandidate = float4(stitchedColor, stitchAlpha);
-        }
-
-        prevUVQC = float4(uvq, classification);
-        prevFbDepth = fbDepth;
-        if (classification < 0.0) {
-            lastClearRay = uvq;
-            lastClearColor = fb.rgb;
-            lastClearDistance = fbDepth - currentRayDepth;
-        }
-    }
-
-    return stitchCandidate;
-}
-
 PS_OUTPUT main(const PS_INPUT rawInput) {
     PsVertexInfo i = DecomposeInput(rawInput);
-    if (!g_Simplified) {
-        float sceneViewDepthHU = tex2Dlod(FrameBuffer, float4(i.screenUV, 0.0, 0.0)).a
-            * DepthWriteConstant;
-        float depthToleranceHU = max(2.0, i.clipPos.w * 0.015);
-        clip(sceneViewDepthHU - i.clipPos.w + depthToleranceHU);
-    }
+    float sceneViewDepthHU = tex2Dlod(FrameBuffer, float4(i.screenUV, 0.0, 0.0)).a * DEPTHWRITE_TO_HU;
+    float depthToleranceHU = max(2.0, i.clipPos.w * 0.015);
+    clip(sceneViewDepthHU - i.clipPos.w + depthToleranceHU);
 
     // Z = final ray marching height
     float3 inkUV   = g_Simplified ? i.inkUV : ApplyParallaxInk(i);
@@ -804,6 +544,13 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     // Modulate surface albedo and add ink color
     float3 ambientOcclusion = { 1.0, 1.0, 1.0 }; // dummy!
     float3 result = albedo * lerp(1.0, DIFFUSE_MIN, params.pbr.metallic);
+
+    // Simplified pass doesn't need specular component
+    if (g_Simplified) {
+        PS_OUTPUT output = (PS_OUTPUT)0.0;
+        output.finalColorWithoutSSR = float4(result * g_TonemapScale, 1.0);
+        return output;
+    }
 
     // ^ Diffuse component (multiplies to the final result)
     // -------------------------------------------------------------------------
@@ -852,11 +599,11 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
 #endif
 
 #ifdef g_EnvmapEnabled
-    float3 reflectDir     = reflect(-viewDir, worldSpaceNormal);
-    float3 envmapSample   = texCUBE(Envmap, reflectDir).rgb * g_EnvmapScale;
-    float3 envmapFresnel  = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);
-    float  envmapScale    = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, params.pbr.roughness * params.pbr.roughness);
-    float3 envmapAlbedo   = lerp(float3(1.0, 1.0, 1.0), albedo, params.pbr.metallic);
+    float3 reflectDir    = reflect(-viewDir, worldSpaceNormal);
+    float3 envmapSample  = texCUBE(Envmap, reflectDir).rgb * g_EnvmapScale;
+    float3 envmapFresnel = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);
+    float  envmapScale   = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, params.pbr.roughness * params.pbr.roughness);
+    float3 envmapAlbedo  = lerp(float3(1.0, 1.0, 1.0), albedo, params.pbr.metallic);
     float3 reflectionWeight = envmapAlbedo;
     reflectionWeight *= CalcFresnel(worldSpaceNormal, viewDir, envmapFresnel);
     reflectionWeight *= envmapScale;
@@ -867,25 +614,14 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
 
     // ^ Specular component (accumulates to the final result)
     // -------------------------------------------------------------------------
-    PS_OUTPUT o;
-    if (g_Simplified) {
-#ifdef g_EnvmapEnabled
-        float4 envmapSSR = SampleScreenSpaceReflection(
-            i, viewDir, worldSpaceNormal, params.pbr.roughness, params.height);
-        result += lerp(envmapSample, envmapSSR.rgb, envmapSSR.a) * reflectionWeight;
-#endif
-        o.color0 = float4(result * g_TonemapScale, 1.0);
-        o.color1 = 0.0;
-        o.color2 = 0.0;
-        o.color3 = 0.0;
-        return o;
-    }
-
-    o.color0 = float4(result, 1.0);
-    o.color1 = float4(
-        EncodeOctahedralUnitVector(worldSpaceNormal),
-        EncodeOctahedralUnitVector(normalize(i.worldTransform[2])));
-    o.color2 = float4(reflectionWeight, params.height);
-    o.color3 = float4(envmapSample, params.pbr.roughness);
-    return o;
+    PS_OUTPUT output = {
+        { result, 1.0 },
+        {
+            EncodeOctahedralUnitVector(worldSpaceNormal),
+            EncodeOctahedralUnitVector(i.worldTransform[2])
+        },
+        { reflectionWeight, params.height },
+        { envmapSample, params.pbr.roughness }
+    };
+    return output;
 }

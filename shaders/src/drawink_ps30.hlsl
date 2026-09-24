@@ -2,6 +2,7 @@
 #include "inkmesh_common.hlsl"
 
 sampler InkMap             : register(s0);
+sampler InkDataDetail      : register(s1);
 sampler BaseTextureAtlas   : register(s2);
 sampler TintTextureAtlas   : register(s3);
 const float2 RcpRTSize     : register(c4); // One over render target size
@@ -100,7 +101,7 @@ void CalculateHeight(
 
         // Applying viscosity of the fluid on top of the ground
         float oldThickness = max(0.0, oldHeight + oldDepth);
-        float viscosity = FetchDataPixel(oldIndex, ID_MISC).z;
+        float viscosity = FetchDataPixel(InkDataDetail, oldIndex, ID_MISC).z;
         float fluidDigAmount = min(desiredAdd * viscosity, oldThickness);
         float solidDigAmount = desiredAdd - fluidDigAmount;
         newHeight = oldPixelValue;
@@ -116,10 +117,10 @@ PS_OUTPUT AdditiveAndHeight(const PS_INPUT i, float t, float shapeMask) {
     float4 add          = tex2D(BaseTextureAtlas, i.inkAndTintUV.xy);
     float4 tint         = tex2D(TintTextureAtlas, i.inkAndTintUV.zw);
     float4 old          = tex2D(InkMap, inkMapUV);
-    float4 colorAlpha   = FetchDataPixel(paintType, ID_COLOR_ALPHA);
-    float4 tintParam    = FetchDataPixel(paintType, ID_TINT_GEOMETRYPAINT);
-    float4 heightParam  = FetchDataPixel(paintType, ID_HEIGHT_MAXLAYERS);
-    float4 miscParam    = FetchDataPixel(paintType, ID_MISC);
+    float4 colorAlpha   = FetchDataPixel(InkDataDetail, paintType, ID_COLOR_ALPHA);
+    float4 tintParam    = FetchDataPixel(InkDataDetail, paintType, ID_TINT_GEOMETRYPAINT);
+    float4 heightParam  = FetchDataPixel(InkDataDetail, paintType, ID_HEIGHT_MAXLAYERS);
+    float4 miscParam    = FetchDataPixel(InkDataDetail, paintType, ID_MISC);
     float  flatten      = miscParam.y;
     float  nodig        = NODIG;
     float  geometryBias = tintParam.w;
@@ -145,10 +146,10 @@ PS_OUTPUT TintAndDepth(const PS_INPUT i, float t, float shapeMask) {
     float4 add         = tex2D(BaseTextureAtlas, i.inkAndTintUV.xy);
     float4 tint        = tex2D(TintTextureAtlas, i.inkAndTintUV.zw);
     float4 old         = tex2D(InkMap, inkMapUV);
-    float4 colorAlpha  = FetchDataPixel(paintType, ID_COLOR_ALPHA);
-    float4 tintParam   = FetchDataPixel(paintType, ID_TINT_GEOMETRYPAINT);
-    float4 heightParam = FetchDataPixel(paintType, ID_HEIGHT_MAXLAYERS);
-    float4 miscParam   = FetchDataPixel(paintType, ID_MISC);
+    float4 colorAlpha  = FetchDataPixel(InkDataDetail, paintType, ID_COLOR_ALPHA);
+    float4 tintParam   = FetchDataPixel(InkDataDetail, paintType, ID_TINT_GEOMETRYPAINT);
+    float4 heightParam = FetchDataPixel(InkDataDetail, paintType, ID_HEIGHT_MAXLAYERS);
+    float4 miscParam   = FetchDataPixel(InkDataDetail, paintType, ID_MISC);
     float flatten      = miscParam.y;
     float nodig        = NODIG;
     float geometryBias = tintParam.w;
@@ -172,15 +173,15 @@ PS_OUTPUT TintAndDepth(const PS_INPUT i, float t, float shapeMask) {
 
 PS_OUTPUT PaintIndices(const PS_INPUT i, float t, float shapeMask) {
     float4 old          = tex2D(InkMap, inkMapUV);
-    float4 miscParam    = FetchDataPixel(paintType, ID_MISC);
+    float4 miscParam    = FetchDataPixel(InkDataDetail, paintType, ID_MISC);
     PS_OUTPUT output = { old, t };
     if (max(old.r, max(old.g, old.b)) < 1.0 / 255.0) output.color.b = 1.0;
     if (abs(0.5 - frac(miscParam.w * 4.0)) < eps) return output; // $heightonly
 
     float4 add          = tex2D(BaseTextureAtlas, i.inkAndTintUV.xy);
     float4 tint         = tex2D(TintTextureAtlas, i.inkAndTintUV.zw);
-    float4 tintParam    = FetchDataPixel(paintType, ID_TINT_GEOMETRYPAINT);
-    float4 heightParam  = FetchDataPixel(paintType, ID_HEIGHT_MAXLAYERS);
+    float4 tintParam    = FetchDataPixel(InkDataDetail, paintType, ID_TINT_GEOMETRYPAINT);
+    float4 heightParam  = FetchDataPixel(InkDataDetail, paintType, ID_HEIGHT_MAXLAYERS);
     float  flatten      = miscParam.y;
     float  nodig        = NODIG;
     float  geometryBias = tintParam.w;
@@ -189,7 +190,7 @@ PS_OUTPUT PaintIndices(const PS_INPUT i, float t, float shapeMask) {
         geometryBias, nodig, flatten, paintStrength, newHeight);
     if (paintStrength < eps) return output;
 
-    float4 colorAlpha   = FetchDataPixel(paintType, ID_COLOR_ALPHA);
+    float4 colorAlpha   = FetchDataPixel(InkDataDetail, paintType, ID_COLOR_ALPHA);
     tint.rgb *= (1.0 - colorAlpha.aaa) * tintParam.rgb;
     tint.rgb = lerp(1.0, tint.rgb, paintStrength);
     float thisID        = paintType / 255.0;

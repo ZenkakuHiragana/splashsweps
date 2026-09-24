@@ -201,11 +201,10 @@ end
 
 local SSRViewMatrix = Matrix()
 local function UpdateSSRView()
-    local frame = ss.RenderTarget.FrameTextures
     local view = render.GetViewSetup()
     local origin = view.origin
     local angles = view.angles
-    local aspect = frame.Forward0:Width() / frame.Forward0:Height()
+    local aspect = view.aspect
     local tanHalfFovX = math.tan(math.rad(view.fov) * 0.5)
     local tanHalfFovY = tanHalfFovX / aspect
     local right = angles:Right() * tanHalfFovX
@@ -295,10 +294,10 @@ function(bDrawingDepth, bDrawingSkybox)
     render.DrawScreenQuad()
     render.PopRenderTarget()
 
-    render.PushRenderTarget(ss.RenderTarget.FrameTextures.Forward0)
-    render.SetRenderTargetEx(1, ss.RenderTarget.FrameTextures.Forward1)
-    render.SetRenderTargetEx(2, ss.RenderTarget.FrameTextures.Forward2)
-    render.SetRenderTargetEx(3, ss.RenderTarget.FrameTextures.Forward3)
+    render.PushRenderTarget(ss.RenderTarget.FrameTextures.InkColor)
+    render.SetRenderTargetEx(1, ss.RenderTarget.FrameTextures.InkNormals)
+    render.SetRenderTargetEx(2, ss.RenderTarget.FrameTextures.Reflection)
+    render.SetRenderTargetEx(3, ss.RenderTarget.FrameTextures.Envmap)
     render.Clear(0, 0, 0, 0, true, false)
     render.OverrideDepthEnable(true, true)
     DrawNormalMeshes()
