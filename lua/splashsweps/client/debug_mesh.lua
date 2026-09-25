@@ -237,8 +237,8 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     end
 
     local inkVS, inkPS = FindLatestShaderPair "inkmesh"
-    local ssrVS, ssrPS = FindLatestShaderPair "inkmesh_ssr"
-    local ssrTraceVS, ssrTracePS = FindLatestShaderPair "inkmesh_ssr_trace"
+    local ssrVS, ssrPS = FindLatestShaderPair "inkssr_compose"
+    local ssrTraceVS, ssrTracePS = FindLatestShaderPair "inkssr"
     if not (inkVS and inkPS and ssrVS and ssrPS
         and ssrTraceVS and ssrTracePS) then
         print "[SplashSWEPs] Could not find all inkmesh and SSR shader pairs."
@@ -263,8 +263,8 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     waterMaterial:Recompute()
 
     local ssrMaterials = {
-        { Material "splashsweps/shaders/inkmesh_ssr", ssrVS, ssrPS },
-        { Material "splashsweps/shaders/inkmesh_ssr_trace", ssrTraceVS, ssrTracePS },
+        { Material "splashsweps/shaders/inkssr_compose", ssrVS, ssrPS },
+        { Material "splashsweps/shaders/inkssr", ssrTraceVS, ssrTracePS },
     }
     for _, entry in ipairs(ssrMaterials) do
         entry[1]:SetString("$vertexshader", entry[2])

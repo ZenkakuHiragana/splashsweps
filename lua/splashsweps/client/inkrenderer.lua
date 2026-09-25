@@ -42,8 +42,8 @@ local FullFrameFb1 = render.GetScreenEffectTexture(1)
 local CopyFrameBufferMaterial = Material "splashsweps/shaders/copyfb"
 -- Encoded screen corners for copyfb_vs30; no camera-context switch is needed.
 local CopyCorners = { Vector(0, 0, 0), Vector(1, 0, 0), Vector(1, 1, 0), Vector(0, 1, 0) }
-local SSRTraceMaterial = Material "splashsweps/shaders/inkmesh_ssr_trace"
-local SSRCompositeMaterial = Material "splashsweps/shaders/inkmesh_ssr"
+local SSRTraceMaterial = Material "splashsweps/shaders/inkssr"
+local SSRCompositeMaterial = Material "splashsweps/shaders/inkssr_compose"
 local InkWaterMaterial = Material "splashsweps/shaders/inkmesh"
 local InkDrawMaterial = Material "splashsweps/shaders/drawink"
 local CVarWireframe = GetConVar "mat_wireframe"
