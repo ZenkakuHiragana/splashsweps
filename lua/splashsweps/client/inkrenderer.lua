@@ -40,8 +40,9 @@ local NUM_REGION, NUM_VERTEX = 4, 4
 local MAX_QUEUE = math.floor(32768 / (NUM_VERTEX * NUM_REGION))
 local FullFrameFb1 = render.GetScreenEffectTexture(1)
 local CopyFrameBufferMaterial = Material "splashsweps/shaders/copyfb"
+-- Encoded screen corners for copyfb_vs30; no camera-context switch is needed.
+local CopyCorners = { Vector(0, 0, 0), Vector(1, 0, 0), Vector(1, 1, 0), Vector(0, 1, 0) }
 local SSRTraceMaterial = Material "splashsweps/shaders/inkmesh_ssr_trace"
-local SSRFilterMaterial = Material "splashsweps/shaders/inkmesh_ssr_filter"
 local SSRCompositeMaterial = Material "splashsweps/shaders/inkmesh_ssr"
 local InkWaterMaterial = Material "splashsweps/shaders/inkmesh"
 local InkDrawMaterial = Material "splashsweps/shaders/drawink"
@@ -289,16 +290,25 @@ function(bDrawingDepth, bDrawingSkybox)
 
     UpdateSSRView()
     render.CopyRenderTargetToTexture(FullFrameFb1)
+    -- Clear auxiliary fields and the ink depth buffer before seeding InkColor.
+    -- Clearing after the copy would erase the background used by reflection hits.
+    render.PushRenderTarget(ss.RenderTarget.FrameTextures.InkColor)
+    render.SetRenderTargetEx(1, ss.RenderTarget.FrameTextures.InkNormals)
+    render.SetRenderTargetEx(2, ss.RenderTarget.FrameTextures.Reflection)
+    render.SetRenderTargetEx(3, ss.RenderTarget.FrameTextures.Envmap)
+    render.Clear(0, 0, 0, 0, true, false)
+    render.PopRenderTarget()
+
     render.PushRenderTarget(ss.RenderTarget.FrameTextures.SceneColorDepth)
+    render.SetRenderTargetEx(1, ss.RenderTarget.FrameTextures.InkColor)
     render.SetMaterial(CopyFrameBufferMaterial)
-    render.DrawScreenQuad()
+    render.DrawQuad(CopyCorners[1], CopyCorners[2], CopyCorners[3], CopyCorners[4])
     render.PopRenderTarget()
 
     render.PushRenderTarget(ss.RenderTarget.FrameTextures.InkColor)
     render.SetRenderTargetEx(1, ss.RenderTarget.FrameTextures.InkNormals)
     render.SetRenderTargetEx(2, ss.RenderTarget.FrameTextures.Reflection)
     render.SetRenderTargetEx(3, ss.RenderTarget.FrameTextures.Envmap)
-    render.Clear(0, 0, 0, 0, true, false)
     render.OverrideDepthEnable(true, true)
     DrawNormalMeshes()
     render.OverrideDepthEnable(false)
@@ -307,12 +317,6 @@ function(bDrawingDepth, bDrawingSkybox)
     render.PushRenderTarget(ss.RenderTarget.FrameTextures.SSRResult)
     render.Clear(0, 0, 0, 0)
     render.SetMaterial(SSRTraceMaterial)
-    render.DrawScreenQuad()
-    render.PopRenderTarget()
-
-    render.PushRenderTarget(ss.RenderTarget.FrameTextures.SSRFilter)
-    render.Clear(0, 0, 0, 0)
-    render.SetMaterial(SSRFilterMaterial)
     render.DrawScreenQuad()
     render.PopRenderTarget()
 

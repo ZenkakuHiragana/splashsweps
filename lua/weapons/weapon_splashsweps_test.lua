@@ -83,7 +83,7 @@ function SWEP:PrimaryAttack()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
     self:EmitSound("Weapon_AR2.Single")
     local tr = Owner:GetEyeTrace()
-    local radius = 50
+    local radius = 200
     local pos = tr.HitPos
     local normal = tr.HitNormal
     local right = normal:Cross(tr.StartPos - pos):GetNormalized()

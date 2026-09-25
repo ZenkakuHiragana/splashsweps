@@ -45,11 +45,6 @@ float3 ReconstructWorldPosition(float2 uv, float viewDepth) {
     return g_ViewOrigin + (g_ViewForward + g_ViewRight * ndc.x + g_ViewUp * ndc.y) * viewDepth;
 }
 
-float3 InkAwareColor(float2 uv, float3 frameBufferColor) {
-    float4 ink = tex2Dlod(GBufInkColor, float4(uv, 0.0, 0.0));
-    return lerp(frameBufferColor, ink.rgb, step(0.5, ink.a));
-}
-
 float ComputeSSRThickness(float depth, float rayDepthSpan, float roughness) {
     float pixelSizeHU = 2.0 * depth * TAN_HALF_FOV * g_FbSize.y;
     float roughnessScale = lerp(1.0, ROUGHNESS_SCALE, roughness);
@@ -128,7 +123,8 @@ void RefineGapEdge(
 // Marches the reflection ray in UVQ space and resolves the reflection hit of one pixel.
 // A hit is either the surface crossing found by the march (returned immediately)
 // or a depth-gap bridge recorded along the way (returned when the march ends without a crossing).
-// rgb: ink-aware reflection color, a: confidence (screen-edge fade); the caller premultiplies them.
+// xy: selected framebuffer UV, a: confidence (screen-edge fade).
+// The caller premultiplies UV by confidence for valid-only interpolation.
 float4 SampleScreenSpaceReflection(
     float2 screenUV,
     float3 worldPos,
@@ -212,7 +208,6 @@ float4 SampleScreenSpaceReflection(
     float  previousClass  = -1.0;        // Its classification; the biased start is assumed clear
     float  previousDepth  = 1.0e20;      // Scene depth at the previous sample
     float3 lastClearUVQ   = rayStartUVQ; // Near anchor of the depth-gap bridge
-    float3 lastClearColor = 0.0;         // Scene color at the anchor
     float  lastClearance  = 0.0;         // Ray-to-surface clearance at the anchor
     float4 bridgedHit     = 0.0;         // Fallback hit bridged across a depth gap
 
@@ -244,15 +239,12 @@ float4 SampleScreenSpaceReflection(
         // depth shell, so the surface crossing itself is the reflection hit.
         if (canAcceptHit && SegmentIsClear(previousClass) && SegmentIsHitCandidate(classification)) {
             RefineSurfaceCrossing(previousUVQ, uvq, sceneSample);
-            return float4(InkAwareColor(uvq.xy, sceneSample.rgb), ScreenEdgeFade(uvq.xy));
+            return float4(uvq.xy, 0.0, ScreenEdgeFade(uvq.xy));
         }
 
-        // Depth-gap bridge (fallback hit): the segment came out occluded and the
-        // scene depth jumped, so the ray crossed a silhouette gap or a crack
-        // between surfaces where no shell crossing can be accepted. Approximate
-        // the reflection instead: blend the anchor color (the last clear sample)
-        // and the far-side color (the first sample beyond the gap), weighted by
-        // inverse clearance so the endpoint closer to the ray dominates.
+        // Depth-gap bridge (fallback hit): retain the endpoint with the larger
+        // inverse-clearance weight. Do not interpolate UV across the occluder.
+        // A later surface crossing still takes precedence over this fallback.
         float depthJump    = sceneSampleDepth - previousDepth;
         float gapThreshold = max(thickness, DEPTH_GAP_MIN_HU);
         bool crossedDepthGap = canAcceptHit
@@ -264,12 +256,9 @@ float4 SampleScreenSpaceReflection(
             sceneSampleDepth = sceneSample.a * DEPTHWRITE_TO_HU;
             float  rayDepthAtGap = rcp(max(uvq.z, 1.0e-6));
             float  gapClearance  = abs(sceneSampleDepth - rayDepthAtGap);
-            float3 anchorColor   = InkAwareColor(lastClearUVQ.xy, lastClearColor);
-            float3 farSideColor  = InkAwareColor(uvq.xy, sceneSample.rgb);
             float  farSideWeight = lastClearance * rcp(max(lastClearance + gapClearance, 1.0e-3));
-            bridgedHit = float4(
-                lerp(anchorColor, farSideColor, farSideWeight),
-                lerp(ScreenEdgeFade(lastClearUVQ.xy), ScreenEdgeFade(uvq.xy), farSideWeight));
+            float2 hitUV = farSideWeight >= 0.5 ? uvq.xy : lastClearUVQ.xy;
+            bridgedHit = float4(hitUV, 0.0, ScreenEdgeFade(hitUV));
         }
 
         previousUVQ   = uvq;
@@ -278,7 +267,6 @@ float4 SampleScreenSpaceReflection(
         if (SegmentIsClear(classification)) {
             canAcceptHit   = true;
             lastClearUVQ   = uvq;
-            lastClearColor = sceneSample.rgb;
             lastClearance  = sceneSampleDepth - rcp(max(uvq.z, 1.0e-6));
         }
     }
@@ -305,5 +293,5 @@ float4 main(float4 i : VPOS) : COLOR0 {
     float4 ssr = SampleScreenSpaceReflection(
         uv.xy, worldPos, viewDepth, viewDir, geometryNormal,
         worldNormal, envmapParams.a, reflectionParams.a);
-    return float4(ssr.rgb * ssr.a, ssr.a);
+    return float4(ssr.xy * ssr.a, 0.0, ssr.a);
 }

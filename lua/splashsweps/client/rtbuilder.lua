@@ -48,7 +48,6 @@ local RTNAMES = {
     GREFLECT   = "splashsweps_gbuf_reflection",
     GENVMAP    = "splashsweps_gbuf_envmap",
     SSR_RESULT = "splashsweps_ssr_result",
-    SSR_FILTER = "splashsweps_ssr_filter",
 }
 local COMMON_FLAGS = bit.bor(
     TEXTUREFLAGS.NOMIP,
@@ -76,16 +75,14 @@ if not ss.RenderTarget then
         ---One-frame textures for forward MRT shading and SSR composition.
         ---@class ss.RenderTarget.FrameTextures
         ---@field SceneColorDepth ITexture? Frame buffer copy + alpha channel as depth buffer
-        ---@field SSRResult  ITexture?
-        ---@field SSRFilter  ITexture?
-        ---@field InkColor   ITexture? G-Buffer to store final painted ink color without SSR component.
+        ---@field SSRResult  ITexture? Half-resolution (hit UV * confidence, 0, confidence).
+        ---@field InkColor   ITexture? Background or painted color without SSR; alpha is the painted-surface mask.
         ---@field InkNormals ITexture? G-Buffer to store octahedral encoded ink normals.
         ---@field Reflection ITexture? G-Buffer to store precomputed reflection weights and ink height.
         ---@field Envmap     ITexture? G-Buffer to store precomputed $envmap sample and ink roughness.
         FrameTextures = {
             SceneColorDepth = nil,
             SSRResult  = nil,
-            SSRFilter  = nil,
             InkColor   = nil,
             InkNormals = nil,
             Reflection = nil,
@@ -156,7 +153,6 @@ function ss.SetupRenderTargets()
         IMAGE_FORMAT_RGBA8888)
     rt.FrameTextures.SceneColorDepth = render.GetSuperFPTex()
     rt.FrameTextures.SSRResult  = GetGBuffer(RTNAMES.SSR_RESULT, MATERIAL_RT_DEPTH_NONE, 0.5)
-    rt.FrameTextures.SSRFilter  = GetGBuffer(RTNAMES.SSR_FILTER, MATERIAL_RT_DEPTH_NONE, 0.5)
     rt.FrameTextures.InkColor   = GetGBuffer(RTNAMES.GCOLOR,     MATERIAL_RT_DEPTH_SEPARATE)
     rt.FrameTextures.InkNormals = GetGBuffer(RTNAMES.GNORMAL,    MATERIAL_RT_DEPTH_NONE)
     rt.FrameTextures.Reflection = GetGBuffer(RTNAMES.GREFLECT,   MATERIAL_RT_DEPTH_NONE)

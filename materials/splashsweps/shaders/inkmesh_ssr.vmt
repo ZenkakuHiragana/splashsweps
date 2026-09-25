@@ -5,7 +5,7 @@
     "$basetexture"            "splashsweps_gbuf_inkcolor"
     "$texture1"               "splashsweps_gbuf_reflection"
     "$texture2"               "splashsweps_gbuf_envmap"
-    "$texture3"               "splashsweps_ssr_filter"
+    "$texture3"               "splashsweps_ssr_result"
     "$linearread_basetexture" "1"
     "$linearread_texture1"    "1"
     "$linearread_texture2"    "1"

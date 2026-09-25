@@ -239,17 +239,16 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     local inkVS, inkPS = FindLatestShaderPair "inkmesh"
     local ssrVS, ssrPS = FindLatestShaderPair "inkmesh_ssr"
     local ssrTraceVS, ssrTracePS = FindLatestShaderPair "inkmesh_ssr_trace"
-    local ssrFilterVS, ssrFilterPS = FindLatestShaderPair "inkmesh_ssr_filter"
     if not (inkVS and inkPS and ssrVS and ssrPS
-        and ssrTraceVS and ssrTracePS and ssrFilterVS and ssrFilterPS) then
+        and ssrTraceVS and ssrTracePS) then
         print "[SplashSWEPs] Could not find all inkmesh and SSR shader pairs."
         return
     end
 
     print(string.format(
-        "Reloading shaders: %s, %s, %s, %s, %s, %s, %s, %s",
+        "Reloading shaders: %s, %s, %s, %s, %s, %s",
         inkVS, inkPS, ssrVS, ssrPS,
-        ssrTraceVS, ssrTracePS, ssrFilterVS, ssrFilterPS))
+        ssrTraceVS, ssrTracePS))
     for _, batch in ipairs(ss.RenderBatches) do
         for _, model in ipairs(batch) do
             model.Material:SetString("$vertexshader", inkVS)
@@ -266,7 +265,6 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     local ssrMaterials = {
         { Material "splashsweps/shaders/inkmesh_ssr", ssrVS, ssrPS },
         { Material "splashsweps/shaders/inkmesh_ssr_trace", ssrTraceVS, ssrTracePS },
-        { Material "splashsweps/shaders/inkmesh_ssr_filter", ssrFilterVS, ssrFilterPS },
     }
     for _, entry in ipairs(ssrMaterials) do
         entry[1]:SetString("$vertexshader", entry[2])
