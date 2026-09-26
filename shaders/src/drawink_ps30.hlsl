@@ -14,6 +14,7 @@ struct PS_INPUT {
     float4 detailAndShapeUV     : TEXCOORD1;
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionTimeZScale : TEXCOORD3;
+    float  detailRotation       : TEXCOORD4;
 };
 
 struct PS_OUTPUT {
@@ -171,7 +172,8 @@ PS_OUTPUT TintAndDepth(const PS_INPUT i, float t, float shapeMask) {
     return output;
 }
 
-PS_OUTPUT PaintIndices(const PS_INPUT i, float t, float shapeMask) {
+PS_OUTPUT PaintIndices(const PS_INPUT i, float t, float shapeMask, out bool updateDetail) {
+    updateDetail = false;
     float4 old          = tex2D(InkMap, inkMapUV);
     float4 miscParam    = FetchDataPixel(InkDataDetail, paintType, ID_MISC);
     PS_OUTPUT output = { old, t };
@@ -194,23 +196,32 @@ PS_OUTPUT PaintIndices(const PS_INPUT i, float t, float shapeMask) {
     tint.rgb *= (1.0 - colorAlpha.aaa) * tintParam.rgb;
     tint.rgb = lerp(1.0, tint.rgb, paintStrength);
     float thisID        = paintType / 255.0;
-    float translucency  = length(tint.rgb);
+    float translucency  = dot(tint.rgb, GrayScaleFactor);
     bool  isOpaque      = translucency < eps;
+    // Quantize explicitly so both the ID and mapping regions use the stored B.
+    float blend = isOpaque ? 0.0 : 1.0 - translucency * (1.0 - output.color.b);
+    blend = floor(saturate(blend) * 255.0 + 0.5) / 255.0;
     output.color.rgb = float3(
         isOpaque ? thisID : old.r,
         isOpaque ? old.g  : thisID,
-        isOpaque ? 0.0    : 1.0 - translucency * (1.0 - output.color.b));
+        blend);
+    updateDetail = isOpaque || blend > 0.0;
     return output;
 }
 
 PS_OUTPUT DetailMapping(const PS_INPUT i, float t, float shapeMask) {
-    float detailRotation = 0.0;
-    float detailScale = 0.0;
-    PS_OUTPUT output = {
-        i.detailAndShapeUV.xy,
-        detailRotation,
-        detailScale, t,
-    };
+    // Evaluate exactly the same ownership update against the same pre-paint map.
+    // Region 3 is half a texture to the right of the ID region (region 2).
+    PS_INPUT indicesInput = i;
+    indicesInput.screenPos.x -= 0.5 / RcpRTSize.x;
+    indicesInput.typeRegionTimeZScale.y = 2.0;
+    bool updateDetail;
+    PaintIndices(indicesInput, t, shapeMask, updateDetail);
+    PS_OUTPUT output = { tex2Dlod(InkMap, float4(inkMapUV, 0.0, 0.0)), t };
+    if (updateDetail) {
+        // RG: local UV, B: rotation in turns, A: reserved (no scale stored).
+        output.color = float4(i.detailAndShapeUV.xy, i.detailRotation, 0.0);
+    }
     return output;
 }
 
@@ -224,8 +235,10 @@ PS_OUTPUT main(const PS_INPUT i) {
         return AdditiveAndHeight(i, time, shapeMask.a);
     else if (floor(regionID) == 1)
         return TintAndDepth(i, time, shapeMask.a);
-    else if (floor(regionID) == 2)
-        return PaintIndices(i, time, shapeMask.a);
+    else if (floor(regionID) == 2) {
+        bool updateDetail;
+        return PaintIndices(i, time, shapeMask.a, updateDetail);
+    }
     else
         return DetailMapping(i, time, shapeMask.a);
 }

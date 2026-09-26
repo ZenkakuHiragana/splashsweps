@@ -74,6 +74,7 @@ struct VS_OUTPUT {
     float4 detailAndShapeUV     : TEXCOORD1;
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionTimeZScale : TEXCOORD3;
+    float  detailRotation       : TEXCOORD4; // Turns in ink-map axes; constant per splash
 };
 
 #define time            v.timeIndexType.x
@@ -104,8 +105,6 @@ VS_OUTPUT main(const VS_INPUT v) {
     float2 baseMax   = v.baseTextureAtlasRange.zw;
     float2 tintMin   = v.tintTextureAtlasRange.xy;
     float2 tintMax   = v.tintTextureAtlasRange.zw;
-    float2 detailMin = v.detailTextureAtlasRange.xy;
-    float2 detailMax = v.detailTextureAtlasRange.zw;
     float2 shapeMin  = v.shapeMaskAtlasRange.xy;
     float2 shapeMax  = v.shapeMaskAtlasRange.zw;
     float2 corner    = ConstantUV[cornerIndex];
@@ -113,9 +112,9 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.inkAndTintUV = float4(
         lerp(baseMin, baseMax, corner),
         lerp(tintMin, tintMax, corner));
-    output.detailAndShapeUV = float4(
-        lerp(detailMin, detailMax, corner),
-        lerp(shapeMin,  shapeMax,  corner));
+    output.detailAndShapeUV = float4(corner, lerp(shapeMin, shapeMax, corner));
+    // Local +U points along basisU; local +V is its positive quarter turn.
+    output.detailRotation = frac(atan2(basisU.y, basisU.x) / (2.0 * 3.141592653589793) + 1.0);
     output.surfaceClipRange
         = v.surfaceClipRange.yxwz * 0.5 + RegionOffset[regionIndex].yxyx;
     output.typeRegionTimeZScale = float4(inkType, regionIndex, time, zScale);

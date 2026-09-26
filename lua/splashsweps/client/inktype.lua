@@ -7,6 +7,15 @@ local MARGIN = 2
 local HALF_MARGIN = MARGIN / 2
 local CHANNEL_INDEX = { R = 0, G = 1, B = 2, A = 3 }
 
+---Encodes integer atlas texel coordinates without losing precision in RGBA8888.
+---@param x integer
+---@param y integer
+---@return number[]
+local function EncodeDetailTexel(x, y)
+    return { math.floor(x / 256) / 255, (x % 256) / 255,
+        math.floor(y / 256) / 255, (y % 256) / 255 }
+end
+
 ---Checks if specified texture has alpha channel.
 ---DXT1 and DXT3 only support 1-bit alpha which can't be used as a height map.
 ---@param path string Path to the texture
@@ -73,9 +82,11 @@ function ss.LoadInkTypesRT()
                 tint:Width() + MARGIN, tint:Height() + MARGIN, 0, 0, inktype)
         end
 
-        cp:SetTexture("$basetexture", mat:GetString "$detail" or "???")
+        local detailName = mat:GetString "$detail"
+        cp:SetTexture("$basetexture", detailName or "???")
         local detail = cp:GetTexture "$basetexture"
-        if not detail then detail = null_bumpmap end
+        local hasDetail = detailName ~= nil and detailName ~= "" and detail ~= nil
+        if not hasDetail then detail = null_bumpmap end
         detailTextureNames[i] = detail:GetName()
         if not detailTextureCache[detail:GetName()] then
             detailTextureCache[detail:GetName()] = i
@@ -114,11 +125,14 @@ function ss.LoadInkTypesRT()
                 (mat:GetInt "$heightonly" or 0) * 0.125,
             }, {
                 mat:GetInt   "$detailblendmode" or 0, mat:GetFloat "$detailblendscale" or 1,
-                mat:GetFloat "$detailbumpscale" or 1, mat:GetFloat "$bumpblendfactor"  or 1,
+                hasDetail and (mat:GetFloat "$detailbumpscale" or 1) or 0,
+                mat:GetFloat "$bumpblendfactor" or 1,
             }, {
                 mat:GetFloat "$edgehardness"    or 0, mat:GetFloat "$miscibility"      or 0,
                 mat:GetFloat "$mixturetag"      or 0, mat:GetInt   "$developer"        or 0,
             },
+            { 0, 0, 0, 0 }, -- ID_DETAIL_MIN; filled after packing the detail atlas
+            { 0, 0, 0, 0 }, -- ID_DETAIL_MAX
         }
     end
 
@@ -233,6 +247,10 @@ function ss.LoadInkTypesRT()
             for _, rect in ipairs(packer.rects) do
                 local inktype = rect.tag ---@type ss.InkType
                 draw(detailTextureNames[inktype.Index], rect, true, true)
+                parameters[inktype.Index][9] = EncodeDetailTexel(
+                    rect.left + MARGIN / 2, rect.bottom + MARGIN / 2)
+                parameters[inktype.Index][10] = EncodeDetailTexel(
+                    rect.right - MARGIN / 2 - 1, rect.top - MARGIN / 2 - 1)
                 inktype.DetailUV = {
                     (rect.left   + HALF_MARGIN + 0.5) / rt:Width(),
                     (rect.bottom + HALF_MARGIN + 0.5) / rt:Height(),
@@ -275,6 +293,13 @@ function ss.LoadInkTypesRT()
             end
         cam.End2D()
         render.PopRenderTarget()
+
+        -- Shared detail images must resolve to the same atlas bounds for every ink ID.
+        for i, name in ipairs(detailTextureNames) do
+            local owner = detailTextureCache[name]
+            parameters[i][9] = parameters[owner][9]
+            parameters[i][10] = parameters[owner][10]
+        end
 
         -- Writes material parameters to data texture so that they can be read in the shader
         rt = ss.RenderTarget.StaticTextures.Details

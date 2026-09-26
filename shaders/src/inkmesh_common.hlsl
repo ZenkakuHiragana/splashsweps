@@ -8,6 +8,11 @@
 #define ID_MISC               5
 #define ID_DETAILS_BUMPBLEND  6
 #define ID_OTHERS             7
+// Detail atlas texel bounds: each row stores (X high, X low, Y high, Y low).
+#define ID_DETAIL_MIN         8
+#define ID_DETAIL_MAX         9
+
+static const float3 GrayScaleFactor = { 0.2126, 0.7152, 0.0722 };
 
 // [0.0, 1.0] --> [-1.0, +1.0]
 #define TO_SIGNED(x) ((x) * 2.0 - 1.0)
@@ -24,7 +29,7 @@ static const float  DEPTHWRITE_TO_HU = 4000.0;
 // Ink height map to hammer unit conversion constant
 static const float  HEIGHT_TO_HU = 24.0;
 
-static const float4 GROUND_PROPERTIES[8] = {
+static const float4 GROUND_PROPERTIES[10] = {
     { 1.0, 1.0, 1.0,  1.0 },
     { 1.0, 1.0, 1.0,  0.0 },
     { 1.0, 1.0, 1.0,  1.0 },
@@ -32,6 +37,8 @@ static const float4 GROUND_PROPERTIES[8] = {
     { 0.0, 0.0, 0.0,  1.0 },
     { 0.0, 1.0, 1.0,  1.0 },
     { 0.0, 1.0, 1.0,  1.0 },
+    { 0.0, 0.0, 0.0,  0.0 },
+    { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, 0.0,  0.0 },
 };
 

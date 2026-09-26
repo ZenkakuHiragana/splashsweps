@@ -87,7 +87,6 @@ static const float RIM_METALIC_MAX    = 0.0625; // Rim lighting strength at meta
 static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
-static const float3 GrayScaleFactor   = { 0.2126, 0.7152, 0.0722 };
 static const float3x3 BumpBasis = {
     // Bumped lightmap basis vectors (same as LightmappedGeneric) in tangent space
     {  0.81649661064147949,  0.0,                 0.57735025882720947 },
@@ -354,8 +353,52 @@ void FetchInkDetails(float3 IDs, out DetailParams detail) {
     s = FetchDataPixel(InkDataDetail, id2, ID_DETAILS_BUMPBLEND);
     detail.blendMode       = lerp(detail.blendMode,       s.r, idBlend);
     detail.blendScale      = lerp(detail.blendScale,      s.g, idBlend);
-    detail.bumpScale       = lerp(detail.bumpScale,       s.b, idBlend);
+    // Detail belongs to the visible top material, not a blend of both textures.
+    detail.bumpScale       = idBlend > 0.0 ? s.b : detail.bumpScale;
     detail.bumpBlendFactor = lerp(detail.bumpBlendFactor, s.a, idBlend);
+}
+
+// Atlas bounds are integer texel indices split into two bytes per axis.
+float2 DecodeDetailTexel(float4 packed) {
+    float4 bytes = floor(packed * 255.0 + 0.5);
+    return float2(bytes.x * 256.0 + bytes.y, bytes.z * 256.0 + bytes.w);
+}
+
+float3 ApplyInkDetailNormal(const PsVertexInfo i, float2 inkUV, float2 pixelUV,
+    float3 IDs, float bumpScale, float3 baseNormal) {
+    int owner = (int)(IDs.z > 0.0 ? IDs.y : IDs.x);
+    if (owner == 0 || bumpScale <= 0.0) return baseNormal;
+
+    float2 localUV = tex2Dlod(InkMap, float4(inkUV + float2(0.5, 0.5), 0.0, 0.0)).rg;
+    // UV is linearly filtered; rotation uses the same pixel center as the IDs.
+    float rotation = tex2Dlod(InkMap, float4(pixelUV + float2(0.5, 0.0), 0.0, 0.0)).b;
+    float2 atlasMin = (DecodeDetailTexel(FetchDataPixel(InkDataDetail, owner, ID_DETAIL_MIN)) + 0.5) * s1Size;
+    float2 atlasMax = (DecodeDetailTexel(FetchDataPixel(InkDataDetail, owner, ID_DETAIL_MAX)) + 0.5) * s1Size;
+    float2 detailUV = lerp(atlasMin, atlasMax, saturate(localUV));
+    float2 xy = TO_SIGNED(tex2Dlod(InkDataDetail, float4(detailUV, 0.0, 0.0)).rg);
+    float3 detail = normalize(float3(xy * bumpScale, sqrt(saturate(1.0 - dot(xy, xy)))));
+
+    float sine, cosine;
+    sincos(rotation * (2.0 * 3.141592653589793), sine, cosine);
+    float2 inkXY = float2(cosine * detail.x - sine * detail.y,
+                         sine * detail.x + cosine * detail.y);
+    // Ink UV axes contain an atlas scale; use only their directions for normals.
+    float3 worldDetail = inkXY.x * normalize(i.inkTransform[0])
+                      + inkXY.y * normalize(i.inkTransform[1])
+                      + detail.z * i.worldTransform[2];
+    // BSP texture axes can be scaled or oblique. Resolve coefficients in their
+    // dual basis; multiplying by worldTransform is an inverse only for orthonormal axes.
+    float3 tangent = i.worldTransform[0];
+    float3 binormal = i.worldTransform[1];
+    float3 normal = i.worldTransform[2];
+    float3 dualU = cross(binormal, normal);
+    float3 dualV = cross(normal, tangent);
+    float3 dualN = cross(tangent, binormal);
+    float invDet = SAFERCP(dot(tangent, dualU));
+    float3 geometryDetail = normalize(float3(dot(worldDetail, dualU),
+        dot(worldDetail, dualV), dot(worldDetail, dualN)) * invDet);
+    // Whiteout blend: a flat detail leaves the existing ink/underlay normal intact.
+    return normalize(float3(baseNormal.xy + geometryDetail.xy, baseNormal.z * geometryDetail.z));
 }
 
 // Sample world bumpmap
@@ -531,6 +574,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     UVs      uv                 = ApplyParallaxGeometry(i, params);
     float3   geometryNormal     = FetchGeometryNormal(i, uv);
     float3   tangentSpaceNormal = normalize(lerp(geometryNormal, params.normal, params.detail.bumpBlendFactor));
+    tangentSpaceNormal = ApplyInkDetailNormal(i, inkUV.xy, pixelUV, IDs, params.detail.bumpScale, tangentSpaceNormal);
     float3   worldSpaceNormal   = normalize(mul(tangentSpaceNormal, i.worldTransform));
     float3   lightmapFactors    = CalcLightmapFactors(tangentSpaceNormal);
     float3x3 lightmapColors     = FetchLightmapSamples(i, uv.lightmap);
