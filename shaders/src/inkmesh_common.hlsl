@@ -6,8 +6,12 @@
 #define ID_HEIGHT_MAXLAYERS   3
 #define ID_MATERIAL_REFRACT   4
 #define ID_MISC               5
-#define ID_DETAILS_BUMPBLEND  6
+#define ID_DETAIL_MAPPING     6 // scale XY, rotation, period
 #define ID_OTHERS             7
+#define ID_DETAIL_MODE        8 // translation XY, mode, bump blend
+#define ID_DETAIL_STRENGTH    9
+#define ID_DETAIL_ORIGIN     10 // uint16 LE: atlas interior X, Y
+#define ID_DETAIL_SIZE       11 // uint16 LE: atlas interior width, height
 
 // [0.0, 1.0] --> [-1.0, +1.0]
 #define TO_SIGNED(x) ((x) * 2.0 - 1.0)
@@ -24,14 +28,18 @@ static const float  DEPTHWRITE_TO_HU = 4000.0;
 // Ink height map to hammer unit conversion constant
 static const float  HEIGHT_TO_HU = 24.0;
 
-static const float4 GROUND_PROPERTIES[8] = {
+static const float4 GROUND_PROPERTIES[] = {
     { 1.0, 1.0, 1.0,  1.0 },
     { 1.0, 1.0, 1.0,  0.0 },
     { 1.0, 1.0, 1.0,  1.0 },
     { 1.0, 1.0, 0.75, 0.5 },
     { 0.0, 0.0, 0.0,  1.0 },
     { 0.0, 1.0, 1.0,  1.0 },
-    { 0.0, 1.0, 1.0,  1.0 },
+    { 0.0, 0.0, 0.0,  0.0 }, // Detail mapping is unused for ground.
+    { 0.0, 0.0, 0.0,  0.0 },
+    { 0.0, 0.0, 1.0,  1.0 }, // mode 255: no detail; preserve ground bump blend.
+    { 0.0, 0.0, 0.0,  0.0 },
+    { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, 0.0,  0.0 },
 };
 

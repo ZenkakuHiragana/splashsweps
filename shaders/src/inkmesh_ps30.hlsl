@@ -54,13 +54,6 @@ struct PseudoPBR {
     float refraction;
 };
 
-struct DetailParams {
-    float blendMode;
-    float blendScale;
-    float bumpScale;
-    float bumpBlendFactor;
-};
-
 struct MaterialParams {
     float  height;
     float  depth;
@@ -68,7 +61,17 @@ struct MaterialParams {
     float3 multiplicative;
     float3 normal;
     PseudoPBR pbr;
-    DetailParams detail;
+};
+
+struct DetailParams {
+    float3 colorAdd;
+    float3 emission;
+    float3 normalOffset;
+    float  bumpBlendFactor;
+    float  colorScale;
+    float  normalZ;
+    float  roughness;
+    float  specularScale;
 };
 
 static const float ALBEDO_ALPHA_MIN   = 0.0625;
@@ -138,6 +141,11 @@ static const bool g_HasUnderlayAtlas     = fmod(floor(g_MaterialFlags / 2),  2.0
 static const bool g_Is4WayBlend          = fmod(floor(g_MaterialFlags / 4),  2.0) > 0.5;
 static const bool g_NeedsBlendModulation = fmod(floor(g_MaterialFlags / 8),  2.0) > 0.5;
 static const bool g_Simplified           = fmod(floor(g_MaterialFlags / 16), 2.0) > 0.5;
+
+float2 DecodeDetailUInt16(float4 packed) {
+    float4 bytes = round(packed * 255.0);
+    return bytes.xz + bytes.yw * 256.0;
+}
 
 PsVertexInfo DecomposeInput(const PS_INPUT i) {
     PsVertexInfo v;
@@ -214,6 +222,31 @@ float3 CalcFinalLightmapColor(float3x3 lightmapColors, float3 lightmapFactors) {
     lightmapFinalColor *= rcp(max(dot(lightmapFactors, float3(1.0, 1.0, 1.0)), 1.0e-3));
     lightmapFinalColor *= g_LightmapScale;
     return lightmapFinalColor;
+}
+
+void CalcInkDetailNormal(
+    inout float3 tangentNormal,
+    inout float3 worldNormal,
+    float3x3 transform,
+    DetailParams detail
+) {
+    if (dot(detail.normalOffset, detail.normalOffset) == 0.0) return;
+    // Project the additional perturbation onto the existing normal's tangent
+    // plane, then combine using the reconstructed Z. A neutral detail (including
+    // strength XY=0) leaves the underlay/ink-interface normal intact.
+    float3 offset = detail.normalOffset - worldNormal * dot(detail.normalOffset, worldNormal);
+    float3 n = worldNormal * detail.normalZ + offset;
+    float length2 = dot(n, n);
+    if (length2 <= 1.0e-12) return;
+    worldNormal = n * rsqrt(length2);
+    // The mesh carries texture vectors, not necessarily an orthonormal basis.
+    // Solve tangent * transform = n, rather than using its transpose as inverse.
+    float3 bc = cross(transform[1], transform[2]);
+    float3 ca = cross(transform[2], transform[0]);
+    float3 ab = cross(transform[0], transform[1]);
+    // Normalization cancels the inverse determinant's magnitude, but not its sign.
+    float handedness = dot(transform[0], bc) < 0.0 ? -1.0 : 1.0;
+    tangentNormal = normalize(float3(dot(n, bc), dot(n, ca), dot(n, ab))) * handedness;
 }
 
 float2 ApplyBaseTransform(float2 uv) {
@@ -339,25 +372,6 @@ void FetchInkMaterial(float3 IDs, out PseudoPBR pbr) {
     pbr.refraction    = lerp(pbr.refraction,    s.a, idBlend);
 }
 
-// Samples detail component
-void FetchInkDetails(float3 IDs, out DetailParams detail) {
-    float4 s;
-    int id1 = (int)IDs.x;
-    int id2 = (int)IDs.y;
-    float idBlend = IDs.z;
-
-    s = FetchDataPixel(InkDataDetail, id1, ID_DETAILS_BUMPBLEND);
-    detail.blendMode       = s.r;
-    detail.blendScale      = s.g;
-    detail.bumpScale       = s.b;
-    detail.bumpBlendFactor = s.a;
-    s = FetchDataPixel(InkDataDetail, id2, ID_DETAILS_BUMPBLEND);
-    detail.blendMode       = lerp(detail.blendMode,       s.r, idBlend);
-    detail.blendScale      = lerp(detail.blendScale,      s.g, idBlend);
-    detail.bumpScale       = lerp(detail.bumpScale,       s.b, idBlend);
-    detail.bumpBlendFactor = lerp(detail.bumpBlendFactor, s.a, idBlend);
-}
-
 // Sample world bumpmap
 float3 FetchGeometryNormal(const PsVertexInfo i, UVs uv) {
     float2 dx = ddx(i.worldUV), dy = ddy(i.worldUV);
@@ -420,6 +434,92 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
         albedo.rgb = ApplyDetailSample(albedo, detail).rgb * g_Color;
         return lerp(albedo.rgb * lightmapFinalColor, fb.rgb, fbRatio);
     }
+}
+
+DetailParams FetchInkDetails(float3 IDs, float3 worldPos, float3 meshNormal, float baseRoughness) {
+    // Dominant-axis projection, ties X > Y > Z
+    // Positive world directions are shared by both signs of a face
+    float3 a = abs(meshNormal);
+    float3 u, v;
+    if (a.x >= a.y && a.x >= a.z) {
+        u = float3(0, 1, 0); v = float3(0, 0, 1);
+    }
+    else if (a.y >= a.z) {
+        u = float3(1, 0, 0); v = float3(0, 0, 1);
+    }
+    else {
+        u = float3(1, 0, 0); v = float3(0, 1, 0);
+    }
+    float2 projected = float2(dot(worldPos, u), dot(worldPos, v));
+    DetailParams result = (DetailParams)0;
+    // Evaluate each categorical mode/transform separately, then blend effects.
+    // Never interpolate mode codes, rotations, or unrelated atlas coordinates.
+    [unroll]
+    for (int layer = 0; layer < 2; ++layer) {
+        int id = (int)(layer == 0 ? IDs.x : IDs.y);
+        float weight = layer == 0 ? 1.0 - IDs.z : IDs.z;
+        if (weight <= 0.0) continue;
+        float4 modeData = FetchDataPixel(InkDataDetail, id, ID_DETAIL_MODE);
+        int mode = (int)round(modeData.z * 255.0);
+        DetailParams effect = (DetailParams)0;
+        effect.colorScale = 1.0;
+        effect.normalZ = 1.0;
+        effect.roughness = baseRoughness;
+        effect.specularScale = 1.0;
+        effect.bumpBlendFactor = modeData.w;
+        [branch]
+        if (mode != 255) {
+            float4 mapping = FetchDataPixel(InkDataDetail, id, ID_DETAIL_MAPPING);
+            float2 scale = 0.5 + 1.5 * mapping.xy;
+            float period = 16.0 * exp2(8.0 * mapping.w);
+            float sine, cosine;
+            sincos(mapping.z * (255.0 / 256.0) * 6.28318530718, sine, cosine);
+            float2 p = projected / period * scale;
+            float2 uv = float2(cosine * p.x - sine * p.y, sine * p.x + cosine * p.y);
+            uv += modeData.xy * (255.0 / 256.0);
+            float2 origin = DecodeDetailUInt16(FetchDataPixel(InkDataDetail, id, ID_DETAIL_ORIGIN));
+            float2 size = DecodeDetailUInt16(FetchDataPixel(InkDataDetail, id, ID_DETAIL_SIZE));
+            // Boundary coordinates + a one-texel periodic gutter give bilinear
+            // repeat at native resolution, including the seam. Atlas has no mips.
+            float4 d = tex2Dlod(InkDataDetail, float4((origin + frac(uv) * size) * g_DataRTSize, 0, 0));
+            [branch]
+            if (mode <= 1) {
+                float4 strength = FetchDataPixel(InkDataDetail, id, ID_DETAIL_STRENGTH) * (255.0 / 127.0);
+                float2 xy = d.rg * 2.0 - 1.0;
+                // Restore positive Z BEFORE scaling XY; B is not normal Z.
+                float z = sqrt(saturate(1.0 - dot(xy, xy)));
+                float3 n = float3(xy * strength.xy, z);
+                float length2 = dot(n, n);
+                n = length2 > 1.0e-12 ? n * rsqrt(max(length2, 1.0e-12)) : float3(0, 0, 1);
+                // R^T maps texture slopes back to projection axes. Scale controls
+                // the repeat frequency; strength alone controls normal amplitude.
+                float2 slope = float2(cosine * n.x + sine * n.y, -sine * n.x + cosine * n.y);
+                float3 offset = u * slope.x + v * slope.y;
+                effect.normalOffset = offset - meshNormal * dot(offset, meshNormal);
+                effect.normalZ = n.z;
+                if (mode == 0) {
+                    effect.colorScale = max(0.0, 1.0 + strength.w * (2.0 * d.a - 1.0));
+                    effect.roughness = saturate(baseRoughness + strength.z * (2.0 * d.b - 1.0));
+                } else {
+                    effect.specularScale = d.a;
+                }
+            } else if (mode == 2) {
+                effect.emission = d.rgb * d.a;
+            } else if (mode == 3) {
+                effect.colorScale = 1.0 - d.a;
+                effect.colorAdd = d.rgb * d.a;
+            }
+        }
+        result.colorScale += effect.colorScale * weight;
+        result.colorAdd += effect.colorAdd * weight;
+        result.emission += effect.emission * weight;
+        result.normalOffset += effect.normalOffset * weight;
+        result.normalZ += effect.normalZ * weight;
+        result.roughness += effect.roughness * weight;
+        result.specularScale += effect.specularScale * weight;
+        result.bumpBlendFactor += effect.bumpBlendFactor * weight;
+    }
+    return result;
 }
 
 // Steep Parallax Occlusion Mapping
@@ -525,25 +625,36 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     FetchAdditiveAndHeight(i, inkUV.xy, params);
     FetchMultiplicativeAndDepth(inkUV.xy, params);
     FetchInkMaterial(IDs, params.pbr);
-    FetchInkDetails(IDs, params.detail);
+    // The parallax ray's Z is in HEIGHT_TO_HU units along the mesh normal.
+    // Evaluate the display texture at that hit, not at the unshifted mesh pixel.
+    float3 meshNormal = normalize(i.worldTransform[2]);
+    float3 detailPosition = i.worldPos + viewVec * (inkUV.z * HEIGHT_TO_HU * SAFERCP(dot(viewVec, i.worldTransform[2])));
+    DetailParams detail = FetchInkDetails(IDs, detailPosition, meshNormal, params.pbr.roughness);
+    params.pbr.roughness = detail.roughness;
+    params.pbr.specularScale *= detail.specularScale;
 
     // Blend ink and world normals
-    UVs      uv                 = ApplyParallaxGeometry(i, params);
-    float3   geometryNormal     = FetchGeometryNormal(i, uv);
-    float3   tangentSpaceNormal = normalize(lerp(geometryNormal, params.normal, params.detail.bumpBlendFactor));
-    float3   worldSpaceNormal   = normalize(mul(tangentSpaceNormal, i.worldTransform));
+    UVs    uv                 = ApplyParallaxGeometry(i, params);
+    float3 geometryNormal     = FetchGeometryNormal(i, uv);
+    float3 tangentSpaceNormal = normalize(lerp(geometryNormal, params.normal, detail.bumpBlendFactor));
+    float3 worldSpaceNormal   = normalize(mul(tangentSpaceNormal, i.worldTransform));
+    CalcInkDetailNormal(tangentSpaceNormal, worldSpaceNormal, i.worldTransform, detail);
+
     float3   lightmapFactors    = CalcLightmapFactors(tangentSpaceNormal);
     float3x3 lightmapColors     = FetchLightmapSamples(i, uv.lightmap);
     float3   lightmapFinalColor = CalcFinalLightmapColor(lightmapColors, lightmapFactors);
 
     // Compute and apply diffuse lighting factors using bumped lightmap basis
-    float3 geometryLit = FetchGeometrySamples(i, uv, lightmapFinalColor) * params.multiplicative;
-    float3 inkLit      = params.additive * lightmapFinalColor;
+    // Detail is an affine operation on the unlit accumulated color: C*a+b.
+    // The captured underlay is already lit, so distribute the same scale over it
+    // and light only the added color. Do not tint the framebuffer a second time.
+    float3 geometryLit = FetchGeometrySamples(i, uv, lightmapFinalColor) * params.multiplicative * detail.colorScale;
+    float3 inkLit      = (params.additive * detail.colorScale + detail.colorAdd) * lightmapFinalColor;
     float3 albedo      = geometryLit + inkLit;
 
     // Modulate surface albedo and add ink color
     float3 ambientOcclusion = { 1.0, 1.0, 1.0 }; // dummy!
-    float3 result = albedo * lerp(1.0, DIFFUSE_MIN, params.pbr.metallic);
+    float3 result = albedo * lerp(1.0, DIFFUSE_MIN, params.pbr.metallic) + detail.emission;
 
     // Simplified pass doesn't need specular component
     if (g_Simplified) {

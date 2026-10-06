@@ -14,11 +14,7 @@
 //   y : Ink $tinttexture atlas min V
 //   z : Ink $tinttexture atlas max U
 //   w : Ink $tinttexture atlas max V
-// TEXCOORD3
-//   x : Ink $detail atlas min U
-//   y : Ink $detail atlas min V
-//   z : Ink $detail atlas max U
-//   w : Ink $detail atlas max V
+// TEXCOORD3: unused (detail is evaluated in the display shader)
 // TEXCOORD4
 //   x : Ink shape mask atlas min U
 //   y : Ink shape mask atlas min V
@@ -51,8 +47,8 @@ const float4 c21 : register(c21); // Ambient cube front
 static const float  CornerSignX[4] = { -1,  1, 1, -1 };
 static const float  CornerSignY[4] = { -1, -1, 1,  1 };
 static const float2 ConstantUV[4]  = {{ 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }};
-static const float2 RegionOffset[4] = {
-    { 0.0, 0.0 }, { 0.0, 0.5 }, { 0.5, 0.0 }, { 0.5, 0.5 }
+static const float2 RegionOffset[3] = {
+    { 0.0, 0.0 }, { 0.0, 0.5 }, { 0.5, 0.0 }
 };
 
 struct VS_INPUT {
@@ -60,7 +56,6 @@ struct VS_INPUT {
     float4   worldAngles             : TEXCOORD0;
     float4   baseTextureAtlasRange   : TEXCOORD1;
     float4   tintTextureAtlasRange   : TEXCOORD2;
-    float4   detailTextureAtlasRange : TEXCOORD3;
     float4   shapeMaskAtlasRange     : TEXCOORD4;
     float4   surfaceClipRange        : TEXCOORD5;
     float4x2 worldToUV               : TEXCOORD6;
@@ -71,7 +66,7 @@ struct VS_INPUT {
 struct VS_OUTPUT {
     float4 pos                  : POSITION;
     float4 inkAndTintUV         : TEXCOORD0;
-    float4 detailAndShapeUV     : TEXCOORD1;
+    float2 shapeUV              : TEXCOORD1;
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionTimeZScale : TEXCOORD3;
 };
@@ -104,8 +99,6 @@ VS_OUTPUT main(const VS_INPUT v) {
     float2 baseMax   = v.baseTextureAtlasRange.zw;
     float2 tintMin   = v.tintTextureAtlasRange.xy;
     float2 tintMax   = v.tintTextureAtlasRange.zw;
-    float2 detailMin = v.detailTextureAtlasRange.xy;
-    float2 detailMax = v.detailTextureAtlasRange.zw;
     float2 shapeMin  = v.shapeMaskAtlasRange.xy;
     float2 shapeMax  = v.shapeMaskAtlasRange.zw;
     float2 corner    = ConstantUV[cornerIndex];
@@ -113,9 +106,7 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.inkAndTintUV = float4(
         lerp(baseMin, baseMax, corner),
         lerp(tintMin, tintMax, corner));
-    output.detailAndShapeUV = float4(
-        lerp(detailMin, detailMax, corner),
-        lerp(shapeMin,  shapeMax,  corner));
+    output.shapeUV = lerp(shapeMin, shapeMax, corner);
     output.surfaceClipRange
         = v.surfaceClipRange.yxwz * 0.5 + RegionOffset[regionIndex].yxyx;
     output.typeRegionTimeZScale = float4(inkType, regionIndex, time, zScale);

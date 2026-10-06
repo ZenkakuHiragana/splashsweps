@@ -17,7 +17,6 @@ end
 ---@field ang    Angle    The world angles to paint
 ---@field scale  Vector   X/Y/Z scale in hammer units
 ---@field base   number[] UV range for $basetexture
----@field detail number[] UV range for $detail
 ---@field shape  number[] UV range for the shape mask
 ---@field surf   number[] UV range for the surface
 ---@field time   number   CurTime()-based paint time
@@ -36,7 +35,7 @@ end
 ---@field Fields   table<string, ss.Locals.Renderer.MaterialWatchState>
 
 local MinTime,    MaxTime    = 0, 0 --- = Queue[1].time, Queue[#Queue].time
-local NUM_REGION, NUM_VERTEX = 4, 4
+local NUM_REGION, NUM_VERTEX = 3, 4
 local MAX_QUEUE = math.floor(32768 / (NUM_VERTEX * NUM_REGION))
 local FullFrameFb1 = render.GetScreenEffectTexture(1)
 local CopyFrameBufferMaterial = Material "splashsweps/shaders/copyfb"
@@ -370,7 +369,6 @@ function ss.PushPaintRenderTargetQueue(worldPos, worldAng, scale, shape, typeid)
                 ang    = angWarp,
                 scale  = scale,
                 base   = inktype.BaseUV,
-                detail = inktype.DetailUV,
                 shape  = inkshape.UV,
                 time   = MaxTime,
                 tint   = inktype.TintUV,
@@ -439,14 +437,13 @@ hook.Add("RenderScreenspaceEffects", "SplashSWEPs: Paint ink in queue", function
             mesh_Begin(MATERIAL_QUADS, primitiveCount)
         end
 
-        for i = 0, 240, 16 do -- 0b0000RRCC, RR = Region, CC = Corner
+        for i = 0, (NUM_REGION * NUM_VERTEX - 1) * 16, 16 do -- 0b0000RRCC, RR = Region, CC = Corner
             mesh_Color(normalizedTime, i, q.typeid, 0)
             mesh_Normal(q.scale)
             mesh_Position(q.pos)
             mesh_TexCoord(0, q.ang.p, q.ang.y, q.ang.r, ss.RenderTarget.HammerUnitsToUV)
             mesh_TexCoord(1, unpack(q.base))
             mesh_TexCoord(2, unpack(q.tint))
-            mesh_TexCoord(3, unpack(q.detail))
             mesh_TexCoord(4, unpack(q.shape))
             mesh_TexCoord(5, unpack(q.surf))
             mesh_TexCoord(6, unpack(q.row1))

@@ -18,14 +18,12 @@ local InkTypeIdentifierToIndex = locals.InkTypeIdentifierToIndex
 ---@field Features   string[]  List of features this type of ink will have.
 ---@field BaseUV     number[]? UV range (minU, minV, maxU, maxV) of $basetexture
 ---@field TintUV     number[]? UV range (minU, minV, maxU, maxV) of $tinttexture
----@field DetailUV   number[]? UV range (minU, minV, maxU, maxV) of $details
 ss.struct "InkType" {
     Index = 0,
     Identifier = "",
     Features = {},
     BaseUV = nil,
     TintUV = nil,
-    DetailUV = nil,
 }
 
 ---JSON scheme for ink type definition.

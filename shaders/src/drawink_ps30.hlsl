@@ -11,7 +11,7 @@ const float2 RcpDataRTSize : register(c5);
 struct PS_INPUT {
     float2 screenPos            : VPOS;
     float4 inkAndTintUV         : TEXCOORD0;
-    float4 detailAndShapeUV     : TEXCOORD1;
+    float2 shapeUV              : TEXCOORD1;
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionTimeZScale : TEXCOORD3;
 };
@@ -203,29 +203,16 @@ PS_OUTPUT PaintIndices(const PS_INPUT i, float t, float shapeMask) {
     return output;
 }
 
-PS_OUTPUT DetailMapping(const PS_INPUT i, float t, float shapeMask) {
-    float detailRotation = 0.0;
-    float detailScale = 0.0;
-    PS_OUTPUT output = {
-        i.detailAndShapeUV.xy,
-        detailRotation,
-        detailScale, t,
-    };
-    return output;
-}
-
 PS_OUTPUT main(const PS_INPUT i) {
     clip(step(float4(i.surfaceClipRange.xy, inkMapUV), float4(inkMapUV, i.surfaceClipRange.zw)) - 0.5);
 
-    float4 shapeMask = tex2D(TintTextureAtlas, i.detailAndShapeUV.zw);
+    float4 shapeMask = tex2D(TintTextureAtlas, i.shapeUV);
     clip(shapeMask.a < eps ? -1.0 : 1.0);
 
     if (floor(regionID) == 0)
         return AdditiveAndHeight(i, time, shapeMask.a);
     else if (floor(regionID) == 1)
         return TintAndDepth(i, time, shapeMask.a);
-    else if (floor(regionID) == 2)
-        return PaintIndices(i, time, shapeMask.a);
     else
-        return DetailMapping(i, time, shapeMask.a);
+        return PaintIndices(i, time, shapeMask.a);
 }
