@@ -13,6 +13,12 @@
 #define ID_DETAIL_ORIGIN     10 // uint16 LE: atlas interior X, Y
 #define ID_DETAIL_SIZE       11 // uint16 LE: atlas interior width, height
 
+static const int DETAIL_MODE_MATERIAL = 0;
+static const int DETAIL_MODE_NORMAL = 1;
+static const int DETAIL_MODE_EMISSION = 2;
+static const int DETAIL_MODE_COLOR = 3;
+static const int DETAIL_MODE_NONE = 255;
+
 // [0.0, 1.0] --> [-1.0, +1.0]
 #define TO_SIGNED(x) ((x) * 2.0 - 1.0)
 
@@ -35,9 +41,9 @@ static const float4 GROUND_PROPERTIES[] = {
     { 1.0, 1.0, 0.75, 0.5 },
     { 0.0, 0.0, 0.0,  1.0 },
     { 0.0, 1.0, 1.0,  1.0 },
-    { 0.0, 0.0, 0.0,  0.0 }, // Detail mapping is unused for ground.
     { 0.0, 0.0, 0.0,  0.0 },
-    { 0.0, 0.0, 1.0,  1.0 }, // mode 255: no detail; preserve ground bump blend.
+    { 0.0, 0.0, 0.0,  0.0 },
+    { 0.0, 0.0, DETAIL_MODE_NONE / 255.0, 1.0 },
     { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, 0.0,  0.0 },

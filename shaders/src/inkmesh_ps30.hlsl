@@ -63,7 +63,26 @@ struct MaterialParams {
     PseudoPBR pbr;
 };
 
-struct DetailParams {
+struct InkDetailProjection {
+    float2 position;
+    float3 worldU;
+    float3 worldV;
+};
+
+struct InkDetailSettings {
+    int    mode;
+    float  bumpBlendFactor;
+    float2 scale;
+    float  period;
+    float  sine;
+    float  cosine;
+    float2 translation;
+    float2 atlasOrigin;
+    float2 atlasSize;
+    float4 strength;
+};
+
+struct InkDetailEffect {
     float3 colorAdd;
     float3 emission;
     float3 normalOffset;
@@ -228,7 +247,7 @@ void CalcInkDetailNormal(
     inout float3 tangentNormal,
     inout float3 worldNormal,
     float3x3 transform,
-    DetailParams detail
+    InkDetailEffect detail
 ) {
     if (dot(detail.normalOffset, detail.normalOffset) == 0.0) return;
     // Project the additional perturbation onto the existing normal's tangent
@@ -330,7 +349,7 @@ void FetchAdditiveAndHeight(const PsVertexInfo i, float2 uv, inout MaterialParam
     float hx = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(deltaUV.x, 0.0, 0.0, 0.0)).a);
     float hy = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(0.0, deltaUV.y, 0.0, 0.0)).a);
 
-    // Central difference over 2 * deltaUV.
+    // Forward height samples, scaled by 1 / (2 * deltaUV).
     float dzdu = (hx - params.height) * HEIGHT_TO_HU * rcpDiffInHU.x;
     float dzdv = (hy - params.height) * HEIGHT_TO_HU * rcpDiffInHU.y;
 
@@ -436,90 +455,131 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
     }
 }
 
-DetailParams FetchInkDetails(float3 IDs, float3 worldPos, float3 meshNormal, float baseRoughness) {
-    // Dominant-axis projection, ties X > Y > Z
-    // Positive world directions are shared by both signs of a face
-    float3 a = abs(meshNormal);
-    float3 u, v;
-    if (a.x >= a.y && a.x >= a.z) {
-        u = float3(0, 1, 0); v = float3(0, 0, 1);
+InkDetailProjection ProjectInkDetail(float3 worldPos, float3 meshNormal) {
+    float3 absNormal = abs(meshNormal);
+    InkDetailProjection projection;
+    if (absNormal.x >= absNormal.y && absNormal.x >= absNormal.z) {
+        projection.worldU = float3(0, 1, 0);
+        projection.worldV = float3(0, 0, 1);
     }
-    else if (a.y >= a.z) {
-        u = float3(1, 0, 0); v = float3(0, 0, 1);
+    else if (absNormal.y >= absNormal.z) {
+        projection.worldU = float3(1, 0, 0);
+        projection.worldV = float3(0, 0, 1);
     }
     else {
-        u = float3(1, 0, 0); v = float3(0, 1, 0);
+        projection.worldU = float3(1, 0, 0);
+        projection.worldV = float3(0, 1, 0);
     }
-    float2 projected = float2(dot(worldPos, u), dot(worldPos, v));
-    DetailParams result = (DetailParams)0;
-    // Evaluate each categorical mode/transform separately, then blend effects.
-    // Never interpolate mode codes, rotations, or unrelated atlas coordinates.
-    [unroll]
-    for (int layer = 0; layer < 2; ++layer) {
-        int id = (int)(layer == 0 ? IDs.x : IDs.y);
-        float weight = layer == 0 ? 1.0 - IDs.z : IDs.z;
-        if (weight <= 0.0) continue;
-        float4 modeData = FetchDataPixel(InkDataDetail, id, ID_DETAIL_MODE);
-        int mode = (int)round(modeData.z * 255.0);
-        DetailParams effect = (DetailParams)0;
-        effect.colorScale = 1.0;
-        effect.normalZ = 1.0;
-        effect.roughness = baseRoughness;
-        effect.specularScale = 1.0;
-        effect.bumpBlendFactor = modeData.w;
-        [branch]
-        if (mode != 255) {
-            float4 mapping = FetchDataPixel(InkDataDetail, id, ID_DETAIL_MAPPING);
-            float2 scale = 0.5 + 1.5 * mapping.xy;
-            float period = 16.0 * exp2(8.0 * mapping.w);
-            float sine, cosine;
-            sincos(mapping.z * (255.0 / 256.0) * 6.28318530718, sine, cosine);
-            float2 p = projected / period * scale;
-            float2 uv = float2(cosine * p.x - sine * p.y, sine * p.x + cosine * p.y);
-            uv += modeData.xy * (255.0 / 256.0);
-            float2 origin = DecodeDetailUInt16(FetchDataPixel(InkDataDetail, id, ID_DETAIL_ORIGIN));
-            float2 size = DecodeDetailUInt16(FetchDataPixel(InkDataDetail, id, ID_DETAIL_SIZE));
-            // Boundary coordinates + a one-texel periodic gutter give bilinear
-            // repeat at native resolution, including the seam. Atlas has no mips.
-            float4 d = tex2Dlod(InkDataDetail, float4((origin + frac(uv) * size) * g_DataRTSize, 0, 0));
-            [branch]
-            if (mode <= 1) {
-                float4 strength = FetchDataPixel(InkDataDetail, id, ID_DETAIL_STRENGTH) * (255.0 / 127.0);
-                float2 xy = d.rg * 2.0 - 1.0;
-                // Restore positive Z BEFORE scaling XY; B is not normal Z.
-                float z = sqrt(saturate(1.0 - dot(xy, xy)));
-                float3 n = float3(xy * strength.xy, z);
-                float length2 = dot(n, n);
-                n = length2 > 1.0e-12 ? n * rsqrt(max(length2, 1.0e-12)) : float3(0, 0, 1);
-                // R^T maps texture slopes back to projection axes. Scale controls
-                // the repeat frequency; strength alone controls normal amplitude.
-                float2 slope = float2(cosine * n.x + sine * n.y, -sine * n.x + cosine * n.y);
-                float3 offset = u * slope.x + v * slope.y;
-                effect.normalOffset = offset - meshNormal * dot(offset, meshNormal);
-                effect.normalZ = n.z;
-                if (mode == 0) {
-                    effect.colorScale = max(0.0, 1.0 + strength.w * (2.0 * d.a - 1.0));
-                    effect.roughness = saturate(baseRoughness + strength.z * (2.0 * d.b - 1.0));
-                } else {
-                    effect.specularScale = d.a;
-                }
-            } else if (mode == 2) {
-                effect.emission = d.rgb * d.a;
-            } else if (mode == 3) {
-                effect.colorScale = 1.0 - d.a;
-                effect.colorAdd = d.rgb * d.a;
-            }
-        }
-        result.colorScale += effect.colorScale * weight;
-        result.colorAdd += effect.colorAdd * weight;
-        result.emission += effect.emission * weight;
-        result.normalOffset += effect.normalOffset * weight;
-        result.normalZ += effect.normalZ * weight;
-        result.roughness += effect.roughness * weight;
-        result.specularScale += effect.specularScale * weight;
-        result.bumpBlendFactor += effect.bumpBlendFactor * weight;
+    projection.position = float2(dot(worldPos, projection.worldU), dot(worldPos, projection.worldV));
+    return projection;
+}
+
+InkDetailSettings LoadInkDetailSettings(int inkId) {
+    float4 encodedMode = FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_MODE);
+    InkDetailSettings settings = (InkDetailSettings)0;
+    settings.mode = (int)round(encodedMode.z * 255.0);
+    settings.bumpBlendFactor = encodedMode.w;
+    settings.period = 512.0;
+    [branch]
+    if (settings.mode == DETAIL_MODE_NONE) return settings;
+
+    float4 encodedMapping = FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_MAPPING);
+    settings.scale = 0.5 + 1.5 * encodedMapping.xy;
+    settings.period = 16.0 * exp2(8.0 * encodedMapping.w);
+    settings.translation = encodedMode.xy * (255.0 / 256.0);
+    float angle = encodedMapping.z * (255.0 / 256.0) * 6.28318530718;
+    sincos(angle, settings.sine, settings.cosine);
+    settings.atlasOrigin = DecodeDetailUInt16(FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_ORIGIN));
+    settings.atlasSize = DecodeDetailUInt16(FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_SIZE));
+
+    [branch]
+    if (settings.mode == DETAIL_MODE_MATERIAL || settings.mode == DETAIL_MODE_NORMAL) {
+        settings.strength = FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_STRENGTH) * (255.0 / 127.0);
     }
-    return result;
+    return settings;
+}
+
+float4 SampleInkDetail(float2 projectedPosition, InkDetailSettings settings) {
+    float2 scaledPosition = projectedPosition / settings.period * settings.scale;
+    float2 rotatedPosition = float2(
+        settings.cosine * scaledPosition.x - settings.sine * scaledPosition.y,
+        settings.sine * scaledPosition.x + settings.cosine * scaledPosition.y);
+    float2 repeatedUV = frac(rotatedPosition + settings.translation);
+    float2 atlasUV = (settings.atlasOrigin + repeatedUV * settings.atlasSize) * g_DataRTSize;
+    return tex2Dlod(InkDataDetail, float4(atlasUV, 0, 0));
+}
+
+InkDetailEffect EvaluateInkDetail(int inkId, InkDetailProjection projection, float3 meshNormal, float baseRoughness) {
+    InkDetailSettings settings = LoadInkDetailSettings(inkId);
+    InkDetailEffect effect = (InkDetailEffect)0;
+    effect.colorScale = 1.0;
+    effect.normalZ = 1.0;
+    effect.roughness = baseRoughness;
+    effect.specularScale = 1.0;
+    effect.bumpBlendFactor = settings.bumpBlendFactor;
+    [branch]
+    if (settings.mode == DETAIL_MODE_NONE) return effect;
+
+    float4 sample = SampleInkDetail(projection.position, settings);
+    [branch]
+    if (settings.mode == DETAIL_MODE_MATERIAL || settings.mode == DETAIL_MODE_NORMAL) {
+        // RG stores normal XY. Reconstruct Z before applying XY strength.
+        float2 normalXY = sample.rg * 2.0 - 1.0;
+        float normalZ = sqrt(saturate(1.0 - dot(normalXY, normalXY)));
+        float3 detailNormal = float3(normalXY * settings.strength.xy, normalZ);
+        float normalLengthSquared = dot(detailNormal, detailNormal);
+        detailNormal = normalLengthSquared > 1.0e-12
+            ? detailNormal * rsqrt(max(normalLengthSquared, 1.0e-12))
+            : float3(0, 0, 1);
+
+        // Inverse image rotation expresses its normal XY on the world projection axes.
+        float2 slope = float2(
+            settings.cosine * detailNormal.x + settings.sine * detailNormal.y,
+           -settings.sine * detailNormal.x + settings.cosine * detailNormal.y);
+        float3 offset = projection.worldU * slope.x + projection.worldV * slope.y;
+        effect.normalOffset = offset - meshNormal * dot(offset, meshNormal);
+        effect.normalZ = detailNormal.z;
+    }
+
+    [branch]
+    if (settings.mode == DETAIL_MODE_MATERIAL) {
+        effect.colorScale = max(0.0, 1.0 + settings.strength.w * (2.0 * sample.a - 1.0));
+        effect.roughness = saturate(baseRoughness + settings.strength.z * (2.0 * sample.b - 1.0));
+    }
+    else if (settings.mode == DETAIL_MODE_NORMAL) {
+        effect.specularScale = sample.a;
+    }
+    else if (settings.mode == DETAIL_MODE_EMISSION) {
+        effect.emission = sample.rgb * sample.a;
+    }
+    else if (settings.mode == DETAIL_MODE_COLOR) {
+        effect.colorScale = 1.0 - sample.a;
+        effect.colorAdd = sample.rgb * sample.a;
+    }
+    return effect;
+}
+
+InkDetailEffect FetchInkDetails(float3 inkIDs, float3 worldPos, float3 meshNormal, float baseRoughness) {
+    InkDetailProjection projection = ProjectInkDetail(worldPos, meshNormal);
+    int firstInkId = (int)inkIDs.x;
+    int secondInkId = (int)inkIDs.y;
+    float blend = inkIDs.z;
+    if (blend <= 0.0) return EvaluateInkDetail(firstInkId, projection, meshNormal, baseRoughness);
+    if (blend >= 1.0) return EvaluateInkDetail(secondInkId, projection, meshNormal, baseRoughness);
+
+    InkDetailEffect first = EvaluateInkDetail(firstInkId, projection, meshNormal, baseRoughness);
+    InkDetailEffect second = EvaluateInkDetail(secondInkId, projection, meshNormal, baseRoughness);
+    float firstWeight = 1.0 - blend;
+    InkDetailEffect mixed;
+    mixed.colorScale      = first.colorScale      * firstWeight + second.colorScale      * blend;
+    mixed.colorAdd        = first.colorAdd        * firstWeight + second.colorAdd        * blend;
+    mixed.emission        = first.emission        * firstWeight + second.emission        * blend;
+    mixed.normalOffset    = first.normalOffset    * firstWeight + second.normalOffset    * blend;
+    mixed.normalZ         = first.normalZ         * firstWeight + second.normalZ         * blend;
+    mixed.roughness       = first.roughness       * firstWeight + second.roughness       * blend;
+    mixed.specularScale   = first.specularScale   * firstWeight + second.specularScale   * blend;
+    mixed.bumpBlendFactor = first.bumpBlendFactor * firstWeight + second.bumpBlendFactor * blend;
+    return mixed;
 }
 
 // Steep Parallax Occlusion Mapping
@@ -629,7 +689,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     // Evaluate the display texture at that hit, not at the unshifted mesh pixel.
     float3 meshNormal = normalize(i.worldTransform[2]);
     float3 detailPosition = i.worldPos + viewVec * (inkUV.z * HEIGHT_TO_HU * SAFERCP(dot(viewVec, i.worldTransform[2])));
-    DetailParams detail = FetchInkDetails(IDs, detailPosition, meshNormal, params.pbr.roughness);
+    InkDetailEffect detail = FetchInkDetails(IDs, detailPosition, meshNormal, params.pbr.roughness);
     params.pbr.roughness = detail.roughness;
     params.pbr.specularScale *= detail.specularScale;
 
