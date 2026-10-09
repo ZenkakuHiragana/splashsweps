@@ -247,13 +247,15 @@ void CalcInkDetailNormal(
     inout float3 tangentNormal,
     inout float3 worldNormal,
     float3x3 transform,
+    float3 meshNormal,
     InkDetailEffect detail
 ) {
-    if (dot(detail.normalOffset, detail.normalOffset) == 0.0) return;
+    float3 meshOffset = detail.normalOffset - meshNormal * dot(detail.normalOffset, meshNormal);
+    if (dot(meshOffset, meshOffset) == 0.0) return;
     // Project the additional perturbation onto the existing normal's tangent
     // plane, then combine using the reconstructed Z. A neutral detail (including
     // strength XY=0) leaves the underlay/ink-interface normal intact.
-    float3 offset = detail.normalOffset - worldNormal * dot(detail.normalOffset, worldNormal);
+    float3 offset = meshOffset - worldNormal * dot(meshOffset, worldNormal);
     float3 n = worldNormal * detail.normalZ + offset;
     float length2 = dot(n, n);
     if (length2 <= 1.0e-12) return;
@@ -349,7 +351,7 @@ void FetchAdditiveAndHeight(const PsVertexInfo i, float2 uv, inout MaterialParam
     float hx = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(deltaUV.x, 0.0, 0.0, 0.0)).a);
     float hy = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(0.0, deltaUV.y, 0.0, 0.0)).a);
 
-    // Forward height samples, scaled by 1 / (2 * deltaUV).
+    // Central difference over 2 * deltaUV.
     float dzdu = (hx - params.height) * HEIGHT_TO_HU * rcpDiffInHU.x;
     float dzdv = (hy - params.height) * HEIGHT_TO_HU * rcpDiffInHU.y;
 
@@ -509,7 +511,7 @@ float4 SampleInkDetail(float2 projectedPosition, InkDetailSettings settings) {
     return tex2Dlod(InkDataDetail, float4(atlasUV, 0, 0));
 }
 
-InkDetailEffect EvaluateInkDetail(int inkId, InkDetailProjection projection, float3 meshNormal, float baseRoughness) {
+InkDetailEffect EvaluateInkDetail(int inkId, InkDetailProjection projection, float baseRoughness) {
     InkDetailSettings settings = LoadInkDetailSettings(inkId);
     InkDetailEffect effect = (InkDetailEffect)0;
     effect.colorScale = 1.0;
@@ -529,15 +531,14 @@ InkDetailEffect EvaluateInkDetail(int inkId, InkDetailProjection projection, flo
         float3 detailNormal = float3(normalXY * settings.strength.xy, normalZ);
         float normalLengthSquared = dot(detailNormal, detailNormal);
         detailNormal = normalLengthSquared > 1.0e-12
-            ? detailNormal * rsqrt(max(normalLengthSquared, 1.0e-12))
+            ? detailNormal * rsqrt(normalLengthSquared)
             : float3(0, 0, 1);
 
         // Inverse image rotation expresses its normal XY on the world projection axes.
         float2 slope = float2(
             settings.cosine * detailNormal.x + settings.sine * detailNormal.y,
            -settings.sine * detailNormal.x + settings.cosine * detailNormal.y);
-        float3 offset = projection.worldU * slope.x + projection.worldV * slope.y;
-        effect.normalOffset = offset - meshNormal * dot(offset, meshNormal);
+        effect.normalOffset = projection.worldU * slope.x + projection.worldV * slope.y;
         effect.normalZ = detailNormal.z;
     }
 
@@ -564,11 +565,11 @@ InkDetailEffect FetchInkDetails(float3 inkIDs, float3 worldPos, float3 meshNorma
     int firstInkId = (int)inkIDs.x;
     int secondInkId = (int)inkIDs.y;
     float blend = inkIDs.z;
-    if (blend <= 0.0) return EvaluateInkDetail(firstInkId, projection, meshNormal, baseRoughness);
-    if (blend >= 1.0) return EvaluateInkDetail(secondInkId, projection, meshNormal, baseRoughness);
+    if (blend <= 0.0) return EvaluateInkDetail(firstInkId, projection, baseRoughness);
+    if (blend >= 1.0) return EvaluateInkDetail(secondInkId, projection, baseRoughness);
 
-    InkDetailEffect first = EvaluateInkDetail(firstInkId, projection, meshNormal, baseRoughness);
-    InkDetailEffect second = EvaluateInkDetail(secondInkId, projection, meshNormal, baseRoughness);
+    InkDetailEffect first = EvaluateInkDetail(firstInkId, projection, baseRoughness);
+    InkDetailEffect second = EvaluateInkDetail(secondInkId, projection, baseRoughness);
     float firstWeight = 1.0 - blend;
     InkDetailEffect mixed;
     mixed.colorScale      = first.colorScale      * firstWeight + second.colorScale      * blend;
@@ -688,7 +689,8 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     // The parallax ray's Z is in HEIGHT_TO_HU units along the mesh normal.
     // Evaluate the display texture at that hit, not at the unshifted mesh pixel.
     float3 meshNormal = normalize(i.worldTransform[2]);
-    float3 detailPosition = i.worldPos + viewVec * (inkUV.z * HEIGHT_TO_HU * SAFERCP(dot(viewVec, i.worldTransform[2])));
+    float detailRayDistance = inkUV.z * HEIGHT_TO_HU * SAFERCP(dot(viewVec, i.worldTransform[2]));
+    float3 detailPosition = i.worldPos + viewVec * detailRayDistance;
     InkDetailEffect detail = FetchInkDetails(IDs, detailPosition, meshNormal, params.pbr.roughness);
     params.pbr.roughness = detail.roughness;
     params.pbr.specularScale *= detail.specularScale;
@@ -698,7 +700,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     float3 geometryNormal     = FetchGeometryNormal(i, uv);
     float3 tangentSpaceNormal = normalize(lerp(geometryNormal, params.normal, detail.bumpBlendFactor));
     float3 worldSpaceNormal   = normalize(mul(tangentSpaceNormal, i.worldTransform));
-    CalcInkDetailNormal(tangentSpaceNormal, worldSpaceNormal, i.worldTransform, detail);
+    CalcInkDetailNormal(tangentSpaceNormal, worldSpaceNormal, i.worldTransform, meshNormal, detail);
 
     float3   lightmapFactors    = CalcLightmapFactors(tangentSpaceNormal);
     float3x3 lightmapColors     = FetchLightmapSamples(i, uv.lightmap);
