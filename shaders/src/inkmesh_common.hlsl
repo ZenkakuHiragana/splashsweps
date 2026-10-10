@@ -10,8 +10,7 @@
 #define ID_OTHERS             7
 #define ID_DETAIL_MODE        8 // translation XY, mode, bump blend
 #define ID_DETAIL_STRENGTH    9
-#define ID_DETAIL_ORIGIN     10 // uint16 LE: atlas interior X, Y
-#define ID_DETAIL_SIZE       11 // uint16 LE: atlas interior width, height
+#define ID_DETAIL_GRID       10 // grid column, row, column count
 
 static const int DETAIL_MODE_MATERIAL = 0;
 static const int DETAIL_MODE_NORMAL = 1;
@@ -44,7 +43,6 @@ static const float4 GROUND_PROPERTIES[] = {
     { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, DETAIL_MODE_NONE / 255.0, 1.0 },
-    { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, 0.0,  0.0 },
 };

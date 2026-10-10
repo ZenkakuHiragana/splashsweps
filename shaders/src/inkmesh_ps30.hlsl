@@ -78,7 +78,7 @@ struct InkDetailSettings {
     float  cosine;
     float2 translation;
     float2 atlasOrigin;
-    float2 atlasSize;
+    float  atlasSize;
     float4 strength;
 };
 
@@ -160,11 +160,6 @@ static const bool g_HasUnderlayAtlas     = fmod(floor(g_MaterialFlags / 2),  2.0
 static const bool g_Is4WayBlend          = fmod(floor(g_MaterialFlags / 4),  2.0) > 0.5;
 static const bool g_NeedsBlendModulation = fmod(floor(g_MaterialFlags / 8),  2.0) > 0.5;
 static const bool g_Simplified           = fmod(floor(g_MaterialFlags / 16), 2.0) > 0.5;
-
-float2 DecodeDetailUInt16(float4 packed) {
-    float4 bytes = round(packed * 255.0);
-    return bytes.xz + bytes.yw * 256.0;
-}
 
 PsVertexInfo DecomposeInput(const PS_INPUT i) {
     PsVertexInfo v;
@@ -481,23 +476,26 @@ InkDetailSettings LoadInkDetailSettings(int inkId) {
     InkDetailSettings settings = (InkDetailSettings)0;
     settings.mode = (int)round(encodedMode.z * 255.0);
     settings.bumpBlendFactor = encodedMode.w;
-    settings.period = 512.0;
+    settings.period = 1.0; // Keep NONE settings numerically valid after shader inlining.
     [branch]
-    if (settings.mode == DETAIL_MODE_NONE) return settings;
+    if (settings.mode != DETAIL_MODE_NONE) {
+        float4 encodedMapping = FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_MAPPING);
+        settings.scale = 0.5 + 1.5 * encodedMapping.xy;
+        settings.period = 16.0 * exp2(8.0 * encodedMapping.w);
+        settings.translation = encodedMode.xy * (255.0 / 256.0);
+        float angle = encodedMapping.z * (255.0 / 256.0) * 6.28318530718;
+        sincos(angle, settings.sine, settings.cosine);
+        float3 grid = round(FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_GRID).xyz * 255.0);
+        float cellSize = g_InkDataOffsetV / grid.z;
+        settings.atlasOrigin = grid.xy * cellSize + 1.0;
+        settings.atlasSize = cellSize - 2.0;
 
-    float4 encodedMapping = FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_MAPPING);
-    settings.scale = 0.5 + 1.5 * encodedMapping.xy;
-    settings.period = 16.0 * exp2(8.0 * encodedMapping.w);
-    settings.translation = encodedMode.xy * (255.0 / 256.0);
-    float angle = encodedMapping.z * (255.0 / 256.0) * 6.28318530718;
-    sincos(angle, settings.sine, settings.cosine);
-    settings.atlasOrigin = DecodeDetailUInt16(FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_ORIGIN));
-    settings.atlasSize = DecodeDetailUInt16(FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_SIZE));
-
-    [branch]
-    if (settings.mode == DETAIL_MODE_MATERIAL || settings.mode == DETAIL_MODE_NORMAL) {
-        settings.strength = FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_STRENGTH) * (255.0 / 127.0);
+        [branch]
+        if (settings.mode == DETAIL_MODE_MATERIAL || settings.mode == DETAIL_MODE_NORMAL) {
+            settings.strength = FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_STRENGTH) * (255.0 / 127.0);
+        }
     }
+    // Return the struct once: early returns lose mapping fields in the compiled shader.
     return settings;
 }
 
@@ -562,25 +560,15 @@ InkDetailEffect EvaluateInkDetail(int inkId, InkDetailProjection projection, flo
 
 InkDetailEffect FetchInkDetails(float3 inkIDs, float3 worldPos, float3 meshNormal, float baseRoughness) {
     InkDetailProjection projection = ProjectInkDetail(worldPos, meshNormal);
-    int firstInkId = (int)inkIDs.x;
-    int secondInkId = (int)inkIDs.y;
-    float blend = inkIDs.z;
-    if (blend <= 0.0) return EvaluateInkDetail(firstInkId, projection, baseRoughness);
-    if (blend >= 1.0) return EvaluateInkDetail(secondInkId, projection, baseRoughness);
-
-    InkDetailEffect first = EvaluateInkDetail(firstInkId, projection, baseRoughness);
-    InkDetailEffect second = EvaluateInkDetail(secondInkId, projection, baseRoughness);
-    float firstWeight = 1.0 - blend;
-    InkDetailEffect mixed;
-    mixed.colorScale      = first.colorScale      * firstWeight + second.colorScale      * blend;
-    mixed.colorAdd        = first.colorAdd        * firstWeight + second.colorAdd        * blend;
-    mixed.emission        = first.emission        * firstWeight + second.emission        * blend;
-    mixed.normalOffset    = first.normalOffset    * firstWeight + second.normalOffset    * blend;
-    mixed.normalZ         = first.normalZ         * firstWeight + second.normalZ         * blend;
-    mixed.roughness       = first.roughness       * firstWeight + second.roughness       * blend;
-    mixed.specularScale   = first.specularScale   * firstWeight + second.specularScale   * blend;
-    mixed.bumpBlendFactor = first.bumpBlendFactor * firstWeight + second.bumpBlendFactor * blend;
-    return mixed;
+    int upperInkId = (int)(inkIDs.y > 0.0 ? inkIDs.y : inkIDs.x);
+    InkDetailEffect detail = EvaluateInkDetail(upperInkId, projection, baseRoughness);
+    // This existing material parameter blends the underlay and ink interface normals,
+    // not the detail images. Preserve its interpolation independently of the detail.
+    if (inkIDs.y > 0.0 && inkIDs.z < 1.0) {
+        float lowerBumpBlend = FetchDataPixel(InkDataDetail, (int)inkIDs.x, ID_DETAIL_MODE).w;
+        detail.bumpBlendFactor = lerp(lowerBumpBlend, detail.bumpBlendFactor, inkIDs.z);
+    }
+    return detail;
 }
 
 // Steep Parallax Occlusion Mapping

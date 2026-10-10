@@ -64,6 +64,8 @@ local RTFLAGS = {
 if not ss.RenderTarget then
     ---@class ss.RenderTarget
     ss.RenderTarget = {
+        ---Square image area above the ink-material data rows.
+        DetailsImageSize = 0, ---@type number
         ---Render targets for static part of the world.
         StaticTextures = {
             InkMap  = nil, ---@type ITexture

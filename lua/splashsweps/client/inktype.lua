@@ -6,13 +6,6 @@ if not ss then return end
 local MARGIN = 2
 local HALF_MARGIN = MARGIN / 2
 local CHANNEL_INDEX = { R = 0, G = 1, B = 2, A = 3 }
-local DETAIL_MODE = {
-    MATERIAL = 0,
-    NORMAL = 1,
-    EMISSION = 2,
-    COLOR = 3,
-    NONE = 255,
-}
 
 ---Checks if specified texture has alpha channel.
 ---DXT1 and DXT3 only support 1-bit alpha which can't be used as a height map.
@@ -25,41 +18,6 @@ local function HasAlphaChannel(path)
         vtf.ImageFormat:sub(#"IMAGE_FORMAT_"):find "A")
 end
 
----@class ss.InkDetailTransfer
----@field texture ITexture
----@field normal boolean Whether transposition also exchanges RG.
-
----@param value number
----@return number
-local function EncodeByte(value)
-    return math.Round(math.Clamp(value, 0, 1) * 255) / 255
-end
-
----@param turns number
----@return number
-local function EncodeTurn(turns)
-    return math.Round(turns * 256) % 256 / 255
-end
-
----@param strength number
----@return number
-local function EncodeDetailStrength(strength)
-    return math.Round(math.Clamp(strength, 0, 2) * 127) / 255
-end
-
----@param x integer
----@param y integer
----@return number[]
-local function EncodeAtlasXY(x, y)
-    assert(x >= 0 and x <= 65535 and y >= 0 and y <= 65535, "Detail atlas range exceeds uint16")
-    return {
-        x % 256 / 255,
-        math.floor(x / 256) / 255,
-        y % 256 / 255,
-        math.floor(y / 256) / 255,
-    }
-end
-
 function ss.LoadInkTypesRT()
     local baseAlphaHeight    = {} ---@type boolean[]
     local baseTextureNames   = {} ---@type string[]
@@ -68,9 +26,9 @@ function ss.LoadInkTypesRT()
     local tintTextureNames   = {} ---@type string[]
     local tintTextureCache   = {} ---@type table<string, integer>
     local tintTextureRects   = {} ---@type ss.Rectangle[]
-    local detailTextureKeys  = {} ---@type string[]
-    local detailTextureCache = {} ---@type table<string, ss.Rectangle>
-    local detailTextureRects = {} ---@type ss.Rectangle[]
+    local detailTextureNames = {} ---@type string[]
+    local detailTextureCache = {} ---@type table<string, integer>
+    local detailTextures     = {} ---@type ITexture[]
     local heightTextureNames = {} ---@type string[]
     local heightChannel      = {} ---@type string[]
     local parameters         = {} ---@type number[][][]
@@ -82,7 +40,6 @@ function ss.LoadInkTypesRT()
     local detailCopyMaterial = Material "splashsweps/shaders/copydetail"
     for i, inktype in ipairs(ss.InkTypes) do
         local mat = Material(inktype.Identifier)
-        assert(mat and not mat:IsError(), "One of ink type material is invalid!")
 
         cp:SetTexture("$basetexture", mat:GetString "$basetexture" or "???")
         local base = cp:GetTexture "$basetexture"
@@ -114,54 +71,34 @@ function ss.LoadInkTypesRT()
                 tint:Width() + MARGIN, tint:Height() + MARGIN, 0, 0, inktype)
         end
 
-        local detailMode = math.Clamp(
-            mat:GetInt "$detailblendmode" or DETAIL_MODE.MATERIAL,
-            DETAIL_MODE.MATERIAL, DETAIL_MODE.COLOR)
         local detailPath = mat:GetString "$detail"
         if detailPath and detailPath ~= "" then
             cp:SetTexture("$basetexture", detailPath)
             local detail = cp:GetTexture "$basetexture"
-            if detail and not detail:IsError() and not detail:IsErrorTexture() then
-                local normal = detailMode == DETAIL_MODE.MATERIAL or detailMode == DETAIL_MODE.NORMAL
-                local key = detail:GetName() .. (normal and ":normal" or ":color")
-                detailTextureKeys[i] = key
-                if not detailTextureCache[key] then
-                    local tag = { texture = detail, normal = normal } ---@type ss.InkDetailTransfer
-                    local rect = ss.MakeRectangle(detail:Width() + MARGIN, detail:Height() + MARGIN, 0, 0, tag)
-                    detailTextureCache[key] = rect
-                    detailTextureRects[#detailTextureRects + 1] = rect
-                end
+            local name = detail:GetName()
+            detailTextureNames[i] = name
+            if not detailTextureCache[name] then
+                detailTextures[#detailTextures + 1] = detail
+                detailTextureCache[name] = #detailTextures
             end
         end
-        detailMode = detailTextureKeys[i] and detailMode or DETAIL_MODE.NONE
 
         cp:SetTexture("$basetexture", mat:GetString "$heightmap" or "???")
         local height = cp:GetTexture "$basetexture"
+        local basealphaheightmap = mat:GetInt "$basealphaheightmap" or 0
         heightTextureNames[i] = height and height:GetName()
         heightChannel[i]      = mat:GetString "$heightchannel" or "R"
+        baseAlphaHeight[i]    = basealphaheightmap > 0 and HasAlphaChannel(baseTextureNames[i]) or nil
 
-        local basealphaheightmap = mat:GetInt "$basealphaheightmap" or 0
-        baseAlphaHeight[i] = basealphaheightmap > 0 and HasAlphaChannel(baseTextureNames[i]) or nil
-
-        local scaleX, scaleY = 1, 1
-        local rotationTurns, translationU, translationV = 0, 0, 0
-        local transform = mat:GetMatrix "$detailtexturetransform"
-        if transform then
-            local scale = transform:GetScale()
-            local translation = transform:GetTranslation()
-            scaleX, scaleY = scale.x, scale.y
-            rotationTurns = transform:GetAngles().y / 360
-            translationU, translationV = translation.x, translation.y
-        end
-        local period = math.Clamp(mat:GetFloat "$detailperiod" or 512, 16, 4096)
-        local strengthX, strengthY, strengthZ, strengthW = 1, 1, 1, 1
-        if mat:GetVector "$detailblendscale" then
-            strengthX, strengthY, strengthZ, strengthW = mat:GetVector4D "$detailblendscale"
-        end
-
-        local color = mat:GetVector "$color" or ss.vector_one
-        local tintcolor = mat:GetVector "$tintcolor" or ss.vector_one
-        local edgecolor = mat:GetVector "$edgecolor" or ss.vector_one
+        local detailtexturetransform     = mat:GetMatrix "$detailtexturetransform" or Matrix()
+        local detailtransformscale       = detailtexturetransform:GetScale()
+        local detailtransformtranslation = detailtexturetransform:GetTranslation()
+        local detailtransformrotation    = detailtexturetransform:GetAngles().yaw
+        local detailperiod               = math.Clamp(mat:GetFloat "$detailperiod" or 512, 16, 4096)
+        local detailblendscale           = { mat:GetVector4D "$detailblendscale" }
+        local color                      = mat:GetVector "$color"     or ss.vector_one
+        local tintcolor                  = mat:GetVector "$tintcolor" or ss.vector_one
+        local edgecolor                  = mat:GetVector "$edgecolor" or ss.vector_one
         parameters[i] = {
             { color.x,     color.y,     color.z,     mat:GetFloat "$alpha"             or 1 },
             { tintcolor.x, tintcolor.y, tintcolor.z, mat:GetFloat "$geometrypaintbias" or 0 },
@@ -172,8 +109,10 @@ function ss.LoadInkTypesRT()
                 math.Remap(mat:GetFloat "$heightmapscale" or 1, -1, 1, 0, 1),
                 mat:GetFloat "$heightbaseline" or -1,
             }, {
-                mat:GetFloat "$metallic"        or 0, mat:GetFloat "$roughness"        or 0,
-                mat:GetFloat "$specularscale"   or 1, mat:GetFloat "$refractscale"     or 1,
+                mat:GetFloat "$metallic"        or 0,
+                mat:GetFloat "$roughness"       or 0,
+                mat:GetFloat "$specularscale"   or 1,
+                mat:GetFloat "$refractscale"    or 1,
             }, {
                 mat:GetFloat "$erase"           or 0,
                 mat:GetFloat "$flatten"         or 0,
@@ -181,22 +120,27 @@ function ss.LoadInkTypesRT()
                 (mat:GetInt "$nodig"      or 0) * 0.5 +
                 (mat:GetInt "$heightonly" or 0) * 0.125,
             }, {
-                EncodeByte(math.Remap(scaleX, 0.5, 2, 0, 1)),
-                EncodeByte(math.Remap(scaleY, 0.5, 2, 0, 1)),
-                EncodeTurn(rotationTurns),
-                EncodeByte(math.log(period / 16, 2) / 8),
+                math.Remap(detailtransformscale.x, 0.5, 2, 0, 1),
+                math.Remap(detailtransformscale.y, 0.5, 2, 0, 1),
+                detailtransformrotation / 360,
+                math.log(detailperiod / 16, 2) / 8,
             }, {
-                mat:GetFloat "$edgehardness"    or 0, mat:GetFloat "$miscibility"      or 0,
-                mat:GetFloat "$mixturetag"      or 0, mat:GetInt   "$developer"        or 0,
+                mat:GetFloat "$edgehardness"    or 0,
+                mat:GetFloat "$miscibility"     or 0,
+                mat:GetFloat "$mixturetag"      or 0,
+                mat:GetInt   "$developer"       or 0,
             }, {
-                EncodeTurn(translationU), EncodeTurn(translationV),
-                detailMode / 255, mat:GetFloat "$bumpblendfactor" or 1,
+                detailtransformtranslation.x,
+                detailtransformtranslation.y,
+                (mat:GetInt "$detailblendmode" or 255) / 255,
+                mat:GetFloat "$bumpblendfactor" or 1,
             }, {
-                EncodeDetailStrength(strengthX), EncodeDetailStrength(strengthY),
-                EncodeDetailStrength(strengthZ), EncodeDetailStrength(strengthW),
+                math.Round(math.Clamp(detailblendscale[1], 0, 2) * 127) / 255,
+                math.Round(math.Clamp(detailblendscale[2], 0, 2) * 127) / 255,
+                math.Round(math.Clamp(detailblendscale[3], 0, 2) * 127) / 255,
+                math.Round(math.Clamp(detailblendscale[4], 0, 2) * 127) / 255,
             },
-            -- Atlas origin and size are filled after packing; see ID_DETAIL_* in inkmesh_common.hlsl.
-            { 0, 0, 0, 0 },
+            -- Grid coordinates and column count are filled after collecting the images.
             { 0, 0, 0, 0 },
         }
     end
@@ -212,34 +156,51 @@ function ss.LoadInkTypesRT()
     print "$tinttexture"
     PrintTable(tintTextureNames)
     print "$detail"
-    PrintTable(detailTextureKeys)
+    PrintTable(detailTextureNames)
     print "$heightmap"
     PrintTable(heightTextureNames)
     if #parameters == 0 then return end
 
-    if #detailTextureRects > 0 then
-        ss.MakeRectanglePacker(detailTextureRects):packall()
+    -- Calculating detail texture layout
+    local gridColumns = math.ceil(math.sqrt(#detailTextures))
+    local detailSize, rtSize = 0, 0
+    for _, texture in ipairs(detailTextures) do
+        detailSize = math.max(detailSize, texture:Width(), texture:Height())
     end
-    for i, param in ipairs(parameters) do
-        local rect = detailTextureCache[detailTextureKeys[i]]
-        if rect then
-            param[11] = EncodeAtlasXY(rect.left + HALF_MARGIN, rect.bottom + HALF_MARGIN)
-            param[12] = EncodeAtlasXY(rect.width - MARGIN, rect.height - MARGIN)
+    if #detailTextures > 0 then
+        detailSize = math.min(detailSize, math.floor((16384 - #parameters[1]) / gridColumns) - MARGIN)
+        rtSize = gridColumns * (detailSize + MARGIN)
+        for i, param in ipairs(parameters) do
+            local slot = detailTextureCache[detailTextureNames[i]]
+            if slot then
+                param[11] = {
+                    (slot - 1) % gridColumns / 255,
+                    math.floor((slot - 1) / gridColumns) / 255,
+                    gridColumns / 255,
+                    0,
+                }
+            end
         end
     end
 
     -- NOLOD | ALL_MIPS | RENDERTARGET | NODEPTHBUFFER (RTs imply NOMIP).
     -- Detail images use bilinear filtering; numeric rows are read at texel centers.
-    local rtWidth = ss.RenderTarget.StaticTextures.Albedo:Width()
-    local rtHeight = ss.RenderTarget.StaticTextures.Albedo:Height()
+    local dataWidth, dataHeight = math.max(rtSize, #parameters), rtSize + #parameters[1]
+    ss.RenderTarget.DetailsImageSize = rtSize
     ss.RenderTarget.StaticTextures.Details = GetRenderTargetEx(
         "splashsweps_details",
-        math.max(rtWidth, #parameters), rtHeight + #parameters[1],
-        RT_SIZE_NO_CHANGE,
+        dataWidth, dataHeight,
+        RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
         512 + 1024 + 32768 + 8388608, 0,
         IMAGE_FORMAT_RGBA8888)
-    Material "splashsweps/shaders/drawink" :SetFloat("$c3_w", rtHeight)
+    local drawInk = Material "splashsweps/shaders/drawink"
+    local inkWater = Material "splashsweps/shaders/inkmesh"
+    drawInk:SetFloat("$c3_w", rtSize)
+    inkWater:SetFloat("$c3_w", rtSize)
+    for material in pairs(ss.InkMeshMaterials) do
+        material:SetFloat("$c3_w", rtSize)
+    end
 
     -- I couldn't make it work with surface.DrawTexturedRect for some reason;
     -- sometimes all TEXCOORD0 are (0.5, 0.5), so I use the mesh library instead.
@@ -314,37 +275,29 @@ function ss.LoadInkTypesRT()
         cam.End2D()
         render.PopRenderTarget()
 
-        -- Packing detail textures of all paint types
+        -- Copy detail images into equal-sized grid cells, preserving their orientation and channels.
         rt = ss.RenderTarget.StaticTextures.Details
-        for _, rect in ipairs(detailTextureRects) do
-            assert(rect.right <= rt:Width() and rect.top <= rtHeight, "Detail atlas overflow")
-        end
         render.PushRenderTarget(rt)
         render.Clear(0, 0, 0, 0)
         cam.Start2D()
-            render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
-            for _, rect in ipairs(detailTextureRects) do
-                local tag = rect.tag ---@type ss.InkDetailTransfer
-                local width, height = rect.width - MARGIN, rect.height - MARGIN
-                local transpose = width ~= tag.texture:Width() or height ~= tag.texture:Height()
-                detailCopyMaterial:SetTexture("$basetexture", tag.texture)
-                detailCopyMaterial:SetInt("$c0_x", transpose and 1 or 0)
-                detailCopyMaterial:SetInt("$c0_y", tag.normal and 1 or 0)
-                render.SetMaterial(detailCopyMaterial)
-                mesh.Begin(MATERIAL_QUADS, 1)
-                -- The extended UV rectangle covers one texel on every edge/corner.
-                -- At pixel centers frac maps that border to opposite source texels.
-                for corner = 0, 3 do
-                    local right = corner >= 2
-                    local bottom = corner == 1 or corner == 2
-                    -- copydetail's VS does not compensate for D3D9's half-pixel offset.
-                    mesh.Position(rect.left + (right and rect.width or 0) - 0.5,
-                        rect.bottom + (bottom and rect.height or 0) - 0.5, 0)
-                    mesh.TexCoord(0, right and 1 + 1 / width or -1 / width,
-                        bottom and 1 + 1 / height or -1 / height)
-                    mesh.AdvanceVertex()
-                end
-                mesh.End()
+            render.OverrideBlend(true,
+                BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD,
+                BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
+            surface.SetDrawColor(255, 255, 255, 255)
+            for slot, texture in ipairs(detailTextures) do
+                local cellSize = detailSize + MARGIN
+                local x = (slot - 1) % gridColumns * cellSize
+                local y = math.floor((slot - 1) / gridColumns) * cellSize
+                local uvMin, uvMax = -1 / detailSize, 1 + 1 / detailSize
+                detailCopyMaterial:SetTexture("$basetexture", texture)
+                surface.SetMaterial(detailCopyMaterial)
+                -- Explicit UVs preserve the one-texel border without surface's rectangle UV correction.
+                surface.DrawPoly {
+                    { x = x,            y = y,            u = uvMin, v = uvMin },
+                    { x = x + cellSize, y = y,            u = uvMax, v = uvMin },
+                    { x = x + cellSize, y = y + cellSize, u = uvMax, v = uvMax },
+                    { x = x,            y = y + cellSize, u = uvMin, v = uvMax },
+                }
             end
             render.OverrideBlend(false)
         cam.End2D()
@@ -390,11 +343,13 @@ function ss.LoadInkTypesRT()
             cp:SetTexture("$basetexture", white)
             cp:SetInt("$c0_x", 3)
             cp:SetInt("$c0_y", 1)
-            render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
+            render.OverrideBlend(true,
+                BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD,
+                BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
             mesh.Begin(MATERIAL_POINTS, #parameters[1] * #parameters)
             for i, param in ipairs(parameters) do
                 for j, float4 in ipairs(param) do
-                    mesh.Position(i, j + rtHeight, 0)
+                    mesh.Position(i, j + rtSize, 0)
                     mesh.TexCoord(0, 0.5, 0.5)
                     mesh.TexCoord(1, unpack(float4))
                     mesh.AdvanceVertex()
@@ -407,7 +362,7 @@ function ss.LoadInkTypesRT()
             for i, inktype in ipairs(ss.InkTypes) do
                 local heightbaseline = parameters[i][4][4]
                 if heightbaseline < 0 then
-                    draw(baseTextureNames[inktype.Index], ss.MakeRectangle(1, 1, i - 1, 4 - 1 + rtHeight), false, true)
+                    draw(baseTextureNames[inktype.Index], ss.MakeRectangle(1, 1, i - 1, 4 - 1 + rtSize), false, true)
                 end
             end
         cam.End2D()

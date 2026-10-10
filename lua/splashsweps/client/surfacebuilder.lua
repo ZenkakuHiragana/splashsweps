@@ -492,6 +492,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         local page                  = lightmapGroup.LightmapPage
         local lightmapTextureName   = page and string.format("\\[lightmap%d]", page) or "white"
         local materialParams        = buildBaseInkMeshMaterialParams()
+        local dataOffset            = ss.RenderTarget.DetailsImageSize
         local hasDetail             = tobool(materialInfo.Detail)
         local detailBlendMode       = materialInfo.DetailBlendMode or 0
         local bmtstr                = materialInfo.Material:GetString "$blendmodulatetexture"
@@ -512,11 +513,12 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$c3_x"]     = materialInfo.Color and materialInfo.Color.x or 1
         materialParams["$c3_y"]     = materialInfo.Color and materialInfo.Color.y or 1
         materialParams["$c3_z"]     = materialInfo.Color and materialInfo.Color.z or 1
-        materialParams["$c3_w"]     = ss.RenderTarget.StaticTextures.Albedo:Height()
+        materialParams["$c3_w"]     = dataOffset
 
         local mat = CreateMaterial(
             string.format("splashsweps_mesh_%d_%s", sortID, game.GetMap()),
             "Screenspace_General_8tex", materialParams)
+        mat:SetFloat("$c3_w", dataOffset)
         m:SetUnpacked(
             materialInfo.BaseTextureTransform:GetField(1, 1),
             materialInfo.BaseTextureTransform:GetField(1, 2),

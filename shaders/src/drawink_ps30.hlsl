@@ -198,7 +198,7 @@ PS_OUTPUT PaintIndices(const PS_INPUT i, float t, float shapeMask) {
     bool  isOpaque      = translucency < eps;
     output.color.rgb = float3(
         isOpaque ? thisID : old.r,
-        isOpaque ? old.g  : thisID,
+        isOpaque ? 0.0    : thisID, // Opaque paint replaces the upper layer.
         isOpaque ? 0.0    : 1.0 - translucency * (1.0 - output.color.b));
     return output;
 }

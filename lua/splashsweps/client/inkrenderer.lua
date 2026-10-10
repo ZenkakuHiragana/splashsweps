@@ -99,7 +99,9 @@ local RefreshMaterial = {
     ---@param _   IMaterial
     ---@param value number
     ["$detailblendfactor"] = function(mat, _, value)
-        mat:SetFloat("$c3_w", value)
+        local m = mat:GetMatrix "$viewprojmat"
+        m:SetField(4, 4, value)
+        mat:SetMatrix("$viewprojmat", m)
     end,
     ---@param mat IMaterial
     ---@param _   IMaterial

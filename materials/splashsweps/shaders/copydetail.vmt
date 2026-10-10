@@ -3,6 +3,7 @@
     "$pixshader"              "splashsweps/copydetail_ps30"
     "$vertexshader"           "splashsweps/copydetail_vs30"
     "$basetexture"            "white"
+    "$ignorez"                "1"
     "$alpha_blend"            "0"
     "$alphablend"             "0"
     "$alphatested"            "0"
@@ -11,6 +12,4 @@
     "$linearwrite"            "1"
     "$disable_color_writes"   "0"
     "$writealpha"             "1"
-    "$c0_x"                   "0"
-    "$c0_y"                   "0"
 }
