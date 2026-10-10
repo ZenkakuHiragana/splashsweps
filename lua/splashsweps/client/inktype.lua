@@ -135,10 +135,10 @@ function ss.LoadInkTypesRT()
                 (mat:GetInt "$detailblendmode" or 255) / 255,
                 mat:GetFloat "$bumpblendfactor" or 1,
             }, {
-                math.Round(math.Clamp(detailblendscale[1], 0, 2) * 127) / 255,
-                math.Round(math.Clamp(detailblendscale[2], 0, 2) * 127) / 255,
-                math.Round(math.Clamp(detailblendscale[3], 0, 2) * 127) / 255,
-                math.Round(math.Clamp(detailblendscale[4], 0, 2) * 127) / 255,
+                math.Round(math.Clamp(detailblendscale[1] or 1, 0, 2) * 127) / 255,
+                math.Round(math.Clamp(detailblendscale[2] or 1, 0, 2) * 127) / 255,
+                math.Round(math.Clamp(detailblendscale[3] or 1, 0, 2) * 127) / 255,
+                math.Round(math.Clamp(detailblendscale[4] or 1, 0, 2) * 127) / 255,
             },
             -- Grid coordinates and column count are filled after collecting the images.
             { 0, 0, 0, 0 },
