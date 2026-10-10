@@ -58,6 +58,13 @@ SWEP.InkTypes = {
     "splashsweps/inktypes/height1",
     "splashsweps/inktypes/depth1",
     "splashsweps/inktypes/depth2",
+    "splashsweps/inktypes/detail_samples/plain",
+    "splashsweps/inktypes/detail_samples/normal_ridges",
+    "splashsweps/inktypes/detail_samples/normal_crossed",
+    "splashsweps/inktypes/detail_samples/normal_rotated",
+    "splashsweps/inktypes/detail_samples/material_finish",
+    "splashsweps/inktypes/detail_samples/emission_tiles",
+    "splashsweps/inktypes/detail_samples/color_tiles",
 }
 
 function SWEP:Initialize()
