@@ -70,8 +70,6 @@ struct InkDetailProjection {
 };
 
 struct InkDetailSettings {
-    int    mode;
-    float  bumpBlendFactor;
     float2 scale;
     float  period;
     float  sine;
@@ -86,11 +84,11 @@ struct InkDetailEffect {
     float3 colorAdd;
     float3 emission;
     float3 normalOffset;
-    float  bumpBlendFactor;
-    float  colorScale;
     float  normalZ;
-    float  roughness;
+    float  colorScale;
     float  specularScale;
+    float  roughnessAdd;
+    float  bumpBlendFactor;
 };
 
 static const float ALBEDO_ALPHA_MIN   = 0.0625;
@@ -109,6 +107,7 @@ static const float RIM_METALIC_MAX    = 0.0625; // Rim lighting strength at meta
 static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
+static const float Tau                = 6.28318530718; // τ = 2π
 static const float3 GrayScaleFactor   = { 0.2126, 0.7152, 0.0722 };
 static const float3x3 BumpBasis = {
     // Bumped lightmap basis vectors (same as LightmappedGeneric) in tangent space
@@ -238,7 +237,7 @@ float3 CalcFinalLightmapColor(float3x3 lightmapColors, float3 lightmapFactors) {
     return lightmapFinalColor;
 }
 
-void CalcInkDetailNormal(
+void ApplyInkDetailNormal(
     inout float3 tangentNormal,
     inout float3 worldNormal,
     float3x3 transform,
@@ -248,8 +247,8 @@ void CalcInkDetailNormal(
     float3 meshOffset = detail.normalOffset - meshNormal * dot(detail.normalOffset, meshNormal);
     if (dot(meshOffset, meshOffset) == 0.0) return;
     // Project the additional perturbation onto the existing normal's tangent
-    // plane, then combine using the reconstructed Z. A neutral detail (including
-    // strength XY=0) leaves the underlay/ink-interface normal intact.
+    // plane, then combine using the reconstructed Z.
+    // A neutral detail (including strength XY=0) leaves the underlay/ink-interface normal intact.
     float3 offset = meshOffset - worldNormal * dot(meshOffset, worldNormal);
     float3 n = worldNormal * detail.normalZ + offset;
     float length2 = dot(n, n);
@@ -293,6 +292,7 @@ float2 ApplyDetailTransform(float2 uv) {
         BaseTransform[1].z * g_DetailScale.y);
 }
 
+// Applies underlay $detail texture to the albedo
 float4 ApplyDetailSample(float4 albedo, float4 detailSample) {
     int mode = (int)g_DetailBlendMode;
     if (mode == 0) {
@@ -452,9 +452,26 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
     }
 }
 
-InkDetailProjection ProjectInkDetail(float3 worldPos, float3 meshNormal) {
-    float3 absNormal = abs(meshNormal);
+InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, float3 inkUV, float3 meshNormal) {
+    int id1 = (int)IDs.x;
+    int id2 = (int)IDs.y;
+    int id  = id2 > 0.0 ? id2 : id1;
+    float idBlend = IDs.z;
+    float4 modeAndBumpFactor1 = FetchDataPixel(InkDataDetail, id1, ID_DETAIL_MODE);
+    float4 modeAndBumpFactor2 = FetchDataPixel(InkDataDetail, id2, ID_DETAIL_MODE);
+    float4 encodedMode = id == id1 ? modeAndBumpFactor1 : modeAndBumpFactor2;
+    float bumpBlendFactor = lerp(modeAndBumpFactor1.w, modeAndBumpFactor2.w, idBlend);
+    int mode = (int)round(encodedMode.z * 255.0);
+    InkDetailEffect effect = (InkDetailEffect)0;
+    effect.bumpBlendFactor = bumpBlendFactor;
+    effect.colorScale      = 1.0;
+    effect.specularScale   = 1.0;
+    effect.normalZ         = 1.0;
+    if (mode == DETAIL_MODE_NONE) return effect;
+
+    // Project detail sample position onto axis-aligned 2D plane
     InkDetailProjection projection;
+    float3 absNormal = abs(meshNormal);
     if (absNormal.x >= absNormal.y && absNormal.x >= absNormal.z) {
         projection.worldU = float3(0, 1, 0);
         projection.worldV = float3(0, 0, 1);
@@ -467,108 +484,69 @@ InkDetailProjection ProjectInkDetail(float3 worldPos, float3 meshNormal) {
         projection.worldU = float3(1, 0, 0);
         projection.worldV = float3(0, 1, 0);
     }
+
+    // The parallax ray's Z is in HEIGHT_TO_HU units along the mesh normal.
+    // Evaluate the display texture at that hit, not at the unshifted mesh pixel.
+    float3 viewVec = g_EyePos.xyz - i.worldPos;
+    float3 worldPos = i.worldPos + viewVec * inkUV.z * HEIGHT_TO_HU * SAFERCP(dot(viewVec, i.worldTransform[2]));
     projection.position = float2(dot(worldPos, projection.worldU), dot(worldPos, projection.worldV));
-    return projection;
-}
 
-InkDetailSettings LoadInkDetailSettings(int inkId) {
-    float4 encodedMode = FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_MODE);
-    InkDetailSettings settings = (InkDetailSettings)0;
-    settings.mode = (int)round(encodedMode.z * 255.0);
-    settings.bumpBlendFactor = encodedMode.w;
-    settings.period = 1.0; // Keep NONE settings numerically valid after shader inlining.
+    InkDetailSettings settings;
+    float4 encodedMapping = FetchDataPixel(InkDataDetail, id, ID_DETAIL_MAPPING);
+    float3 grid = round(FetchDataPixel(InkDataDetail, id, ID_DETAIL_GRID).xyz * 255.0);
+    float cellSize = g_InkDataOffsetV / grid.z;
+    sincos(encodedMapping.z * Tau, settings.sine, settings.cosine);
+    settings.scale       = 0.5 + 1.5 * encodedMapping.xy;
+    settings.period      = 16.0 * exp2(8.0 * encodedMapping.w);
+    settings.translation = encodedMode.xy;
+    settings.atlasOrigin = grid.xy * cellSize + 1.0;
+    settings.atlasSize   = cellSize - 2.0;
+    settings.strength    = (mode == DETAIL_MODE_MATERIAL || mode == DETAIL_MODE_NORMAL)
+        ? FetchDataPixel(InkDataDetail, id, ID_DETAIL_STRENGTH) * 255.0 / 127.0
+        : 0.0;
+
+    float2 scaledPosition  = projection.position / settings.period * settings.scale;
+    float2 rotatedPosition = {
+        settings.cosine * scaledPosition.x - settings.sine   * scaledPosition.y,
+        settings.sine   * scaledPosition.x + settings.cosine * scaledPosition.y,
+    };
+    float2 repeatedUV   = frac(rotatedPosition + settings.translation);
+    float2 atlasUV      = (settings.atlasOrigin + repeatedUV * settings.atlasSize) * g_DataRTSize;
+    float4 detailSample = tex2Dlod(InkDataDetail, float4(atlasUV, 0, 0));
+
     [branch]
-    if (settings.mode != DETAIL_MODE_NONE) {
-        float4 encodedMapping = FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_MAPPING);
-        settings.scale = 0.5 + 1.5 * encodedMapping.xy;
-        settings.period = 16.0 * exp2(8.0 * encodedMapping.w);
-        settings.translation = encodedMode.xy * (255.0 / 256.0);
-        float angle = encodedMapping.z * (255.0 / 256.0) * 6.28318530718;
-        sincos(angle, settings.sine, settings.cosine);
-        float3 grid = round(FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_GRID).xyz * 255.0);
-        float cellSize = g_InkDataOffsetV / grid.z;
-        settings.atlasOrigin = grid.xy * cellSize + 1.0;
-        settings.atlasSize = cellSize - 2.0;
-
-        [branch]
-        if (settings.mode == DETAIL_MODE_MATERIAL || settings.mode == DETAIL_MODE_NORMAL) {
-            settings.strength = FetchDataPixel(InkDataDetail, inkId, ID_DETAIL_STRENGTH) * (255.0 / 127.0);
-        }
-    }
-    // Return the struct once: early returns lose mapping fields in the compiled shader.
-    return settings;
-}
-
-float4 SampleInkDetail(float2 projectedPosition, InkDetailSettings settings) {
-    float2 scaledPosition = projectedPosition / settings.period * settings.scale;
-    float2 rotatedPosition = float2(
-        settings.cosine * scaledPosition.x - settings.sine * scaledPosition.y,
-        settings.sine * scaledPosition.x + settings.cosine * scaledPosition.y);
-    float2 repeatedUV = frac(rotatedPosition + settings.translation);
-    float2 atlasUV = (settings.atlasOrigin + repeatedUV * settings.atlasSize) * g_DataRTSize;
-    return tex2Dlod(InkDataDetail, float4(atlasUV, 0, 0));
-}
-
-InkDetailEffect EvaluateInkDetail(int inkId, InkDetailProjection projection, float baseRoughness) {
-    InkDetailSettings settings = LoadInkDetailSettings(inkId);
-    InkDetailEffect effect = (InkDetailEffect)0;
-    effect.colorScale = 1.0;
-    effect.normalZ = 1.0;
-    effect.roughness = baseRoughness;
-    effect.specularScale = 1.0;
-    effect.bumpBlendFactor = settings.bumpBlendFactor;
-    [branch]
-    if (settings.mode == DETAIL_MODE_NONE) return effect;
-
-    float4 sample = SampleInkDetail(projection.position, settings);
-    [branch]
-    if (settings.mode == DETAIL_MODE_MATERIAL || settings.mode == DETAIL_MODE_NORMAL) {
+    if (mode == DETAIL_MODE_MATERIAL || mode == DETAIL_MODE_NORMAL) {
         // RG stores normal XY. Reconstruct Z before applying XY strength.
-        float2 normalXY = sample.rg * 2.0 - 1.0;
-        float normalZ = sqrt(saturate(1.0 - dot(normalXY, normalXY)));
-        float3 detailNormal = float3(normalXY * settings.strength.xy, normalZ);
-        float normalLengthSquared = dot(detailNormal, detailNormal);
-        detailNormal = normalLengthSquared > 1.0e-12
-            ? detailNormal * rsqrt(normalLengthSquared)
-            : float3(0, 0, 1);
+        float3 detailNormal = { TO_SIGNED(detailSample.rg), 0.0 };
+        detailNormal.z = sqrt(saturate(1.0 - dot(detailNormal.xy, detailNormal.xy)));
+        detailNormal.xy *= settings.strength.xy;
+        detailNormal = normalize(detailNormal);
 
         // Inverse image rotation expresses its normal XY on the world projection axes.
         float2 slope = float2(
-            settings.cosine * detailNormal.x + settings.sine * detailNormal.y,
-           -settings.sine * detailNormal.x + settings.cosine * detailNormal.y);
+            settings.cosine * detailNormal.x + settings.sine   * detailNormal.y,
+           -settings.sine   * detailNormal.x + settings.cosine * detailNormal.y);
         effect.normalOffset = projection.worldU * slope.x + projection.worldV * slope.y;
         effect.normalZ = detailNormal.z;
     }
 
     [branch]
-    if (settings.mode == DETAIL_MODE_MATERIAL) {
-        effect.colorScale = max(0.0, 1.0 + settings.strength.w * (2.0 * sample.a - 1.0));
-        effect.roughness = saturate(baseRoughness + settings.strength.z * (2.0 * sample.b - 1.0));
+    if (mode == DETAIL_MODE_MATERIAL) {
+        effect.colorScale = max(0.0, 1.0 + settings.strength.w * TO_SIGNED(detailSample.a));
+        effect.roughnessAdd = settings.strength.z * TO_SIGNED(detailSample.b);
     }
-    else if (settings.mode == DETAIL_MODE_NORMAL) {
-        effect.specularScale = sample.a;
+    else if (mode == DETAIL_MODE_NORMAL) {
+        effect.specularScale = detailSample.a;
     }
-    else if (settings.mode == DETAIL_MODE_EMISSION) {
-        effect.emission = sample.rgb * sample.a;
+    else if (mode == DETAIL_MODE_EMISSION) {
+        effect.emission = detailSample.rgb * detailSample.a;
     }
-    else if (settings.mode == DETAIL_MODE_COLOR) {
-        effect.colorScale = 1.0 - sample.a;
-        effect.colorAdd = sample.rgb * sample.a;
+    else if (mode == DETAIL_MODE_COLOR) {
+        effect.colorScale = 1.0 - detailSample.a;
+        effect.colorAdd = detailSample.rgb * detailSample.a;
     }
-    return effect;
-}
 
-InkDetailEffect FetchInkDetails(float3 inkIDs, float3 worldPos, float3 meshNormal, float baseRoughness) {
-    InkDetailProjection projection = ProjectInkDetail(worldPos, meshNormal);
-    int upperInkId = (int)(inkIDs.y > 0.0 ? inkIDs.y : inkIDs.x);
-    InkDetailEffect detail = EvaluateInkDetail(upperInkId, projection, baseRoughness);
-    // This existing material parameter blends the underlay and ink interface normals,
-    // not the detail images. Preserve its interpolation independently of the detail.
-    if (inkIDs.y > 0.0 && inkIDs.z < 1.0) {
-        float lowerBumpBlend = FetchDataPixel(InkDataDetail, (int)inkIDs.x, ID_DETAIL_MODE).w;
-        detail.bumpBlendFactor = lerp(lowerBumpBlend, detail.bumpBlendFactor, inkIDs.z);
-    }
-    return detail;
+    return effect;
 }
 
 // Steep Parallax Occlusion Mapping
@@ -674,33 +652,28 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     FetchAdditiveAndHeight(i, inkUV.xy, params);
     FetchMultiplicativeAndDepth(inkUV.xy, params);
     FetchInkMaterial(IDs, params.pbr);
-    // The parallax ray's Z is in HEIGHT_TO_HU units along the mesh normal.
-    // Evaluate the display texture at that hit, not at the unshifted mesh pixel.
-    float3 meshNormal = normalize(i.worldTransform[2]);
-    float detailRayDistance = inkUV.z * HEIGHT_TO_HU * SAFERCP(dot(viewVec, i.worldTransform[2]));
-    float3 detailPosition = i.worldPos + viewVec * detailRayDistance;
-    InkDetailEffect detail = FetchInkDetails(IDs, detailPosition, meshNormal, params.pbr.roughness);
-    params.pbr.roughness = detail.roughness;
+
+    float3 meshNormal         = normalize(i.worldTransform[2]);
+    InkDetailEffect detail    = FetchInkDetails(i, IDs, inkUV, meshNormal);
+    params.pbr.roughness      = saturate(params.pbr.roughness + detail.roughnessAdd);
     params.pbr.specularScale *= detail.specularScale;
+    params.multiplicative    *= detail.colorScale;
+    params.additive          *= detail.colorScale;
 
     // Blend ink and world normals
     UVs    uv                 = ApplyParallaxGeometry(i, params);
     float3 geometryNormal     = FetchGeometryNormal(i, uv);
     float3 tangentSpaceNormal = normalize(lerp(geometryNormal, params.normal, detail.bumpBlendFactor));
     float3 worldSpaceNormal   = normalize(mul(tangentSpaceNormal, i.worldTransform));
-    CalcInkDetailNormal(tangentSpaceNormal, worldSpaceNormal, i.worldTransform, meshNormal, detail);
+    ApplyInkDetailNormal(tangentSpaceNormal, worldSpaceNormal, i.worldTransform, meshNormal, detail);
 
-    float3   lightmapFactors    = CalcLightmapFactors(tangentSpaceNormal);
-    float3x3 lightmapColors     = FetchLightmapSamples(i, uv.lightmap);
-    float3   lightmapFinalColor = CalcFinalLightmapColor(lightmapColors, lightmapFactors);
-
-    // Compute and apply diffuse lighting factors using bumped lightmap basis
-    // Detail is an affine operation on the unlit accumulated color: C*a+b.
-    // The captured underlay is already lit, so distribute the same scale over it
-    // and light only the added color. Do not tint the framebuffer a second time.
-    float3 geometryLit = FetchGeometrySamples(i, uv, lightmapFinalColor) * params.multiplicative * detail.colorScale;
-    float3 inkLit      = (params.additive * detail.colorScale + detail.colorAdd) * lightmapFinalColor;
-    float3 albedo      = geometryLit + inkLit;
+    // Calculate diffuse color
+    float3   lightmapFactors = CalcLightmapFactors(tangentSpaceNormal);
+    float3x3 lightmapColors  = FetchLightmapSamples(i, uv.lightmap);
+    float3   lightmapFinal   = CalcFinalLightmapColor(lightmapColors, lightmapFactors);
+    float3   geometryLit     = FetchGeometrySamples(i, uv, lightmapFinal) * params.multiplicative;
+    float3   inkLit          = (params.additive + detail.colorAdd) * lightmapFinal;
+    float3   albedo          = geometryLit + inkLit;
 
     // Modulate surface albedo and add ink color
     float3 ambientOcclusion = { 1.0, 1.0, 1.0 }; // dummy!
