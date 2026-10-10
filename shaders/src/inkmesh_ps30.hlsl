@@ -83,8 +83,8 @@ struct InkDetailSettings {
 struct InkDetailEffect {
     float3 colorAdd;
     float3 emission;
-    float3 normalOffset;
-    float  normalZ;
+    float3 normal;         // Direction in axis-aligned projection space; need not be unit length.
+    int    projectionAxis; // World axis used as projection Z: 0 = X, 1 = Y, 2 = Z.
     float  colorScale;
     float  specularScale;
     float  roughnessAdd;
@@ -241,27 +241,28 @@ void ApplyInkDetailNormal(
     inout float3 tangentNormal,
     inout float3 worldNormal,
     float3x3 transform,
-    float3 meshNormal,
     InkDetailEffect detail
 ) {
-    float3 meshOffset = detail.normalOffset - meshNormal * dot(detail.normalOffset, meshNormal);
-    if (dot(meshOffset, meshOffset) == 0.0) return;
-    // Project the additional perturbation onto the existing normal's tangent
-    // plane, then combine using the reconstructed Z.
-    // A neutral detail (including strength XY=0) leaves the underlay/ink-interface normal intact.
-    float3 offset = meshOffset - worldNormal * dot(meshOffset, worldNormal);
-    float3 n = worldNormal * detail.normalZ + offset;
-    float length2 = dot(n, n);
-    if (length2 <= 1.0e-12) return;
-    worldNormal = n * rsqrt(length2);
+    if (dot(detail.normal.xy, detail.normal.xy) == 0.0) return;
+
+    // Projection axes are world-axis permutations, not the mesh's texture basis.
+    float3 baseNormal = worldNormal;
+         if (detail.projectionAxis == 0) baseNormal = worldNormal.yzx;
+    else if (detail.projectionAxis == 1) baseNormal = worldNormal.xzy;
+    // Add XY/Z slopes without dividing. Input lengths cancel at final normalization.
+    float3 n = detail.normal * baseNormal.z;
+    n.xy += baseNormal.xy * detail.normal.z;
+    if (dot(n, n) == 0.0) return;
+         if (detail.projectionAxis == 0) n = n.zxy;
+    else if (detail.projectionAxis == 1) n = n.xzy;
+    worldNormal = n;
     // The mesh carries texture vectors, not necessarily an orthonormal basis.
     // Solve tangent * transform = n, rather than using its transpose as inverse.
-    float3 bc = cross(transform[1], transform[2]);
-    float3 ca = cross(transform[2], transform[0]);
-    float3 ab = cross(transform[0], transform[1]);
     // Normalization cancels the inverse determinant's magnitude, but not its sign.
-    float handedness = dot(transform[0], bc) < 0.0 ? -1.0 : 1.0;
-    tangentNormal = normalize(float3(dot(n, bc), dot(n, ca), dot(n, ab))) * handedness;
+    float3 cn = cross(transform[2], n);
+    float3 ab = cross(transform[0], transform[1]);
+    float handedness = dot(transform[2], ab) < 0.0 ? -1.0 : 1.0;
+    tangentNormal = float3(dot(transform[1], cn), -dot(transform[0], cn), dot(n, ab)) * handedness;
 }
 
 float2 ApplyBaseTransform(float2 uv) {
@@ -452,7 +453,7 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
     }
 }
 
-InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, float3 inkUV, float3 meshNormal) {
+InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, float3 inkUV) {
     int id1 = (int)IDs.x;
     int id2 = (int)IDs.y;
     int id  = id2 > 0.0 ? id2 : id1;
@@ -466,23 +467,26 @@ InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, float3 inkUV, 
     effect.bumpBlendFactor = bumpBlendFactor;
     effect.colorScale      = 1.0;
     effect.specularScale   = 1.0;
-    effect.normalZ         = 1.0;
+    effect.normal          = float3(0, 0, 1);
     if (mode == DETAIL_MODE_NONE) return effect;
 
     // Project detail sample position onto axis-aligned 2D plane
     InkDetailProjection projection;
-    float3 absNormal = abs(meshNormal);
+    float3 absNormal = abs(i.worldTransform[2]);
     if (absNormal.x >= absNormal.y && absNormal.x >= absNormal.z) {
         projection.worldU = float3(0, 1, 0);
         projection.worldV = float3(0, 0, 1);
+        effect.projectionAxis = 0;
     }
     else if (absNormal.y >= absNormal.z) {
         projection.worldU = float3(1, 0, 0);
         projection.worldV = float3(0, 0, 1);
+        effect.projectionAxis = 1;
     }
     else {
         projection.worldU = float3(1, 0, 0);
         projection.worldV = float3(0, 1, 0);
+        effect.projectionAxis = 2;
     }
 
     // The parallax ray's Z is in HEIGHT_TO_HU units along the mesh normal.
@@ -520,14 +524,12 @@ InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, float3 inkUV, 
         float3 detailNormal = { TO_SIGNED(detailSample.rg), 0.0 };
         detailNormal.z = sqrt(saturate(1.0 - dot(detailNormal.xy, detailNormal.xy)));
         detailNormal.xy *= settings.strength.xy;
-        detailNormal = normalize(detailNormal);
 
-        // Inverse image rotation expresses its normal XY on the world projection axes.
-        float2 slope = float2(
+        // Undo image rotation, retaining the complete normal in projection space.
+        effect.normal = float3(
             settings.cosine * detailNormal.x + settings.sine   * detailNormal.y,
-           -settings.sine   * detailNormal.x + settings.cosine * detailNormal.y);
-        effect.normalOffset = projection.worldU * slope.x + projection.worldV * slope.y;
-        effect.normalZ = detailNormal.z;
+           -settings.sine   * detailNormal.x + settings.cosine * detailNormal.y,
+            detailNormal.z);
     }
 
     [branch]
@@ -653,8 +655,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     FetchMultiplicativeAndDepth(inkUV.xy, params);
     FetchInkMaterial(IDs, params.pbr);
 
-    float3 meshNormal         = normalize(i.worldTransform[2]);
-    InkDetailEffect detail    = FetchInkDetails(i, IDs, inkUV, meshNormal);
+    InkDetailEffect detail    = FetchInkDetails(i, IDs, inkUV);
     params.pbr.roughness      = saturate(params.pbr.roughness + detail.roughnessAdd);
     params.pbr.specularScale *= detail.specularScale;
     params.multiplicative    *= detail.colorScale;
@@ -663,9 +664,11 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     // Blend ink and world normals
     UVs    uv                 = ApplyParallaxGeometry(i, params);
     float3 geometryNormal     = FetchGeometryNormal(i, uv);
-    float3 tangentSpaceNormal = normalize(lerp(geometryNormal, params.normal, detail.bumpBlendFactor));
-    float3 worldSpaceNormal   = normalize(mul(tangentSpaceNormal, i.worldTransform));
-    ApplyInkDetailNormal(tangentSpaceNormal, worldSpaceNormal, i.worldTransform, meshNormal, detail);
+    float3 tangentSpaceNormal = lerp(geometryNormal, params.normal, detail.bumpBlendFactor);
+    float3 worldSpaceNormal   = mul(tangentSpaceNormal, i.worldTransform);
+    ApplyInkDetailNormal(tangentSpaceNormal, worldSpaceNormal, i.worldTransform, detail);
+    worldSpaceNormal   = normalize(worldSpaceNormal);
+    tangentSpaceNormal = normalize(tangentSpaceNormal);
 
     // Calculate diffuse color
     float3   lightmapFactors = CalcLightmapFactors(tangentSpaceNormal);
