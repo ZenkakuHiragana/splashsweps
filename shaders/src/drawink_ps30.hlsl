@@ -11,7 +11,7 @@ const float2 RcpDataRTSize : register(c5);
 struct PS_INPUT {
     float2 screenPos            : VPOS;
     float4 inkAndTintUV         : TEXCOORD0;
-    float2 shapeUV              : TEXCOORD1;
+    float3 shapeUVDetailMode    : TEXCOORD1;
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionTimeZScale : TEXCOORD3;
 };
@@ -196,17 +196,18 @@ PS_OUTPUT PaintIndices(const PS_INPUT i, float t, float shapeMask) {
     float thisID        = paintType / 255.0;
     float translucency  = length(tint.rgb);
     bool  isOpaque      = translucency < eps;
-    output.color.rgb = float3(
+    output.color = float4(
         isOpaque ? thisID : old.r,
         isOpaque ? 0.0    : thisID, // Opaque paint replaces the upper layer.
-        isOpaque ? 0.0    : 1.0 - translucency * (1.0 - output.color.b));
+        isOpaque ? 0.0    : 1.0 - translucency * (1.0 - output.color.b),
+        i.shapeUVDetailMode.z);     // $detailblendmode of the upper layer
     return output;
 }
 
 PS_OUTPUT main(const PS_INPUT i) {
     clip(step(float4(i.surfaceClipRange.xy, inkMapUV), float4(inkMapUV, i.surfaceClipRange.zw)) - 0.5);
 
-    float4 shapeMask = tex2D(TintTextureAtlas, i.shapeUV);
+    float4 shapeMask = tex2D(TintTextureAtlas, i.shapeUVDetailMode.xy);
     clip(shapeMask.a < eps ? -1.0 : 1.0);
 
     if (floor(regionID) == 0)

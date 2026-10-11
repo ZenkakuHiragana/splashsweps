@@ -470,9 +470,6 @@ local function buildBaseInkMeshMaterialParams()
         ["$c0_x"]                   = 0,     -- Sun direction x
         ["$c0_y"]                   = 0.3,   -- Sun direction y
         ["$c0_z"]                   = 0.954, -- Sun direction z
-        ["$c1_x"]                   = ss.RenderTarget.HammerUnitsToUV * 0.5,
-        ["$c1_z"]                   = 0.5,
-        ["$c1_w"]                   = 0.5,
     }
 end
 
@@ -493,6 +490,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         local lightmapTextureName   = page and string.format("\\[lightmap%d]", page) or "white"
         local materialParams        = buildBaseInkMeshMaterialParams()
         local dataOffset            = ss.RenderTarget.DetailsImageSize
+        local detailGridColumns     = ss.RenderTarget.DetailGridColumns
         local hasDetail             = tobool(materialInfo.Detail)
         local detailBlendMode       = materialInfo.DetailBlendMode or 0
         local bmtstr                = materialInfo.Material:GetString "$blendmodulatetexture"
@@ -502,6 +500,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$texture6"] = lightmapTextureName
         materialParams["$texture7"] = cubemapInfo and cubemapInfo.Envmap or EnvmapDefault
         materialParams["$c0_w"]     = detailBlendMode
+        materialParams["$c1_x"]     = detailGridColumns
         materialParams["$c1_y"]     = (materialInfo.NeedsBumpedLightmaps and 1 or 0)
                                     + (materialInfo.HasBaseTexture2 and 2 or 0)
                                     + (materialInfo.HasBaseTexture3 and 4 or 0)
@@ -518,6 +517,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         local mat = CreateMaterial(
             string.format("splashsweps_mesh_%d_%s", sortID, game.GetMap()),
             "Screenspace_General_8tex", materialParams)
+        mat:SetFloat("$c1_x", detailGridColumns)
         mat:SetFloat("$c3_w", dataOffset)
         m:SetUnpacked(
             materialInfo.BaseTextureTransform:GetField(1, 1),

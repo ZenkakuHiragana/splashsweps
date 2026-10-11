@@ -14,68 +14,67 @@
 //   y : Ink $tinttexture atlas min V
 //   z : Ink $tinttexture atlas max U
 //   w : Ink $tinttexture atlas max V
-// TEXCOORD3: unused (detail is evaluated in the display shader)
-// TEXCOORD4
+// TEXCOORD3
 //   x : Ink shape mask atlas min U
 //   y : Ink shape mask atlas min V
 //   z : Ink shape mask atlas max U
 //   w : Ink shape mask atlas max V
-// TEXCOORD5
+// TEXCOORD4
 //   x : Surface min U
 //   y : Surface min V
 //   z : Surface max U
 //   w : Surface max V
-// TEXCOORD6
+// TEXCOORD5
 //   xyz : WorldToUV matrix rotation (first row)
 //   w   : WorldToUV matrix offset U
-// TEXCOORD7
+// TEXCOORD6
 //   xyz : WorldToUV matrix rotation (second row)
 //   w   : WorldToUV matrix offset V
 // TANGENT0
 //   x : Width
 //   y : Height
 //   z : Depth scale
-// BINORMAL0
+// COLOR0
 //   r : Normalized paint time
 //   g : x16 = 0bRRCC = Region and corner index
 //   b : x255 + 1 = Paint type ID
-//   a : Unused
+//   a : x255 = $detailblendmode of the paint type, 0 if the detail is disabled
 
 #include "inkmesh_common.hlsl"
 
-const float4 c21 : register(c21); // Ambient cube front
-static const float  CornerSignX[4] = { -1,  1, 1, -1 };
-static const float  CornerSignY[4] = { -1, -1, 1,  1 };
-static const float2 ConstantUV[4]  = {{ 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }};
+static const float  CornerSignX[4]  = { -1,  1, 1, -1 };
+static const float  CornerSignY[4]  = { -1, -1, 1,  1 };
+static const float2 ConstantUV[4]   = {{ 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }};
 static const float2 RegionOffset[3] = {
     { 0.0, 0.0 }, { 0.0, 0.5 }, { 0.5, 0.0 }
 };
 
 struct VS_INPUT {
-    float3   worldPos                : POSITION0;
-    float4   worldAngles             : TEXCOORD0;
-    float4   baseTextureAtlasRange   : TEXCOORD1;
-    float4   tintTextureAtlasRange   : TEXCOORD2;
-    float4   shapeMaskAtlasRange     : TEXCOORD4;
-    float4   surfaceClipRange        : TEXCOORD5;
-    float4x2 worldToUV               : TEXCOORD6;
-    float4   size                    : NORMAL0;
-    float4   timeIndexType           : COLOR0;
+    float3   worldPos              : POSITION0;
+    float4   worldAngles           : TEXCOORD0;
+    float4   baseTextureAtlasRange : TEXCOORD1;
+    float4   tintTextureAtlasRange : TEXCOORD2;
+    float4   shapeMaskAtlasRange   : TEXCOORD3;
+    float4   surfaceClipRange      : TEXCOORD4;
+    float4x2 worldToUV             : TEXCOORD5;
+    float4   size                  : NORMAL0;
+    float4   timeIndexTypeDetail   : COLOR0;
 };
 
 struct VS_OUTPUT {
     float4 pos                  : POSITION;
     float4 inkAndTintUV         : TEXCOORD0;
-    float2 shapeUV              : TEXCOORD1;
+    float3 shapeUVDetailMode    : TEXCOORD1;
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionTimeZScale : TEXCOORD3;
 };
 
-#define time            v.timeIndexType.x
-#define regionIndex int(v.timeIndexType.y * 4)
-#define cornerIndex int(fmod(v.timeIndexType.y * 16, 4))
-#define inkType   floor(v.timeIndexType.z * 255)
-#define HammerUnitsToUV v.worldAngles.w
+#define time                 v.timeIndexTypeDetail.x
+#define regionIndex      int(v.timeIndexTypeDetail.y * 4)
+#define cornerIndex int(fmod(v.timeIndexTypeDetail.y * 16, 4))
+#define inkType        floor(v.timeIndexTypeDetail.z * 255)
+#define detailMode           v.timeIndexTypeDetail.a
+#define HammerUnitsToUV      v.worldAngles.w
 VS_OUTPUT main(const VS_INPUT v) {
     float3 sine, cosine;
     sincos(radians(v.worldAngles.xyz), sine, cosine);
@@ -106,7 +105,7 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.inkAndTintUV = float4(
         lerp(baseMin, baseMax, corner),
         lerp(tintMin, tintMax, corner));
-    output.shapeUV = lerp(shapeMin, shapeMax, corner);
+    output.shapeUVDetailMode = float3(lerp(shapeMin, shapeMax, corner), detailMode);
     output.surfaceClipRange
         = v.surfaceClipRange.yxwz * 0.5 + RegionOffset[regionIndex].yxyx;
     output.typeRegionTimeZScale = float4(inkType, regionIndex, time, zScale);

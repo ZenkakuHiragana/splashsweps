@@ -15,6 +15,6 @@
     "$bumpblendfactor" "0.5"
     "$detailperiod" "128"
     "$features" ""
-    "$detailblendmode" "3"
+    "$detailblendmode" "4"
     "$detail" "splashsweps/inktypes/detail_samples/tiles"
 }

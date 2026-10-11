@@ -4,6 +4,7 @@
     "$tinttexture" "white"
     "$heightmap" "null"
     "$detail" "rubber_bump"
+    "$detailblendmode" "1"
     "$alpha" "0.125"
     "$maxlayers" "4"
     "$maxheight" "0.1"

@@ -12,10 +12,10 @@
     "$metallic" "0.25"
     "$roughness" "0.3"
     "$specularscale" "1"
-    "$bumpblendfactor" "0.5"
+    "$bumpblendfactor" "0.75"
     "$detailperiod" "128"
     "$features" ""
-    "$detailblendmode" "0"
+    "$detailblendmode" "1"
     "$detail" "splashsweps/inktypes/detail_samples/finish"
     "$detailblendscale" "[0 0 0.75 0.5]"
 }

@@ -2,21 +2,19 @@
 // Data texture layout
 #define ID_COLOR_ALPHA        0
 #define ID_TINT_GEOMETRYPAINT 1
-#define ID_EDGE               2
-#define ID_HEIGHT_MAXLAYERS   3
+#define ID_HEIGHT_MAXLAYERS   2
+#define ID_MISC               3
 #define ID_MATERIAL_REFRACT   4
-#define ID_MISC               5
-#define ID_DETAIL_MAPPING     6 // scale XY, rotation, period
-#define ID_OTHERS             7
-#define ID_DETAIL_MODE        8 // translation XY, mode, bump blend
-#define ID_DETAIL_STRENGTH    9
-#define ID_DETAIL_GRID       10 // grid column, row, column count
+#define ID_EDGE_BUMPBLND      5
+#define ID_DETAIL_BLEND_SCALE 6 // $detailblendscale xyzw
+#define ID_DETAIL_TRANSFORM   7 // $detailtexturetransform translation / rotation basis
+#define ID_DETAIL_SCALE       8 // $detailtexturetransform scale / $detail index
 
-static const int DETAIL_MODE_MATERIAL = 0;
-static const int DETAIL_MODE_NORMAL = 1;
-static const int DETAIL_MODE_EMISSION = 2;
-static const int DETAIL_MODE_COLOR = 3;
-static const int DETAIL_MODE_NONE = 255;
+static const int DETAIL_MODE_NONE     = 0;
+static const int DETAIL_MODE_MATERIAL = 1;
+static const int DETAIL_MODE_NORMAL   = 2;
+static const int DETAIL_MODE_EMISSION = 3;
+static const int DETAIL_MODE_COLOR    = 4;
 
 // [0.0, 1.0] --> [-1.0, +1.0]
 #define TO_SIGNED(x) ((x) * 2.0 - 1.0)
@@ -36,14 +34,12 @@ static const float  HEIGHT_TO_HU = 24.0;
 static const float4 GROUND_PROPERTIES[] = {
     { 1.0, 1.0, 1.0,  1.0 },
     { 1.0, 1.0, 1.0,  0.0 },
-    { 1.0, 1.0, 1.0,  1.0 },
     { 1.0, 1.0, 0.75, 0.5 },
-    { 0.0, 0.0, 0.0,  1.0 },
     { 0.0, 1.0, 1.0,  1.0 },
+    { 0.0, 0.0, 0.0,  1.0 },
+    { 1.0, 1.0, 1.0,  1.0 },
     { 0.0, 0.0, 0.0,  0.0 },
-    { 0.0, 0.0, 0.0,  0.0 },
-    { 0.0, 0.0, DETAIL_MODE_NONE / 255.0, 1.0 },
-    { 0.0, 0.0, 0.0,  0.0 },
+    { 0.0, 0.0, 254.0 / 255.0, 127.0 / 255.0 },
     { 0.0, 0.0, 0.0,  0.0 },
 };
 
@@ -103,6 +99,30 @@ float4 FetchDataPixel(sampler s, int id, int index) {
 float ScreenEdgeFade(float2 uv) {
     float edge = min(min(uv.x, uv.y), 1.0 - max(uv.x, uv.y));
     return smoothstep(0.0, 0.0625, edge);
+}
+
+// Prepares the inverse of the basis (a, b, c), so that
+// mul(MakeBasisInverse(a, b, c), v) solves v = x*a + y*b + z*c for (x, y, z).
+// Prepare once and apply to several vectors when the basis is shared.
+float3x3 MakeBasisInverse(float3 a, float3 b, float3 c) {
+    float3 bCrossC = cross(b, c);
+    float3 cCrossA = cross(c, a);
+    float3 aCrossB = cross(a, b);
+    float invDet   = SAFERCP(dot(a, bCrossC));
+    return float3x3(
+        bCrossC * invDet,
+        cCrossA * invDet,
+        aCrossB * invDet);
+}
+
+// Solves v = x*a + y*b + z*c for the direction of (x, y, z) without dividing by
+// det(a, b, c). The result is scaled by |det(a, b, c)|, so use it only when
+// the solution is normalized afterwards. Otherwise, use MakeBasisInverse.
+float3 SolveBasisDirection(float3 a, float3 b, float3 c, float3 v) {
+    float3 aCrossB = cross(a, b);
+    float3 cCrossV = cross(c, v);
+    float  detSign = dot(c, aCrossB) < 0.0 ? -1.0 : 1.0;
+    return float3(dot(b, cCrossV), -dot(a, cCrossV), dot(v, aCrossB)) * detSign;
 }
 
 // Solves X = float3(x, y, det) such that v = x*a + y*b

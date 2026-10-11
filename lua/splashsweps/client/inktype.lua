@@ -71,12 +71,12 @@ function ss.LoadInkTypesRT()
                 tint:Width() + MARGIN, tint:Height() + MARGIN, 0, 0, inktype)
         end
 
-        local detailPath = mat:GetString "$detail"
-        if detailPath and detailPath ~= "" then
-            cp:SetTexture("$basetexture", detailPath)
-            local detail = cp:GetTexture "$basetexture"
+        cp:SetTexture("$basetexture", mat:GetString "$detail" or "???")
+        local detail = cp:GetTexture "$basetexture"
+        if detail then
             local name = detail:GetName()
             detailTextureNames[i] = name
+            inktype.DetailBlendMode = mat:GetInt "$detailblendmode" or 0
             if not detailTextureCache[name] then
                 detailTextures[#detailTextures + 1] = detail
                 detailTextureCache[name] = #detailTextures
@@ -93,8 +93,8 @@ function ss.LoadInkTypesRT()
         local detailtexturetransform     = mat:GetMatrix "$detailtexturetransform" or Matrix()
         local detailtransformscale       = detailtexturetransform:GetScale()
         local detailtransformtranslation = detailtexturetransform:GetTranslation()
-        local detailtransformrotation    = detailtexturetransform:GetAngles().yaw
-        local detailperiod               = math.Clamp(mat:GetFloat "$detailperiod" or 512, 16, 4096)
+        local detailtransformaxis        = detailtexturetransform:GetForward():GetNormalized() -- (cos, sin, 0)
+        local detailperiod               = mat:GetFloat "$detailperiod" or 512
         local detailblendscale           = { mat:GetVector4D "$detailblendscale" }
         local color                      = mat:GetVector "$color"     or ss.vector_one
         local tintcolor                  = mat:GetVector "$tintcolor" or ss.vector_one
@@ -102,17 +102,11 @@ function ss.LoadInkTypesRT()
         parameters[i] = {
             { color.x,     color.y,     color.z,     mat:GetFloat "$alpha"             or 1 },
             { tintcolor.x, tintcolor.y, tintcolor.z, mat:GetFloat "$geometrypaintbias" or 0 },
-            { edgecolor.x, edgecolor.y, edgecolor.z, mat:GetFloat "$edgewidth"         or 1 },
             {
                 (mat:GetInt "$maxlayers" or 1) / 255,
                 mat:GetFloat "$maxheight" or 1,
                 math.Remap(mat:GetFloat "$heightmapscale" or 1, -1, 1, 0, 1),
                 mat:GetFloat "$heightbaseline" or -1,
-            }, {
-                mat:GetFloat "$metallic"        or 0,
-                mat:GetFloat "$roughness"       or 0,
-                mat:GetFloat "$specularscale"   or 1,
-                mat:GetFloat "$refractscale"    or 1,
             }, {
                 mat:GetFloat "$erase"           or 0,
                 mat:GetFloat "$flatten"         or 0,
@@ -120,28 +114,31 @@ function ss.LoadInkTypesRT()
                 (mat:GetInt "$nodig"      or 0) * 0.5 +
                 (mat:GetInt "$heightonly" or 0) * 0.125,
             }, {
-                math.Remap(detailtransformscale.x, 0.5, 2, 0, 1),
-                math.Remap(detailtransformscale.y, 0.5, 2, 0, 1),
-                detailtransformrotation / 360,
-                math.log(detailperiod / 16, 2) / 8,
-            }, {
-                mat:GetFloat "$edgehardness"    or 0,
-                mat:GetFloat "$miscibility"     or 0,
-                mat:GetFloat "$mixturetag"      or 0,
-                mat:GetInt   "$developer"       or 0,
-            }, {
-                detailtransformtranslation.x,
-                detailtransformtranslation.y,
-                (mat:GetInt "$detailblendmode" or 255) / 255,
-                mat:GetFloat "$bumpblendfactor" or 1,
-            }, {
-                math.Round(math.Clamp(detailblendscale[1] or 1, 0, 2) * 127) / 255,
-                math.Round(math.Clamp(detailblendscale[2] or 1, 0, 2) * 127) / 255,
-                math.Round(math.Clamp(detailblendscale[3] or 1, 0, 2) * 127) / 255,
-                math.Round(math.Clamp(detailblendscale[4] or 1, 0, 2) * 127) / 255,
+                mat:GetFloat "$metallic"        or 0,
+                mat:GetFloat "$roughness"       or 0,
+                mat:GetFloat "$specularscale"   or 1,
+                mat:GetFloat "$refractscale"    or 1,
             },
-            -- Grid coordinates and column count are filled after collecting the images.
-            { 0, 0, 0, 0 },
+            { edgecolor.x, edgecolor.y, edgecolor.z, mat:GetFloat "$bumpblendfactor" or 1 },
+            {
+                -- 127 / 255 represents 1
+                (detailblendscale[1] or 1) * 127 / 255,
+                (detailblendscale[2] or 1) * 127 / 255,
+                (detailblendscale[3] or 1) * 127 / 255,
+                (detailblendscale[4] or 1) * 127 / 255,
+            }, {
+                detailtransformtranslation.x % 1,
+                detailtransformtranslation.y % 1,
+                -- 127 / 255 represents zero
+                (detailtransformaxis.x + 1) * 127 / 255,
+                (detailtransformaxis.y + 1) * 127 / 255,
+            }, {
+                -- Image repeats per Hammer unit, log2 with 24 steps per octave from 2^-13
+                (math.log(detailtransformscale.x / detailperiod, 2) + 13) * 24 / 255,
+                (math.log(detailtransformscale.y / detailperiod, 2) + 13) * 24 / 255,
+                0, -- The grid index is filled after collecting the images.
+                0, -- Unused
+            },
         }
     end
 
@@ -171,15 +168,7 @@ function ss.LoadInkTypesRT()
         detailSize = math.min(detailSize, math.floor((16384 - #parameters[1]) / gridColumns) - MARGIN)
         rtSize = gridColumns * (detailSize + MARGIN)
         for i, param in ipairs(parameters) do
-            local slot = detailTextureCache[detailTextureNames[i]]
-            if slot then
-                param[11] = {
-                    (slot - 1) % gridColumns / 255,
-                    math.floor((slot - 1) / gridColumns) / 255,
-                    gridColumns / 255,
-                    0,
-                }
-            end
+            param[9][3] = ((detailTextureCache[detailTextureNames[i]] or 1) - 1) / 255
         end
     end
 
@@ -187,6 +176,7 @@ function ss.LoadInkTypesRT()
     -- Detail images use bilinear filtering; numeric rows are read at texel centers.
     local dataWidth, dataHeight = math.max(rtSize, #parameters), rtSize + #parameters[1]
     ss.RenderTarget.DetailsImageSize = rtSize
+    ss.RenderTarget.DetailGridColumns = gridColumns
     ss.RenderTarget.StaticTextures.Details = GetRenderTargetEx(
         "splashsweps_details",
         dataWidth, dataHeight,
@@ -198,8 +188,10 @@ function ss.LoadInkTypesRT()
     local inkWater = Material "splashsweps/shaders/inkmesh"
     drawInk:SetFloat("$c3_w", rtSize)
     inkWater:SetFloat("$c3_w", rtSize)
+    inkWater:SetFloat("$c1_x", gridColumns)
     for material in pairs(ss.InkMeshMaterials) do
         material:SetFloat("$c3_w", rtSize)
+        material:SetFloat("$c1_x", gridColumns)
     end
 
     -- I couldn't make it work with surface.DrawTexturedRect for some reason;
@@ -360,9 +352,9 @@ function ss.LoadInkTypesRT()
 
             -- Writes the average height of each ink type
             for i, inktype in ipairs(ss.InkTypes) do
-                local heightbaseline = parameters[i][4][4]
+                local heightbaseline = parameters[i][3][4]
                 if heightbaseline < 0 then
-                    draw(baseTextureNames[inktype.Index], ss.MakeRectangle(1, 1, i - 1, 4 - 1 + rtSize), false, true)
+                    draw(baseTextureNames[inktype.Index], ss.MakeRectangle(1, 1, i - 1, 3 - 1 + rtSize), false, true)
                 end
             end
         cam.End2D()

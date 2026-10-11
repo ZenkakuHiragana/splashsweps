@@ -66,6 +66,8 @@ if not ss.RenderTarget then
     ss.RenderTarget = {
         ---Square image area above the ink-material data rows.
         DetailsImageSize = 0, ---@type number
+        ---Number of columns in the detail image grid.
+        DetailGridColumns = 0, ---@type number
         ---Render targets for static part of the world.
         StaticTextures = {
             InkMap  = nil, ---@type ITexture
