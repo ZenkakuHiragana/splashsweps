@@ -366,20 +366,17 @@ void FetchInkMaterial(float3 IDs, inout MaterialParams params) {
     float2 edgeBumpBlend2 = DecodeEdgeBumpBlend(edge2.a);
     params.bumpBlendFactor = lerp(edgeBumpBlend1.x, edgeBumpBlend2.x, idBlend);
 
-    // Weights of each $edgecolor, zero if not set
-    float edgeWeight1 = edgeBumpBlend1.y * (1.0 - idBlend);
-    float edgeWeight2 = edgeBumpBlend2.y * idBlend;
+    // The edge color turns into the ink color as the thickness reaches the larger $maxheight of the inks
     [branch]
-    if (edgeWeight1 + edgeWeight2 > 0.0) {
-        // The edge color turns into the ink color as the thickness reaches
-        // the larger $maxheight of the inks, excluding the ground
-        float maxHeight1 = id1 > 0 ? FetchDataPixel(InkDataDetail, id1, ID_HEIGHT_MAXLAYERS).y : 0.0;
-        float maxHeight2 = id2 > 0 ? FetchDataPixel(InkDataDetail, id2, ID_HEIGHT_MAXLAYERS).y : 0.0;
+    if (lerp(edgeBumpBlend1.y, edgeBumpBlend2.y, idBlend) > 0.0) {
+        float maxHeight1 = FetchDataPixel(InkDataDetail, id1, ID_HEIGHT_MAXLAYERS).y;
+        float maxHeight2 = FetchDataPixel(InkDataDetail, id2, ID_HEIGHT_MAXLAYERS).y;
         float thickness  = max(0.0, params.height + params.depth);
-        float edge       = 1.0 - saturate(thickness / max(maxHeight1, maxHeight2));
-        params.additive += edge * (
-            edgeWeight1 * (pow(abs(edge1.rgb), 2.2) - params.additive) +
-            edgeWeight2 * (pow(abs(edge2.rgb), 2.2) - params.additive));
+        float edge       = 1.0 - saturate(thickness * SAFERCP(max(maxHeight1, maxHeight2)));
+        params.additive += edge * lerp(
+            edgeBumpBlend1.y * (pow(abs(edge1.rgb), 2.2) - params.additive),
+            edgeBumpBlend2.y * (pow(abs(edge2.rgb), 2.2) - params.additive),
+            idBlend);
     }
 }
 
