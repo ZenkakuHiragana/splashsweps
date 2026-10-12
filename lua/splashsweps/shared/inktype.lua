@@ -13,19 +13,19 @@ local InkTypeIdentifierToIndex = locals.InkTypeIdentifierToIndex
 
 ---Ink type definition for the appearance and interactions.
 ---@class ss.InkType
----@field Index      integer   Internal index number used by networking.
----@field Identifier string    The identifier of this type of ink as the key of ss.InkTypes.
----@field Features   string[]  List of features this type of ink will have.
----@field BaseUV     number[]? UV range (minU, minV, maxU, maxV) of $basetexture
----@field TintUV     number[]? UV range (minU, minV, maxU, maxV) of $tinttexture
----@field DetailUV   number[]? UV range (minU, minV, maxU, maxV) of $details
+---@field Index           integer   Internal index number used by networking.
+---@field Identifier      string    The identifier of this type of ink as the key of ss.InkTypes.
+---@field Features        string[]  List of features this type of ink will have.
+---@field BaseUV          number[]? UV range (minU, minV, maxU, maxV) of $basetexture
+---@field TintUV          number[]? UV range (minU, minV, maxU, maxV) of $tinttexture
+---@field DetailBlendMode integer   $detailblendmode written to the ink map, 0 if the detail is disabled.
 ss.struct "InkType" {
     Index = 0,
     Identifier = "",
     Features = {},
     BaseUV = nil,
     TintUV = nil,
-    DetailUV = nil,
+    DetailBlendMode = 0,
 }
 
 ---JSON scheme for ink type definition.

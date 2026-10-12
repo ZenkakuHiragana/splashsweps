@@ -28,7 +28,7 @@ function ss.LoadInkTypesRT()
     local tintTextureRects   = {} ---@type ss.Rectangle[]
     local detailTextureNames = {} ---@type string[]
     local detailTextureCache = {} ---@type table<string, integer>
-    local detailTextureRects = {} ---@type ss.Rectangle[]
+    local detailTextures     = {} ---@type ITexture[]
     local heightTextureNames = {} ---@type string[]
     local heightChannel      = {} ---@type string[]
     local parameters         = {} ---@type number[][][]
@@ -37,11 +37,9 @@ function ss.LoadInkTypesRT()
     local black = cp:GetTexture "$basetexture"
     cp:SetTexture("$basetexture", "color/white")
     local white = cp:GetTexture "$basetexture"
-    cp:SetTexture("$basetexture", "null-bumpmap")
-    local null_bumpmap = cp:GetTexture "$basetexture"
+    local detailCopyMaterial = Material "splashsweps/shaders/copydetail"
     for i, inktype in ipairs(ss.InkTypes) do
         local mat = Material(inktype.Identifier)
-        assert(mat and not mat:IsError(), "One of ink type material is invalid!")
 
         cp:SetTexture("$basetexture", mat:GetString "$basetexture" or "???")
         local base = cp:GetTexture "$basetexture"
@@ -75,37 +73,43 @@ function ss.LoadInkTypesRT()
 
         cp:SetTexture("$basetexture", mat:GetString "$detail" or "???")
         local detail = cp:GetTexture "$basetexture"
-        if not detail then detail = null_bumpmap end
-        detailTextureNames[i] = detail:GetName()
-        if not detailTextureCache[detail:GetName()] then
-            detailTextureCache[detail:GetName()] = i
-            detailTextureRects[#detailTextureRects + 1] = ss.MakeRectangle(
-                detail:Width() + MARGIN, detail:Height() + MARGIN, 0, 0, inktype)
+        if detail then
+            local name = detail:GetName()
+            detailTextureNames[i] = name
+            inktype.DetailBlendMode = mat:GetInt "$detailblendmode" or 0
+            if not detailTextureCache[name] then
+                detailTextures[#detailTextures + 1] = detail
+                detailTextureCache[name] = #detailTextures
+            end
         end
 
         cp:SetTexture("$basetexture", mat:GetString "$heightmap" or "???")
         local height = cp:GetTexture "$basetexture"
+        local basealphaheightmap = mat:GetInt "$basealphaheightmap" or 0
         heightTextureNames[i] = height and height:GetName()
         heightChannel[i]      = mat:GetString "$heightchannel" or "R"
+        baseAlphaHeight[i]    = basealphaheightmap > 0 and HasAlphaChannel(baseTextureNames[i]) or nil
 
-        local basealphaheightmap = mat:GetInt "$basealphaheightmap" or 0
-        baseAlphaHeight[i] = basealphaheightmap > 0 and HasAlphaChannel(baseTextureNames[i]) or nil
-
-        local color = mat:GetVector "$color" or ss.vector_one
-        local tintcolor = mat:GetVector "$tintcolor" or ss.vector_one
-        local edgecolor = mat:GetVector "$edgecolor" or ss.vector_one
+        local detailtexturetransform     = mat:GetMatrix "$detailtexturetransform" or Matrix()
+        local detailtransformscale       = detailtexturetransform:GetScale()
+        local detailtransformtranslation = detailtexturetransform:GetTranslation()
+        local detailtransformaxis        = detailtexturetransform:GetForward():GetNormalized() -- (cos, sin, 0)
+        local detailperiod               = mat:GetFloat "$detailperiod" or 512
+        local detailblendscale           = { mat:GetVector4D "$detailblendscale" }
+        local color                      = mat:GetVector "$color"     or ss.vector_one
+        local tintcolor                  = mat:GetVector "$tintcolor" or ss.vector_one
+        local alpha                      = mat:GetFloat "$alpha" or 1
+        local edgecolor                  = mat:GetVector "$edgecolor"
+        local edgeflag                   = edgecolor and 128 or 0
+        local edgeadditive               = edgecolor or vector_origin
         parameters[i] = {
-            { color.x,     color.y,     color.z,     mat:GetFloat "$alpha"             or 1 },
+            { color.x,     color.y,     color.z,     alpha },
             { tintcolor.x, tintcolor.y, tintcolor.z, mat:GetFloat "$geometrypaintbias" or 0 },
-            { edgecolor.x, edgecolor.y, edgecolor.z, mat:GetFloat "$edgewidth"         or 1 },
             {
                 (mat:GetInt "$maxlayers" or 1) / 255,
                 mat:GetFloat "$maxheight" or 1,
                 math.Remap(mat:GetFloat "$heightmapscale" or 1, -1, 1, 0, 1),
                 mat:GetFloat "$heightbaseline" or -1,
-            }, {
-                mat:GetFloat "$metallic"        or 0, mat:GetFloat "$roughness"        or 0,
-                mat:GetFloat "$specularscale"   or 1, mat:GetFloat "$refractscale"     or 1,
             }, {
                 mat:GetFloat "$erase"           or 0,
                 mat:GetFloat "$flatten"         or 0,
@@ -113,11 +117,37 @@ function ss.LoadInkTypesRT()
                 (mat:GetInt "$nodig"      or 0) * 0.5 +
                 (mat:GetInt "$heightonly" or 0) * 0.125,
             }, {
-                mat:GetInt   "$detailblendmode" or 0, mat:GetFloat "$detailblendscale" or 1,
-                mat:GetFloat "$detailbumpscale" or 1, mat:GetFloat "$bumpblendfactor"  or 1,
+                mat:GetFloat "$metallic"        or 0,
+                mat:GetFloat "$roughness"       or 0,
+                mat:GetFloat "$specularscale"   or 1,
+                1 - 1 / (mat:GetFloat "$refractiveindex" or 1.33), -- Refraction strength for the shader
+            },
+            {
+                -- Additive color of a single $alpha layer of $edgecolor, in gamma space as in the ink map
+                edgeadditive.x * alpha,
+                edgeadditive.y * alpha,
+                edgeadditive.z * alpha,
+                -- Bit 7: $edgecolor is set, bits 0-6: $bumpblendfactor
+                (edgeflag + math.Clamp(mat:GetFloat "$bumpblendfactor" or 1, 0, 1) * 127) / 255,
+            },
+            {
+                -- 127 / 255 represents 1
+                (detailblendscale[1] or 1) * 127 / 255,
+                (detailblendscale[2] or 1) * 127 / 255,
+                (detailblendscale[3] or 1) * 127 / 255,
+                (detailblendscale[4] or 1) * 127 / 255,
             }, {
-                mat:GetFloat "$edgehardness"    or 0, mat:GetFloat "$miscibility"      or 0,
-                mat:GetFloat "$mixturetag"      or 0, mat:GetInt   "$developer"        or 0,
+                detailtransformtranslation.x % 1,
+                detailtransformtranslation.y % 1,
+                -- 127 / 255 represents zero
+                (detailtransformaxis.x + 1) * 127 / 255,
+                (detailtransformaxis.y + 1) * 127 / 255,
+            }, {
+                -- Image repeats per Hammer unit, log2 with 24 steps per octave from 2^-13
+                (math.log(detailtransformscale.x / detailperiod, 2) + 13) * 24 / 255,
+                (math.log(detailtransformscale.y / detailperiod, 2) + 13) * 24 / 255,
+                0, -- The grid index is filled after collecting the images.
+                0, -- Unused
             },
         }
     end
@@ -138,18 +168,41 @@ function ss.LoadInkTypesRT()
     PrintTable(heightTextureNames)
     if #parameters == 0 then return end
 
-    -- 512 + 1024 + 32768 + 8388608
-    -- = NOMIP | NOLOD | ALL_MIPS | RENDERTARGET | NODEPTHBUFFER
-    local rtWidth = ss.RenderTarget.StaticTextures.Albedo:Width()
-    local rtHeight = ss.RenderTarget.StaticTextures.Albedo:Height()
+    -- Calculating detail texture layout
+    local gridColumns = math.ceil(math.sqrt(#detailTextures))
+    local detailSize, rtSize = 0, 0
+    for _, texture in ipairs(detailTextures) do
+        detailSize = math.max(detailSize, texture:Width(), texture:Height())
+    end
+    if #detailTextures > 0 then
+        detailSize = math.min(detailSize, math.floor((16384 - #parameters[1]) / gridColumns) - MARGIN)
+        rtSize = gridColumns * (detailSize + MARGIN)
+        for i, param in ipairs(parameters) do
+            param[9][3] = ((detailTextureCache[detailTextureNames[i]] or 1) - 1) / 255
+        end
+    end
+
+    -- NOLOD | ALL_MIPS | RENDERTARGET | NODEPTHBUFFER (RTs imply NOMIP).
+    -- Detail images use bilinear filtering; numeric rows are read at texel centers.
+    local dataWidth, dataHeight = math.max(rtSize, #parameters), rtSize + #parameters[1]
+    ss.RenderTarget.DetailsImageSize = rtSize
+    ss.RenderTarget.DetailGridColumns = gridColumns
     ss.RenderTarget.StaticTextures.Details = GetRenderTargetEx(
         "splashsweps_details",
-        math.max(rtWidth, #parameters), rtHeight + #parameters[1],
-        RT_SIZE_NO_CHANGE,
+        dataWidth, dataHeight,
+        RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
-        1 + 512 + 1024 + 32768 + 8388608, 0,
+        512 + 1024 + 32768 + 8388608, 0,
         IMAGE_FORMAT_RGBA8888)
-    Material "splashsweps/shaders/drawink" :SetFloat("$c3_w", rtHeight)
+    local drawInk = Material "splashsweps/shaders/drawink"
+    local inkWater = Material "splashsweps/shaders/inkmesh"
+    drawInk:SetFloat("$c3_w", rtSize)
+    inkWater:SetFloat("$c3_w", rtSize)
+    inkWater:SetFloat("$c1_x", gridColumns)
+    for material in pairs(ss.InkMeshMaterials) do
+        material:SetFloat("$c3_w", rtSize)
+        material:SetFloat("$c1_x", gridColumns)
+    end
 
     -- I couldn't make it work with surface.DrawTexturedRect for some reason;
     -- sometimes all TEXCOORD0 are (0.5, 0.5), so I use the mesh library instead.
@@ -224,22 +277,31 @@ function ss.LoadInkTypesRT()
         cam.End2D()
         render.PopRenderTarget()
 
-        -- Packing detail textures of all paint types
+        -- Copy detail images into equal-sized grid cells, preserving their orientation and channels.
         rt = ss.RenderTarget.StaticTextures.Details
-        packer = ss.MakeRectanglePacker(detailTextureRects):packall()
         render.PushRenderTarget(rt)
         render.Clear(0, 0, 0, 0)
         cam.Start2D()
-            for _, rect in ipairs(packer.rects) do
-                local inktype = rect.tag ---@type ss.InkType
-                draw(detailTextureNames[inktype.Index], rect, true, true)
-                inktype.DetailUV = {
-                    (rect.left   + HALF_MARGIN + 0.5) / rt:Width(),
-                    (rect.bottom + HALF_MARGIN + 0.5) / rt:Height(),
-                    (rect.right  - HALF_MARGIN - 0.5) / rt:Width(),
-                    (rect.top    - HALF_MARGIN - 0.5) / rt:Height(),
+            render.OverrideBlend(true,
+                BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD,
+                BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
+            surface.SetDrawColor(255, 255, 255, 255)
+            for slot, texture in ipairs(detailTextures) do
+                local cellSize = detailSize + MARGIN
+                local x = (slot - 1) % gridColumns * cellSize
+                local y = math.floor((slot - 1) / gridColumns) * cellSize
+                local uvMin, uvMax = -1 / detailSize, 1 + 1 / detailSize
+                detailCopyMaterial:SetTexture("$basetexture", texture)
+                surface.SetMaterial(detailCopyMaterial)
+                -- Explicit UVs preserve the one-texel border without surface's rectangle UV correction.
+                surface.DrawPoly {
+                    { x = x,            y = y,            u = uvMin, v = uvMin },
+                    { x = x + cellSize, y = y,            u = uvMax, v = uvMin },
+                    { x = x + cellSize, y = y + cellSize, u = uvMax, v = uvMax },
+                    { x = x,            y = y + cellSize, u = uvMin, v = uvMax },
                 }
             end
+            render.OverrideBlend(false)
         cam.End2D()
         render.PopRenderTarget()
 
@@ -283,11 +345,13 @@ function ss.LoadInkTypesRT()
             cp:SetTexture("$basetexture", white)
             cp:SetInt("$c0_x", 3)
             cp:SetInt("$c0_y", 1)
-            render.OverrideBlend(true, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD, BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
+            render.OverrideBlend(true,
+                BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD,
+                BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
             mesh.Begin(MATERIAL_POINTS, #parameters[1] * #parameters)
             for i, param in ipairs(parameters) do
                 for j, float4 in ipairs(param) do
-                    mesh.Position(i, j + rtHeight, 0)
+                    mesh.Position(i, j + rtSize, 0)
                     mesh.TexCoord(0, 0.5, 0.5)
                     mesh.TexCoord(1, unpack(float4))
                     mesh.AdvanceVertex()
@@ -298,9 +362,9 @@ function ss.LoadInkTypesRT()
 
             -- Writes the average height of each ink type
             for i, inktype in ipairs(ss.InkTypes) do
-                local heightbaseline = parameters[i][4][4]
+                local heightbaseline = parameters[i][3][4]
                 if heightbaseline < 0 then
-                    draw(baseTextureNames[inktype.Index], ss.MakeRectangle(1, 1, i - 1, 4 - 1 + rtHeight), false, true)
+                    draw(baseTextureNames[inktype.Index], ss.MakeRectangle(1, 1, i - 1, 3 - 1 + rtSize), false, true)
                 end
             end
         cam.End2D()
@@ -312,8 +376,6 @@ function ss.LoadInkTypesRT()
                 or ss.InkTypes[baseTextureCache[baseTextureNames[inktype.Index]]].BaseUV
             inktype.TintUV = inktype.TintUV
                 or ss.InkTypes[tintTextureCache[tintTextureNames[inktype.Index]]].TintUV
-            inktype.DetailUV = inktype.DetailUV
-                or ss.InkTypes[detailTextureCache[detailTextureNames[inktype.Index]]].DetailUV
         end
     end)
 end

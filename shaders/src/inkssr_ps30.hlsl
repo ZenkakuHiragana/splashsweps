@@ -26,20 +26,6 @@ static const float3 g_ViewUp      = c12.xyz;
 static const float3 g_ViewForward = c13.xyz;
 static const float3 g_ViewOrigin  = c14.xyz;
 
-// Prepares the inverse of the basis (a, b, c), so that
-// mul(MakeBasisInverse(a, b, c), v) solves v = x*a + y*b + z*c for (x, y, z).
-// Prepare once and apply to several vectors when the basis is shared.
-float3x3 MakeBasisInverse(float3 a, float3 b, float3 c) {
-    float3 bCrossC = cross(b, c);
-    float3 cCrossA = cross(c, a);
-    float3 aCrossB = cross(a, b);
-    float invDet   = SAFERCP(dot(a, bCrossC));
-    return float3x3(
-        bCrossC * invDet,
-        cCrossA * invDet,
-        aCrossB * invDet);
-}
-
 float3 ReconstructWorldPosition(float2 uv, float viewDepth) {
     float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
     return g_ViewOrigin + (g_ViewForward + g_ViewRight * ndc.x + g_ViewUp * ndc.y) * viewDepth;

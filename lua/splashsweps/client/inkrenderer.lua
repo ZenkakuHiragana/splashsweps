@@ -17,12 +17,12 @@ end
 ---@field ang    Angle    The world angles to paint
 ---@field scale  Vector   X/Y/Z scale in hammer units
 ---@field base   number[] UV range for $basetexture
----@field detail number[] UV range for $detail
 ---@field shape  number[] UV range for the shape mask
 ---@field surf   number[] UV range for the surface
 ---@field time   number   CurTime()-based paint time
 ---@field tint   number[] UV range for $tinttexture
 ---@field typeid integer  ID of brush type
+---@field detail integer  $detailblendmode of the ink type, 0 if the detail is disabled
 ---@field row1   number[] The first row of World to UV matrix
 ---@field row2   number[] The second row of World to UV matrix
 
@@ -36,12 +36,11 @@ end
 ---@field Fields   table<string, ss.Locals.Renderer.MaterialWatchState>
 
 local MinTime,    MaxTime    = 0, 0 --- = Queue[1].time, Queue[#Queue].time
-local NUM_REGION, NUM_VERTEX = 4, 4
+local NUM_REGION, NUM_VERTEX = 3, 4
 local MAX_QUEUE = math.floor(32768 / (NUM_VERTEX * NUM_REGION))
+
 local FullFrameFb1 = render.GetScreenEffectTexture(1)
 local CopyFrameBufferMaterial = Material "splashsweps/shaders/copyfb"
--- Encoded screen corners for copyfb_vs30; no camera-context switch is needed.
-local CopyCorners = { Vector(0, 0, 0), Vector(1, 0, 0), Vector(1, 1, 0), Vector(0, 1, 0) }
 local SSRTraceMaterial = Material "splashsweps/shaders/inkssr"
 local SSRCompositeMaterial = Material "splashsweps/shaders/inkssr_compose"
 local InkWaterMaterial = Material "splashsweps/shaders/inkmesh"
@@ -52,6 +51,9 @@ local math_Remap = math.Remap
 local net_ReadInt = net.ReadInt
 local net_ReadUInt = net.ReadUInt
 local Vector, Angle = Vector, Angle
+
+local CopyCorners = { Vector(0, 0, 0), Vector(1, 0, 0), Vector(1, 1, 0), Vector(0, 1, 0) }
+
 ---CurTime() based time to perform traces to check player's ink state.
 ---@type ss.Locals.Renderer.Queue[]
 local Queue = locals.Renderer.Queue
@@ -100,7 +102,9 @@ local RefreshMaterial = {
     ---@param _   IMaterial
     ---@param value number
     ["$detailblendfactor"] = function(mat, _, value)
-        mat:SetFloat("$c3_w", value)
+        local m = mat:GetMatrix "$viewprojmat"
+        m:SetField(4, 4, value)
+        mat:SetMatrix("$viewprojmat", m)
     end,
     ---@param mat IMaterial
     ---@param _   IMaterial
@@ -370,11 +374,11 @@ function ss.PushPaintRenderTargetQueue(worldPos, worldAng, scale, shape, typeid)
                 ang    = angWarp,
                 scale  = scale,
                 base   = inktype.BaseUV,
-                detail = inktype.DetailUV,
                 shape  = inkshape.UV,
                 time   = MaxTime,
                 tint   = inktype.TintUV,
                 typeid = typeid,
+                detail = inktype.DetailBlendMode,
                 row1   = surf.WorldToUVRow1,
                 row2   = surf.WorldToUVRow2,
                 surf   = {
@@ -392,13 +396,16 @@ end
 function ss.ClearAllInk()
     for _, s in ipairs(ss.SurfaceArray) do ss.ClearGrid(s) end
     local rt = ss.RenderTarget.StaticTextures.InkMap
+    local w, h = rt:Width() / 2, rt:Height() / 2
     render.PushRenderTarget(rt)
     render.OverrideAlphaWriteEnable(true, true)
     render.ClearDepth()
     render.ClearStencil()
-    render.Clear(0, 0, 0, 128)
-    render.SetViewPort(rt:Width() / 2, 0, rt:Width() / 2, rt:Height() / 2)
-    render.Clear(255, 255, 255, 0)
+    render.Clear(0, 0, 0, 128) -- Additive color and height
+    render.SetViewPort(w, 0, w, h)
+    render.Clear(255, 255, 255, 0) -- Tint color and depth
+    render.SetViewPort(0, h, w, h)
+    render.Clear(0, 0, 0, 0) -- Ink type IDs, and $detailblendmode = 0 (disabled)
     render.OverrideAlphaWriteEnable(false)
     render.PopRenderTarget()
     ss.LoadInkTypesRT()
@@ -439,18 +446,17 @@ hook.Add("RenderScreenspaceEffects", "SplashSWEPs: Paint ink in queue", function
             mesh_Begin(MATERIAL_QUADS, primitiveCount)
         end
 
-        for i = 0, 240, 16 do -- 0b0000RRCC, RR = Region, CC = Corner
-            mesh_Color(normalizedTime, i, q.typeid, 0)
+        for i = 0, (NUM_REGION * NUM_VERTEX - 1) * 16, 16 do -- 0b0000RRCC, RR = Region, CC = Corner
+            mesh_Color(normalizedTime, i, q.typeid, q.detail)
             mesh_Normal(q.scale)
             mesh_Position(q.pos)
             mesh_TexCoord(0, q.ang.p, q.ang.y, q.ang.r, ss.RenderTarget.HammerUnitsToUV)
             mesh_TexCoord(1, unpack(q.base))
             mesh_TexCoord(2, unpack(q.tint))
-            mesh_TexCoord(3, unpack(q.detail))
-            mesh_TexCoord(4, unpack(q.shape))
-            mesh_TexCoord(5, unpack(q.surf))
-            mesh_TexCoord(6, unpack(q.row1))
-            mesh_TexCoord(7, unpack(q.row2))
+            mesh_TexCoord(3, unpack(q.shape))
+            mesh_TexCoord(4, unpack(q.surf))
+            mesh_TexCoord(5, unpack(q.row1))
+            mesh_TexCoord(6, unpack(q.row2))
             mesh_AdvanceVertex()
         end
     end
