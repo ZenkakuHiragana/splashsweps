@@ -2,13 +2,14 @@
 {
     "$basetexture" "red"
     "$tinttexture" "white"
-    "$heightmap" "null"
+    "$heightmap" "splashsweps/inktypes/soft_a"
     "$detail" "rubber_bump"
-    "$detailblendmode" "1"
+    "$detailblendmode" "0"
     "$alpha" "0.125"
     "$maxlayers" "4"
-    "$maxheight" "0.1"
+    "$maxheight" "1"
     "$heightmapscale" "1"
     "$heightbaseline" "0.05"
+    "$refractiveindex" "1.33"
     "$features" ""
 }

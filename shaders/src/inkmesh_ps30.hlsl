@@ -233,19 +233,11 @@ float3 CalcFinalLightmapColor(float3x3 lightmapColors, float3 lightmapFactors) {
 // Permuting the base normal N into the projection space, adding the detail slopes,
 // and permuting the result back is equivalent to:
 //   detail Z * N + (N's component along the projection axis) * detail slopes in world
-void ApplyInkDetailNormal(
-    inout float3 tangentNormal,
-    inout float3 worldNormal,
-    float3x3 transform,
-    InkDetailEffect detail
-) {
-    if (dot(detail.normalSlope, detail.normalSlope) == 0.0) return;
-
-    // Add XY/Z slopes without dividing. Input lengths cancel at final normalization.
-    float3 n = detail.normalZ * worldNormal + dot(worldNormal, detail.projectionAxis) * detail.normalSlope;
-    if (dot(n, n) == 0.0) return;
-    worldNormal   = n;
-    tangentNormal = SolveBasisDirection(transform[0], transform[1], transform[2], n);
+// The result is not normalized. The length of worldNormal cancels at final normalization.
+float3 ApplyInkDetailNormal(float3 worldNormal, InkDetailEffect detail) {
+    float3 n = detail.normalZ * worldNormal
+        + dot(worldNormal, detail.projectionAxis) * detail.normalSlope;
+    return dot(n, n) == 0.0 ? worldNormal : n;
 }
 
 float2 ApplyBaseTransform(float2 uv) {
@@ -331,14 +323,7 @@ void FetchAdditiveAndHeight(const PsVertexInfo i, float2 uv, inout MaterialParam
 
     // The first two rows of inkTransform are the world gradients of ink map U and V.
     // Chain rule: the height field's world normal is N - (dz/du * grad(u) + dz/dv * grad(v)).
-    float3 worldInkNormal = mul(float3(-slope, 1.0), i.inkTransform);
-
-    // Convert world normal -> underlay/world-material tangent space,
-    // because the later code treats params.normal as compatible with geometryNormal.
-    // The mesh carries texture vectors, not necessarily an orthonormal basis.
-    // Solve tangent * worldTransform = world normal, rather than using its transpose as inverse.
-    params.normal = normalize(SolveBasisDirection(
-        i.worldTransform[0], i.worldTransform[1], i.worldTransform[2], worldInkNormal));
+    params.normal = normalize(mul(float3(-slope, 1.0), i.inkTransform));
 }
 
 // Samples multiplicative color and ground depth
@@ -389,7 +374,7 @@ float3 FetchGeometryNormal(const PsVertexInfo i, UVs uv) {
                      geometryNormal.y == -1.0 &&
                      geometryNormal.z == -1.0;
     if (hasNoBump) return float3(0.0, 0.0, 1.0);
-    return normalize(geometryNormal);
+    return geometryNormal;
 }
 
 float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
@@ -582,24 +567,35 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
     return clamp(inkUV, float3(i.minUV, -1.0), float3(i.maxUV,  1.0));
 }
 
-UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params) {
+// interfaceNormal: world normal of the ink surface, without the underlay bumpmap
+UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params, float3 interfaceNormal) {
     UVs uv;
-    float3x3 tangentSpaceLightmap = i.lightmapTransform; // TEXINFO.lightmapVecS, TEXINFO.lightmapVecT, normal
-    float3x3 tangentSpaceGeometry = i.worldTransform;    // TEXINFO.textureVecS,  TEXINFO.textureVecT,  normal
-    tangentSpaceLightmap[2] /= HEIGHT_TO_HU;             // units are in $basetexture's texel per Hammer units
-    tangentSpaceGeometry[2] /= HEIGHT_TO_HU;
-    float3 viewVecLightmap  = mul(tangentSpaceLightmap, g_EyePos.xyz - i.worldPos);
-    float3 viewVecGeometry  = mul(tangentSpaceGeometry, g_EyePos.xyz - i.worldPos);
-    float2 viewVecZ         = max(float2(viewVecLightmap.z, viewVecGeometry.z), 1.0e-3);
-    float2 lightmapParallax = -viewVecLightmap.xy * params.depth / viewVecZ.x * g_LightmapSize;
-    float2 uvParallax       = -viewVecGeometry.xy * params.depth / viewVecZ.y * g_UnderlayAlbedoSize;
-    float2 uvRefraction     = params.normal.xy * params.pbr.refraction * 0.0;
-    float2 uvOffset         = uvParallax + uvRefraction;
-    float2 worldUVParallax  = i.worldUV + uvOffset;
+    float3 meshNormal = i.worldTransform[2];
+    float3 viewVec    = g_EyePos.xyz - i.worldPos;
+
+    // Straight view ray reaching the ground at params.depth below the mesh, in Hammer units
+    float  viewVecZ = max(dot(viewVec, meshNormal) / HEIGHT_TO_HU, 1.0e-3);
+    float3 parallax = -viewVec * params.depth / viewVecZ;
+
+    // Approximated refraction: the view ray shifts against the interface slope,
+    // in proportion to the liquid thickness (interface height + ground depth).
+    float  thickness      = (params.height + params.depth) * HEIGHT_TO_HU;
+    float3 interfaceSlope = interfaceNormal - meshNormal * dot(interfaceNormal, meshNormal);
+    float3 refraction     = -thickness * params.pbr.refraction * interfaceSlope;
+
+    // Rows of the transforms are the world gradients of texels: TEXINFO.textureVecs and TEXINFO.lightmapVecs
+    float3 worldOffset = parallax + refraction;
+    float2 uvOffset = float2(
+        dot(i.worldTransform[0], worldOffset),
+        dot(i.worldTransform[1], worldOffset)) * g_UnderlayAlbedoSize;
+    float2 lightmapOffset = float2(
+        dot(i.lightmapTransform[0], worldOffset),
+        dot(i.lightmapTransform[1], worldOffset)) * g_LightmapSize;
+    float2 worldUVParallax = i.worldUV + uvOffset;
     uv.base     = ApplyBaseTransform(worldUVParallax);
     uv.bump     = ApplyBumpTransform(worldUVParallax);
     uv.detail   = ApplyDetailTransform(worldUVParallax);
-    uv.lightmap = i.lightmapUV + lightmapParallax;
+    uv.lightmap = i.lightmapUV + lightmapOffset;
 
     float2 dUdx      = ddx(i.worldUV);
     float2 dUdy      = ddy(i.worldUV);
@@ -643,14 +639,19 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     params.multiplicative    *= detail.colorScale;
     params.additive          *= detail.colorScale;
 
-    // Blend ink and world normals
-    UVs    uv                 = ApplyParallaxGeometry(i, params);
-    float3 geometryNormal     = FetchGeometryNormal(i, uv);
-    float3 tangentSpaceNormal = lerp(geometryNormal, params.normal, params.bumpBlendFactor);
-    float3 worldSpaceNormal   = mul(tangentSpaceNormal, i.worldTransform);
-    ApplyInkDetailNormal(tangentSpaceNormal, worldSpaceNormal, i.worldTransform, detail);
-    worldSpaceNormal   = normalize(worldSpaceNormal);
-    tangentSpaceNormal = normalize(tangentSpaceNormal);
+    // The ink interface refracts the underlay, regardless of the underlay bumpmap
+    float3 interfaceNormal = normalize(ApplyInkDetailNormal(params.normal, detail));
+    UVs    uv              = ApplyParallaxGeometry(i, params, interfaceNormal);
+
+    // Blend ink and world normals in world space
+    float3 geometryNormal   = normalize(mul(FetchGeometryNormal(i, uv), i.worldTransform));
+    float3 blendedNormal    = lerp(geometryNormal, params.normal, params.bumpBlendFactor);
+    float3 worldSpaceNormal = normalize(ApplyInkDetailNormal(blendedNormal, detail));
+
+    // The mesh carries texture vectors, not necessarily an orthonormal basis.
+    // Solve tangent * worldTransform = world normal, rather than using its transpose as inverse.
+    float3 tangentSpaceNormal = normalize(SolveBasisDirection(
+        i.worldTransform[0], i.worldTransform[1], i.worldTransform[2], worldSpaceNormal));
 
     // Calculate diffuse color
     float3   lightmapFactors = CalcLightmapFactors(tangentSpaceNormal);

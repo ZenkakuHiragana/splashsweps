@@ -117,7 +117,7 @@ function ss.LoadInkTypesRT()
                 mat:GetFloat "$metallic"        or 0,
                 mat:GetFloat "$roughness"       or 0,
                 mat:GetFloat "$specularscale"   or 1,
-                mat:GetFloat "$refractscale"    or 1,
+                1 - 1 / (mat:GetFloat "$refractiveindex" or 1.33), -- Refraction strength for the shader
             },
             { edgecolor.x, edgecolor.y, edgecolor.z, mat:GetFloat "$bumpblendfactor" or 1 },
             {
