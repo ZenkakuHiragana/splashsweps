@@ -5,7 +5,7 @@
 #define ID_HEIGHT_MAXLAYERS   2
 #define ID_MISC               3
 #define ID_MATERIAL_REFRACT   4
-#define ID_EDGE_BUMPBLND      5
+#define ID_EDGE_BUMPBLND      5 // rgb: $edgecolor * $alpha in gamma space, a: $edgecolor flag (bit 7) + $bumpblendfactor (bits 0-6)
 #define ID_DETAIL_BLEND_SCALE 6 // $detailblendscale xyzw
 #define ID_DETAIL_TRANSFORM   7 // $detailtexturetransform translation / rotation basis
 #define ID_DETAIL_SCALE       8 // $detailtexturetransform scale / $detail index
@@ -37,7 +37,7 @@ static const float4 GROUND_PROPERTIES[] = {
     { 1.0, 1.0, 0.75, 0.5 },
     { 0.0, 1.0, 1.0,  1.0 },
     { 0.0, 0.0, 0.0,  0.0 },
-    { 1.0, 1.0, 1.0,  1.0 },
+    { 0.0, 0.0, 0.0,  127.0 / 255.0 },
     { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, 254.0 / 255.0, 127.0 / 255.0 },
     { 0.0, 0.0, 0.0,  0.0 },

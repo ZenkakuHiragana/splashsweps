@@ -98,9 +98,12 @@ function ss.LoadInkTypesRT()
         local detailblendscale           = { mat:GetVector4D "$detailblendscale" }
         local color                      = mat:GetVector "$color"     or ss.vector_one
         local tintcolor                  = mat:GetVector "$tintcolor" or ss.vector_one
-        local edgecolor                  = mat:GetVector "$edgecolor" or ss.vector_one
+        local alpha                      = mat:GetFloat "$alpha" or 1
+        local edgecolor                  = mat:GetVector "$edgecolor"
+        local edgeflag                   = edgecolor and 128 or 0
+        local edgeadditive               = edgecolor or vector_origin
         parameters[i] = {
-            { color.x,     color.y,     color.z,     mat:GetFloat "$alpha"             or 1 },
+            { color.x,     color.y,     color.z,     alpha },
             { tintcolor.x, tintcolor.y, tintcolor.z, mat:GetFloat "$geometrypaintbias" or 0 },
             {
                 (mat:GetInt "$maxlayers" or 1) / 255,
@@ -119,7 +122,14 @@ function ss.LoadInkTypesRT()
                 mat:GetFloat "$specularscale"   or 1,
                 1 - 1 / (mat:GetFloat "$refractiveindex" or 1.33), -- Refraction strength for the shader
             },
-            { edgecolor.x, edgecolor.y, edgecolor.z, mat:GetFloat "$bumpblendfactor" or 1 },
+            {
+                -- Additive color of a single $alpha layer of $edgecolor, in gamma space as in the ink map
+                edgeadditive.x * alpha,
+                edgeadditive.y * alpha,
+                edgeadditive.z * alpha,
+                -- Bit 7: $edgecolor is set, bits 0-6: $bumpblendfactor
+                (edgeflag + math.Clamp(mat:GetFloat "$bumpblendfactor" or 1, 0, 1) * 127) / 255,
+            },
             {
                 -- 127 / 255 represents 1
                 (detailblendscale[1] or 1) * 127 / 255,
