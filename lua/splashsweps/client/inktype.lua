@@ -41,15 +41,28 @@ local detailCopyMaterial = Material "splashsweps/shaders/copydetail"
 ---@field Material IMaterial
 ---@field Index integer
 
+---Image formats whose alpha channel can be used as a height map.
+---DXT1 and BGRA5551 only support 1-bit alpha, and DXT3 and BGRA4444 only support 4-bit alpha,
+---which are too coarse to be used as a height map.
+local FORMATS_WITH_ALPHA = {
+    IMAGE_FORMAT_RGBA8888      = true,
+    IMAGE_FORMAT_ABGR8888      = true,
+    IMAGE_FORMAT_IA88          = true,
+    IMAGE_FORMAT_A8            = true,
+    IMAGE_FORMAT_ARGB8888      = true,
+    IMAGE_FORMAT_BGRA8888      = true,
+    IMAGE_FORMAT_DXT5          = true,
+    IMAGE_FORMAT_RGBA16161616F = true,
+    IMAGE_FORMAT_RGBA16161616  = true,
+    IMAGE_FORMAT_RGBA32323232F = true,
+}
+
 ---Checks if specified texture has alpha channel.
----DXT1 and DXT3 only support 1-bit alpha which can't be used as a height map.
 ---@param path string Path to the texture
----@return any? hasAlpha Non-nil value if it has alpha channel.
+---@return boolean? hasAlpha True if it has alpha channel.
 local function HasAlphaChannel(path)
     local vtf = ss.ReadVTF(path)
-    return vtf and (
-        vtf.ImageFormat == "DXT5" or
-        vtf.ImageFormat:sub(#"IMAGE_FORMAT_"):find "A")
+    return vtf and FORMATS_WITH_ALPHA[vtf.ImageFormat]
 end
 
 ---Copies a texture into a rectangle with optional RGB and alpha writes.
