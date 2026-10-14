@@ -8,10 +8,19 @@ if not locals.InkTypeRT then
     ---@field BaseTextureNames string[] $basetexture of each ink type, which also provides its average height
     ---@field DetailTextures ITexture[] Detail image of each grid cell
     ---@field DetailSlots table<integer, integer> Grid cell of each ink type, nil if the ink type has no detail image
+    ---@field DetailAnimations table<integer, ss.InkDetailAnimation> Frame control of animated cells
+    ---@field DetailMesh IMesh? Periodic border mesh shared by all cells
+    ---@field DetailTransforms VMatrix[] Placement of each cell's mesh
+    ---@field ProxiedMaterials ss.ProxiedInkMaterial[] Ink definitions with material proxies
+    ---@field ParameterRows table<integer, number[][]> Last encoded input rows written for each ink type
     locals.InkTypeRT = {
         BaseTextureNames = {},
         DetailTextures = {},
         DetailSlots = {},
+        DetailAnimations = {},
+        DetailTransforms = {},
+        ProxiedMaterials = {},
+        ParameterRows = {},
     }
 end
 
@@ -22,6 +31,15 @@ local HALF_MARGIN = MARGIN / 2
 local CHANNEL_INDEX = { R = 0, G = 1, B = 2, A = 3 }
 local cp = Material "splashsweps/shaders/copy"
 local detailCopyMaterial = Material "splashsweps/shaders/copydetail"
+
+---@class ss.InkDetailAnimation
+---@field Material IMaterial Lowest-index ink definition using this texture
+---@field FrameVariable string Material parameter controlling the frame
+---@field Frame integer Last frame copied to the cell
+
+---@class ss.ProxiedInkMaterial
+---@field Material IMaterial
+---@field Index integer
 
 ---Checks if specified texture has alpha channel.
 ---DXT1 and DXT3 only support 1-bit alpha which can't be used as a height map.
@@ -144,27 +162,23 @@ end
 ---The Details render target must be pushed and cam.Start2D() must be called beforehand.
 ---@param textures table<integer, ITexture> Grid cell --> detail image
 local function WriteDetailCells(textures)
-    local gridColumns = ss.RenderTarget.DetailGridColumns
+    if not next(textures) then return end
     render.OverrideBlend(true,
         BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD,
         BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
-    surface.SetDrawColor(255, 255, 255, 255)
+    render.OverrideAlphaWriteEnable(true, true)
     for slot, texture in pairs(textures) do
-        local cellSize = ss.RenderTarget.DetailsImageSize / gridColumns
-        local detailSize = cellSize - MARGIN
-        local x = (slot - 1) % gridColumns * cellSize
-        local y = math.floor((slot - 1) / gridColumns) * cellSize
-        local uvMin, uvMax = -1 / detailSize, 1 + 1 / detailSize
+        local animation = InkTypeRT.DetailAnimations[slot]
+        local frame = animation and (animation.Material:GetInt(animation.FrameVariable) or 0) or 0
+        if animation then animation.Frame = frame end
         detailCopyMaterial:SetTexture("$basetexture", texture)
-        surface.SetMaterial(detailCopyMaterial)
-        -- Explicit UVs preserve the one-texel border without surface's rectangle UV correction.
-        surface.DrawPoly {
-            { x = x,            y = y,            u = uvMin, v = uvMin },
-            { x = x + cellSize, y = y,            u = uvMax, v = uvMin },
-            { x = x + cellSize, y = y + cellSize, u = uvMax, v = uvMax },
-            { x = x,            y = y + cellSize, u = uvMin, v = uvMax },
-        }
+        detailCopyMaterial:SetInt("$frame", frame)
+        render.SetMaterial(detailCopyMaterial)
+        cam.PushModelMatrix(InkTypeRT.DetailTransforms[slot])
+            InkTypeRT.DetailMesh:Draw()
+        cam.PopModelMatrix()
     end
+    render.OverrideAlphaWriteEnable(false)
     render.OverrideBlend(false)
 end
 
@@ -201,6 +215,7 @@ local function WriteInkTypeRows(parameters)
 
     -- Writes the average height of each ink type
     for i, rows in pairs(parameters) do
+        InkTypeRT.ParameterRows[i] = rows
         local heightbaseline = rows[3][4]
         if heightbaseline < 0 then
             draw(InkTypeRT.BaseTextureNames[i], ss.MakeRectangle(1, 1, i - 1, 3 - 1 + rtSize), false, true)
@@ -208,25 +223,142 @@ local function WriteInkTypeRows(parameters)
     end
 end
 
+---@class ss.MaterialProxyKey
+---@field Key string
+---@field Value string|number|ss.MaterialProxyKey[]
+
+---Finds the first named entry in an ordered KeyValues list.
+---@param entries ss.MaterialProxyKey[]
+---@param name string
+---@return ss.MaterialProxyKey?
+local function FindMaterialProxyKey(entries, name)
+    for _, entry in ipairs(entries) do
+        if entry.Key == name then return entry end
+    end
+end
+
+---Merges ordered proxy keys using Source's insert/replace rules.
+---@param destination ss.MaterialProxyKey[]
+---@param source ss.MaterialProxyKey[]
+---@param existingOnly boolean
+local function MergeMaterialProxyKeys(destination, source, existingOnly)
+    for _, entry in ipairs(source) do
+        local target = FindMaterialProxyKey(destination, entry.Key)
+        if target or not existingOnly then
+            if not target then
+                target = { Key = entry.Key, Value = {} }
+                destination[#destination + 1] = target
+            end
+            if istable(entry.Value) then
+                if not istable(target.Value) then target.Value = {} end
+                local targetValues, sourceValues = target.Value, entry.Value
+                    ---@cast targetValues ss.MaterialProxyKey[]
+                    ---@cast sourceValues ss.MaterialProxyKey[]
+                MergeMaterialProxyKeys(targetValues, sourceValues, existingOnly)
+            else
+                target.Value = entry.Value
+            end
+        end
+    end
+    if existingOnly then
+        for _, target in ipairs(destination) do
+            local entry = FindMaterialProxyKey(source, target.Key)
+            if istable(target.Value) and entry and istable(entry.Value) then
+                local targetValues, sourceValues = target.Value, entry.Value
+                    ---@cast targetValues ss.MaterialProxyKey[]
+                    ---@cast sourceValues ss.MaterialProxyKey[]
+                MergeMaterialProxyKeys(targetValues, sourceValues, true)
+            end
+        end
+    end
+end
+
+---Reads the proxy block after resolving Source's Patch include chain.
+---@param path string
+---@return ss.MaterialProxyKey[]
+local function ReadMaterialProxyKeys(path)
+    local inserts, replaces ---@type ss.MaterialProxyKey[]?, ss.MaterialProxyKey[]?
+    -- Source accumulates patches from outermost to innermost, up to ten includes.
+    for _ = 0, 10 do
+        local vmt = file.Read(path, "GAME")
+        if not vmt then return {} end
+        local root = util.KeyValuesToTablePreserveOrder('"vmt" {\n' .. vmt .. '\n}')[1]
+            ---@cast root ss.MaterialProxyKey
+        local entries = root.Value ---@cast entries ss.MaterialProxyKey[]
+        if root.Key ~= "patch" then
+            local proxies = FindMaterialProxyKey(entries, "proxies")
+            local values = proxies and proxies.Value ---@cast values ss.MaterialProxyKey[]?
+            if inserts then
+                values = values or {}
+                MergeMaterialProxyKeys(values, inserts, false)
+            end
+            if values and replaces then MergeMaterialProxyKeys(values, replaces, true) end
+            return values or {}
+        end
+        for _, action in ipairs { "insert", "replace" } do
+            local section = FindMaterialProxyKey(entries, action)
+            local sectionValues = section and section.Value
+                ---@cast sectionValues ss.MaterialProxyKey[]?
+            local proxies = sectionValues and FindMaterialProxyKey(sectionValues, "proxies")
+            if proxies then
+                local values = proxies.Value ---@cast values ss.MaterialProxyKey[]
+                if action == "insert" then
+                    inserts = inserts or {}
+                    MergeMaterialProxyKeys(inserts, values, false)
+                else
+                    replaces = replaces or {}
+                    MergeMaterialProxyKeys(replaces, values, false)
+                end
+            end
+        end
+        local include = FindMaterialProxyKey(entries, "include")
+        if not include then return {} end
+        local includePath = include.Value ---@cast includePath string
+        path = includePath
+    end
+    return {}
+end
+
+---Reads proxy presence and the output variable of AnimatedTexture applied to $detail.
+---@param mat IMaterial
+---@return boolean hasProxies
+---@return string? detailFrameVariable
+local function ReadMaterialProxies(mat)
+    local proxies = ReadMaterialProxyKeys("materials/" .. mat:GetName() .. ".vmt")
+    local frameVariable = nil ---@type string?
+    for _, proxy in ipairs(proxies) do
+        if proxy.Key == "animatedtexture" then
+            local contents = proxy.Value ---@cast contents { Key: string, Value: string }[]
+            local fields = table.CollapseKeyValue(contents) ---@type table<string, string>
+            if fields.animatedtexturevar and fields.animatedtexturevar:lower() == "$detail" then
+                frameVariable = fields.animatedtextureframenumvar
+            end
+        end
+    end
+    return #proxies > 0, frameVariable
+end
+
 ---Collects textures and packing rectangles, and encodes ink type parameters.
 ---@return ss.InkTypeAtlasSources sources
 ---@return number[][][] parameters
 local function ReadInkTypeSources()
     local sources = { ---@class ss.InkTypeAtlasSources
-        BaseNames       = {}, ---@type string[]
-        BaseCache       = {}, ---@type table<string, integer>
-        BaseRects       = {}, ---@type ss.Rectangle[]
-        BaseAlphaHeight = {}, ---@type boolean[]
-        HeightNames     = {}, ---@type string[]
-        HeightChannels  = {}, ---@type string[]
-        TintNames       = {}, ---@type string[]
-        TintCache       = {}, ---@type table<string, integer>
-        TintRects       = {}, ---@type ss.Rectangle[]
-        ShapeRects      = {}, ---@type ss.Rectangle[]
-        DetailNames     = {}, ---@type string[]
-        DetailCache     = {}, ---@type table<string, integer>
-        DetailTextures  = {}, ---@type ITexture[]
-        DetailSlots     = {}, ---@type table<integer, integer>
+        BaseNames        = {}, ---@type string[]
+        BaseCache        = {}, ---@type table<string, integer>
+        BaseRects        = {}, ---@type ss.Rectangle[]
+        BaseAlphaHeight  = {}, ---@type boolean[]
+        HeightNames      = {}, ---@type string[]
+        HeightChannels   = {}, ---@type string[]
+        TintNames        = {}, ---@type string[]
+        TintCache        = {}, ---@type table<string, integer>
+        TintRects        = {}, ---@type ss.Rectangle[]
+        ShapeRects       = {}, ---@type ss.Rectangle[]
+        DetailNames      = {}, ---@type string[]
+        DetailCache      = {}, ---@type table<string, integer>
+        DetailTextures   = {}, ---@type ITexture[]
+        DetailSlots      = {}, ---@type table<integer, integer>
+        DetailAnimations = {}, ---@type table<integer, ss.InkDetailAnimation>
+        ProxiedMaterials = {}, ---@type ss.ProxiedInkMaterial[]
     }
     local parameters = {} ---@type number[][][]
     cp:SetTexture("$basetexture", "color/black")
@@ -235,6 +367,7 @@ local function ReadInkTypeSources()
     local white = cp:GetTexture "$basetexture"
     for i, inktype in ipairs(ss.InkTypes) do
         local mat = Material(inktype.Identifier)
+        local hasProxies, frameVariable = ReadMaterialProxies(mat)
 
         cp:SetTexture("$basetexture", mat:GetString "$basetexture" or "???")
         local base = cp:GetTexture "$basetexture"
@@ -275,6 +408,13 @@ local function ReadInkTypeSources()
             if not sources.DetailCache[name] then
                 sources.DetailTextures[#sources.DetailTextures + 1] = detail
                 sources.DetailCache[name] = #sources.DetailTextures
+                if detail:GetNumAnimationFrames() > 1 then
+                    sources.DetailAnimations[#sources.DetailTextures] = {
+                        Material = mat,
+                        FrameVariable = frameVariable or "$frame",
+                        Frame = -1,
+                    }
+                end
             end
             sources.DetailSlots[i] = sources.DetailCache[name]
         end
@@ -287,6 +427,12 @@ local function ReadInkTypeSources()
         sources.BaseAlphaHeight[i] = basealphaheightmap > 0 and HasAlphaChannel(sources.BaseNames[i]) or nil
 
         parameters[i] = ReadParameters(mat, sources.DetailSlots[i])
+        if hasProxies then
+            sources.ProxiedMaterials[#sources.ProxiedMaterials + 1] = {
+                Material = mat,
+                Index = i,
+            }
+        end
     end
 
     for i, shape in ipairs(ss.InkShapes) do
@@ -303,6 +449,37 @@ local function ReadInkTypeSources()
     print "$heightmap"
     PrintTable(sources.HeightNames)
     return sources, parameters
+end
+
+---Builds one reusable mesh containing a cell's center, edges, and corners.
+---@param cellSize number
+local function BuildDetailCellMesh(cellSize)
+    if InkTypeRT.DetailMesh then InkTypeRT.DetailMesh:Destroy() end
+    InkTypeRT.DetailMesh = nil
+    if cellSize == 0 then return end
+    local detailSize = cellSize - MARGIN
+    local positions = { 0, HALF_MARGIN, cellSize - HALF_MARGIN, cellSize }
+    local uvs = { { 1 - HALF_MARGIN / detailSize, 1 }, { 0, 1 }, { 0, HALF_MARGIN / detailSize } }
+    local m = Mesh()
+    mesh.Begin(m, MATERIAL_QUADS, 9)
+    for y = 1, 3 do
+        for x = 1, 3 do
+            local vertices = {
+                { positions[x],     positions[y],     uvs[x][1], uvs[y][1] },
+                { positions[x + 1], positions[y],     uvs[x][2], uvs[y][1] },
+                { positions[x + 1], positions[y + 1], uvs[x][2], uvs[y][2] },
+                { positions[x],     positions[y + 1], uvs[x][1], uvs[y][2] },
+            }
+            for _, v in ipairs(vertices) do
+                mesh.Position(v[1], v[2], 0)
+                mesh.TexCoord(0, v[3], v[4])
+                mesh.Color(255, 255, 255, 255)
+                mesh.AdvanceVertex()
+            end
+        end
+    end
+    mesh.End()
+    InkTypeRT.DetailMesh = m
 end
 
 ---Creates the Details render target and sets its layout, mappings, and shader constants.
@@ -326,6 +503,20 @@ local function SetupDetailAtlas(sources, parameters)
     InkTypeRT.BaseTextureNames = sources.BaseNames
     InkTypeRT.DetailTextures = sources.DetailTextures
     InkTypeRT.DetailSlots = sources.DetailSlots
+    InkTypeRT.DetailAnimations = sources.DetailAnimations
+    InkTypeRT.ProxiedMaterials = sources.ProxiedMaterials
+    InkTypeRT.ParameterRows = {}
+    InkTypeRT.DetailTransforms = {}
+    local cellSize = gridColumns > 0 and rtSize / gridColumns or 0
+    BuildDetailCellMesh(cellSize)
+    for slot in ipairs(sources.DetailTextures) do
+        local transform = Matrix()
+        transform:SetTranslation(Vector(
+            (slot - 1) % gridColumns * cellSize,
+            math.floor((slot - 1) / gridColumns) * cellSize,
+            0))
+        InkTypeRT.DetailTransforms[slot] = transform
+    end
     ss.RenderTarget.StaticTextures.Details = GetRenderTargetEx(
         "splashsweps_details",
         dataWidth, dataHeight,
@@ -443,19 +634,14 @@ local function BuildDetailsAtlas(detailTextures, parameters)
     render.PopRenderTarget()
 end
 
----Updates detail cells and ink type data.
----@param cells integer[] Detail cells
----@param inkTypes integer[] Ink type indices
-function ss.UpdateInkTypesRT(cells, inkTypes)
-    if #cells == 0 and #inkTypes == 0 then return end
+---Writes selected cells and encoded rows in one Details render context.
+---@param cells integer[]
+---@param parameters table<integer, number[][]>
+local function UpdateDetailsAtlas(cells, parameters)
+    if #cells == 0 and not next(parameters) then return end
     local textures = {} ---@type table<integer, ITexture>
     for _, slot in ipairs(cells) do
         textures[slot] = InkTypeRT.DetailTextures[slot]
-    end
-
-    local parameters = {} ---@type table<integer, number[][]>
-    for _, i in ipairs(inkTypes) do
-        parameters[i] = ReadParameters(Material(ss.InkTypes[i].Identifier), InkTypeRT.DetailSlots[i])
     end
 
     render.PushRenderTarget(ss.RenderTarget.StaticTextures.Details)
@@ -466,7 +652,44 @@ function ss.UpdateInkTypesRT(cells, inkTypes)
     render.PopRenderTarget()
 end
 
+---Updates proxied definitions and copies cells whose selected frame changed.
+local function SyncDetailRT()
+    local parameters = {} ---@type table<integer, number[][]>
+    for _, entry in ipairs(InkTypeRT.ProxiedMaterials) do
+        render.SetMaterial(entry.Material) -- Bind it so that material proxies work; usually it won't bind at any situation
+        local rows = ReadParameters(entry.Material, InkTypeRT.DetailSlots[entry.Index])
+        local changed = false
+        for j, row in ipairs(rows) do
+            for k, value in ipairs(row) do
+                if value ~= InkTypeRT.ParameterRows[entry.Index][j][k] then changed = true end
+            end
+        end
+        if changed then
+            parameters[entry.Index] = rows
+        end
+    end
+    local cells = {} ---@type integer[]
+    for slot, animation in pairs(InkTypeRT.DetailAnimations) do
+        if (animation.Material:GetInt(animation.FrameVariable) or 0) ~= animation.Frame then
+            cells[#cells + 1] = slot
+        end
+    end
+    UpdateDetailsAtlas(cells, parameters)
+end
+
+---Updates detail cells and ink type data.
+---@param cells integer[] Detail cells
+---@param inkTypes integer[] Ink type indices
+function ss.WriteInkTypesRT(cells, inkTypes)
+    local parameters = {} ---@type table<integer, number[][]>
+    for _, i in ipairs(inkTypes) do
+        parameters[i] = ReadParameters(Material(ss.InkTypes[i].Identifier), InkTypeRT.DetailSlots[i])
+    end
+    UpdateDetailsAtlas(cells, parameters)
+end
+
 function ss.LoadInkTypesRT()
+    hook.Remove("PreRender", "SplashSWEPs: Update ink materials")
     local sources, parameters = ReadInkTypeSources()
     if #parameters == 0 then return end
     SetupDetailAtlas(sources, parameters)
@@ -475,5 +698,8 @@ function ss.LoadInkTypesRT()
         BuildAlbedoAtlas(sources)
         BuildTintAtlas(sources)
         BuildDetailsAtlas(sources.DetailTextures, parameters)
+        if #InkTypeRT.ProxiedMaterials > 0 or next(InkTypeRT.DetailAnimations) then
+            hook.Add("PreRender", "SplashSWEPs: Update ink materials", SyncDetailRT)
+        end
     end)
 end

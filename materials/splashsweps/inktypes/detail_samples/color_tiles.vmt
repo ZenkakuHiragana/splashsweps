@@ -16,5 +16,15 @@
     "$detailperiod" "128"
     "$features" ""
     "$detailblendmode" "4"
-    "$detail" "splashsweps/inktypes/detail_samples/tiles"
+    "$detail" "splashsweps/inktypes/detail_samples/animated_tiles"
+    "$detailframe" "0"
+    "Proxies"
+    {
+        "AnimatedTexture"
+        {
+            "animatedTextureVar" "$detail"
+            "animatedTextureFrameNumVar" "$detailframe"
+            "animatedTextureFrameRate" "2"
+        }
+    }
 }
