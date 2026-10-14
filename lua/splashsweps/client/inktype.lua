@@ -42,8 +42,7 @@ local detailCopyMaterial = Material "splashsweps/shaders/copydetail"
 ---@field Index integer
 
 ---Image formats whose alpha channel can be used as a height map.
----DXT1 and BGRA5551 only support 1-bit alpha, and DXT3 and BGRA4444 only support 4-bit alpha,
----which are too coarse to be used as a height map.
+---DXT1 and BGRA5551 are excluded as their 1-bit alpha can't represent heights.
 local FORMATS_WITH_ALPHA = {
     IMAGE_FORMAT_RGBA8888      = true,
     IMAGE_FORMAT_ABGR8888      = true,
@@ -51,7 +50,9 @@ local FORMATS_WITH_ALPHA = {
     IMAGE_FORMAT_A8            = true,
     IMAGE_FORMAT_ARGB8888      = true,
     IMAGE_FORMAT_BGRA8888      = true,
+    IMAGE_FORMAT_DXT3          = true,
     IMAGE_FORMAT_DXT5          = true,
+    IMAGE_FORMAT_BGRA4444      = true,
     IMAGE_FORMAT_RGBA16161616F = true,
     IMAGE_FORMAT_RGBA16161616  = true,
     IMAGE_FORMAT_RGBA32323232F = true,
