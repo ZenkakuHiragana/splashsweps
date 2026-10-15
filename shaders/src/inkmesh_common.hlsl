@@ -17,6 +17,32 @@ static const int DETAIL_MODE_EMISSION = 3;
 static const int DETAIL_MODE_COLOR    = 4;
 static const int DETAIL_MODE_THINFILM = 5;
 
+// Ink map layout: four regions with the same surface packing, at these UV offsets
+//   additive color  : rgb = additive color
+//   multiplicative  : rgb = multiplicative color
+//   indices         : rgb = ink type IDs, a = $detailblendmode of the upper layer
+//   height and depth: rg = height, ba = ground depth, both in 16 bits (see EncodeUnorm16)
+static const float2 INKMAP_ADDITIVE       = { 0.0, 0.0 };
+static const float2 INKMAP_MULTIPLICATIVE = { 0.5, 0.0 };
+static const float2 INKMAP_INDICES        = { 0.0, 0.5 };
+static const float2 INKMAP_HEIGHT_DEPTH   = { 0.5, 0.5 };
+static const float2 INKMAP_REGION_OFFSETS[4] = {
+    INKMAP_ADDITIVE, INKMAP_MULTIPLICATIVE, INKMAP_INDICES, INKMAP_HEIGHT_DEPTH,
+};
+
+// Splits [0, 1] into two 8-bit channels holding the upper and lower bytes.
+// Each channel gets k/255 plus a quarter step, so that both rounding and truncation store k.
+// Decoding is linear in the channels, so bilinear filtering of them stays correct across carries.
+float2 EncodeUnorm16(float x) {
+    float q  = round(saturate(x) * 65535.0);
+    float hi = floor(q / 256.0);
+    return (float2(hi, q - hi * 256.0) + 0.25) / 255.0;
+}
+
+float DecodeUnorm16(float2 hiLo) {
+    return dot(hiLo, float2(256.0, 1.0)) / 257.0; // (hi * 256 + lo) * 255 / 65535
+}
+
 // [0.0, 1.0] --> [-1.0, +1.0]
 #define TO_SIGNED(x) ((x) * 2.0 - 1.0)
 

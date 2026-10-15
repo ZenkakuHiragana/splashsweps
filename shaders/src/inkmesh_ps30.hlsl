@@ -318,35 +318,41 @@ float4 ApplyDetailSample(float4 albedo, float4 detailSample) {
     return albedo;
 }
 
-// Samples only height value to apply parallax effect to the ink
+// Samples only height value
 float FetchHeight(float2 uv) {
-    return TO_SIGNED(tex2Dlod(InkMap, float4(uv, 0.0, 0.0)).a);
+    float4 s = tex2Dlod(InkMap, float4(uv + INKMAP_HEIGHT_DEPTH, 0.0, 0.0));
+    return TO_SIGNED(DecodeUnorm16(s.rg));
 }
 
-// Samples additive color and height value
-void FetchAdditiveAndHeight(const PsVertexInfo i, float2 uv, inout MaterialParams params) {
-    float4 uv4 = { uv, 0.0, 0.0 };
-    float4 s = tex2Dlod(InkMap, uv4);
-    params.additive = pow(abs(s.rgb), 2.2); // Manually correct gamma
-    params.height   = TO_SIGNED(s.a);
+// Samples additive color with gamma correction
+float3 FetchAdditive(float2 uv) {
+    float4 s = tex2Dlod(InkMap, float4(uv + INKMAP_ADDITIVE, 0.0, 0.0));
+    return pow(abs(s.rgb), 2.2);
+}
+
+// Samples multiplicative color with gamma correction
+float3 FetchMultiplicative(float2 uv) {
+    float4 s = tex2Dlod(InkMap, float4(uv + INKMAP_MULTIPLICATIVE, 0.0, 0.0));
+    return pow(abs(s.rgb), 2.2);
+}
+
+// Samples height value and ground depth, and calculates the ink normal from the height
+void FetchHeightDepthAndNormal(const PsVertexInfo i, float2 uv, inout MaterialParams params) {
+    float4 s = tex2Dlod(InkMap, float4(uv + INKMAP_HEIGHT_DEPTH, 0.0, 0.0));
+    params.height = TO_SIGNED(DecodeUnorm16(s.rg));
+    params.depth  = DecodeUnorm16(s.ba);
 
     // Forward differences of the height over deltaUV, in Hammer units per ink map UV.
     float2 deltaUV = g_RTSize * 2.0;
-    float hx = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(deltaUV.x, 0.0, 0.0, 0.0)).a);
-    float hy = TO_SIGNED(tex2Dlod(InkMap, uv4 + float4(0.0, deltaUV.y, 0.0, 0.0)).a);
-    float2 slope = (float2(hx, hy) - params.height) * HEIGHT_TO_HU / deltaUV;
+    float2 hxy = {
+        FetchHeight(uv + float2(deltaUV.x, 0.0)),
+        FetchHeight(uv + float2(0.0, deltaUV.y)),
+    };
 
     // The first two rows of inkTransform are the world gradients of ink map U and V.
     // Chain rule: the height field's world normal is N - (dz/du * grad(u) + dz/dv * grad(v)).
+    float2 slope = (hxy - params.height) * HEIGHT_TO_HU / deltaUV;
     params.normal = normalize(mul(float3(-slope, 1.0), i.inkTransform));
-}
-
-// Samples multiplicative color and ground depth
-void FetchMultiplicativeAndDepth(float2 uv, inout MaterialParams params) {
-    float4 uv4 = { uv.x + 0.5, uv.y, 0.0, 0.0 };
-    float4 s = tex2Dlod(InkMap, uv4);
-    params.multiplicative = pow(abs(s.rgb), 2.2); // Manually correct gamma
-    params.depth          = s.a;
 }
 
 // x: $bumpblendfactor, y: 1 if $edgecolor is set, 0 otherwise
@@ -663,7 +669,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     float3 inkUV   = g_Simplified ? i.inkUV : ApplyParallaxInk(i);
     float3 viewVec = g_EyePos.xyz - i.worldPos;
     float3 viewDir = normalize(viewVec);
-    float2 pixelUV = (floor(inkUV.xy / g_RTSize) + 0.5) * g_RTSize + float2(0.0, 0.5);
+    float2 pixelUV = (floor(inkUV.xy / g_RTSize) + 0.5) * g_RTSize + INKMAP_INDICES;
     float4 inkIDs  = tex2Dlod(InkMap, float4(pixelUV, 0.0, 0.0));
     float3 IDs     = { round(inkIDs.r * 255.0), round(inkIDs.g * 255.0), inkIDs.b };
     int detailMode = (int)round(inkIDs.a * 255.0);
@@ -671,8 +677,9 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
 
     // Samples ink parameters
     MaterialParams params;
-    FetchAdditiveAndHeight(i, inkUV.xy, params);
-    FetchMultiplicativeAndDepth(inkUV.xy, params);
+    params.additive = FetchAdditive(inkUV.xy);
+    params.multiplicative = FetchMultiplicative(inkUV.xy);
+    FetchHeightDepthAndNormal(i, inkUV.xy, params);
     FetchInkMaterial(IDs, params);
 
     InkDetailEffect detail    = FetchInkDetails(i, IDs, detailMode, inkUV);

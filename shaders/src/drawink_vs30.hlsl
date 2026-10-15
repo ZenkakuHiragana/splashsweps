@@ -45,9 +45,6 @@
 static const float  CornerSignX[4]  = { -1,  1, 1, -1 };
 static const float  CornerSignY[4]  = { -1, -1, 1,  1 };
 static const float2 ConstantUV[4]   = {{ 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }};
-static const float2 RegionOffset[3] = {
-    { 0.0, 0.0 }, { 0.0, 0.5 }, { 0.5, 0.0 }
-};
 
 struct VS_INPUT {
     float3   worldPos              : POSITION0;
@@ -91,7 +88,7 @@ VS_OUTPUT main(const VS_INPUT v) {
 
     // Convert position to local to specific region
     uvPos *= 0.5;
-    uvPos += RegionOffset[regionIndex].yx;
+    uvPos += INKMAP_REGION_OFFSETS[regionIndex];
 
     VS_OUTPUT output;
     float2 baseMin   = v.baseTextureAtlasRange.xy;
@@ -107,7 +104,7 @@ VS_OUTPUT main(const VS_INPUT v) {
         lerp(tintMin, tintMax, corner));
     output.shapeUVDetailMode = float3(lerp(shapeMin, shapeMax, corner), detailMode);
     output.surfaceClipRange
-        = v.surfaceClipRange.yxwz * 0.5 + RegionOffset[regionIndex].yxyx;
+        = v.surfaceClipRange.yxwz * 0.5 + INKMAP_REGION_OFFSETS[regionIndex].xyxy;
     output.typeRegionTimeZScale = float4(inkType, regionIndex, time, zScale);
     output.pos = float4(uvPos * 2.0 - 1.0, time, 1.0);
     output.pos.y *= -1.0;

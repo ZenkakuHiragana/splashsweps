@@ -36,7 +36,7 @@ end
 ---@field Fields   table<string, ss.Locals.Renderer.MaterialWatchState>
 
 local MinTime,    MaxTime    = 0, 0 --- = Queue[1].time, Queue[#Queue].time
-local NUM_REGION, NUM_VERTEX = 3, 4
+local NUM_REGION, NUM_VERTEX = 4, 4
 local MAX_QUEUE = math.floor(32768 / (NUM_VERTEX * NUM_REGION))
 
 local FullFrameFb1 = render.GetScreenEffectTexture(1)
@@ -408,11 +408,13 @@ function ss.ClearAllInk()
     render.OverrideAlphaWriteEnable(true, true)
     render.ClearDepth()
     render.ClearStencil()
-    render.Clear(0, 0, 0, 128) -- Additive color and height
+    render.Clear(0, 0, 0, 0) -- Additive color
     render.SetViewPort(w, 0, w, h)
-    render.Clear(255, 255, 255, 0) -- Tint color and depth
+    render.Clear(255, 255, 255, 0) -- Tint color
     render.SetViewPort(0, h, w, h)
     render.Clear(0, 0, 0, 0) -- Ink type IDs, and $detailblendmode = 0 (disabled)
+    render.SetViewPort(w, h, w, h)
+    render.Clear(128, 0, 0, 0) -- 16-bit height = 0 and 16-bit depth = 0
     render.OverrideAlphaWriteEnable(false)
     render.PopRenderTarget()
     ss.LoadInkTypesRT()
