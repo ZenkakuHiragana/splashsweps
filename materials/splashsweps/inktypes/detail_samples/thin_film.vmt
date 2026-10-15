@@ -13,7 +13,7 @@
     "$roughness" "0.05"
     "$specularscale" "1"
     "$bumpblendfactor" "0.5"
-    "$detailperiod" "256"
+    "$detailperiod" "2048"
     "$features" ""
     "$detailblendmode" "5"
     "$detail" "splashsweps/inktypes/detail_samples/thin_film"

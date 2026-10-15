@@ -1,29 +1,42 @@
 "UnlitGeneric"
 {
-    "$basetexture"   "white"
-    "$color"         "[0.2 0.2 0]"
-    "$tinttexture"   "splashsweps/inktypes/material_test"
-    "$detail"        "null-bumpmap"
-    "$features"      ""
-    "$metallic"      "0.5"
-    "$roughness"     "0"
-    "$specularscale" "1"
-    "$maxheight"     "0.2"
-    "$heightmapscale" "0.125"
-    "$heightbaseline" "0.5"
+    "$basetexture"     "white"
+    "$color"           "[0.5 0.6 0.3]"
+    "$tinttexture"     "splashsweps/inktypes/material_test"
+    "$detail"          "splashsweps/inktypes/detail_samples/thin_film"
+    "$detailblendmode" "5"
+    "$detailperiod"    "1600"
+    "$features"        ""
+    "$alpha"           "0.9"
+    "$metallic"        "0.5"
+    "$roughness"       "0"
+    "$specularscale"   "1"
+    "$maxheight"       "0.2"
+    "$heightmapscale"  "0.125"
+    "$heightbaseline"  "0"
+    "$scale"           "1"
     "Proxies"
     {
-        "LinearRamp"
-        {
-            "srcVar"    "$zero"
-            "resultVar" "$frame"
-        }
         "Sine"
         {
             "sineperiod" "2"
-            "sinemin"    "0"
-            "sinemax"    "1"
-            "resultVar"  "$roughness"
+            "sinemin"    "0.2"
+            "sinemax"    "0.4"
+            "resultVar"  "$metallic"
+        }
+        "Sine"
+        {
+            "sineperiod" "4"
+            "sinemin" "0.02"
+            "sinemax" "0.06"
+            "resultvar" "$scale"
+        }
+        "TextureScroll"
+        {
+            "texturescrollvar" "$detailtexturetransform"
+            "texturescrollrate" "0.05"
+            "texturescrollangle" "0"
+            "texturescale" "1"
         }
     }
 }

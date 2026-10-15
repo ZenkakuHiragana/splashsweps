@@ -51,6 +51,10 @@ ss.struct "InkShape" {
     Channel = nil,
 }
 
+---Shape masks are signed distance fields where this value (0.5 in 0-255) is the edge.
+---drawink_ps30.hlsl clips the paint by the same value.
+local SHAPE_MASK_EDGE = 127.5
+
 ---Read pixels from givem texture and stores them to the mask.
 ---@param vmt IMaterial definition of the ink shape.
 ---@return ss.InkShape? # the mask to be stored to.
@@ -72,15 +76,13 @@ local function ReadPixelsFromVTF(vmt)
     shape.Channel = VALID_CHANNELS[vmt:GetString "$channel" or "R"] or "R"
 
     local grid = shape.Grid
-    local threshold = vmt:GetFloat "$alphatestreference" or 0.5
-    if threshold < 1 then threshold = threshold * 255 end
     for y = 0, height - 1 do
         for x = 0, width - 1 do
             local index = y * width + x + 1
             local above =  y > 0            and grid.IntegralImage[(y - 1) * width + x + 1] or 0
             local left  =  x > 0            and grid.IntegralImage[ y      * width + x    ] or 0
             local diag  = (x > 0 and y > 0) and grid.IntegralImage[(y - 1) * width + x    ] or 0
-            grid[index] = ss.ReadPixelFromVTF(vtf, x, y).a > threshold
+            grid[index] = ss.ReadPixelFromVTF(vtf, x, y).a > SHAPE_MASK_EDGE
             grid.IntegralImage[index] = (grid[index] and 1 or 0) + left + above - diag
         end
     end

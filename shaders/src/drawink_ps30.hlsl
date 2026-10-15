@@ -34,6 +34,10 @@ struct PsInputBundle {
 };
 
 static const float eps = 5e-3;
+
+// Shape masks are signed distance fields with the edge at 0.5, toward 1 inside.
+// The server-side paint detection in inkshape.lua binarizes them by the same value.
+static const float SHAPE_MASK_EDGE = 0.5;
 #define NODIG     abs(0.5 - miscParam.w) < eps ? 1.0 : 0.0
 #define paintType i.i.typeRegionTimeZScale.x
 #define regionID  i.i.typeRegionTimeZScale.y
@@ -61,13 +65,16 @@ static const int HEIGHT_TARGET_HEIGHT   = 0; // height value ranging from -1 to 
 static const int HEIGHT_TARGET_DEPTH    = 1; // negated depth value ranging from -1 to 0
 static const int HEIGHT_TARGET_STRENGTH = 2; // height value, used only for paintStrength
 float2 CalculateHeight(const PsInputBundle i, int target, float heightSample,
-    float4 heightParam, float geometryPaintBias, float nodig, float flatten) {
+    float shapeMask, float4 heightParam, float geometryPaintBias, float nodig, float flatten) {
+
     // Height map blend parameters
     float maxHeight      = heightParam.y;
     float heightBaseline = heightParam.w;
     float heightScale    = TO_SIGNED(heightParam.z);
     heightScale *= step(5.0e-3, abs(heightScale)) * zScale;
 
+    // The height map falls to zero at the edge of the shape mask
+    heightSample *= saturate((shapeMask - SHAPE_MASK_EDGE) / (1.0 - SHAPE_MASK_EDGE));
     float paintDir      = heightScale >= 0.0 ? 1.0 : -1.0;
     float paintHeight   = heightSample * heightScale; // -1.0 -- +1.0
     float paintDetail   = paintHeight - heightBaseline * heightScale;
@@ -120,7 +127,7 @@ PS_OUTPUT Additive(const PsInputBundle i, float t, float shapeMask) {
     float  flatten      = miscParam.y;
     float  nodig        = NODIG;
     float paintStrength = CalculateHeight(i,
-        HEIGHT_TARGET_HEIGHT, add.a, heightParam, geometryBias, nodig, flatten).x;
+        HEIGHT_TARGET_HEIGHT, add.a, shapeMask, heightParam, geometryBias, nodig, flatten).x;
 
     // Basic tint by $color, $tintcolor, and $alpha
     add.rgb *= colorAlpha.rgb * paintStrength;
@@ -149,7 +156,7 @@ PS_OUTPUT Multiplicative(const PsInputBundle i, float t, float shapeMask) {
     float nodig        = NODIG;
 
     float2 h = CalculateHeight(i, HEIGHT_TARGET_DEPTH,
-        add.a, heightParam, geometryBias, nodig, flatten);
+        add.a, shapeMask, heightParam, geometryBias, nodig, flatten);
     float paintStrength = h.x;
     float newHeight     = h.y;
 
@@ -177,9 +184,9 @@ PS_OUTPUT HeightAndDepth(const PsInputBundle i, float t, float shapeMask) {
     float  nodig        = NODIG;
 
     float newHeight = CalculateHeight(i,
-        HEIGHT_TARGET_HEIGHT, add.a, heightParam, geometryBias, nodig, flatten).y;
+        HEIGHT_TARGET_HEIGHT, add.a, shapeMask, heightParam, geometryBias, nodig, flatten).y;
     float newDepth = -CalculateHeight(i,
-        HEIGHT_TARGET_DEPTH, add.a, heightParam, geometryBias, nodig, flatten).y;
+        HEIGHT_TARGET_DEPTH, add.a, shapeMask, heightParam, geometryBias, nodig, flatten).y;
     PS_OUTPUT output = {
         EncodeUnorm16(TO_UNSIGNED(newHeight)),
         EncodeUnorm16(max(newDepth, i.old.depth)),
@@ -204,7 +211,7 @@ PS_OUTPUT PaintIndices(const PsInputBundle i, float t, float shapeMask) {
     float  geometryBias = tintParam.w;
 
     float2 h = CalculateHeight(i, HEIGHT_TARGET_STRENGTH,
-        add.a, heightParam, geometryBias, nodig, flatten);
+        add.a, shapeMask, heightParam, geometryBias, nodig, flatten);
     float paintStrength = h.x;
     float newHeight     = h.y;
     if (paintStrength < eps) return output;
@@ -230,7 +237,7 @@ PS_OUTPUT main(const PS_INPUT raw) {
     clip(step(float4(surfaceClipRangeMin, inkMapUV), float4(inkMapUV, surfaceClipRangeMax)) - 0.5);
 
     float4 shapeMask = tex2D(TintTextureAtlas, i.i.shapeUVDetailMode.xy);
-    clip(shapeMask.a < eps ? -1.0 : 1.0);
+    clip(shapeMask.a < SHAPE_MASK_EDGE ? -1.0 : 1.0);
 
     FetchOldInk(i);
     if (floor(regionID) == 0)
