@@ -16,6 +16,6 @@
     "$alphatested"            "0"
     "$cull"                   "0"
     "$depthtest"              "0"
-    "$c0_x"                   "0.0625"
+    "$c0_x"                   "0.125"
     "$viewprojmat"            "[ 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 ]"
 }
