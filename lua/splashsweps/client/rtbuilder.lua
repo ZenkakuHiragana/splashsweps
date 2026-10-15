@@ -43,8 +43,6 @@ local TEXTUREFLAGS = {
 local RTNAMES = {
     INKMAP      = "splashsweps_inkmap",
     INKMAP2     = "splashsweps_inkmap2",
-    ALBEDO      = "splashsweps_albedo",
-    TINT        = "splashsweps_tint",
     GCOLOR      = "splashsweps_gbuf_inkcolor",
     GCOLOR_BLUR = "splashsweps_gbuf_inkcolor_blur",
     GNORMAL     = "splashsweps_gbuf_inknormals",
@@ -59,8 +57,6 @@ local COMMON_FLAGS = bit.bor(
 local RTFLAGS = {
     -- Wish this prevents sRGB correction
     INKMAP = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NORMAL),
-    ALBEDO = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
-    TINT   = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.NODEPTHBUFFER),
     FRAME  = bit.bor(COMMON_FLAGS, TEXTUREFLAGS.CLAMPS, TEXTUREFLAGS.CLAMPT, TEXTUREFLAGS.NODEBUGOVERRIDE),
 }
 
@@ -143,23 +139,6 @@ function ss.SetupRenderTargets()
         CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA8888)
     rt.HammerUnitsToPixels = rt.HammerUnitsToUV * rtSize
-    rtSize = rtSize / 32
-    rt.StaticTextures.Albedo = GetRenderTargetEx(
-        RTNAMES.ALBEDO,
-        rtSize, rtSize,
-        RT_SIZE_LITERAL,
-        MATERIAL_RT_DEPTH_NONE,
-        RTFLAGS.ALBEDO,
-        CREATERENDERTARGETFLAGS_NONE,
-        IMAGE_FORMAT_RGBA8888)
-    rt.StaticTextures.Tint = GetRenderTargetEx(
-        RTNAMES.TINT,
-        rtSize, rtSize,
-        RT_SIZE_LITERAL,
-        MATERIAL_RT_DEPTH_NONE,
-        RTFLAGS.TINT,
-        CREATERENDERTARGETFLAGS_NONE,
-        IMAGE_FORMAT_RGBA8888)
     rt.FrameTextures.SceneColorDepth = render.GetSuperFPTex()
     rt.FrameTextures.SSRResult       = GetGBuffer(RTNAMES.SSR_RESULT,  MATERIAL_RT_DEPTH_NONE, 0.5)
     rt.FrameTextures.InkColor        = GetGBuffer(RTNAMES.GCOLOR,      MATERIAL_RT_DEPTH_SEPARATE)

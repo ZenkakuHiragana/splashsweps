@@ -358,6 +358,7 @@ end
 local function ReadInkTypeSources()
     local sources = { ---@class ss.InkTypeAtlasSources
         BaseNames        = {}, ---@type string[]
+        BaseKeys         = {}, ---@type string[] $basetexture and height map source sharing an atlas cell
         BaseCache        = {}, ---@type table<string, integer>
         BaseRects        = {}, ---@type ss.Rectangle[]
         BaseAlphaHeight  = {}, ---@type boolean[]
@@ -392,11 +393,6 @@ local function ReadInkTypeSources()
             base = white
         end
         sources.BaseNames[i] = base:GetName()
-        if not sources.BaseCache[base:GetName()] then
-            sources.BaseCache[base:GetName()] = i
-            sources.BaseRects[#sources.BaseRects + 1] = ss.MakeRectangle(
-                base:Width() + MARGIN, base:Height() + MARGIN, 0, 0, inktype)
-        end
 
         cp:SetTexture("$basetexture", mat:GetString "$tinttexture" or "???")
         local tint = cp:GetTexture "$basetexture"
@@ -439,6 +435,28 @@ local function ReadInkTypeSources()
         sources.HeightNames[i]     = height and height:GetName()
         sources.HeightChannels[i]  = mat:GetString "$heightchannel" or "R"
         sources.BaseAlphaHeight[i] = basealphaheightmap > 0 and HasAlphaChannel(sources.BaseNames[i]) or nil
+
+        -- The height map is written to the alpha channel of the $basetexture cell,
+        -- so the cell is identified by both and takes the larger size of them.
+        local heightSource, heightKey = nil, ""
+        if height then
+            heightSource = height
+            heightKey = "$heightmap " .. height:GetName() .. " " .. sources.HeightChannels[i]
+        elseif sources.BaseAlphaHeight[i] then
+            heightKey = "$basetexture alpha"
+        elseif HasAlphaChannel(tint:GetName()) then
+            heightSource = tint
+            heightKey = "$tinttexture alpha " .. tint:GetName()
+        end
+        local baseKey = base:GetName() .. "|" .. heightKey
+        sources.BaseKeys[i] = baseKey
+        if not sources.BaseCache[baseKey] then
+            sources.BaseCache[baseKey] = i
+            sources.BaseRects[#sources.BaseRects + 1] = ss.MakeRectangle(
+                math.max(base:Width(),  heightSource and heightSource:Width()  or 0) + MARGIN,
+                math.max(base:Height(), heightSource and heightSource:Height() or 0) + MARGIN,
+                0, 0, inktype)
+        end
 
         parameters[i] = ReadParameters(mat, sources.DetailSlots[i])
         if hasProxies then
@@ -551,11 +569,25 @@ local function SetupDetailAtlas(sources, parameters)
     end
 end
 
+---Gets an RGBA atlas render target sized to the packed images.
+---@param name string
+---@param size number Side length of the packed images
+---@return ITexture
+local function GetAtlasRenderTarget(name, size)
+    return GetRenderTargetEx(name,
+        size, size,
+        RT_SIZE_LITERAL,
+        MATERIAL_RT_DEPTH_NONE,
+        256 + 512 + 32768 + 8388608, 0, -- NOMIP | NOLOD | RENDERTARGET | NODEPTHBUFFER
+        IMAGE_FORMAT_RGBA8888)
+end
+
 ---Builds the albedo and height atlas and assigns base UV ranges.
 ---@param sources ss.InkTypeAtlasSources
 local function BuildAlbedoAtlas(sources)
-    local rt = ss.RenderTarget.StaticTextures.Albedo
     local packer = ss.MakeRectanglePacker(sources.BaseRects):packall()
+    local rt = GetAtlasRenderTarget("splashsweps_albedo", packer.maxsize)
+    ss.RenderTarget.StaticTextures.Albedo = rt
     render.PushRenderTarget(rt)
     render.Clear(0, 0, 0, 0)
     cam.Start2D()
@@ -589,19 +621,23 @@ local function BuildAlbedoAtlas(sources)
 
     for _, inktype in ipairs(ss.InkTypes) do
         inktype.BaseUV = inktype.BaseUV
-            or ss.InkTypes[sources.BaseCache[sources.BaseNames[inktype.Index]]].BaseUV
+            or ss.InkTypes[sources.BaseCache[sources.BaseKeys[inktype.Index]]].BaseUV
     end
 end
 
 ---Builds the tint and shape atlas and assigns their UV ranges.
 ---@param sources ss.InkTypeAtlasSources
 local function BuildTintAtlas(sources)
-    local rt = ss.RenderTarget.StaticTextures.Tint
+    -- Tint images and shape masks are packed separately into color and alpha,
+    -- so the atlas takes the larger size of them.
+    local tintPacker  = ss.MakeRectanglePacker(sources.TintRects):packall()
+    local shapePacker = ss.MakeRectanglePacker(sources.ShapeRects):packall()
+    local rt = GetAtlasRenderTarget("splashsweps_tint", math.max(tintPacker.maxsize, shapePacker.maxsize))
+    ss.RenderTarget.StaticTextures.Tint = rt
     render.PushRenderTarget(rt)
     render.Clear(0, 0, 0, 0)
     cam.Start2D()
-        local packer = ss.MakeRectanglePacker(sources.TintRects):packall()
-        for _, rect in ipairs(packer.rects) do
+        for _, rect in ipairs(tintPacker.rects) do
             local inktype = rect.tag ---@type ss.InkType
             draw(sources.TintNames[inktype.Index], rect, true, false)
             inktype.TintUV = {
@@ -613,8 +649,7 @@ local function BuildTintAtlas(sources)
         end
 
         -- Write shape atlas to the alpha channel
-        packer = ss.MakeRectanglePacker(sources.ShapeRects):packall()
-        for _, rect in ipairs(packer.rects) do
+        for _, rect in ipairs(shapePacker.rects) do
             local shape = rect.tag ---@type ss.InkShape
             cp:SetInt("$c0_x", CHANNEL_INDEX[shape.Channel] or 3)
             draw(shape.MaskTexture:StripExtension(), rect, false, true)
