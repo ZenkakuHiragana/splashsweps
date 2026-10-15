@@ -15,6 +15,7 @@ static const int DETAIL_MODE_MATERIAL = 1;
 static const int DETAIL_MODE_NORMAL   = 2;
 static const int DETAIL_MODE_EMISSION = 3;
 static const int DETAIL_MODE_COLOR    = 4;
+static const int DETAIL_MODE_THINFILM = 5;
 
 // [0.0, 1.0] --> [-1.0, +1.0]
 #define TO_SIGNED(x) ((x) * 2.0 - 1.0)

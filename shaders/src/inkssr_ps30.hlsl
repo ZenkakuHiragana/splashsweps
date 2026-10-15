@@ -17,6 +17,7 @@ static const float THICKNESS_MIN     = 8.0;  // Minimum accepted screen-depth th
 static const float THICKNESS_MAX     = 32.0; // Accepted thickness at the far end of the ray
 static const float RAY_SPAN_SCALE    = 0.25; // Scale factor for jumping depth between steps
 static const float ROUGHNESS_SCALE   = 4.0;  // Scale factor for roughness
+static const float REFLECTION_SPREAD = 0.25; // Tangent of the reflection cone half-angle at roughness = 100%
 
 static const float2 g_FbSize      = s0Size;            // One over frame buffer size
 static const float2 g_RenderSize  = s0Size * 2.0;      // RT size = always 0.5x resolution of the frame buffer
@@ -31,8 +32,13 @@ float3 ReconstructWorldPosition(float2 uv, float viewDepth) {
     return g_ViewOrigin + (g_ViewForward + g_ViewRight * ndc.x + g_ViewUp * ndc.y) * viewDepth;
 }
 
+// Height of one frame buffer pixel in Hammer units at the given view depth
+float PixelSizeHU(float depth) {
+    return 2.0 * depth * TAN_HALF_FOV * g_FbSize.y;
+}
+
 float ComputeSSRThickness(float depth, float rayDepthSpan, float roughness) {
-    float pixelSizeHU = 2.0 * depth * TAN_HALF_FOV * g_FbSize.y;
+    float pixelSizeHU = PixelSizeHU(depth);
     float roughnessScale = lerp(1.0, ROUGHNESS_SCALE, roughness);
     float thickness = max(pixelSizeHU * roughnessScale, rayDepthSpan * RAY_SPAN_SCALE);
     return clamp(thickness, THICKNESS_MIN, THICKNESS_MAX);
@@ -109,7 +115,7 @@ void RefineGapEdge(
 // Marches the reflection ray in UVQ space and resolves the reflection hit of one pixel.
 // A hit is either the surface crossing found by the march (returned immediately)
 // or a depth-gap bridge recorded along the way (returned when the march ends without a crossing).
-// xy: selected framebuffer UV, a: confidence (screen-edge fade).
+// xyz: selected hit point in UVQ, a: confidence (screen-edge fade).
 // The caller premultiplies UV by confidence for valid-only interpolation.
 float4 SampleScreenSpaceReflection(
     float2 screenUV,
@@ -225,7 +231,7 @@ float4 SampleScreenSpaceReflection(
         // depth shell, so the surface crossing itself is the reflection hit.
         if (canAcceptHit && SegmentIsClear(previousClass) && SegmentIsHitCandidate(classification)) {
             RefineSurfaceCrossing(previousUVQ, uvq, sceneSample);
-            return float4(uvq.xy, 0.0, ScreenEdgeFade(uvq.xy));
+            return float4(uvq, ScreenEdgeFade(uvq.xy));
         }
 
         // Depth-gap bridge (fallback hit): retain the endpoint with the larger
@@ -243,8 +249,8 @@ float4 SampleScreenSpaceReflection(
             float  rayDepthAtGap = rcp(max(uvq.z, 1.0e-6));
             float  gapClearance  = abs(sceneSampleDepth - rayDepthAtGap);
             float  farSideWeight = lastClearance * rcp(max(lastClearance + gapClearance, 1.0e-3));
-            float2 hitUV = farSideWeight >= 0.5 ? uvq.xy : lastClearUVQ.xy;
-            bridgedHit = float4(hitUV, 0.0, ScreenEdgeFade(hitUV));
+            float3 hitUVQ = farSideWeight >= 0.5 ? uvq : lastClearUVQ;
+            bridgedHit = float4(hitUVQ, ScreenEdgeFade(hitUVQ.xy));
         }
 
         previousUVQ   = uvq;
@@ -279,5 +285,11 @@ float4 main(float4 i : VPOS) : COLOR0 {
     float4 ssr = SampleScreenSpaceReflection(
         uv.xy, worldPos, viewDepth, viewDir, geometryNormal,
         worldNormal, envmapParams.a, reflectionParams.a);
-    return float4(ssr.xy * ssr.a, 0.0, ssr.a);
+
+    // Width of the reflection cone at the hit point in frame buffer pixels at roughness = 100%,
+    // growing with the distance from the reflecting surface
+    float hitDepth    = rcp(max(ssr.z, 1.0e-6));
+    float hitDistance = distance(worldPos, ReconstructWorldPosition(ssr.xy, hitDepth));
+    float blurPx      = hitDistance * REFLECTION_SPREAD / PixelSizeHU(hitDepth);
+    return float4(ssr.xy * ssr.a, blurPx * ssr.a, ssr.a);
 }

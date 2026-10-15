@@ -43,6 +43,7 @@ local FullFrameFb1 = render.GetScreenEffectTexture(1)
 local CopyFrameBufferMaterial = Material "splashsweps/shaders/copyfb"
 local SSRTraceMaterial = Material "splashsweps/shaders/inkssr"
 local SSRCompositeMaterial = Material "splashsweps/shaders/inkssr_compose"
+local SSRDownsampleMaterial = Material "splashsweps/shaders/inkssr_downsample"
 local InkWaterMaterial = Material "splashsweps/shaders/inkmesh"
 local InkDrawMaterial = Material "splashsweps/shaders/drawink"
 local CVarWireframe = GetConVar "mat_wireframe"
@@ -316,6 +317,12 @@ function(bDrawingDepth, bDrawingSkybox)
     render.OverrideDepthEnable(true, true)
     DrawNormalMeshes()
     render.OverrideDepthEnable(false)
+    render.PopRenderTarget()
+
+    -- Shrunk copy of InkColor, blurred reflections on rough surfaces read it
+    render.PushRenderTarget(ss.RenderTarget.FrameTextures.InkColorBlur)
+    render.SetMaterial(SSRDownsampleMaterial)
+    render.DrawScreenQuad()
     render.PopRenderTarget()
 
     render.PushRenderTarget(ss.RenderTarget.FrameTextures.SSRResult)

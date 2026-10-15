@@ -82,12 +82,13 @@ struct InkDetailEffect {
     float  colorScale;
     float  specularScale;
     float  roughnessAdd;
+    float  filmThickness;  // Thin film thickness in nanometers
+    float  filmStrength;   // Blend factor from the plain Fresnel term to the thin film one
 };
 
 static const float ALBEDO_ALPHA_MIN   = 0.0625;
 static const float DIFFUSE_MIN        = 0.0625; // Diffuse factor at metallic = 100%
-static const float ENVMAP_SCALE_MIN   = 0.5;    // Envmap factor at roughness = 0%
-static const float ENVMAP_SCALE_MAX   = 0.02;   // Envmap factor at roughness = 100%
+static const float ENVMAP_SCALE       = 0.5;    // Envmap factor
 static const float FRESNEL_MIN        = 0.04;   // Fresnel coefficient at metallic = 0%
 static const float PHONG_EXPONENT_MIN = 1024;   // Exponent at roughness = 0%
 static const float PHONG_EXPONENT_MAX = 32;     // Exponent at roughness = 100%
@@ -100,6 +101,10 @@ static const float RIM_METALIC_MAX    = 0.0625; // Rim lighting strength at meta
 static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
 static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
 static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
+static const float ENVMAP_LOD_MAX     = 2.0;    // Envmap mip level at roughness = 100%
+static const float FILM_THICKNESS_MAX = 600.0;  // Thin film thickness in nanometers at B * $detailblendscale.z = 1
+static const float FILM_IOR           = 1.33;   // Refractive index of the thin film
+static const float3 FILM_WAVELENGTHS  = { 650.0, 532.0, 450.0 }; // Wavelengths of R, G, B in nanometers
 static const float3 GrayScaleFactor   = { 0.2126, 0.7152, 0.0722 };
 static const float3x3 BumpBasis = {
     // Bumped lightmap basis vectors (same as LightmappedGeneric) in tangent space
@@ -181,6 +186,16 @@ float CalcBlinnPhongSpec(float3 normal, float3 lightDir, float3 viewDir, float e
 float3 CalcFresnel(float3 normal, float3 viewDirection, float3 f0) {
     float nDotV = saturate(dot(normal, viewDirection));
     return lerp(f0, float3(1.0, 1.0, 1.0), pow(1.0 - nDotV, 5.0));
+}
+
+// Approximated thin film interference: the reflectance of each channel
+// oscillates with the optical path difference between the two film surfaces.
+// Returns the factor of the Fresnel term, which is 1 at zero thickness.
+float3 CalcThinFilmInterference(float3 normal, float3 viewDirection, float thickness) {
+    float nDotV  = saturate(dot(normal, viewDirection));
+    float cosT   = sqrt(saturate(1.0 - (1.0 - nDotV * nDotV) / (FILM_IOR * FILM_IOR)));
+    float opd    = 2.0 * FILM_IOR * thickness * cosT;
+    return 0.5 + 0.5 * cos(radians(360.0) * opd / FILM_WAVELENGTHS);
 }
 
 // Estimate the screen-space pixel offset where the perspective-correct UV would
@@ -506,11 +521,12 @@ InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int mode, floa
     float4 s = detailSample;
     if (mode == DETAIL_MODE_MATERIAL) s     = TO_SIGNED(s);
     if (mode == DETAIL_MODE_NORMAL)   s.rgb = TO_SIGNED(s.rgb);
+    if (mode == DETAIL_MODE_THINFILM) s.rg  = TO_SIGNED(s.rg);
     float normalZ = sqrt(saturate(1.0 - dot(s.xy, s.xy)));
     s *= settings.blendscale;
 
     [branch]
-    if (mode == DETAIL_MODE_MATERIAL || mode == DETAIL_MODE_NORMAL) {
+    if (mode == DETAIL_MODE_MATERIAL || mode == DETAIL_MODE_NORMAL || mode == DETAIL_MODE_THINFILM) {
         // Undo image rotation, then assign XY to the world axes of the projection plane.
         float2 slope = {
             settings.rotation.x * s.x + settings.rotation.y * s.y,
@@ -534,6 +550,10 @@ InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int mode, floa
     else if (mode == DETAIL_MODE_COLOR) {
         effect.colorScale = 1.0 - s.a;
         effect.colorAdd   = s.rgb * s.a;
+    }
+    else if (mode == DETAIL_MODE_THINFILM) {
+        effect.filmThickness = s.b * FILM_THICKNESS_MAX;
+        effect.filmStrength  = saturate(s.a);
     }
 
     return effect;
@@ -698,9 +718,16 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     // -------------------------------------------------------------------------
     // v Specular component (accumulates to the final result)
 
+    // Fresnel term shared by the specular and the reflection, tinted by the thin film interference
+    float3 fresnel = CalcFresnel(worldSpaceNormal, viewDir, lerp(FRESNEL_MIN, albedo, params.pbr.metallic));
+    [branch]
+    if (detail.filmStrength > 0.0) {
+        float3 interference = CalcThinFilmInterference(worldSpaceNormal, viewDir, detail.filmThickness);
+        fresnel *= lerp(1.0, interference, detail.filmStrength);
+    }
+
 #ifdef g_PhongEnabled
     float  phongExponent = lerp(PHONG_EXPONENT_MIN, PHONG_EXPONENT_MAX, params.pbr.roughness);
-    float3 phongFresnel  = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);
     float3 phongLightDir = g_SunDirection;
     if (g_HasBumpedLightmap) {
         float3 strength = mul(GrayScaleFactor, lightmapColors);
@@ -711,7 +738,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
 
     float spec = CalcBlinnPhongSpec(worldSpaceNormal, phongLightDir, viewDir, phongExponent);
     float3 phongSpecular = mul(lightmapFactors * spec, lightmapColors);
-    phongSpecular *= CalcFresnel(worldSpaceNormal, viewDir, phongFresnel);
+    phongSpecular *= fresnel;
     phongSpecular *= ambientOcclusion;
     phongSpecular *= params.pbr.specularScale;
     phongSpecular *= g_LightmapScale;
@@ -740,13 +767,12 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
 
 #ifdef g_EnvmapEnabled
     float3 reflectDir    = reflect(-viewDir, worldSpaceNormal);
-    float3 envmapSample  = texCUBE(Envmap, reflectDir).rgb * g_EnvmapScale;
-    float3 envmapFresnel = lerp(FRESNEL_MIN, albedo, params.pbr.metallic);
-    float  envmapScale   = lerp(ENVMAP_SCALE_MIN, ENVMAP_SCALE_MAX, params.pbr.roughness * params.pbr.roughness);
+    // Rougher surfaces read the coarser mip levels of the envmap
+    float3 envmapSample  = texCUBElod(Envmap, float4(reflectDir, params.pbr.roughness * ENVMAP_LOD_MAX)).rgb * g_EnvmapScale;
     float3 envmapAlbedo  = lerp(float3(1.0, 1.0, 1.0), albedo, params.pbr.metallic);
     float3 reflectionWeight = envmapAlbedo;
-    reflectionWeight *= CalcFresnel(worldSpaceNormal, viewDir, envmapFresnel);
-    reflectionWeight *= envmapScale;
+    reflectionWeight *= fresnel;
+    reflectionWeight *= ENVMAP_SCALE;
     reflectionWeight *= ambientOcclusion;
     reflectionWeight *= params.pbr.specularScale;
     reflectionWeight *= g_LightmapScale;

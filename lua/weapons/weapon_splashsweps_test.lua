@@ -65,6 +65,7 @@ SWEP.InkTypes = {
     "splashsweps/inktypes/detail_samples/material_finish",
     "splashsweps/inktypes/detail_samples/emission_tiles",
     "splashsweps/inktypes/detail_samples/color_tiles",
+    "splashsweps/inktypes/detail_samples/thin_film",
 }
 
 function SWEP:Initialize()

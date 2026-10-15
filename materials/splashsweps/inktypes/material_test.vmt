@@ -18,5 +18,12 @@
             "srcVar"    "$zero"
             "resultVar" "$frame"
         }
+        "Sine"
+        {
+            "sineperiod" "2"
+            "sinemin"    "0"
+            "sinemax"    "1"
+            "resultVar"  "$roughness"
+        }
     }
 }
