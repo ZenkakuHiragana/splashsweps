@@ -220,7 +220,7 @@ local function enumerateMaterials(materialsInMap, cubemapLookup)
             if mat and not mat:IsError() then
                 local baseTexture2 = mat:GetString "$basetexture2"
                 local baseTexture3 = mat:GetString "$basetexture3"
-                local envmap = mat:GetString "$envmap"
+                local envmap       = mat:GetString "$envmap"
                 materialInfo[enumerationID] = {
                     Material             = mat,
                     ArrayIndex           = enumerationIDToArrayIndex[enumerationID],

@@ -38,12 +38,13 @@ static const float eps = 5e-3;
 // Shape masks are signed distance fields with the edge at 0.5, toward 1 inside.
 // The server-side paint detection in inkshape.lua binarizes them by the same value.
 static const float SHAPE_MASK_EDGE = 0.5;
-#define NODIG     abs(0.5 - miscParam.w) < eps ? 1.0 : 0.0
-#define paintType i.i.typeRegionTimeZScale.x
-#define regionID  i.i.typeRegionTimeZScale.y
-#define time      i.i.typeRegionTimeZScale.z
-#define zScale    i.i.typeRegionTimeZScale.w
-#define inkMapUV  ((i.i.screenPos + float2(0.5, 0.5)) * RcpRTSize)
+#define NODIG      miscParam.w >= 0.5             // w * 255 = 0bNH00 0000
+#define HEIGHTONLY frac(miscParam.w * 2.0) >= 0.5 // N = $nodig, H = $heightonly
+#define paintType  i.i.typeRegionTimeZScale.x
+#define regionID   i.i.typeRegionTimeZScale.y
+#define time       i.i.typeRegionTimeZScale.z
+#define zScale     i.i.typeRegionTimeZScale.w
+#define inkMapUV   ((i.i.screenPos + float2(0.5, 0.5)) * RcpRTSize)
 
 // Ink map UV of the texel being painted, moved to the given region
 #define INKMAP_UV_AT(region) float4(inkMapUV - floor(inkMapUV * 2.0) * 0.5 + (region), 0.0, 0.0)
@@ -200,15 +201,15 @@ PS_OUTPUT PaintIndices(const PsInputBundle i, float t, float shapeMask) {
     float4 miscParam    = FetchDataPixel(InkDataDetail, paintType, ID_MISC);
     PS_OUTPUT output = { old, t };
     if (max(old.r, max(old.g, old.b)) < 1.0 / 255.0) output.color.b = 1.0;
-    if (abs(0.5 - frac(miscParam.w * 4.0)) < eps) return output; // $heightonly
+    if (HEIGHTONLY) return output;
 
     float4 add          = tex2D(BaseTextureAtlas, i.i.inkAndTintUV.xy);
     float4 tint         = tex2D(TintTextureAtlas, i.i.inkAndTintUV.zw);
     float4 tintParam    = FetchDataPixel(InkDataDetail, paintType, ID_TINT_GEOMETRYPAINT);
     float4 heightParam  = FetchDataPixel(InkDataDetail, paintType, ID_HEIGHT_MAXLAYERS);
+    float  geometryBias = tintParam.w;
     float  flatten      = miscParam.y;
     float  nodig        = NODIG;
-    float  geometryBias = tintParam.w;
 
     float2 h = CalculateHeight(i, HEIGHT_TARGET_STRENGTH,
         add.a, shapeMask, heightParam, geometryBias, nodig, flatten);
@@ -220,7 +221,7 @@ PS_OUTPUT PaintIndices(const PsInputBundle i, float t, float shapeMask) {
     tint.rgb *= (1.0 - colorAlpha.aaa) * tintParam.rgb;
     tint.rgb = lerp(1.0, tint.rgb, paintStrength);
     float thisID        = paintType / 255.0;
-    float translucency  = length(tint.rgb);
+    float translucency  = dot(tint.rgb, GrayScaleFactor);
     bool  isOpaque      = translucency < eps;
     output.color = float4(
         isOpaque ? thisID : old.r,

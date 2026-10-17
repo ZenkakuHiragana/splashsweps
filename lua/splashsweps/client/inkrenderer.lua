@@ -37,7 +37,13 @@ end
 
 local MinTime,    MaxTime    = 0, 0 --- = Queue[1].time, Queue[#Queue].time
 local NUM_REGION, NUM_VERTEX = 4, 4
-local MAX_QUEUE = math.floor(32768 / (NUM_VERTEX * NUM_REGION))
+local NUM_TEXCOORDS = 7
+local SIZEOF_POS_NORMAL_COLOR = 4 * (3 + 3 + 1) -- pos: float3, normal: float3, color: uint8 * 4
+local SIZEOF_TEXCOORDS = NUM_TEXCOORDS * 4 * 4  -- texcoord: float4
+local SIZEOF_VERTEX = math.ceil((SIZEOF_POS_NORMAL_COLOR + SIZEOF_TEXCOORDS) / 16) * 16 -- float4 padding
+local TOTAL_VERTEX = NUM_VERTEX * NUM_REGION
+local MAX_VERTEX_SIZE_KB = (1024 + 512) * 1024 -- Maximum size of dynamic mesh hardcoded in Source
+local MAX_QUEUE = math.floor(MAX_VERTEX_SIZE_KB / (TOTAL_VERTEX * SIZEOF_VERTEX))
 
 local FullFrameFb1 = render.GetScreenEffectTexture(1)
 local CopyFrameBufferMaterial = Material "splashsweps/shaders/copyfb"
@@ -251,9 +257,14 @@ hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
     for renderMaterial, geometryMaterial in pairs(ss.InkMeshMaterials) do
         for _, key in ipairs(refreshList[geometryMaterial] or {}) do
             ---@type fun(self: IMaterial, key: string): number|Vector|VMatrix
-            local get = geometryMaterial["Get" .. MaterialWatchParameters[key]]
-            local value = get(geometryMaterial, key)
-            RefreshMaterial[key](renderMaterial, geometryMaterial, value)
+            local get = geometryMaterial["Get" .. (MaterialWatchParameters[key] or "???")]
+            if get then
+                local value = get(geometryMaterial, key)
+                local refresh = RefreshMaterial[key]
+                if refresh then
+                    refresh(renderMaterial, geometryMaterial, value)
+                end
+            end
         end
     end
 

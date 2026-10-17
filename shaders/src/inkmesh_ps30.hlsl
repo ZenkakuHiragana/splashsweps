@@ -105,7 +105,6 @@ static const float ENVMAP_LOD_MAX     = 2.0;    // Envmap mip level at roughness
 static const float FILM_THICKNESS_MAX = 600.0;  // Thin film thickness in nanometers at B * $detailblendscale.z = 1
 static const float FILM_IOR           = 1.33;   // Refractive index of the thin film
 static const float3 FILM_WAVELENGTHS  = { 650.0, 532.0, 450.0 }; // Wavelengths of R, G, B in nanometers
-static const float3 GrayScaleFactor   = { 0.2126, 0.7152, 0.0722 };
 static const float3x3 BumpBasis = {
     // Bumped lightmap basis vectors (same as LightmappedGeneric) in tangent space
     {  0.81649661064147949,  0.0,                 0.57735025882720947 },
@@ -159,7 +158,7 @@ static const bool g_Simplified           = fmod(floor(g_MaterialFlags / 16), 2.0
 
 PsVertexInfo DecomposeInput(const PS_INPUT i) {
     PsVertexInfo v;
-    v.screenUV          = i.screenPos.xy * g_FbSize;
+    v.screenUV          = (i.screenPos.xy + float2(0.5, 0.5)) * g_FbSize;
     v.worldPos          = i.vi.worldPos.xyz;
     v.clipPos           = i.vi.clipPos;
     v.minUV             = i.vi.surfaceClipRange.xy;
@@ -237,7 +236,7 @@ float3 CalcLightmapFactors(float3 normal) {
     }
 }
 
-float3 CalcFinalLightmapColor(float3x3 lightmapColors, float3 lightmapFactors) {
+float3 CalcFinalLightmapColor(float3 lightmapFactors, float3x3 lightmapColors) {
     float3 lightmapFinalColor = mul(lightmapFactors, lightmapColors);
     lightmapFinalColor *= rcp(max(dot(lightmapFactors, float3(1.0, 1.0, 1.0)), 1.0e-3));
     lightmapFinalColor *= g_LightmapScale;
@@ -403,7 +402,8 @@ void FetchInkMaterial(float3 IDs, inout MaterialParams params) {
 
 // Sample world bumpmap
 float3 FetchGeometryNormal(const PsVertexInfo i, UVs uv) {
-    float2 dx = ddx(i.worldUV), dy = ddy(i.worldUV);
+    float2 wuv = ApplyBumpTransform(i.worldUV);
+    float2 dx = ddx(wuv), dy = ddy(wuv);
     float3 geometryNormal = tex2Dgrad(UnderlayBumpmap, uv.bump, dx, dy).rgb;
     if (g_HasUnderlayAtlas) {
         float3 normal2 = tex2Dgrad(UnderlayAtlas, frac(uv.bump) * 0.5 + 0.5, dx, dy).rgb;
@@ -705,7 +705,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     // Calculate diffuse color
     float3   lightmapFactors = CalcLightmapFactors(tangentSpaceNormal);
     float3x3 lightmapColors  = FetchLightmapSamples(i, uv.lightmap);
-    float3   lightmapFinal   = CalcFinalLightmapColor(lightmapColors, lightmapFactors);
+    float3   lightmapFinal   = CalcFinalLightmapColor(lightmapFactors, lightmapColors);
     float3   geometryLit     = FetchGeometrySamples(i, uv, lightmapFinal) * params.multiplicative;
     float3   inkLit          = (params.additive + detail.colorAdd) * lightmapFinal;
     float3   albedo          = geometryLit + inkLit;
@@ -737,7 +737,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     float  phongExponent = lerp(PHONG_EXPONENT_MIN, PHONG_EXPONENT_MAX, params.pbr.roughness);
     float3 phongLightDir = g_SunDirection;
     if (g_HasBumpedLightmap) {
-        float3 strength = mul(GrayScaleFactor, lightmapColors);
+        float3 strength = mul(lightmapColors, GrayScaleFactor);
         float3 fakeTangentLightDir = mul(strength, BumpBasis);
         float3 fakeWorldLightDir = mul(fakeTangentLightDir, i.worldTransform);
         phongLightDir = lerp(g_SunDirection, fakeWorldLightDir, saturate(strength));

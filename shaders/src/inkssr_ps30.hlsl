@@ -267,7 +267,7 @@ float4 SampleScreenSpaceReflection(
 }
 
 float4 main(float4 i : VPOS) : COLOR0 {
-    float4 uv = { i.xy * g_RenderSize, 0.0, 0.0 };
+    float4 uv = { (i.xy + float2(0.5, 0.5)) * g_RenderSize, 0.0, 0.0 };
     float4 surface = tex2Dlod(GBufInkColor, uv);
     if (surface.a < 0.5) return 0.0;
 

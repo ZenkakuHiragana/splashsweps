@@ -52,12 +52,9 @@ float DecodeUnorm16(float2 hiLo) {
 // Safe rcp that avoids division by zero
 #define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-16)))
 
-// Hardcoded in DepthWrite shader used in _rt_resolvedfullframedepth
-static const float  DEPTHWRITE_TO_HU = 4000.0;
-
-// Ink height map to hammer unit conversion constant
-static const float  HEIGHT_TO_HU = 24.0;
-
+static const float  DEPTHWRITE_TO_HU = 4000.0; // Hardcoded in DepthWrite shader used in _rt_resolvedfullframedepth
+static const float  HEIGHT_TO_HU     = 24.0;   // Ink height map to hammer unit conversion constant
+static const float3 GrayScaleFactor  = { 0.2126, 0.7152, 0.0722 };
 static const float4 GROUND_PROPERTIES[] = {
     { 1.0, 1.0, 1.0,  1.0 },
     { 1.0, 1.0, 1.0,  0.0 },

@@ -69,7 +69,7 @@ end
 function ss.EnumeratePaintPositions(surf, mins, maxs, pos, ang)
     return wrap(function()
         if surf.Triangles then
-            local min_score = 0
+            local min_score = -math.huge
             local min_coordinates = nil ---@type Vector
             local min_triangle = nil ---@type ss.DisplacementTriangle?
             local angleMatrix = Matrix()
@@ -86,7 +86,7 @@ function ss.EnumeratePaintPositions(surf, mins, maxs, pos, ang)
                     end
                 else
                     local score = min(b.x, 0) + min(b.y, 0) + min(b.z, 0)
-                    if score < min_score then
+                    if score > min_score then -- score <= 0 and min_score should be close to 0
                         min_score = score
                         min_coordinates = b
                         min_triangle = t
@@ -127,9 +127,9 @@ function ss.Paint(worldPos, worldAng, scale, shape, inktype)
     local sx    = Round(min(scale.x, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
     local sy    = Round(min(scale.y, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
     local sz    = Round(min(scale.z, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
-    local pitch = Clamp(Round(NormalizeAngle(worldAng.pitch) / 180 * 128), -128, 127)
-    local yaw   = Clamp(Round(NormalizeAngle(worldAng.yaw)   / 180 * 128), -128, 127)
-    local roll  = Clamp(Round(NormalizeAngle(worldAng.roll)  / 180 * 128), -128, 127)
+    local pitch = Round(Remap(NormalizeAngle(worldAng.pitch), -180, 180, -128, 127))
+    local yaw   = Round(Remap(NormalizeAngle(worldAng.yaw),   -180, 180, -128, 127))
+    local roll  = Round(Remap(NormalizeAngle(worldAng.roll),  -180, 180, -128, 127))
     worldPos:SetUnpacked(x * 2, y * 2, z * 2)
     worldAng:SetUnpacked(
         Remap(pitch, -128, 127, -180, 180),

@@ -11,7 +11,7 @@ const float4 HDRParams : register(c30);
 static const float g_BlurTexelPx  = c0.x; // One over frame buffer pixels per texel of GBufInkColorBlur
 static const float g_TonemapScale = HDRParams.x;
 float4 main(float4 pos : VPOS) : COLOR0 {
-    float4 uv = { pos.xy * g_FbSize, 0.0, 0.0 };
+    float4 uv = { (pos.xy + float2(0.5, 0.5)) * g_FbSize, 0.0, 0.0 };
     float4 surface = tex2Dlod(GBufInkColor, uv);
     clip(surface.a - 0.5);
 

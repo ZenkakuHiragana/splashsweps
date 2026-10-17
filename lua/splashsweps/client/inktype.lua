@@ -134,8 +134,8 @@ local function ReadParameters(mat, detailSlot)
             mat:GetFloat "$erase"           or 0,
             mat:GetFloat "$flatten"         or 0,
             mat:GetFloat "$viscosity"       or 1,
-            (mat:GetInt "$nodig"      or 0) * 0.5 +
-            (mat:GetInt "$heightonly" or 0) * 0.125,
+            ((mat:GetInt "$nodig"      or 0) * 128 +
+            (mat:GetInt "$heightonly" or 0) * 64) / 255,
         }, {
             mat:GetFloat "$metallic"        or 0,
             mat:GetFloat "$roughness"       or 0,

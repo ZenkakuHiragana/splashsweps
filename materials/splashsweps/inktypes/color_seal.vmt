@@ -7,6 +7,7 @@
     "$heightmapscale"  "0.125"
     "$specularscale"   "0.0625"
     "$heightbaseline"  "0"
+    "$color"           "[.7 .7 .7]"
     "$tintcolor"       "[.2 .2 .2]"
     "$features"        ""
 }
