@@ -74,16 +74,17 @@ float2 CalculateHeight(const PsInputBundle i, int target, float heightSample,
     float heightScale    = TO_SIGNED(heightParam.z);
     heightScale *= step(5.0e-3, abs(heightScale)) * zScale;
 
-    // The height map falls to zero at the edge of the shape mask
-    heightSample *= saturate((shapeMask - SHAPE_MASK_EDGE) / (1.0 - SHAPE_MASK_EDGE));
+    // Shape strength scales the complete change, before viscosity divides digging between layers.
+    float shapeStrength = saturate((shapeMask - SHAPE_MASK_EDGE) / (1.0 - SHAPE_MASK_EDGE));
     float paintDir      = heightScale >= 0.0 ? 1.0 : -1.0;
     float paintHeight   = heightSample * heightScale; // -1.0 -- +1.0
     float paintDetail   = paintHeight - heightBaseline * heightScale;
     float oldPixelValue = target == HEIGHT_TARGET_DEPTH ? -i.old.depth : i.old.height;
 
     // Height map blend calculation
+    // Height and ground depth must divide the same request between fluid and solid.
     float oldHeightSaturated = saturate(
-        paintDir * (oldPixelValue + (target == HEIGHT_TARGET_HEIGHT ? i.old.depth : 0.0)));
+        paintDir * (i.old.height + (target == HEIGHT_TARGET_STRENGTH ? 0.0 : i.old.depth)));
     float baselineFalloff = exp(-max(oldHeightSaturated, 1.0e-6) / max(maxHeight, 1.0e-12));
     baselineFalloff *= 1 - oldHeightSaturated;
     float baselineAdd   = paintHeight * baselineFalloff;
@@ -92,7 +93,7 @@ float2 CalculateHeight(const PsInputBundle i, int target, float heightSample,
     detailFalloff *= detailFalloff;
     detailFalloff *= detailFalloff;
     float detailAdd     = paintDetail * (1 - detailFalloff);
-    float desiredAdd    = baselineAdd + detailAdd;
+    float desiredAdd    = (baselineAdd + detailAdd) * shapeStrength;
     float paintStrength = 1.0 - geometryPaintBias;
     float newHeight     = oldPixelValue + desiredAdd;
 
@@ -108,7 +109,9 @@ float2 CalculateHeight(const PsInputBundle i, int target, float heightSample,
         newHeight = oldPixelValue;
         newHeight -= solidDigAmount;
         newHeight -= fluidDigAmount * (target == HEIGHT_TARGET_DEPTH ? 0 : 1);
-        newHeight = max(nodig - 1.0, lerp(newHeight, 0.0, flatten));
+        // No-dig stops at the existing ground, including inside an already dug area.
+        float minimumHeight = lerp(-1.0, -i.old.depth, nodig);
+        newHeight = max(minimumHeight, lerp(newHeight, 0.0, flatten * shapeStrength));
         paintStrength = saturate(1 - nodig - geometryPaintBias
             * step(-i.old.height + fluidDigAmount + solidDigAmount, i.old.depth + eps));
     }
