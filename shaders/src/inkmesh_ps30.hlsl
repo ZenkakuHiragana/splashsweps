@@ -217,12 +217,19 @@ float2 ProjectiveUVToScreenOffset(float2 uv, float2 targetUV, float clipW) {
 }
 
 float ModulateBlend(float raw, float2 uv) {
-    if (!g_NeedsBlendModulation) return raw;
-    float4 blendModulation = tex2D(UnderlayAtlas, frac(uv) * 0.5 + float2(0.0, 0.5));
-    return smoothstep(blendModulation.g - blendModulation.r, blendModulation.g + blendModulation.r, raw);
+    // Preserve the implicit sample gradients, including frac seams, outside the branch.
+    float2 sampleUV = frac(uv) * 0.5 + float2(0.0, 0.5);
+    float2 dx = ddx(sampleUV), dy = ddy(sampleUV);
+    [branch]
+    if (g_NeedsBlendModulation) {
+        float4 blendModulation = tex2Dgrad(UnderlayAtlas, sampleUV, dx, dy);
+        raw = smoothstep(blendModulation.g - blendModulation.r, blendModulation.g + blendModulation.r, raw);
+    }
+    return raw;
 }
 
 float3 CalcLightmapFactors(float3 normal) {
+    [branch]
     if (g_HasBumpedLightmap) {
         float3 dp = {
             saturate(dot(normal, BumpBasis[0])),
@@ -448,21 +455,23 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
     float2 duv = ApplyDetailTransform(i.worldUV);
     float2 wuv = ApplyBaseTransform(i.worldUV);
     float2 wdx = ddx(wuv), wdy = ddy(wuv);
+    float2 ddxDetail = ddx(duv), ddyDetail = ddy(duv);
     float4 albedo = tex2Dgrad(UnderlayAlbedo, uv.base, wdx, wdy);
+    float4 detail;
+    [branch]
     if (g_HasUnderlayAtlas) {
         float4 albedo2 = tex2Dgrad(UnderlayAtlas,
             frac(uv.base) * 0.5 + float2(0.5, 0.0), wdx * 0.5, wdy * 0.5);
-        float4 detail = tex2Dgrad(UnderlayAtlas,
-            frac(uv.detail) * 0.5, ddx(duv) * 0.5, ddy(duv) * 0.5) * g_DetailTint;
+        detail = tex2Dgrad(UnderlayAtlas,
+            frac(uv.detail) * 0.5, ddxDetail * 0.5, ddyDetail * 0.5) * g_DetailTint;
         albedo2.rgb = pow(abs(albedo2.rgb), 2.2);
-        albedo.rgb = ApplyDetailSample(lerp(albedo, albedo2, uv.blend), detail).rgb * g_Color;
-        return lerp(albedo.rgb * lightmapFinalColor, fb.rgb, fbRatio);
+        albedo = lerp(albedo, albedo2, uv.blend);
     }
     else {
-        float4 detail = tex2Dgrad(UnderlayDetail, uv.detail, ddx(duv), ddy(duv)) * g_DetailTint;
-        albedo.rgb = ApplyDetailSample(albedo, detail).rgb * g_Color;
-        return lerp(albedo.rgb * lightmapFinalColor, fb.rgb, fbRatio);
+        detail = tex2Dgrad(UnderlayDetail, uv.detail, ddxDetail, ddyDetail) * g_DetailTint;
     }
+    albedo.rgb = ApplyDetailSample(albedo, detail).rgb * g_Color;
+    return lerp(albedo.rgb * lightmapFinalColor, fb.rgb, fbRatio);
 }
 
 // mode: $detailblendmode of the upper layer, stored in the ink map with the IDs
@@ -740,6 +749,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
 #ifdef g_PhongEnabled
     float  phongExponent = lerp(PHONG_EXPONENT_MIN, PHONG_EXPONENT_MAX, params.pbr.roughness);
     float3 phongLightDir = g_SunDirection;
+    [branch]
     if (g_HasBumpedLightmap) {
         float3 strength = mul(lightmapColors, GrayScaleFactor);
         float3 fakeTangentLightDir = mul(strength, BumpBasis);

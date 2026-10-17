@@ -462,7 +462,6 @@ hook.Add("RenderScreenspaceEffects", "SplashSWEPs: Paint ink in queue", function
             numQuads = numQuads - MAX_QUEUE
             primitiveCount = min(numQuads, MAX_QUEUE) * NUM_REGION
             mesh_End()
-            render_CopyRenderTarget(ss.RenderTarget.StaticTextures.InkMap2)
             mesh_Begin(MATERIAL_QUADS, primitiveCount)
         end
 
