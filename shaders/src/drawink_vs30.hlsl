@@ -5,17 +5,17 @@
 //   xyz : The world angle of the splash (x, y, z = pitch, yaw roll)
 //   w   : Hammer units to UV conversion constant
 // TEXCOORD1
-//   x : Ink $basetexture atlas min U
+//   x : Ink $basetexture atlas min U (negative if transposed)
 //   y : Ink $basetexture atlas min V
 //   z : Ink $basetexture atlas max U
 //   w : Ink $basetexture atlas max V
 // TEXCOORD2
-//   x : Ink $tinttexture atlas min U
+//   x : Ink $tinttexture atlas min U (negative if transposed)
 //   y : Ink $tinttexture atlas min V
 //   z : Ink $tinttexture atlas max U
 //   w : Ink $tinttexture atlas max V
 // TEXCOORD3
-//   x : Ink shape mask atlas min U
+//   x : Ink shape mask atlas min U (negative if transposed)
 //   y : Ink shape mask atlas min V
 //   z : Ink shape mask atlas max U
 //   w : Ink shape mask atlas max V
@@ -72,6 +72,14 @@ struct VS_OUTPUT {
 #define inkType        floor(v.timeIndexTypeDetail.z * 255)
 #define detailMode           v.timeIndexTypeDetail.a
 #define HammerUnitsToUV      v.worldAngles.w
+
+float2 AtlasUV(float4 range, float2 corner) {
+    // Decode the signed min U and cancel the source transposition used when copying the cell.
+    bool transposed = range.x < 0.0;
+    range.x = abs(range.x);
+    return lerp(range.xy, range.zw, transposed ? corner.yx : corner);
+}
+
 VS_OUTPUT main(const VS_INPUT v) {
     float3 sine, cosine;
     sincos(radians(v.worldAngles.xyz), sine, cosine);
@@ -91,18 +99,12 @@ VS_OUTPUT main(const VS_INPUT v) {
     uvPos += INKMAP_REGION_OFFSETS[regionIndex];
 
     VS_OUTPUT output;
-    float2 baseMin   = v.baseTextureAtlasRange.xy;
-    float2 baseMax   = v.baseTextureAtlasRange.zw;
-    float2 tintMin   = v.tintTextureAtlasRange.xy;
-    float2 tintMax   = v.tintTextureAtlasRange.zw;
-    float2 shapeMin  = v.shapeMaskAtlasRange.xy;
-    float2 shapeMax  = v.shapeMaskAtlasRange.zw;
-    float2 corner    = ConstantUV[cornerIndex];
-    float  zScale    = saturate(v.size.z / HEIGHT_TO_HU);
+    float2 corner = ConstantUV[cornerIndex];
+    float  zScale = saturate(v.size.z / HEIGHT_TO_HU);
     output.inkAndTintUV = float4(
-        lerp(baseMin, baseMax, corner),
-        lerp(tintMin, tintMax, corner));
-    output.shapeUVDetailMode = float3(lerp(shapeMin, shapeMax, corner), detailMode);
+        AtlasUV(v.baseTextureAtlasRange, corner),
+        AtlasUV(v.tintTextureAtlasRange, corner));
+    output.shapeUVDetailMode = float3(AtlasUV(v.shapeMaskAtlasRange, corner), detailMode);
     output.surfaceClipRange
         = v.surfaceClipRange.yxwz * 0.5 + INKMAP_REGION_OFFSETS[regionIndex].xyxy;
     output.typeRegionTimeZScale = float4(inkType, regionIndex, time, zScale);

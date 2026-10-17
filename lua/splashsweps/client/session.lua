@@ -1,13 +1,17 @@
 ---@class ss
 local ss = SplashSWEPs
+local locals = ss.Locals ---@class ss.Locals
+if not locals.Session then
+    ---@class ss.Locals.Session
+    ---@field IsFirstRunInSession boolean? Cached across hot reloads; nil until material enumeration.
+    locals.Session = {}
+end
+local session = locals.Session
 
 -- The path to the file where we store the calculated application start time.
 local START_TIME_FILE_PATH = "splashsweps/session-start-time.txt"
--- A 2-second tolerance to account for minor漂移 in os.time() and os.clock().
+-- A 2-second tolerance to account for minor drift in os.time() and os.clock().
 local START_TIME_TOLERANCE = 2
-
--- State
-local isFirstRunInSession = false
 
 -- This function uses the formula `os.time() - os.clock()` to calculate a stable
 -- application start time. This value acts as a perfect session identifier, as it
@@ -27,24 +31,23 @@ local function checkSessionState()
         -- If there was no stored start time, or if the newly calculated start time
         -- differs significantly from the stored one, it proves that this is a new
         -- gmod.exe session. This is the definitive "First Run".
-        isFirstRunInSession = true
+        session.IsFirstRunInSession = true
 
         -- Write the new, authoritative start time to the file for this session.
         file.Write(START_TIME_FILE_PATH, tostring(currentStartTime))
     else
         -- The calculated start time is consistent with the stored one. We are in
         -- the same gmod.exe session. This is not the first run.
-        isFirstRunInSession = false
+        session.IsFirstRunInSession = false
     end
 end
 
--- Run the check as soon as this file is loaded.
-checkSessionState()
-
----Returns true if this is the first time the addon has been loaded since the
----Garry's Mod client (gmod.exe) was started. This is determined with extremely
----high accuracy by calculating and comparing a stable application start time.
+---Returns whether this is the first map with material enumeration in this process.
+---Check lazily so a missing map cache cannot mark old material names as current.
 ---@return boolean
 function ss.IsFirstRunInSession()
-    return isFirstRunInSession
+    if session.IsFirstRunInSession == nil then
+        checkSessionState()
+    end
+    return session.IsFirstRunInSession
 end

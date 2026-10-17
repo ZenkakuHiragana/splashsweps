@@ -40,7 +40,7 @@ end)
 ---@field Identifier  string           The identifier of this ink shape as the key of ss.InkShapes.
 ---@field Grid        ss.InkShape.Grid Mask for drawing on PaintableSurface grid.
 ---@field MaskTexture string?          Only used clientside; mask texture to create drawing materials.
----@field UV          number[]?        UV range (minU, minV, maxU, maxV) passed to the shader.
+---@field UV          number[]?        Atlas range (minU, minV, maxU, maxV); negative minU encodes transposition.
 ---@field Channel     "R"|"G"|"B"|"A"? Determines which channel of MaskTexture to use.
 ss.struct "InkShape" {
     Index = 0,

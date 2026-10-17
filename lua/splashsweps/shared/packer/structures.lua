@@ -503,6 +503,7 @@ function ss.MakeRectangle(width, height, x, y, tag)
     ---@field top        number
     ---@field topright   Vector
     ---@field istall     boolean
+    ---@field rotated    boolean Width and height are transposed from the original rectangle
     ---@field tag        any
     local t = {}
     local meta = { __eq = REQ, __lt = RLT, __le = RLE, __tostring = RTS }
@@ -513,6 +514,7 @@ function ss.MakeRectangle(width, height, x, y, tag)
         self.top = self.bottom + self.height
         self.topright = Vector(self.right, self.top)
         self.istall = not self.istall
+        self.rotated = not self.rotated
     end
 
     function t:place(px, py)
@@ -541,6 +543,7 @@ function ss.MakeRectangle(width, height, x, y, tag)
     t.top        = y + height
     t.topright   = Vector(x + width, y + height)
     t.istall     = width < height
+    t.rotated    = false
     t.tag        = tag
 
     t.__type = "SplashSWEPsRectangle"

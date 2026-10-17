@@ -16,8 +16,8 @@ local InkTypeIdentifierToIndex = locals.InkTypeIdentifierToIndex
 ---@field Index           integer   Internal index number used by networking.
 ---@field Identifier      string    The identifier of this type of ink as the key of ss.InkTypes.
 ---@field Features        string[]  List of features this type of ink will have.
----@field BaseUV          number[]? UV range (minU, minV, maxU, maxV) of $basetexture
----@field TintUV          number[]? UV range (minU, minV, maxU, maxV) of $tinttexture
+---@field BaseUV          number[]? Atlas range (minU, minV, maxU, maxV) of $basetexture; negative minU encodes transposition
+---@field TintUV          number[]? Atlas range (minU, minV, maxU, maxV) of $tinttexture; negative minU encodes transposition
 ---@field DetailBlendMode integer   $detailblendmode written to the ink map, 0 if the detail is disabled.
 ss.struct "InkType" {
     Index = 0,

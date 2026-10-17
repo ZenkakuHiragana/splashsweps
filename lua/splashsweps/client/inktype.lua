@@ -84,13 +84,14 @@ local function draw(tex, rect, drawcolor, drawalpha)
         drawalpha and BLEND_ONE or BLEND_ZERO,
         drawalpha and BLEND_ZERO or BLEND_ONE,
         BLENDFUNC_ADD)
+    -- Transpose source UVs with the packed cell; negative atlas min U tells drawink_vs30 to undo it.
     mesh.Begin(MATERIAL_QUADS, 1)
     mesh.Position(rect.left + HALF_MARGIN, rect.bottom + HALF_MARGIN, 0)
     mesh.TexCoord(0, 0, 0)
     mesh.TexCoord(1, 1, 1, 1, 1)
     mesh.AdvanceVertex()
     mesh.Position(rect.left + HALF_MARGIN, rect.top - HALF_MARGIN, 0)
-    mesh.TexCoord(0, 0, 1)
+    mesh.TexCoord(0, rect.rotated and 1 or 0, rect.rotated and 0 or 1)
     mesh.TexCoord(1, 1, 1, 1, 1)
     mesh.AdvanceVertex()
     mesh.Position(rect.right - HALF_MARGIN, rect.top - HALF_MARGIN, 0)
@@ -98,7 +99,7 @@ local function draw(tex, rect, drawcolor, drawalpha)
     mesh.TexCoord(1, 1, 1, 1, 1)
     mesh.AdvanceVertex()
     mesh.Position(rect.right - HALF_MARGIN, rect.bottom + HALF_MARGIN, 0)
-    mesh.TexCoord(0, 1, 0)
+    mesh.TexCoord(0, rect.rotated and 0 or 1, rect.rotated and 1 or 0)
     mesh.TexCoord(1, 1, 1, 1, 1)
     mesh.AdvanceVertex()
     mesh.End()
@@ -608,9 +609,9 @@ local function BuildAlbedoAtlas(sources)
                 draw(tex, rect, false, true)
             end
 
-            -- Then store corresponding UV ranges passed to the shader
+            -- Min U is strictly positive due to the margin; its sign encodes transposition.
             inktype.BaseUV = {
-                (rect.left   + HALF_MARGIN + 0.5) / rt:Width(),
+                (rect.rotated and -1 or 1) * (rect.left + HALF_MARGIN + 0.5) / rt:Width(),
                 (rect.bottom + HALF_MARGIN + 0.5) / rt:Height(),
                 (rect.right  - HALF_MARGIN - 0.5) / rt:Width(),
                 (rect.top    - HALF_MARGIN - 0.5) / rt:Height(),
@@ -641,7 +642,7 @@ local function BuildTintAtlas(sources)
             local inktype = rect.tag ---@type ss.InkType
             draw(sources.TintNames[inktype.Index], rect, true, false)
             inktype.TintUV = {
-                (rect.left   + HALF_MARGIN + 0.5) / rt:Width(),
+                (rect.rotated and -1 or 1) * (rect.left + HALF_MARGIN + 0.5) / rt:Width(),
                 (rect.bottom + HALF_MARGIN + 0.5) / rt:Height(),
                 (rect.right  - HALF_MARGIN - 0.5) / rt:Width(),
                 (rect.top    - HALF_MARGIN - 0.5) / rt:Height(),
@@ -654,7 +655,7 @@ local function BuildTintAtlas(sources)
             cp:SetInt("$c0_x", CHANNEL_INDEX[shape.Channel] or 3)
             draw(shape.MaskTexture:StripExtension(), rect, false, true)
             shape.UV = {
-                (rect.left   + HALF_MARGIN + 0.5) / rt:Width(),
+                (rect.rotated and -1 or 1) * (rect.left + HALF_MARGIN + 0.5) / rt:Width(),
                 (rect.bottom + HALF_MARGIN + 0.5) / rt:Height(),
                 (rect.right  - HALF_MARGIN - 0.5) / rt:Width(),
                 (rect.top    - HALF_MARGIN - 0.5) / rt:Height(),

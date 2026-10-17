@@ -81,7 +81,7 @@ function ss.EnumeratePaintPositions(surf, mins, maxs, pos, ang)
                         local localPos = t[4] * b.x + t[5] * b.y + t[6] * b.z
                         local localAng = t.WorldToLocalRotation * angleMatrix
                         yield(localPos, localAng:GetAngles())
-                        min_score = -math.huge
+                        min_score = math.huge
                         min_triangle = nil
                     end
                 else

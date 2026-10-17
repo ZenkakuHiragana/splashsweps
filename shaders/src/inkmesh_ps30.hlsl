@@ -692,15 +692,19 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     float3 interfaceNormal = normalize(ApplyInkDetailNormal(params.normal, detail));
     UVs    uv              = ApplyParallaxGeometry(i, params, interfaceNormal);
 
-    // Blend ink and world normals in world space
-    float3 geometryNormal   = normalize(mul(FetchGeometryNormal(i, uv), i.worldTransform));
+    // Match Source's shading basis without changing the UV gradients used by parallax.
+    float3 normal = normalize(i.worldTransform[2]);
+    float3 tangent = normalize(cross(normal, i.worldTransform[1]));
+    float3 binormal = normalize(cross(tangent, normal));
+    if (dot(normal, cross(i.worldTransform[0], i.worldTransform[1])) > 0.0)
+        tangent = -tangent;
+    float3x3 shadingBasis = float3x3(tangent, binormal, normal);
+
+    // Blend ink and world normals in world space.
+    float3 geometryNormal   = normalize(mul(FetchGeometryNormal(i, uv), shadingBasis));
     float3 blendedNormal    = lerp(geometryNormal, params.normal, params.bumpBlendFactor);
     float3 worldSpaceNormal = normalize(ApplyInkDetailNormal(blendedNormal, detail));
-
-    // The mesh carries texture vectors, not necessarily an orthonormal basis.
-    // Solve tangent * worldTransform = world normal, rather than using its transpose as inverse.
-    float3 tangentSpaceNormal = normalize(SolveBasisDirection(
-        i.worldTransform[0], i.worldTransform[1], i.worldTransform[2], worldSpaceNormal));
+    float3 tangentSpaceNormal = normalize(mul(shadingBasis, worldSpaceNormal));
 
     // Calculate diffuse color
     float3   lightmapFactors = CalcLightmapFactors(tangentSpaceNormal);
@@ -739,7 +743,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     if (g_HasBumpedLightmap) {
         float3 strength = mul(lightmapColors, GrayScaleFactor);
         float3 fakeTangentLightDir = mul(strength, BumpBasis);
-        float3 fakeWorldLightDir = mul(fakeTangentLightDir, i.worldTransform);
+        float3 fakeWorldLightDir = mul(fakeTangentLightDir, shadingBasis);
         phongLightDir = lerp(g_SunDirection, fakeWorldLightDir, saturate(strength));
     }
 

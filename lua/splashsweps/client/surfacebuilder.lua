@@ -190,7 +190,7 @@ end
 ---considering the global string table in the engine.
 ---@param materialsInMap string[]
 ---@param cubemapLookup table<string, ss.PrecachedData.CubemapInfo>
----@return ss.SurfaceBuilder.MaterialInfo[] materialInfo
+---@return table<integer, ss.SurfaceBuilder.MaterialInfo> materialInfo Sparse enumeration-ID-indexed materials.
 local function enumerateMaterials(materialsInMap, cubemapLookup)
     local materialNames = materialsInMap
     local enumerationIDToArrayIndex = {} ---@type integer[]
@@ -213,7 +213,7 @@ local function enumerateMaterials(materialsInMap, cubemapLookup)
 
     ---Enumeration ID --> material information
     local FLAGS2_BUMPED_LIGHTMAP = 8 -- (1 << 3)
-    local materialInfo = {} ---@type ss.SurfaceBuilder.MaterialInfo[]
+    local materialInfo = {} ---@type table<integer, ss.SurfaceBuilder.MaterialInfo>
     for enumerationID, name in ipairs(materialNames) do
         if enumerationIDToArrayIndex[enumerationID] then
             local mat = Material(name)
@@ -250,7 +250,7 @@ end
 
 ---Packs surface lightmaps into SortID groups that mirror Source lightmap allocation order.
 ---@param surfaceInfo  ss.PrecachedData.SurfaceInfo     Cached BSP surface and lightmap metadata.
----@param materialInfo ss.SurfaceBuilder.MaterialInfo[] Enumeration-ID-indexed material metadata.
+---@param materialInfo table<integer, ss.SurfaceBuilder.MaterialInfo> Sparse enumeration-ID-indexed material metadata.
 ---@return ss.SurfaceBuilder.LightmapLayout lightmapLayout Packed lightmap pages and SortID groups.
 local function packLightmaps(surfaceInfo, materialInfo)
     ---SortID --> packed lightmap group

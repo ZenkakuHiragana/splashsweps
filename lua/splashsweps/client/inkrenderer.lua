@@ -487,9 +487,9 @@ end)
 
 ---Checks material proxied to be checked in the given list of materials
 ---and registers them to the watch list to be refreshed.
----@param mats ss.SurfaceBuilder.MaterialInfo[]
+---@param mats table<integer, ss.SurfaceBuilder.MaterialInfo> Sparse enumeration-ID-indexed materials.
 function ss.BuildMaterialWatchList(mats)
-    for _, m in ipairs(mats) do
+    for _, m in pairs(mats) do
         local mat = m.Material
         local vmt = string.format("materials/%s.vmt", mat:GetName())
         local vmtkv = file.Read(vmt, "GAME")
@@ -529,10 +529,10 @@ function ss.BuildMaterialWatchList(mats)
 end
 
 ---Creates render targets and packs textures used in WorldVertexTransition materials.
----@param mats ss.SurfaceBuilder.MaterialInfo[]
+---@param mats table<integer, ss.SurfaceBuilder.MaterialInfo> Sparse enumeration-ID-indexed materials.
 function ss.BuildUnderlayTexturePack(mats)
     local copy = Material "pp/copy"
-    for _, m in ipairs(mats) do
+    for _, m in pairs(mats) do
         local mat = m.Material
         local bt2str = mat:GetString "$basetexture2"
         local bmtstr = mat:GetString "$blendmodulatetexture"
