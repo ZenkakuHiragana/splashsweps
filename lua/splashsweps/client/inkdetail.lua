@@ -34,6 +34,19 @@ end
 
 local MARGIN = 2
 local HALF_MARGIN = MARGIN / 2
+local BUMPBLEND_DISTANCE_MAX = 48 -- Hardcoded in inkmesh_common.hlsl
+local DETAIL_HEIGHT_STEPS    = 32 -- Hardcoded in inkmesh_common.hlsl
+
+---Encodes the height mask of a detail into x255 = 0bQQQQQSSI, see DetailHeightMask in inkmesh_ps30.hlsl.
+---@param mat IMaterial The material of the ink type
+---@return number
+local function EncodeDetailHeightMask(mat)
+    local invert = math.Clamp(mat:GetInt "$detailheightinvert" or 0, 0, 1)
+    local source = math.Clamp(mat:GetInt "$detailheightsource" or 0, 0, 3)
+    local maxRatio = math.Clamp(mat:GetFloat "$detailheightmax" or 1, 0, 1)
+    local steps = math.Clamp(math.Round(math.sqrt(maxRatio) * DETAIL_HEIGHT_STEPS), 1, DETAIL_HEIGHT_STEPS)
+    return (invert + source * 2 + (steps - 1) * 8) / 255
+end
 local cp = Material "splashsweps/shaders/copy"
 local detailCopyMaterial = Material "splashsweps/shaders/copydetail"
 local InkDetail = locals.InkDetail
@@ -76,9 +89,6 @@ local function ReadParameters(mat, detailSlot)
     local color                      = mat:GetVector "$color"     or ss.vector_one
     local tintcolor                  = mat:GetVector "$tintcolor" or ss.vector_one
     local alpha                      = mat:GetFloat "$alpha" or 1
-    local edgecolor                  = mat:GetVector "$edgecolor"
-    local edgeflag                   = edgecolor and 128 or 0
-    local edgeadditive               = edgecolor or vector_origin
     return {
         { color.x,     color.y,     color.z,     alpha },
         { tintcolor.x, tintcolor.y, tintcolor.z, mat:GetFloat "$geometrypaintbias" or 0 },
@@ -91,8 +101,9 @@ local function ReadParameters(mat, detailSlot)
             mat:GetFloat "$erase"           or 0,
             mat:GetFloat "$flatten"         or 0,
             mat:GetFloat "$viscosity"       or 1,
-            ((mat:GetInt "$nodig"      or 0) * 128 +
-            (mat:GetInt  "$heightonly" or 0) * 64) / 255,
+            ((mat:GetInt "$nodig"       or 0) * 128 +
+            (mat:GetInt  "$heightonly"  or 0) * 64 +
+            (mat:GetInt  "$detaillocal" or 0) * 32) / 255,
         }, {
             mat:GetFloat "$metallic"        or 0,
             mat:GetFloat "$roughness"       or 0,
@@ -100,12 +111,11 @@ local function ReadParameters(mat, detailSlot)
             1 - 1 / (mat:GetFloat "$refractiveindex" or 1.33), -- Refraction strength for the shader
         },
         {
-            -- Additive color of a single $alpha layer of $edgecolor, in gamma space as in the ink map
-            edgeadditive.x * alpha,
-            edgeadditive.y * alpha,
-            edgeadditive.z * alpha,
-            -- Bit 7: $edgecolor is set, bits 0-6: $bumpblendfactor
-            (edgeflag + math.Clamp(mat:GetFloat "$bumpblendfactor" or 1, 0, 1) * 127) / 255,
+            -- $bumpblenddistance in Hammer units, zero to always hide the underlay normal
+            math.Clamp((mat:GetFloat "$bumpblenddistance" or 0) / BUMPBLEND_DISTANCE_MAX, 0, 1),
+            0, -- Unused
+            0, -- Unused
+            0, -- Unused
         },
         {
             -- 127 / 255 represents 1
@@ -124,7 +134,7 @@ local function ReadParameters(mat, detailSlot)
             (math.log(detailtransformscale.x / detailperiod, 2) + 13) * 24 / 255,
             (math.log(detailtransformscale.y / detailperiod, 2) + 13) * 24 / 255,
             ((detailSlot or 1) - 1) / 255, -- Grid index of the detail image
-            0, -- Unused
+            EncodeDetailHeightMask(mat),
         },
     }
 end

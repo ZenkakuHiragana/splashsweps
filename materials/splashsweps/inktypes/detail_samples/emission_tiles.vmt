@@ -12,7 +12,7 @@
     "$metallic" "0.25"
     "$roughness" "0.3"
     "$specularscale" "1"
-    "$bumpblendfactor" "0.5"
+    "$bumpblenddistance" "4.8"
     "$detailperiod" "256"
     "$features" ""
     "$detailblendmode" "3"

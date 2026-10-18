@@ -61,9 +61,10 @@ struct VS_INPUT {
 struct VS_OUTPUT {
     float4 pos                  : POSITION;
     float4 inkAndTintUV         : TEXCOORD0;
-    float3 shapeUVDetailMode    : TEXCOORD1;
+    float3 shapeUVDetailPacked  : TEXCOORD1;
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionTimeZScale : TEXCOORD3;
+    float4 detailStamp          : TEXCOORD4; // xy: splash position on the UV frame in Hammer units, zw: image rotation
 };
 
 #define time                 v.timeIndexTypeDetail.x
@@ -88,8 +89,10 @@ VS_OUTPUT main(const VS_INPUT v) {
     float2 basisV = normalize(mul(float4(worldForward, 0.0), v.worldToUV)).yx;
     float2 basisU = { basisV.y, -basisV.x };
 
-    // Flip U and V to match handedness to the world coordinate system
-    float2 uvPos = mul(float4(v.worldPos, 1.0), v.worldToUV).yx;
+    // Flip U and V to match handedness to the world coordinate system.
+    // The rows of worldToUV are unit vectors, so the result is in Hammer units.
+    float2 splashUV = mul(float4(v.worldPos, 1.0), v.worldToUV).yx;
+    float2 uvPos = splashUV;
     uvPos += basisU * v.size.x * CornerSignX[cornerIndex];
     uvPos += basisV * v.size.y * CornerSignY[cornerIndex];
     uvPos *= HammerUnitsToUV;
@@ -104,10 +107,19 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.inkAndTintUV = float4(
         AtlasUV(v.baseTextureAtlasRange, corner),
         AtlasUV(v.tintTextureAtlasRange, corner));
-    output.shapeUVDetailMode = float3(AtlasUV(v.shapeMaskAtlasRange, corner), detailMode);
     output.surfaceClipRange
         = v.surfaceClipRange.yxwz * 0.5 + INKMAP_REGION_OFFSETS[regionIndex].xyxy;
     output.typeRegionTimeZScale = float4(inkType, regionIndex, time, zScale);
+
+    // Rotation of a local detail, quantized against the reference direction of the surface.
+    // basisV is the splash direction on the UV frame, and the gradients are its columns.
+    float2 reference = DetailReferenceDirection(v.worldToUV._12_22_32, v.worldToUV._11_21_31);
+    float2 relative  = RotateDirection(basisV, float2(reference.x, -reference.y));
+    float  steps     = round(atan2(relative.y, relative.x) * (DETAIL_ROTATION_STEPS / radians(360.0)));
+    steps -= floor(steps / DETAIL_ROTATION_STEPS) * DETAIL_ROTATION_STEPS;
+    output.detailStamp = float4(splashUV, RotateDirection(reference, DetailStampRotation(steps)));
+    output.shapeUVDetailPacked = float3(AtlasUV(v.shapeMaskAtlasRange, corner),
+        (detailMode * 255.0 + steps * 8.0 + 0.25) / 255.0); // Detail mode and rotation of the upper layer
     output.pos = float4(uvPos * 2.0 - 1.0, time, 1.0);
     output.pos.y *= -1.0;
     return output;

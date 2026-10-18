@@ -64,15 +64,6 @@ struct MaterialParams {
     PseudoPBR pbr;
 };
 
-struct InkDetailSettings {
-    float4 blendscale; // $detailblendscale
-    float2 rotation;   // (x, y) = (cosθ, sinθ)
-    float2 scale;      // $detailtexturetransform scale / $detailperiod = image repeats per Hammer unit
-    float2 translation;
-    float2 atlasOrigin;
-    float  atlasSize;
-};
-
 struct InkDetailEffect {
     float3 colorAdd;
     float3 emission;
@@ -360,15 +351,15 @@ void FetchHeightDepthAndNormal(const PsVertexInfo i, float2 uv, inout MaterialPa
     params.normal = normalize(mul(float3(-slope, 1.0), i.inkTransform));
 }
 
-// x: $bumpblendfactor, y: 1 if $edgecolor is set, 0 otherwise
-float2 DecodeEdgeBumpBlend(float a) {
-    float bits = round(a * 255.0);
-    float edgeEnabled = step(128.0, bits);
-    return float2((bits - 128.0 * edgeEnabled) / 127.0, edgeEnabled);
+// Blend factor from the underlay normal to the ink normal.
+// The underlay normal disappears as the deformation reaches $bumpblenddistance in Hammer units.
+// Zero distance hides the underlay normal regardless of the deformation.
+float BumpBlendFactor(float deformation, float distanceCode) {
+    return distanceCode > 0.0
+        ? saturate(deformation / (distanceCode * BUMPBLEND_DISTANCE_MAX)) : 1.0;
 }
 
 // Samples lighting parameters from texture sampler
-// and replaces the additive color of thin ink with $edgecolor
 void FetchInkMaterial(float3 IDs, inout MaterialParams params) {
     float4 s;
     int id1 = (int)IDs.x;
@@ -386,24 +377,12 @@ void FetchInkMaterial(float3 IDs, inout MaterialParams params) {
     params.pbr.specularScale = lerp(params.pbr.specularScale, s.b, idBlend);
     params.pbr.refraction    = lerp(params.pbr.refraction,    s.a, idBlend);
 
-    float4 edge1 = FetchDataPixel(InkDataDetail, id1, ID_EDGE_BUMPBLND);
-    float4 edge2 = FetchDataPixel(InkDataDetail, id2, ID_EDGE_BUMPBLND);
-    float2 edgeBumpBlend1 = DecodeEdgeBumpBlend(edge1.a);
-    float2 edgeBumpBlend2 = DecodeEdgeBumpBlend(edge2.a);
-    params.bumpBlendFactor = lerp(edgeBumpBlend1.x, edgeBumpBlend2.x, idBlend);
-
-    // The edge color turns into the ink color as the thickness reaches the larger $maxheight of the inks
-    [branch]
-    if (lerp(edgeBumpBlend1.y, edgeBumpBlend2.y, idBlend) > 0.0) {
-        float maxHeight1 = FetchDataPixel(InkDataDetail, id1, ID_HEIGHT_MAXLAYERS).y;
-        float maxHeight2 = FetchDataPixel(InkDataDetail, id2, ID_HEIGHT_MAXLAYERS).y;
-        float thickness  = max(0.0, params.height + params.depth);
-        float edge       = 1.0 - saturate(thickness * SAFERCP(max(maxHeight1, maxHeight2)));
-        params.additive += edge * lerp(
-            edgeBumpBlend1.y * (pow(abs(edge1.rgb), 2.2) - params.additive),
-            edgeBumpBlend2.y * (pow(abs(edge2.rgb), 2.2) - params.additive),
-            idBlend);
-    }
+    // Deformation is the larger of the liquid thickness and the ground depth, in Hammer units
+    float deformation = max(params.height + params.depth, params.depth) * HEIGHT_TO_HU;
+    params.bumpBlendFactor = lerp(
+        BumpBlendFactor(deformation, FetchDataPixel(InkDataDetail, id1, ID_BUMPBLEND).r),
+        BumpBlendFactor(deformation, FetchDataPixel(InkDataDetail, id2, ID_BUMPBLEND).r),
+        idBlend);
 }
 
 // Sample world bumpmap
@@ -473,8 +452,25 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
     return lerp(albedo.rgb * lightmapFinalColor, fb.rgb, fbRatio);
 }
 
-// mode: $detailblendmode of the upper layer, stored in the ink map with the IDs
-InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int mode, float3 inkUV) {
+// Scales a detail effect by the shape of the ink, from ID_DETAIL_SCALE.w * 255 = 0bQQQQQSSI.
+// S picks the thickness, the height or the ground depth, I inverts, and Q is where the mask saturates:
+// $detailheightmax = ((Q + 1) / DETAIL_HEIGHT_STEPS)^2 of HEIGHT_TO_HU, so thin ink gets the fine steps.
+float DetailHeightMask(float encoded, const MaterialParams params) {
+    float bits   = round(encoded * 255.0);
+    float invert = fmod(bits, 2.0);
+    float source = fmod(floor(bits * 0.5), 4.0);
+    if (source == 0.0) return 1.0;
+    float value = source == 1.0 ? max(params.height + params.depth, 0.0)
+                : source == 2.0 ? params.height
+                :                 params.depth;
+    float maxValue = (floor(bits / 8.0) + 1.0) / DETAIL_HEIGHT_STEPS;
+    float mask = saturate(value / (maxValue * maxValue));
+    return invert > 0.0 ? 1.0 - mask : mask;
+}
+
+// mode and steps: $detailblendmode and the local detail rotation, stored in the ink map with the IDs
+InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int mode, float steps,
+    float2 texelUV, float3 inkUV, const MaterialParams params) {
     InkDetailEffect effect = (InkDetailEffect)0;
     effect.colorScale    = 1.0;
     effect.specularScale = 1.0;
@@ -507,27 +503,38 @@ InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int mode, floa
     float3 worldPos = i.worldPos + viewVec * inkUV.z * HEIGHT_TO_HU * SAFERCP(dot(viewVec, i.worldTransform[2]));
     float2 projectionPos = float2(dot(worldPos, projectionWorldU), dot(worldPos, projectionWorldV));
 
-    InkDetailSettings settings;
-    float4 encodedTransform = FetchDataPixel(InkDataDetail, id, ID_DETAIL_TRANSFORM);
-    float4 encodedScale     = FetchDataPixel(InkDataDetail, id, ID_DETAIL_SCALE);
-    float  gridIndex        = round(encodedScale.z * 255.0);
-    float  gridRow          = floor((gridIndex + 0.5) / g_DetailGridColumns);
-    float  gridColumn       = gridIndex - gridRow * g_DetailGridColumns;
-    float  cellSize         = g_InkDataOffsetV / g_DetailGridColumns;
-    settings.rotation    = encodedTransform.zw * (255.0 / 127.0) - 1.0;   // 127 / 255 encodes zero
-    settings.scale       = exp2(encodedScale.xy * (255.0 / 24.0) - 13.0); // 24 steps per octave from 2^-13
-    settings.translation = encodedTransform.xy;
-    settings.atlasOrigin = float2(gridColumn, gridRow) * cellSize + 1.0;
-    settings.atlasSize   = cellSize - 2.0;
-    settings.blendscale  = FetchDataPixel(InkDataDetail, id, ID_DETAIL_BLEND_SCALE) * (255.0 / 127.0);
+    // Local details live on the ink map UV frame instead, where the paint left the phase and the rotation.
+    // The frame follows the surface through unfolded displacements and moving brushes,
+    // so the image stays where it landed. The phase is that of this texel, hence no filtering.
+    float2 phase         = 0.0;
+    float2 stampRotation = { 1.0, 0.0 };
+    [branch]
+    if (IsDetailLocal(FetchDataPixel(InkDataDetail, id, ID_MISC))) {
+        projectionWorldU = normalize(i.inkTransform[0]);
+        projectionWorldV = normalize(i.inkTransform[1]);
+        projectionPos    = inkUV.xy / length(i.inkTransform[0]); // Hammer units on the UV frame
+        phase = float2(
+            tex2Dlod(InkMap, float4(texelUV + INKMAP_ADDITIVE,       0.0, 0.0)).a,
+            tex2Dlod(InkMap, float4(texelUV + INKMAP_MULTIPLICATIVE, 0.0, 0.0)).a);
+        stampRotation = RotateDirection(
+            DetailReferenceDirection(i.inkTransform[0], i.inkTransform[1]),
+            DetailStampRotation(steps));
+        effect.projectionAxis = normalize(i.worldTransform[2]);
+    }
 
-    float2 scaledPosition  = projectionPos * settings.scale;
-    float2 rotatedPosition = {
-        settings.rotation.x * scaledPosition.x - settings.rotation.y * scaledPosition.y,
-        settings.rotation.y * scaledPosition.x + settings.rotation.x * scaledPosition.y,
-    };
-    float2 repeatedUV   = frac(rotatedPosition + settings.translation);
-    float2 atlasUV      = (settings.atlasOrigin + repeatedUV * settings.atlasSize) * g_DataRTSize;
+    float4 encodedTransform   = FetchDataPixel(InkDataDetail, id, ID_DETAIL_TRANSFORM);
+    float4 encodedScale       = FetchDataPixel(InkDataDetail, id, ID_DETAIL_SCALE);
+    float4 blendscale         = FetchDataPixel(InkDataDetail, id, ID_DETAIL_BLEND_SCALE) * (255.0 / 127.0);
+    DetailTransform transform = DecodeDetailTransform(encodedTransform, encodedScale);
+    float  gridIndex    = round(encodedScale.z * 255.0);
+    float  gridRow      = floor((gridIndex + 0.5) / g_DetailGridColumns);
+    float  gridColumn   = gridIndex - gridRow * g_DetailGridColumns;
+    float  cellSize     = g_InkDataOffsetV / g_DetailGridColumns;
+    float2 atlasOrigin  = float2(gridColumn, gridRow) * cellSize + 1.0;
+    float  atlasSize    = cellSize - 2.0;
+
+    float2 repeatedUV   = frac(DetailImagePosition(projectionPos, stampRotation, transform) + phase);
+    float2 atlasUV      = (atlasOrigin + repeatedUV * atlasSize) * g_DataRTSize;
     float4 detailSample = tex2Dlod(InkDataDetail, float4(atlasUV, 0, 0));
 
     // Convert the sample to the value range of each mode, then apply $detailblendscale to all channels.
@@ -537,15 +544,13 @@ InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int mode, floa
     if (mode == DETAIL_MODE_NORMAL)   s.rgb = TO_SIGNED(s.rgb);
     if (mode == DETAIL_MODE_THINFILM) s.rg  = TO_SIGNED(s.rg);
     float normalZ = sqrt(saturate(1.0 - dot(s.xy, s.xy)));
-    s *= settings.blendscale;
+    s *= blendscale;
 
     [branch]
     if (mode == DETAIL_MODE_MATERIAL || mode == DETAIL_MODE_NORMAL || mode == DETAIL_MODE_THINFILM) {
-        // Undo image rotation, then assign XY to the world axes of the projection plane.
-        float2 slope = {
-            settings.rotation.x * s.x + settings.rotation.y * s.y,
-           -settings.rotation.y * s.x + settings.rotation.x * s.y,
-        };
+        // Undo both rotations of the image, then assign XY to the world axes of the projection plane.
+        float2 slope = RotateDirection(
+            RotateDirection(s.xy, float2(transform.rotation.x, -transform.rotation.y)), stampRotation);
         effect.normalSlope = slope.x * projectionWorldU + slope.y * projectionWorldV;
         effect.normalZ     = normalZ;
     }
@@ -570,6 +575,16 @@ InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int mode, floa
         effect.filmStrength  = saturate(s.a);
     }
 
+    // Fade the effect toward no effect where the ink is outside the height range of the mask
+    float mask = DetailHeightMask(encodedScale.w, params);
+    effect.normalSlope   *= mask;
+    effect.normalZ        = lerp(1.0, effect.normalZ, mask);
+    effect.colorScale     = lerp(1.0, effect.colorScale, mask);
+    effect.specularScale  = lerp(1.0, effect.specularScale, mask);
+    effect.roughnessAdd  *= mask;
+    effect.colorAdd      *= mask;
+    effect.emission      *= mask;
+    effect.filmStrength  *= mask;
     return effect;
 }
 
@@ -677,10 +692,12 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     float3 inkUV   = g_Simplified ? i.inkUV : ApplyParallaxInk(i);
     float3 viewVec = g_EyePos.xyz - i.worldPos;
     float3 viewDir = normalize(viewVec);
-    float2 pixelUV = (floor(inkUV.xy / g_RTSize) + 0.5) * g_RTSize + INKMAP_INDICES;
-    float4 inkIDs  = tex2Dlod(InkMap, float4(pixelUV, 0.0, 0.0));
+    float2 texelUV = (floor(inkUV.xy / g_RTSize) + 0.5) * g_RTSize;
+    float4 inkIDs  = tex2Dlod(InkMap, float4(texelUV + INKMAP_INDICES, 0.0, 0.0));
     float3 IDs     = { round(inkIDs.r * 255.0), round(inkIDs.g * 255.0), inkIDs.b };
-    int detailMode = (int)round(inkIDs.a * 255.0);
+    float detailPacked = round(inkIDs.a * 255.0);
+    float detailSteps  = floor(detailPacked / 8.0);
+    int   detailMode   = (int)(detailPacked - detailSteps * 8.0);
     clip(floor(IDs.x + IDs.y + IDs.z) - 0.5);
 
     // Samples ink parameters
@@ -690,7 +707,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     FetchHeightDepthAndNormal(i, inkUV.xy, params);
     FetchInkMaterial(IDs, params);
 
-    InkDetailEffect detail    = FetchInkDetails(i, IDs, detailMode, inkUV);
+    InkDetailEffect detail    = FetchInkDetails(i, IDs, detailMode, detailSteps, texelUV, inkUV, params);
     params.pbr.roughness      = saturate(params.pbr.roughness + detail.roughnessAdd);
     params.pbr.specularScale *= detail.specularScale;
     params.multiplicative    *= detail.colorScale;

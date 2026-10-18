@@ -11,9 +11,10 @@ const float2 RcpDataRTSize : register(c5);
 struct PS_INPUT {
     float2 screenPos            : VPOS;
     float4 inkAndTintUV         : TEXCOORD0;
-    float3 shapeUVDetailMode    : TEXCOORD1;
+    float3 shapeUVDetailPacked  : TEXCOORD1;
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionTimeZScale : TEXCOORD3;
+    float4 detailStamp          : TEXCOORD4;
 };
 
 struct PS_OUTPUT {
@@ -38,8 +39,8 @@ static const float eps = 5e-3;
 // Shape masks are signed distance fields with the edge at 0.5, toward 1 inside.
 // The server-side paint detection in inkshape.lua binarizes them by the same value.
 static const float SHAPE_MASK_EDGE = 0.5;
-#define NODIG      miscParam.w >= 0.5             // w * 255 = 0bNH00 0000
-#define HEIGHTONLY frac(miscParam.w * 2.0) >= 0.5 // N = $nodig, H = $heightonly
+#define NODIG      miscParam.w >= 0.5             // w * 255 = 0bNHL0 0000, N = $nodig,
+#define HEIGHTONLY frac(miscParam.w * 2.0) >= 0.5 // H = $heightonly, L = $detaillocal (see IsDetailLocal)
 #define paintType  i.i.typeRegionTimeZScale.x
 #define regionID   i.i.typeRegionTimeZScale.y
 #define time       i.i.typeRegionTimeZScale.z
@@ -119,6 +120,21 @@ float2 CalculateHeight(const PsInputBundle i, int target, float heightSample,
     return float2(paintStrength, newHeight);
 }
 
+// Phase that places the center of the detail image at the splash center, zero unless $detaillocal.
+// Drawing adds it to the image position it rebuilds from the same UV frame, see DetailImagePosition.
+float2 DetailPhase(const PsInputBundle i, float4 miscParam) {
+    if (!IsDetailLocal(miscParam)) return 0.0;
+    DetailTransform transform = DecodeDetailTransform(
+        FetchDataPixel(InkDataDetail, paintType, ID_DETAIL_TRANSFORM),
+        FetchDataPixel(InkDataDetail, paintType, ID_DETAIL_SCALE));
+    return frac(0.5 + transform.translation
+        - DetailImagePosition(i.i.detailStamp.xy, i.i.detailStamp.zw, transform));
+}
+
+// Whether this paint takes over the upper layer, which PaintIndices decides with its own
+// paintStrength. The phases and the ink type IDs come from the same paint as long as they agree.
+#define WRITES_UPPER_LAYER (!(HEIGHTONLY) && paintStrength >= eps)
+
 PS_OUTPUT Additive(const PsInputBundle i, float t, float shapeMask) {
     float4 add          = tex2D(BaseTextureAtlas, i.i.inkAndTintUV.xy);
     float4 tint         = tex2D(TintTextureAtlas, i.i.inkAndTintUV.zw);
@@ -143,7 +159,8 @@ PS_OUTPUT Additive(const PsInputBundle i, float t, float shapeMask) {
     float3 tintLimit = pow(tint.rgb, maxLayers);
     float3 tintFade  = smoothstep(tintLimit, tintLimit + 0.0625, distance(old.rgb, add.rgb));
     float3 newColor  = old.rgb * lerp(1.0, tint.rgb, tintFade) + add.rgb * colorAlpha.aaa * tintFade;
-    PS_OUTPUT output = { newColor * (1.0 - erase), 0.0, t };
+    float  phaseU    = WRITES_UPPER_LAYER ? DetailPhase(i, miscParam).x : old.a;
+    PS_OUTPUT output = { newColor * (1.0 - erase), phaseU, t };
     return output;
 }
 
@@ -159,10 +176,8 @@ PS_OUTPUT Multiplicative(const PsInputBundle i, float t, float shapeMask) {
     float flatten      = miscParam.y;
     float nodig        = NODIG;
 
-    float2 h = CalculateHeight(i, HEIGHT_TARGET_DEPTH,
-        add.a, shapeMask, heightParam, geometryBias, nodig, flatten);
-    float paintStrength = h.x;
-    float newHeight     = h.y;
+    float paintStrength = CalculateHeight(i, HEIGHT_TARGET_DEPTH,
+        add.a, shapeMask, heightParam, geometryBias, nodig, flatten).x;
 
     // Do not darken more than maxLayers times
     // But if current one is already darker than that, keep it
@@ -171,10 +186,11 @@ PS_OUTPUT Multiplicative(const PsInputBundle i, float t, float shapeMask) {
     tint.rgb = saturate(tint.rgb);
     float erase        = miscParam.x;
     float maxLayers    = floor(heightParam.x * 255);
-    float newDepth     = max(-newHeight, i.old.depth);
     float3 tintClipped = max(old.rgb * tint.rgb, pow(tint.rgb, maxLayers));
     float3 tintFinal   = lerp(min(tintClipped, old.rgb), 1.0, erase);
-    PS_OUTPUT output   = { tintFinal, 0.0, newDepth };
+    float  phaseV      = WRITES_UPPER_LAYER ? DetailPhase(i, miscParam).y : old.a;
+    // Ordered by paint time as the other regions are, so that one paint owns the whole upper layer.
+    PS_OUTPUT output   = { tintFinal, phaseV, t };
     return output;
 }
 
@@ -230,7 +246,7 @@ PS_OUTPUT PaintIndices(const PsInputBundle i, float t, float shapeMask) {
         isOpaque ? thisID : old.r,
         isOpaque ? 0.0    : thisID, // Opaque paint replaces the upper layer.
         isOpaque ? 0.0    : 1.0 - translucency * (1.0 - output.color.b),
-        i.i.shapeUVDetailMode.z);   // $detailblendmode of the upper layer
+        i.i.shapeUVDetailPacked.z); // Detail mode and rotation of the upper layer
     return output;
 }
 
@@ -240,7 +256,7 @@ PS_OUTPUT main(const PS_INPUT raw) {
     float2 surfaceClipRangeMax = i.i.surfaceClipRange.zw;
     clip(step(float4(surfaceClipRangeMin, inkMapUV), float4(inkMapUV, surfaceClipRangeMax)) - 0.5);
 
-    float4 shapeMask = tex2D(TintTextureAtlas, i.i.shapeUVDetailMode.xy);
+    float4 shapeMask = tex2D(TintTextureAtlas, i.i.shapeUVDetailPacked.xy);
     clip(shapeMask.a < SHAPE_MASK_EDGE ? -1.0 : 1.0);
 
     FetchOldInk(i);

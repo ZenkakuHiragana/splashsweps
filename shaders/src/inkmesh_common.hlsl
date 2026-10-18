@@ -5,10 +5,10 @@
 #define ID_HEIGHT_MAXLAYERS   2
 #define ID_MISC               3
 #define ID_MATERIAL_REFRACT   4
-#define ID_EDGE_BUMPBLND      5 // rgb: $edgecolor * $alpha in gamma space, a: $edgecolor flag (bit 7) + $bumpblendfactor (bits 0-6)
+#define ID_BUMPBLEND          5 // r: $bumpblenddistance / BUMPBLEND_DISTANCE_MAX, see BumpBlendFactor in inkmesh_ps30
 #define ID_DETAIL_BLEND_SCALE 6 // $detailblendscale xyzw
 #define ID_DETAIL_TRANSFORM   7 // $detailtexturetransform translation / rotation basis
-#define ID_DETAIL_SCALE       8 // $detailtexturetransform scale / $detail index
+#define ID_DETAIL_SCALE       8 // $detailtexturetransform scale / $detail index / height mask (see DetailHeightMask)
 
 static const int DETAIL_MODE_NONE     = 0;
 static const int DETAIL_MODE_MATERIAL = 1;
@@ -18,9 +18,12 @@ static const int DETAIL_MODE_COLOR    = 4;
 static const int DETAIL_MODE_THINFILM = 5;
 
 // Ink map layout: four regions with the same surface packing, at these UV offsets
-//   additive color  : rgb = additive color
-//   multiplicative  : rgb = multiplicative color
-//   indices         : rgb = ink type IDs, a = $detailblendmode of the upper layer
+//   additive color  : rgb = additive color,       a = detail phase U of the upper layer
+//   multiplicative  : rgb = multiplicative color, a = detail phase V of the upper layer
+//   indices         : rgb = ink type IDs,         a = x255 = 0bRRRRRMMM of the upper layer,
+//                     M = $detailblendmode, R = detail rotation in DETAIL_ROTATION_STEPS
+// The three regions above take their alpha from the paint that writes the ink type IDs.
+// Phases and rotations matter only to $detaillocal ink types, see DetailImagePosition.
 //   height and depth: rg = height, ba = ground depth, both in 16 bits (see EncodeUnorm16)
 static const float2 INKMAP_ADDITIVE       = { 0.0, 0.0 };
 static const float2 INKMAP_MULTIPLICATIVE = { 0.5, 0.0 };
@@ -54,6 +57,9 @@ float DecodeUnorm16(float2 hiLo) {
 
 static const float  DEPTHWRITE_TO_HU = 4000.0; // Hardcoded in DepthWrite shader used in _rt_resolvedfullframedepth
 static const float  HEIGHT_TO_HU     = 24.0;   // Ink height map to hammer unit conversion constant
+static const float  BUMPBLEND_DISTANCE_MAX = 2.0 * HEIGHT_TO_HU; // Hardcoded in inkdetail.lua
+static const float  DETAIL_ROTATION_STEPS  = 32.0; // Steps of a local detail rotation per turn
+static const float  DETAIL_HEIGHT_STEPS    = 32.0; // Steps of a detail height mask range, see DetailHeightMask
 static const float3 GrayScaleFactor  = { 0.2126, 0.7152, 0.0722 };
 static const float4 GROUND_PROPERTIES[] = {
     { 1.0, 1.0, 1.0,  1.0 },
@@ -61,7 +67,7 @@ static const float4 GROUND_PROPERTIES[] = {
     { 1.0, 0.0, 0.75, 0.5 },
     { 0.0, 1.0, 1.0,  1.0 },
     { 0.0, 0.0, 0.0,  0.0 },
-    { 0.0, 0.0, 0.0,  127.0 / 255.0 },
+    { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, 254.0 / 255.0, 127.0 / 255.0 },
     { 0.0, 0.0, 0.0,  0.0 },
@@ -179,4 +185,55 @@ float3 DecodeOctahedralUnitVector(float2 encoded) {
         v.xy = (1.0 - abs(v.yx)) * OctSignNotZero(v.xy);
     }
     return normalize(v);
+}
+
+// ID_MISC.w * 255 = 0bNHL0 0000, N = $nodig, H = $heightonly, L = $detaillocal
+bool IsDetailLocal(float4 miscParam) {
+    return frac(miscParam.w * 4.0) >= 0.5;
+}
+
+// Rotates a 2D vector by a direction given as (cos, sin)
+float2 RotateDirection(float2 v, float2 rotation) {
+    return float2(rotation.x * v.x - rotation.y * v.y, rotation.y * v.x + rotation.x * v.y);
+}
+
+// (cos, sin) of a local detail rotation given in DETAIL_ROTATION_STEPS
+float2 DetailStampRotation(float steps) {
+    float2 rotation;
+    sincos(steps * (radians(360.0) / DETAIL_ROTATION_STEPS), rotation.y, rotation.x);
+    return rotation;
+}
+
+// Direction on the ink map UV frame that a local detail rotation is measured from.
+// gradU and gradV are the world gradients of the ink map UV, orthogonal and of equal length.
+// Painting and drawing agree on it because both pick the world axis the same way,
+// so neighboring surfaces keep one splash aligned even when their UV frames differ.
+float2 DetailReferenceDirection(float3 gradU, float3 gradV) {
+    float3 normal = abs(cross(gradU, gradV));
+    float3 axis = normal.x <= normal.y && normal.x <= normal.z ? float3(1, 0, 0)
+                : normal.y <= normal.z                         ? float3(0, 1, 0)
+                :                                                float3(0, 0, 1);
+    return normalize(float2(dot(axis, gradU), dot(axis, gradV)));
+}
+
+// $detailtexturetransform of an ink type, decoded from ID_DETAIL_TRANSFORM and ID_DETAIL_SCALE
+struct DetailTransform {
+    float2 rotation;    // (cos, sin) of the image rotation
+    float2 scale;       // $detailtexturetransform scale / $detailperiod = image repeats per Hammer unit
+    float2 translation;
+};
+
+DetailTransform DecodeDetailTransform(float4 encodedTransform, float4 encodedScale) {
+    DetailTransform t;
+    t.rotation    = encodedTransform.zw * (255.0 / 127.0) - 1.0;   // 127 / 255 encodes zero
+    t.scale       = exp2(encodedScale.xy * (255.0 / 24.0) - 13.0); // 24 steps per octave from 2^-13
+    t.translation = encodedTransform.xy;
+    return t;
+}
+
+// Position in the detail image, before repeating and before adding the phase of a local detail.
+// stampRotation turns the image with the splash and is (1, 0) unless the detail is local.
+float2 DetailImagePosition(float2 position, float2 stampRotation, DetailTransform t) {
+    float2 inStamp = RotateDirection(position, float2(stampRotation.x, -stampRotation.y));
+    return RotateDirection(inStamp * t.scale, t.rotation) + t.translation;
 }
