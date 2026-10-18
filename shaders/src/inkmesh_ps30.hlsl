@@ -88,7 +88,6 @@ struct InkDetailEffect {
 
 static const float ALBEDO_ALPHA_MIN   = 0.0625;
 static const float DIFFUSE_MIN        = 0.0625; // Diffuse factor at metallic = 100%
-static const float ENVMAP_SCALE       = 0.5;    // Envmap factor
 static const float FRESNEL_MIN        = 0.04;   // Fresnel coefficient at metallic = 0%
 static const float PHONG_EXPONENT_MIN = 1024;   // Exponent at roughness = 0%
 static const float PHONG_EXPONENT_MAX = 32;     // Exponent at roughness = 100%
@@ -793,10 +792,8 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     float3 envmapAlbedo  = lerp(float3(1.0, 1.0, 1.0), albedo, params.pbr.metallic);
     float3 reflectionWeight = envmapAlbedo;
     reflectionWeight *= fresnel;
-    reflectionWeight *= ENVMAP_SCALE;
     reflectionWeight *= ambientOcclusion;
     reflectionWeight *= params.pbr.specularScale;
-    reflectionWeight *= g_LightmapScale;
 #endif
 
     // ^ Specular component (accumulates to the final result)

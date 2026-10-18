@@ -45,6 +45,15 @@ end
 
 ---Reads all JSON files and defines all ink types used in this addon.
 function ss.LoadInkTypes()
+    -- Load custom ink detail updater recursively
+    for lua in ss.IterateFilesRecursive("splashsweps/client/inktypes", "LUA") do
+        if SERVER then
+            AddCSLuaFile(lua)
+        else
+            include(lua)
+        end
+    end
+
     local inktypeCount = 0
     for f in ss.IterateFilesRecursive("materials/splashsweps/inktypes", "GAME", "*.vmt") do
         local mat = Material(f:sub(11))

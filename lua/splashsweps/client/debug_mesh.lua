@@ -228,10 +228,9 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     ---@return string? vertexShader
     ---@return string? pixelShader
     local function FindLatestShaderPair(baseName)
-        local vs = file.Find(
-            "shaders/fxc/splashsweps/*_" .. baseName .. "_vs30.vcs", "GAME", "datedesc")
-        local ps = file.Find(
-            "shaders/fxc/splashsweps/*_" .. baseName .. "_ps30.vcs", "GAME", "datedesc")
+        local path = "shaders/fxc/splashsweps/*%s_%s30.vcs"
+        local vs = file.Find(path:format(baseName, "vs"), "GAME", "datedesc")
+        local ps = file.Find(path:format(baseName, "ps"), "GAME", "datedesc")
         if not (vs and vs[1] and ps and ps[1]) then return end
         return "splashsweps/" .. vs[1]:sub(1, -5), "splashsweps/" .. ps[1]:sub(1, -5)
     end
@@ -273,6 +272,7 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     end
 end)
 
+concommand.Add("ss_reload_inktype", function() ss.LoadInkTypesRT() end)
 concommand.Add("ss_debug_mesh_probe_skin", function()
     showSkinned = not showSkinned
     print(string.format("[SplashSWEPs] Skinned probe mesh: %s", showSkinned and "ON" or "OFF"))
