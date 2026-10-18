@@ -55,7 +55,7 @@ struct PseudoPBR {
 };
 
 struct MaterialParams {
-    float  bumpBlendFactor;
+    float  bumpBlendHeight;
     float  height;
     float  depth;
     float3 additive;
@@ -360,15 +360,7 @@ void FetchHeightDepthAndNormal(const PsVertexInfo i, float2 uv, inout MaterialPa
     params.normal = normalize(mul(float3(-slope, 1.0), i.inkTransform));
 }
 
-// x: $bumpblendfactor, y: 1 if $edgecolor is set, 0 otherwise
-float2 DecodeEdgeBumpBlend(float a) {
-    float bits = round(a * 255.0);
-    float edgeEnabled = step(128.0, bits);
-    return float2((bits - 128.0 * edgeEnabled) / 127.0, edgeEnabled);
-}
-
-// Samples lighting parameters from texture sampler
-// and replaces the additive color of thin ink with $edgecolor
+// Samples lighting parameters and the normal transition thickness.
 void FetchInkMaterial(float3 IDs, inout MaterialParams params) {
     float4 s;
     int id1 = (int)IDs.x;
@@ -386,24 +378,9 @@ void FetchInkMaterial(float3 IDs, inout MaterialParams params) {
     params.pbr.specularScale = lerp(params.pbr.specularScale, s.b, idBlend);
     params.pbr.refraction    = lerp(params.pbr.refraction,    s.a, idBlend);
 
-    float4 edge1 = FetchDataPixel(InkDataDetail, id1, ID_EDGE_BUMPBLND);
-    float4 edge2 = FetchDataPixel(InkDataDetail, id2, ID_EDGE_BUMPBLND);
-    float2 edgeBumpBlend1 = DecodeEdgeBumpBlend(edge1.a);
-    float2 edgeBumpBlend2 = DecodeEdgeBumpBlend(edge2.a);
-    params.bumpBlendFactor = lerp(edgeBumpBlend1.x, edgeBumpBlend2.x, idBlend);
-
-    // The edge color turns into the ink color as the thickness reaches the larger $maxheight of the inks
-    [branch]
-    if (lerp(edgeBumpBlend1.y, edgeBumpBlend2.y, idBlend) > 0.0) {
-        float maxHeight1 = FetchDataPixel(InkDataDetail, id1, ID_HEIGHT_MAXLAYERS).y;
-        float maxHeight2 = FetchDataPixel(InkDataDetail, id2, ID_HEIGHT_MAXLAYERS).y;
-        float thickness  = max(0.0, params.height + params.depth);
-        float edge       = 1.0 - saturate(thickness * SAFERCP(max(maxHeight1, maxHeight2)));
-        params.additive += edge * lerp(
-            edgeBumpBlend1.y * (pow(abs(edge1.rgb), 2.2) - params.additive),
-            edgeBumpBlend2.y * (pow(abs(edge2.rgb), 2.2) - params.additive),
-            idBlend);
-    }
+    float height1 = FetchDataPixel(InkDataDetail, id1, ID_BUMP_BLEND_HEIGHT).a;
+    float height2 = FetchDataPixel(InkDataDetail, id2, ID_BUMP_BLEND_HEIGHT).a;
+    params.bumpBlendHeight = lerp(height1, height2, idBlend);
 }
 
 // Sample world bumpmap
@@ -710,7 +687,9 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
 
     // Blend ink and world normals in world space.
     float3 geometryNormal   = normalize(mul(FetchGeometryNormal(i, uv), shadingBasis));
-    float3 blendedNormal    = lerp(geometryNormal, params.normal, params.bumpBlendFactor);
+    // Both thicknesses are in height-map units; the HU conversion cancels in their ratio.
+    float bumpBlend = saturate((params.height + params.depth) * SAFERCP(params.bumpBlendHeight));
+    float3 blendedNormal    = lerp(geometryNormal, params.normal, bumpBlend);
     float3 worldSpaceNormal = normalize(ApplyInkDetailNormal(blendedNormal, detail));
     float3 tangentSpaceNormal = normalize(mul(shadingBasis, worldSpaceNormal));
 
