@@ -73,6 +73,10 @@ local function ReadParameters(mat, detailSlot)
     local detailtransformaxis        = detailtexturetransform:GetForward():GetNormalized() -- (cos, sin, 0)
     local detailperiod               = mat:GetFloat "$detailperiod" or 512
     local detailblendscale           = { mat:GetVector4D "$detailblendscale" }
+    local detailheightsource         = math.Clamp(mat:GetInt "$detailheightsource" or 0, 0, 3)
+    local detailheightinvert         = math.Clamp(mat:GetInt "$detailheightinvert" or 0, 0, 1)
+    local detailheightmax            = math.Clamp(mat:GetFloat "$detailheightmax" or 24, 0, 24)
+    local detailheightcode           = math.Clamp(math.Round(math.sqrt(detailheightmax / 24) * 32) - 1, 0, 31)
     local color                      = mat:GetVector "$color"     or ss.vector_one
     local tintcolor                  = mat:GetVector "$tintcolor" or ss.vector_one
     local alpha                      = mat:GetFloat "$alpha" or 1
@@ -120,7 +124,8 @@ local function ReadParameters(mat, detailSlot)
             (math.log(detailtransformscale.x / detailperiod, 2) + 13) * 24 / 255,
             (math.log(detailtransformscale.y / detailperiod, 2) + 13) * 24 / 255,
             ((detailSlot or 1) - 1) / 255, -- Grid index of the detail image
-            0, -- Unused
+            -- bit 0: invert, bits 1..2: source, bits 3..7: sqrt(max HU / 24) * 32 - 1
+            (detailheightcode * 8 + detailheightsource * 2 + detailheightinvert) / 255,
         },
     }
 end

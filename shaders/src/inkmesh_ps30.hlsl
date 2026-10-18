@@ -451,7 +451,7 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
 }
 
 // mode: $detailblendmode of the upper layer, stored in the ink map with the IDs
-InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int mode, float3 inkUV) {
+InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int mode, float3 inkUV, float height, float depth) {
     InkDetailEffect effect = (InkDetailEffect)0;
     effect.colorScale    = 1.0;
     effect.specularScale = 1.0;
@@ -545,6 +545,29 @@ InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int mode, floa
     else if (mode == DETAIL_MODE_THINFILM) {
         effect.filmThickness = s.b * FILM_THICKNESS_MAX;
         effect.filmStrength  = saturate(s.a);
+    }
+
+    float heightSettings = round(encodedScale.w * 255.0);
+    float heightCode     = floor(heightSettings / 8.0);
+    float heightMode     = heightSettings - heightCode * 8.0;
+    float heightSource   = floor(heightMode / 2.0);
+    [branch]
+    if (heightSource > 0.0) {
+        float value = heightSource < 1.5 ? height + depth
+                    : heightSource < 2.5 ? height : depth;
+        // Heights and the decoded limit share HEIGHT_TO_HU units, so the conversion cancels.
+        float heightMax = (heightCode + 1.0) / 32.0;
+        float weight = saturate(value / (heightMax * heightMax));
+        if (heightMode - heightSource * 2.0 > 0.5) weight = 1.0 - weight;
+
+        effect.normalSlope   *= weight;
+        effect.normalZ        = lerp(1.0, effect.normalZ, weight);
+        effect.roughnessAdd  *= weight;
+        effect.specularScale  = lerp(1.0, effect.specularScale, weight);
+        effect.colorScale     = lerp(1.0, effect.colorScale, weight);
+        effect.colorAdd      *= weight;
+        effect.emission      *= weight;
+        effect.filmStrength  *= weight;
     }
 
     return effect;
@@ -667,7 +690,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     FetchHeightDepthAndNormal(i, inkUV.xy, params);
     FetchInkMaterial(IDs, params);
 
-    InkDetailEffect detail    = FetchInkDetails(i, IDs, detailMode, inkUV);
+    InkDetailEffect detail    = FetchInkDetails(i, IDs, detailMode, inkUV, params.height, params.depth);
     params.pbr.roughness      = saturate(params.pbr.roughness + detail.roughnessAdd);
     params.pbr.specularScale *= detail.specularScale;
     params.multiplicative    *= detail.colorScale;

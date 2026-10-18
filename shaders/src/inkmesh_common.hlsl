@@ -8,7 +8,7 @@
 #define ID_BUMP_BLEND_HEIGHT  5 // rgb: unused, a: $bumpblendheight / HEIGHT_TO_HU
 #define ID_DETAIL_BLEND_SCALE 6 // $detailblendscale xyzw
 #define ID_DETAIL_TRANSFORM   7 // $detailtexturetransform translation / rotation basis
-#define ID_DETAIL_SCALE       8 // $detailtexturetransform scale / $detail index
+#define ID_DETAIL_SCALE       8 // xy: transform scale, z: detail index, w: height source/invert/max (3+5 bits)
 
 static const int DETAIL_MODE_NONE     = 0;
 static const int DETAIL_MODE_MATERIAL = 1;
