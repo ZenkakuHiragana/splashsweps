@@ -501,6 +501,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$texture7"] = cubemapInfo and cubemapInfo.Envmap or EnvmapDefault
         materialParams["$c0_w"]     = detailBlendMode
         materialParams["$c1_x"]     = detailGridColumns
+        materialParams["$c1_z"]     = 2 / ss.RenderTarget.HammerUnitsToUV
         materialParams["$c1_y"]     = (materialInfo.NeedsBumpedLightmaps and 1 or 0)
                                     + (materialInfo.HasBaseTexture2 and 2 or 0)
                                     + (materialInfo.HasBaseTexture3 and 4 or 0)
@@ -518,6 +519,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
             string.format("splashsweps_mesh_%d_%s", sortID, game.GetMap()),
             "Screenspace_General_8tex", materialParams)
         mat:SetFloat("$c1_x", detailGridColumns)
+        mat:SetFloat("$c1_z", 2 / ss.RenderTarget.HammerUnitsToUV)
         mat:SetFloat("$c3_w", dataOffset)
         m:SetUnpacked(
             materialInfo.BaseTextureTransform:GetField(1, 1),

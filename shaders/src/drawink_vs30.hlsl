@@ -61,9 +61,10 @@ struct VS_INPUT {
 struct VS_OUTPUT {
     float4 pos                  : POSITION;
     float4 inkAndTintUV         : TEXCOORD0;
-    float3 shapeUVDetailMode    : TEXCOORD1;
+    float4 shapeUVDetailMode    : TEXCOORD1; // xy: mask, z: mode, w: rotation code
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionTimeZScale : TEXCOORD3;
+    float4 detailCenterRotation : TEXCOORD4; // Ink-map HU center and inverse paint rotation
 };
 
 #define time                 v.timeIndexTypeDetail.x
@@ -87,9 +88,13 @@ VS_OUTPUT main(const VS_INPUT v) {
     float3 worldForward = { cosine.x * cosine.y, cosine.x * sine.y, -sine.x };
     float2 basisV = normalize(mul(float4(worldForward, 0.0), v.worldToUV)).yx;
     float2 basisU = { basisV.y, -basisV.x };
+    float angle = atan2(basisU.y, basisU.x);
+    float rotationCode = floor(frac(angle / 6.283185307179586) * 32.0 + 0.5);
+    rotationCode -= floor(rotationCode / 32.0) * 32.0;
 
     // Flip U and V to match handedness to the world coordinate system
     float2 uvPos = mul(float4(v.worldPos, 1.0), v.worldToUV).yx;
+    float2 detailCenter = uvPos;
     uvPos += basisU * v.size.x * CornerSignX[cornerIndex];
     uvPos += basisV * v.size.y * CornerSignY[cornerIndex];
     uvPos *= HammerUnitsToUV;
@@ -104,10 +109,11 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.inkAndTintUV = float4(
         AtlasUV(v.baseTextureAtlasRange, corner),
         AtlasUV(v.tintTextureAtlasRange, corner));
-    output.shapeUVDetailMode = float3(AtlasUV(v.shapeMaskAtlasRange, corner), detailMode);
+    output.shapeUVDetailMode = float4(AtlasUV(v.shapeMaskAtlasRange, corner), detailMode, rotationCode);
     output.surfaceClipRange
         = v.surfaceClipRange.yxwz * 0.5 + INKMAP_REGION_OFFSETS[regionIndex].xyxy;
     output.typeRegionTimeZScale = float4(inkType, regionIndex, time, zScale);
+    output.detailCenterRotation = float4(detailCenter, InkDetailRotation(rotationCode));
     output.pos = float4(uvPos * 2.0 - 1.0, time, 1.0);
     output.pos.y *= -1.0;
     return output;

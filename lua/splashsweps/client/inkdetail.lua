@@ -103,7 +103,8 @@ local function ReadParameters(mat, detailSlot)
             1 - 1 / (mat:GetFloat "$refractiveindex" or 1.33), -- Refraction strength for the shader
         },
         {
-            0, 0, 0, -- Unused
+            (mat:GetInt "$detaillocal" or 0) > 0 and 1 or 0,
+            0, 0, -- Unused
             -- 0..24 Hammer units, matching HEIGHT_TO_HU in inkmesh_common.hlsl.
             math.Clamp(bumpblendheight / 24, 0, 1),
         },
@@ -552,9 +553,11 @@ function ss.PrepareInkDetailsRT(baseTextureNames)
     drawInk:SetFloat("$c3_w", rtSize)
     inkWater:SetFloat("$c3_w", rtSize)
     inkWater:SetFloat("$c1_x", gridColumns)
+    inkWater:SetFloat("$c1_z", 2 / ss.RenderTarget.HammerUnitsToUV)
     for material in pairs(ss.InkMeshMaterials) do
         material:SetFloat("$c3_w", rtSize)
         material:SetFloat("$c1_x", gridColumns)
+        material:SetFloat("$c1_z", 2 / ss.RenderTarget.HammerUnitsToUV)
     end
     return parameters
 end
