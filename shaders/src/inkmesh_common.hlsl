@@ -3,9 +3,9 @@
 #define ID_COLOR_ALPHA        0
 #define ID_TINT_GEOMETRYPAINT 1
 #define ID_HEIGHT_MAXLAYERS   2
-#define ID_MISC               3
+#define ID_MISC               3 // rgb: erase, flatten, bump blend height / HEIGHT_TO_HU; a: nodig (bit 7), heightonly (bit 6), detaillocal (bit 5)
 #define ID_MATERIAL_REFRACT   4
-#define ID_BUMP_BLEND_HEIGHT  5 // rgb: unused, a: $bumpblendheight / HEIGHT_TO_HU
+#define ID_VISCOSITY          5 // rgb: unused, a: viscosity
 #define ID_DETAIL_BLEND_SCALE 6 // $detailblendscale xyzw
 #define ID_DETAIL_TRANSFORM   7 // $detailtexturetransform translation / rotation basis
 #define ID_DETAIL_SCALE       8 // xy: transform scale, z: detail index, w: height source/invert/max (3+5 bits)
@@ -18,9 +18,9 @@ static const int DETAIL_MODE_COLOR    = 4;
 static const int DETAIL_MODE_THINFILM = 5;
 
 // Ink map layout: four regions with the same surface packing, at these UV offsets
-//   additive color  : rgb = additive color
-//   multiplicative  : rgb = multiplicative color
-//   indices         : rgb = ink type IDs, a = $detailblendmode of the upper layer
+//   additive color  : rgb = additive color, a = detail U phase (code / 255; 0 and 1 coincide)
+//   multiplicative  : rgb = multiplicative color, a = detail V phase (same encoding)
+//   indices         : rgb = ink type IDs, a = upper detail mode (low 3 bits) + rotation (high 5 bits)
 //   height and depth: rg = height, ba = ground depth, both in 16 bits (see EncodeUnorm16)
 static const float2 INKMAP_ADDITIVE       = { 0.0, 0.0 };
 static const float2 INKMAP_MULTIPLICATIVE = { 0.5, 0.0 };
@@ -29,6 +29,19 @@ static const float2 INKMAP_HEIGHT_DEPTH   = { 0.5, 0.5 };
 static const float2 INKMAP_REGION_OFFSETS[4] = {
     INKMAP_ADDITIVE, INKMAP_MULTIPLICATIVE, INKMAP_INDICES, INKMAP_HEIGHT_DEPTH,
 };
+
+// Map fixed ink-map coordinates to the paint's axes, in 32 directions.
+float2 InkDetailRotation(float code) {
+    float sine, cosine;
+    sincos(code * (-6.283185307179586 / 32.0), sine, cosine);
+    return float2(cosine, sine);
+}
+
+float2 RotateInkDetail(float2 value, float2 rotation) {
+    return float2(
+        rotation.x * value.x - rotation.y * value.y,
+        rotation.y * value.x + rotation.x * value.y);
+}
 
 // Splits [0, 1] into two 8-bit channels holding the upper and lower bytes.
 // Each channel gets k/255 plus a quarter step, so that both rounding and truncation store k.
@@ -59,9 +72,9 @@ static const float4 GROUND_PROPERTIES[] = {
     { 1.0, 1.0, 1.0,  1.0 },
     { 1.0, 1.0, 1.0,  0.0 },
     { 1.0, 0.0, 0.75, 0.5 },
-    { 0.0, 1.0, 1.0,  1.0 },
+    { 0.0, 1.0, 0.0,  1.0 },
     { 0.0, 0.0, 0.0,  0.0 },
-    { 0.0, 0.0, 0.0,  0.0 },
+    { 0.0, 0.0, 0.0,  1.0 },
     { 0.0, 0.0, 0.0,  0.0 },
     { 0.0, 0.0, 254.0 / 255.0, 127.0 / 255.0 },
     { 0.0, 0.0, 0.0,  0.0 },

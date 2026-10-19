@@ -82,6 +82,7 @@ local function ReadParameters(mat, detailSlot)
     local alpha                      = mat:GetFloat "$alpha" or 1
     local maxheight                  = mat:GetFloat "$maxheight" or 1
     local bumpblendheight            = mat:GetFloat "$bumpblendheight" or maxheight * 24
+    local detaillocal                = (mat:GetInt "$detaillocal" or 0) > 0 and 1 or 0
     return {
         { color.x,     color.y,     color.z,     alpha },
         { tintcolor.x, tintcolor.y, tintcolor.z, mat:GetFloat "$geometrypaintbias" or 0 },
@@ -93,9 +94,9 @@ local function ReadParameters(mat, detailSlot)
         }, {
             mat:GetFloat "$erase"           or 0,
             mat:GetFloat "$flatten"         or 0,
-            mat:GetFloat "$viscosity"       or 1,
+            math.Clamp(bumpblendheight / 24, 0, 1),
             ((mat:GetInt "$nodig"      or 0) * 128 +
-            (mat:GetInt  "$heightonly" or 0) * 64) / 255,
+            (mat:GetInt  "$heightonly" or 0) * 64 + detaillocal * 32) / 255,
         }, {
             mat:GetFloat "$metallic"        or 0,
             mat:GetFloat "$roughness"       or 0,
@@ -104,8 +105,7 @@ local function ReadParameters(mat, detailSlot)
         },
         {
             0, 0, 0, -- Unused
-            -- 0..24 Hammer units, matching HEIGHT_TO_HU in inkmesh_common.hlsl.
-            math.Clamp(bumpblendheight / 24, 0, 1),
+            mat:GetFloat "$viscosity" or 1,
         },
         {
             -- 127 / 255 represents 1
@@ -552,9 +552,11 @@ function ss.PrepareInkDetailsRT(baseTextureNames)
     drawInk:SetFloat("$c3_w", rtSize)
     inkWater:SetFloat("$c3_w", rtSize)
     inkWater:SetFloat("$c1_x", gridColumns)
+    inkWater:SetFloat("$c1_z", 2 / ss.RenderTarget.HammerUnitsToUV)
     for material in pairs(ss.InkMeshMaterials) do
         material:SetFloat("$c3_w", rtSize)
         material:SetFloat("$c1_x", gridColumns)
+        material:SetFloat("$c1_z", 2 / ss.RenderTarget.HammerUnitsToUV)
     end
     return parameters
 end

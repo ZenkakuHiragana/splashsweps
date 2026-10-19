@@ -11,9 +11,10 @@ const float2 RcpDataRTSize : register(c5);
 struct PS_INPUT {
     float2 screenPos            : VPOS;
     float4 inkAndTintUV         : TEXCOORD0;
-    float3 shapeUVDetailMode    : TEXCOORD1;
+    float4 shapeUVDetailMode    : TEXCOORD1;
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionTimeZScale : TEXCOORD3;
+    float4 detailCenterRotation : TEXCOORD4;
 };
 
 struct PS_OUTPUT {
@@ -38,8 +39,9 @@ static const float eps = 5e-3;
 // Shape masks are signed distance fields with the edge at 0.5, toward 1 inside.
 // The server-side paint detection in inkshape.lua binarizes them by the same value.
 static const float SHAPE_MASK_EDGE = 0.5;
-#define NODIG      miscParam.w >= 0.5             // w * 255 = 0bNH00 0000
-#define HEIGHTONLY frac(miscParam.w * 2.0) >= 0.5 // N = $nodig, H = $heightonly
+#define NODIG       (miscParam.w >= 0.5)              // w * 255 = 0bNHL0 0000
+#define HEIGHTONLY  (frac(miscParam.w * 2.0) >= 0.5)  // N = $nodig, H = $heightonly
+#define DETAILLOCAL (frac(miscParam.w * 4.0) >= 0.5)  // L = $detaillocal
 #define paintType  i.i.typeRegionTimeZScale.x
 #define regionID   i.i.typeRegionTimeZScale.y
 #define time       i.i.typeRegionTimeZScale.z
@@ -103,7 +105,7 @@ float2 CalculateHeight(const PsInputBundle i, int target, float heightSample,
 
         // Applying viscosity of the fluid on top of the ground
         float oldThickness = max(0.0, i.old.height + i.old.depth);
-        float viscosity = FetchDataPixel(InkDataDetail, i.old.index, ID_MISC).z;
+        float viscosity = FetchDataPixel(InkDataDetail, i.old.index, ID_VISCOSITY).a;
         float fluidDigAmount = min(desiredAdd * viscosity, oldThickness);
         float solidDigAmount = desiredAdd - fluidDigAmount;
         newHeight = oldPixelValue;
@@ -117,6 +119,33 @@ float2 CalculateHeight(const PsInputBundle i, int target, float heightSample,
     }
 
     return float2(paintStrength, newHeight);
+}
+
+// All three detail bytes follow the same adoption test as the upper material.
+float InkMaterialStrength(const PsInputBundle i, float heightSample, float shapeMask,
+    float4 heightParam, float geometryBias, float4 miscParam) {
+    if (HEIGHTONLY) return 0.0;
+    return CalculateHeight(i, HEIGHT_TARGET_STRENGTH, heightSample, shapeMask,
+        heightParam, geometryBias, NODIG, miscParam.y).x;
+}
+
+// xy: phase bytes / 255, z: (rotation * 8 + mode) / 255.
+float3 EncodeInkDetail(const PsInputBundle i, float4 miscParam) {
+    float mode = i.i.shapeUVDetailMode.z;
+    if (mode == 0.0 || !DETAILLOCAL)
+        return float3(0.0, 0.0, mode);
+
+    float4 transform = FetchDataPixel(InkDataDetail, paintType, ID_DETAIL_TRANSFORM);
+    float2 scale = exp2(FetchDataPixel(InkDataDetail, paintType, ID_DETAIL_SCALE).xy
+        * (255.0 / 24.0) - 13.0);
+    float rotationCode = i.i.shapeUVDetailMode.w;
+    float4 centerRotation = i.i.detailCenterRotation;
+    float2 center = RotateInkDetail(centerRotation.xy, centerRotation.zw);
+    center = RotateInkDetail(center * scale, transform.zw * (255.0 / 127.0) - 1.0);
+
+    // UNORM stores the phase directly; 0 and 1 are the same point of the period.
+    // Translation remains a material setting, so zero translation centers the image.
+    return float3(frac(0.5 - center), (rotationCode * 8.0 + round(mode * 255.0)) / 255.0);
 }
 
 PS_OUTPUT Additive(const PsInputBundle i, float t, float shapeMask) {
@@ -133,6 +162,10 @@ PS_OUTPUT Additive(const PsInputBundle i, float t, float shapeMask) {
     float paintStrength = CalculateHeight(i,
         HEIGHT_TARGET_HEIGHT, add.a, shapeMask, heightParam, geometryBias, nodig, flatten).x;
 
+    float phase = old.a;
+    if (InkMaterialStrength(i, add.a, shapeMask, heightParam, geometryBias, miscParam) >= eps)
+        phase = EncodeInkDetail(i, miscParam).x;
+
     // Basic tint by $color, $tintcolor, and $alpha
     add.rgb *= colorAlpha.rgb * paintStrength;
     tint.rgb *= (1.0 - colorAlpha.aaa) * tintParam.rgb;
@@ -143,7 +176,7 @@ PS_OUTPUT Additive(const PsInputBundle i, float t, float shapeMask) {
     float3 tintLimit = pow(tint.rgb, maxLayers);
     float3 tintFade  = smoothstep(tintLimit, tintLimit + 0.0625, distance(old.rgb, add.rgb));
     float3 newColor  = old.rgb * lerp(1.0, tint.rgb, tintFade) + add.rgb * colorAlpha.aaa * tintFade;
-    PS_OUTPUT output = { newColor * (1.0 - erase), 0.0, t };
+    PS_OUTPUT output = { newColor * (1.0 - erase), phase, t };
     return output;
 }
 
@@ -159,10 +192,11 @@ PS_OUTPUT Multiplicative(const PsInputBundle i, float t, float shapeMask) {
     float flatten      = miscParam.y;
     float nodig        = NODIG;
 
-    float2 h = CalculateHeight(i, HEIGHT_TARGET_DEPTH,
-        add.a, shapeMask, heightParam, geometryBias, nodig, flatten);
-    float paintStrength = h.x;
-    float newHeight     = h.y;
+    float paintStrength = CalculateHeight(i, HEIGHT_TARGET_DEPTH,
+        add.a, shapeMask, heightParam, geometryBias, nodig, flatten).x;
+    float phase = old.a;
+    if (InkMaterialStrength(i, add.a, shapeMask, heightParam, geometryBias, miscParam) >= eps)
+        phase = EncodeInkDetail(i, miscParam).y;
 
     // Do not darken more than maxLayers times
     // But if current one is already darker than that, keep it
@@ -171,10 +205,10 @@ PS_OUTPUT Multiplicative(const PsInputBundle i, float t, float shapeMask) {
     tint.rgb = saturate(tint.rgb);
     float erase        = miscParam.x;
     float maxLayers    = floor(heightParam.x * 255);
-    float newDepth     = max(-newHeight, i.old.depth);
     float3 tintClipped = max(old.rgb * tint.rgb, pow(tint.rgb, maxLayers));
     float3 tintFinal   = lerp(min(tintClipped, old.rgb), 1.0, erase);
-    PS_OUTPUT output   = { tintFinal, 0.0, newDepth };
+    // Match indices/additive ordering so that the V phase belongs to the same paint.
+    PS_OUTPUT output   = { tintFinal, phase, t };
     return output;
 }
 
@@ -211,13 +245,7 @@ PS_OUTPUT PaintIndices(const PsInputBundle i, float t, float shapeMask) {
     float4 tintParam    = FetchDataPixel(InkDataDetail, paintType, ID_TINT_GEOMETRYPAINT);
     float4 heightParam  = FetchDataPixel(InkDataDetail, paintType, ID_HEIGHT_MAXLAYERS);
     float  geometryBias = tintParam.w;
-    float  flatten      = miscParam.y;
-    float  nodig        = NODIG;
-
-    float2 h = CalculateHeight(i, HEIGHT_TARGET_STRENGTH,
-        add.a, shapeMask, heightParam, geometryBias, nodig, flatten);
-    float paintStrength = h.x;
-    float newHeight     = h.y;
+    float paintStrength = InkMaterialStrength(i, add.a, shapeMask, heightParam, geometryBias, miscParam);
     if (paintStrength < eps) return output;
 
     float4 colorAlpha   = FetchDataPixel(InkDataDetail, paintType, ID_COLOR_ALPHA);
@@ -230,7 +258,7 @@ PS_OUTPUT PaintIndices(const PsInputBundle i, float t, float shapeMask) {
         isOpaque ? thisID : old.r,
         isOpaque ? 0.0    : thisID, // Opaque paint replaces the upper layer.
         isOpaque ? 0.0    : 1.0 - translucency * (1.0 - output.color.b),
-        i.i.shapeUVDetailMode.z);   // $detailblendmode of the upper layer
+        EncodeInkDetail(i, miscParam).z);     // Upper detail mode and quantized paint rotation
     return output;
 }
 
