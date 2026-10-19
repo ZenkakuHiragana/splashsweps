@@ -33,7 +33,8 @@ local function HasAlphaChannel(path)
     return vtf and FORMATS_WITH_ALPHA[vtf.ImageFormat]
 end
 
----Copies a texture into a rectangle with optional RGB and alpha writes.
+---Copies a texture into the rectangle's one-pixel inset, transposing UVs if rect.rotated.
+---Uses the current RT/2D context; the shared copy material's $c0_x selects the source alpha channel.
 -- I couldn't make it work with surface.DrawTexturedRect for some reason;
 -- sometimes all TEXCOORD0 are (0.5, 0.5), so I use the mesh library instead.
 ---@param tex ITexture|string
@@ -267,11 +268,11 @@ end
 
 function ss.LoadInkTypesRT()
     local sources = ReadInkTypeSources()
-    local parameters = ss.PrepareInkDetailsRT(sources.BaseNames)
-    if not parameters then return end
+    local rowsByType = ss.PrepareInkDetailsRT(sources.BaseNames)
+    if not rowsByType then return end
     timer.Simple(0, function()
         BuildAlbedoAtlas(sources)
         BuildTintAtlas(sources)
-        ss.WriteInitialInkDetailsRT(parameters)
+        ss.WriteInitialInkDetailsRT(rowsByType)
     end)
 end

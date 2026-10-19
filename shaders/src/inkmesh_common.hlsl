@@ -7,8 +7,17 @@
 #define ID_MATERIAL_REFRACT   4
 #define ID_VISCOSITY          5 // rgb: unused, a: viscosity
 #define ID_DETAIL_BLEND_SCALE 6 // $detailblendscale xyzw
-#define ID_DETAIL_TRANSFORM   7 // $detailtexturetransform translation / rotation basis
-#define ID_DETAIL_SCALE       8 // xy: transform scale, z: detail index, w: height source/invert/max (3+5 bits)
+#define ID_DETAIL_TRANSFORM   7 // xy: translation in periods; zw: (cos, sin), zero encoded as 127 / 255
+#define ID_DETAIL_SCALE       8 // xy: log2 repeats/HU; z: zero-based cell; w: height source/invert/sqrt-limit (3+5 bits)
+
+// [0.0, 1.0] --> [-1.0, +1.0]
+#define TO_SIGNED(x) ((x) * 2.0 - 1.0)
+
+// [-1.0, +1.0] --> [0.0, 1.0]
+#define TO_UNSIGNED(x) saturate((x) * 0.5 + 0.5)
+
+// Safe rcp that avoids division by zero
+#define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-16)))
 
 static const int DETAIL_MODE_NONE     = 0;
 static const int DETAIL_MODE_MATERIAL = 1;
@@ -30,41 +39,7 @@ static const float2 INKMAP_REGION_OFFSETS[4] = {
     INKMAP_ADDITIVE, INKMAP_MULTIPLICATIVE, INKMAP_INDICES, INKMAP_HEIGHT_DEPTH,
 };
 
-// Map fixed ink-map coordinates to the paint's axes, in 32 directions.
-float2 InkDetailRotation(float code) {
-    float sine, cosine;
-    sincos(code * (-6.283185307179586 / 32.0), sine, cosine);
-    return float2(cosine, sine);
-}
-
-float2 RotateInkDetail(float2 value, float2 rotation) {
-    return float2(
-        rotation.x * value.x - rotation.y * value.y,
-        rotation.y * value.x + rotation.x * value.y);
-}
-
-// Splits [0, 1] into two 8-bit channels holding the upper and lower bytes.
-// Each channel gets k/255 plus a quarter step, so that both rounding and truncation store k.
-// Decoding is linear in the channels, so bilinear filtering of them stays correct across carries.
-float2 EncodeUnorm16(float x) {
-    float q  = round(saturate(x) * 65535.0);
-    float hi = floor(q / 256.0);
-    return (float2(hi, q - hi * 256.0) + 0.25) / 255.0;
-}
-
-float DecodeUnorm16(float2 hiLo) {
-    return dot(hiLo, float2(256.0, 1.0)) / 257.0; // (hi * 256 + lo) * 255 / 65535
-}
-
-// [0.0, 1.0] --> [-1.0, +1.0]
-#define TO_SIGNED(x) ((x) * 2.0 - 1.0)
-
-// [-1.0, +1.0] --> [0.0, 1.0]
-#define TO_UNSIGNED(x) saturate((x) * 0.5 + 0.5)
-
-// Safe rcp that avoids division by zero
-#define SAFERCP(x) (TO_SIGNED(step(0.0, x)) * rcp(max(abs(x), 1.0e-16)))
-
+static const float  TAU              = 6.283185307179586; // = 2π
 static const float  DEPTHWRITE_TO_HU = 4000.0; // Hardcoded in DepthWrite shader used in _rt_resolvedfullframedepth
 static const float  HEIGHT_TO_HU     = 24.0;   // Ink height map to hammer unit conversion constant
 static const float3 GrayScaleFactor  = { 0.2126, 0.7152, 0.0722 };
@@ -192,4 +167,25 @@ float3 DecodeOctahedralUnitVector(float2 encoded) {
         v.xy = (1.0 - abs(v.yx)) * OctSignNotZero(v.xy);
     }
     return normalize(v);
+}
+
+// Decode the 5-bit paint angle as (cos(-angle), sin(-angle)): ink-map axes -> paint axes.
+// drawink uses this for the center phase; inkmesh must reconstruct the same transform.
+float2 DecodeInkMapToPaintCosSin(float paintRotationCode5) {
+    float sine, cosine;
+    sincos(paintRotationCode5 * (-TAU / 32.0), sine, cosine);
+    return float2(cosine, sine);
+}
+
+// Splits [0, 1] into two 8-bit channels holding the upper and lower bytes.
+// Each channel gets k/255 plus a quarter step, so that both rounding and truncation store k.
+// Decoding is linear in the channels, so bilinear filtering of them stays correct across carries.
+float2 EncodeUnorm16(float x) {
+    float q  = round(saturate(x) * 65535.0);
+    float hi = floor(q / 256.0);
+    return (float2(hi, q - hi * 256.0) + 0.25) / 255.0;
+}
+
+float DecodeUnorm16(float2 hiLo) {
+    return dot(hiLo, float2(256.0, 1.0)) / 257.0; // (hi * 256 + lo) * 255 / 65535
 }

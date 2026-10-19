@@ -272,6 +272,7 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     end
 end)
 
+-- Rebuild RTs from the loaded definitions; VMT enumeration and updater loading live in LoadInkTypes.
 concommand.Add("ss_reload_inktype", function() ss.LoadInkTypesRT() end)
 concommand.Add("ss_debug_mesh_probe_skin", function()
     showSkinned = not showSkinned

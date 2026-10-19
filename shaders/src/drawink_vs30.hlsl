@@ -1,8 +1,8 @@
 
 // POSITION0
-//   xyz : The world position of the splash
+//   xyz : Paint center in world coordinates, or flattened displacement paint coordinates
 // TEXCOORD0
-//   xyz : The world angle of the splash (x, y, z = pitch, yaw roll)
+//   xyz : Paint angles in degrees (pitch, yaw, roll), flattened for displacement surfaces
 //   w   : Hammer units to UV conversion constant
 // TEXCOORD1
 //   x : Ink $basetexture atlas min U (negative if transposed)
@@ -30,21 +30,21 @@
 // TEXCOORD6
 //   xyz : WorldToUV matrix rotation (second row)
 //   w   : WorldToUV matrix offset V
-// TANGENT0
+// NORMAL0
 //   x : Width
 //   y : Height
 //   z : Depth scale
 // COLOR0
 //   r : Normalized paint time
 //   g : x16 = 0bRRCC = Region and corner index
-//   b : x255 + 1 = Paint type ID
+//   b : x255 = Paint type ID
 //   a : x255 = $detailblendmode of the paint type, 0 if the detail is disabled
 
 #include "inkmesh_common.hlsl"
 
-static const float  CornerSignX[4]  = { -1,  1, 1, -1 };
-static const float  CornerSignY[4]  = { -1, -1, 1,  1 };
-static const float2 ConstantUV[4]   = {{ 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }};
+static const float  CornerSignX[4] = { -1,  1, 1, -1 };
+static const float  CornerSignY[4] = { -1, -1, 1,  1 };
+static const float2 ConstantUV[4]  = {{ 0, 0 }, { 1, 0 }, { 1, 1 }, { 0, 1 }};
 
 struct VS_INPUT {
     float3   worldPos              : POSITION0;
@@ -61,10 +61,10 @@ struct VS_INPUT {
 struct VS_OUTPUT {
     float4 pos                  : POSITION;
     float4 inkAndTintUV         : TEXCOORD0;
-    float4 shapeUVDetailMode    : TEXCOORD1; // xy: mask, z: mode, w: rotation code
+    float4 shapeUVAndDetail     : TEXCOORD1; // xy: shape atlas UV, z: mode / 255, w: 5-bit paint angle
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionTimeZScale : TEXCOORD3;
-    float4 detailCenterRotation : TEXCOORD4; // Ink-map HU center and inverse paint rotation
+    float4 paintPlacement       : TEXCOORD4; // xy: packed-surface HU center, zw: ink-map -> paint (cos, sin)
 };
 
 #define time                 v.timeIndexTypeDetail.x
@@ -86,17 +86,18 @@ VS_OUTPUT main(const VS_INPUT v) {
     sincos(radians(v.worldAngles.xyz), sine, cosine);
 
     float3 worldForward = { cosine.x * cosine.y, cosine.x * sine.y, -sine.x };
-    float2 basisV = normalize(mul(float4(worldForward, 0.0), v.worldToUV)).yx;
-    float2 basisU = { basisV.y, -basisV.x };
-    float angle = atan2(basisU.y, basisU.x);
-    float rotationCode = floor(frac(angle / 6.283185307179586) * 32.0 + 0.5);
-    rotationCode -= floor(rotationCode / 32.0) * 32.0;
+    float2 paintAxisVInInkMap = normalize(mul(float4(worldForward, 0.0), v.worldToUV)).yx;
+    float2 paintAxisUInInkMap = { paintAxisVInInkMap.y, -paintAxisVInInkMap.x };
+    float paintAngle = atan2(paintAxisUInInkMap.y, paintAxisUInInkMap.x);
+    float paintRotationCode5 = floor(frac(paintAngle / TAU) * 32.0 + 0.5);
+    // Nearest-angle rounding can produce one full turn (32), stored as direction 0.
+    paintRotationCode5 -= floor(paintRotationCode5 / 32.0) * 32.0;
 
     // Flip U and V to match handedness to the world coordinate system
     float2 uvPos = mul(float4(v.worldPos, 1.0), v.worldToUV).yx;
-    float2 detailCenter = uvPos;
-    uvPos += basisU * v.size.x * CornerSignX[cornerIndex];
-    uvPos += basisV * v.size.y * CornerSignY[cornerIndex];
+    float2 inkMapCenterHU = uvPos; // Before UV scaling and the four-region offset.
+    uvPos += paintAxisUInInkMap * v.size.x * CornerSignX[cornerIndex];
+    uvPos += paintAxisVInInkMap * v.size.y * CornerSignY[cornerIndex];
     uvPos *= HammerUnitsToUV;
 
     // Convert position to local to specific region
@@ -109,11 +110,11 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.inkAndTintUV = float4(
         AtlasUV(v.baseTextureAtlasRange, corner),
         AtlasUV(v.tintTextureAtlasRange, corner));
-    output.shapeUVDetailMode = float4(AtlasUV(v.shapeMaskAtlasRange, corner), detailMode, rotationCode);
+    output.shapeUVAndDetail = float4(AtlasUV(v.shapeMaskAtlasRange, corner), detailMode, paintRotationCode5);
     output.surfaceClipRange
         = v.surfaceClipRange.yxwz * 0.5 + INKMAP_REGION_OFFSETS[regionIndex].xyxy;
     output.typeRegionTimeZScale = float4(inkType, regionIndex, time, zScale);
-    output.detailCenterRotation = float4(detailCenter, InkDetailRotation(rotationCode));
+    output.paintPlacement = float4(inkMapCenterHU, DecodeInkMapToPaintCosSin(paintRotationCode5));
     output.pos = float4(uvPos * 2.0 - 1.0, time, 1.0);
     output.pos.y *= -1.0;
     return output;

@@ -55,8 +55,8 @@ struct PseudoPBR {
 };
 
 struct MaterialParams {
-    float  bumpBlendHeight;
-    float  detailLocal;
+    float  normalBlendThickness; // Thickness / HEIGHT_TO_HU, from $bumpblendheight.
+    bool   usePaintLocalDetail;  // Selected from the same upper material as the detail image.
     float  height;
     float  depth;
     float3 additive;
@@ -66,20 +66,20 @@ struct MaterialParams {
 };
 
 struct InkDetailSettings {
-    float4 blendscale; // $detailblendscale
-    float2 rotation;   // (x, y) = (cosθ, sinθ)
-    float2 scale;      // $detailtexturetransform scale / $detailperiod = image repeats per Hammer unit
-    float2 translation;
-    float2 atlasOrigin;
-    float  atlasSize;
+    float4 blendScale;        // $detailblendscale
+    float2 uvRotationCosSin;  // Material UV rotation, decoded (cos, sin); not re-normalized.
+    float2 repeatsPerHU;      // $detailtexturetransform scale / $detailperiod
+    float2 translationUV;     // Offset in periods, applied after rotation.
+    float2 atlasOriginPixels; // First image texel, inside the cell's wrapping border.
+    float  atlasInnerSizePixels;
 };
 
 struct InkDetailEffect {
     float3 colorAdd;
     float3 emission;
-    float3 normalSlope;    // Detail normal XY assigned to the world axes of the projection plane.
-    float  normalZ;        // Detail normal Z. The detail normal need not be unit length.
-    float3 projectionAxis; // World axis used as projection Z.
+    float3 normalSlopeWorld;      // Detail normal XY assigned to the projection's world axes.
+    float  normalZ;               // Detail normal Z; the detail normal need not be unit length.
+    float3 projectionNormalWorld; // Projection Z in world space.
     float  colorScale;
     float  specularScale;
     float  roughnessAdd;
@@ -127,7 +127,7 @@ static const sampler UnderlayAtlas        = TextureSampler5; // g_HasUnderlayAtl
 static const float3  g_SunDirection       = c0.xyz; // in world space
 static const float   g_DetailBlendMode    = c0.w;
 static const float   g_DetailGridColumns  = c1.x;   // Number of columns in the ink detail image grid
-static const float   g_InkUVToHU          = c1.z;   // 2 / HammerUnitsToUV (ink map has four regions)
+static const float   g_InkMapHUPerUV     = c1.z;   // Packed-surface HU per ink UV: 2 / HammerUnitsToUV
 static const float   g_MaterialFlags      = c1.y;
 static const float2  g_LightmapSize       = c2.xy;  // One over lightmap size
 static const float2  g_DetailScale        = c2.zw;
@@ -256,9 +256,9 @@ float3 CalcFinalLightmapColor(float3 lightmapFactors, float3x3 lightmapColors) {
 // and permuting the result back is equivalent to:
 //   detail Z * N + (N's component along the projection axis) * detail slopes in world
 // The result is not normalized. The length of worldNormal cancels at final normalization.
-float3 ApplyInkDetailNormal(float3 worldNormal, InkDetailEffect detail) {
+float3 ApplyDetailNormalWorld(float3 worldNormal, InkDetailEffect detail) {
     float3 n = detail.normalZ * worldNormal
-        + dot(worldNormal, detail.projectionAxis) * detail.normalSlope;
+        + dot(worldNormal, detail.projectionNormalWorld) * detail.normalSlopeWorld;
     return dot(n, n) == 0.0 ? worldNormal : n;
 }
 
@@ -362,8 +362,8 @@ void FetchHeightDepthAndNormal(const PsVertexInfo i, float2 uv, inout MaterialPa
     params.normal = normalize(mul(float3(-slope, 1.0), i.inkTransform));
 }
 
-// Samples lighting parameters and the normal transition thickness.
-void FetchInkMaterial(float3 IDs, inout MaterialParams params) {
+// Fetch blended lighting/thickness; select the upper material's local-detail flag without blending it.
+void FetchInkMaterialParams(float3 IDs, inout MaterialParams params) {
     float4 s;
     int id1 = (int)IDs.x;
     int id2 = (int)IDs.y;
@@ -382,8 +382,8 @@ void FetchInkMaterial(float3 IDs, inout MaterialParams params) {
 
     float4 misc1 = FetchDataPixel(InkDataDetail, id1, ID_MISC);
     float4 misc2 = FetchDataPixel(InkDataDetail, id2, ID_MISC);
-    params.bumpBlendHeight = lerp(misc1.b, misc2.b, idBlend);
-    params.detailLocal = frac((id2 > 0 ? misc2.a : misc1.a) * 4.0) >= 0.5;
+    params.normalBlendThickness = lerp(misc1.b, misc2.b, idBlend);
+    params.usePaintLocalDetail = frac((id2 > 0 ? misc2.a : misc1.a) * 4.0) >= 0.5;
 }
 
 // Sample world bumpmap
@@ -453,15 +453,16 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
     return lerp(albedo.rgb * lightmapFinalColor, fb.rgb, fbRatio);
 }
 
-// The packed mode/rotation and phases are read from the same texel as the upper material.
-InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int packedDetail,
-    float3 inkUV, float height, float depth, float detailLocal) {
+// Sample the upper material's image and evaluate its normal/color/lighting effects.
+// Discrete placement comes from texel centers; image position uses the continuous parallax hit.
+InkDetailEffect EvaluateInkDetail(const PsVertexInfo i, float3 IDs, int modeRotationByte,
+    float3 inkUV, float height, float depth, bool usePaintLocalDetail) {
     InkDetailEffect effect = (InkDetailEffect)0;
     effect.colorScale    = 1.0;
     effect.specularScale = 1.0;
     effect.normalZ       = 1.0;
-    int rotationCode = packedDetail / 8;
-    int mode = packedDetail - rotationCode * 8;
+    int paintRotationCode5 = modeRotationByte / 8;
+    int mode = modeRotationByte - paintRotationCode5 * 8;
     if (mode == DETAIL_MODE_NONE) return effect;
     int id  = (int)(IDs.y > 0.0 ? IDs.y : IDs.x);
 
@@ -471,58 +472,64 @@ InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int packedDeta
     if (absNormal.x >= absNormal.y && absNormal.x >= absNormal.z) {
         projectionWorldU      = float3(0, 1, 0);
         projectionWorldV      = float3(0, 0, 1);
-        effect.projectionAxis = float3(1, 0, 0);
+        effect.projectionNormalWorld = float3(1, 0, 0);
     }
     else if (absNormal.y >= absNormal.z) {
         projectionWorldU      = float3(1, 0, 0);
         projectionWorldV      = float3(0, 0, 1);
-        effect.projectionAxis = float3(0, 1, 0);
+        effect.projectionNormalWorld = float3(0, 1, 0);
     }
     else {
         projectionWorldU      = float3(1, 0, 0);
         projectionWorldV      = float3(0, 1, 0);
-        effect.projectionAxis = float3(0, 0, 1);
+        effect.projectionNormalWorld = float3(0, 0, 1);
     }
 
     // The parallax ray's Z is in HEIGHT_TO_HU units along the mesh normal.
     // Evaluate the display texture at that hit, not at the unshifted mesh pixel.
     float3 viewVec = g_EyePos.xyz - i.worldPos;
     float3 worldPos = i.worldPos + viewVec * inkUV.z * HEIGHT_TO_HU * SAFERCP(dot(viewVec, i.worldTransform[2]));
-    float2 projectionPos = float2(dot(worldPos, projectionWorldU), dot(worldPos, projectionWorldV));
-    float2 paintRotation = float2(1.0, 0.0);
+    float2 projectionPositionHU = float2(dot(worldPos, projectionWorldU), dot(worldPos, projectionWorldV));
+    float2 mapToPaintCosSin = float2(1.0, 0.0); // World mode keeps the projection axes.
     float2 phase = 0.0;
     [branch]
-    if (detailLocal > 0.5) {
+    if (usePaintLocalDetail) {
         // The same flattened paint coordinates used by drawink, including atlas placement.
         // They follow brush transforms and the displacement's existing paint mapping.
-        projectionPos = inkUV.xy * g_InkUVToHU;
+        projectionPositionHU = inkUV.xy * g_InkMapHUPerUV;
         projectionWorldU = normalize(i.inkTransform[0]);
         projectionWorldV = normalize(i.inkTransform[1]);
-        effect.projectionAxis = normalize(i.worldTransform[2]);
-        paintRotation = InkDetailRotation(rotationCode);
+        effect.projectionNormalWorld = normalize(i.worldTransform[2]);
+        mapToPaintCosSin = DecodeInkMapToPaintCosSin(paintRotationCode5);
         float2 phaseUV = (floor(inkUV.xy / g_RTSize) + 0.5) * g_RTSize;
         phase.x = tex2Dlod(InkMap, float4(phaseUV + INKMAP_ADDITIVE, 0.0, 0.0)).a;
         phase.y = tex2Dlod(InkMap, float4(phaseUV + INKMAP_MULTIPLICATIVE, 0.0, 0.0)).a;
     }
 
     InkDetailSettings settings;
-    float4 encodedTransform = FetchDataPixel(InkDataDetail, id, ID_DETAIL_TRANSFORM);
-    float4 encodedScale     = FetchDataPixel(InkDataDetail, id, ID_DETAIL_SCALE);
-    float  gridIndex        = round(encodedScale.z * 255.0);
-    float  gridRow          = floor((gridIndex + 0.5) / g_DetailGridColumns);
-    float  gridColumn       = gridIndex - gridRow * g_DetailGridColumns;
-    float  cellSize         = g_InkDataOffsetV / g_DetailGridColumns;
-    settings.rotation    = encodedTransform.zw * (255.0 / 127.0) - 1.0;   // 127 / 255 encodes zero
-    settings.scale       = exp2(encodedScale.xy * (255.0 / 24.0) - 13.0); // 24 steps per octave from 2^-13
-    settings.translation = encodedTransform.xy;
-    settings.atlasOrigin = float2(gridColumn, gridRow) * cellSize + 1.0;
-    settings.atlasSize   = cellSize - 2.0;
-    settings.blendscale  = FetchDataPixel(InkDataDetail, id, ID_DETAIL_BLEND_SCALE) * (255.0 / 127.0);
+    float4 encodedTransform       = FetchDataPixel(InkDataDetail, id, ID_DETAIL_TRANSFORM);
+    float4 encodedScaleRow        = FetchDataPixel(InkDataDetail, id, ID_DETAIL_SCALE);
+    float  gridIndex              = round(encodedScaleRow.z * 255.0);
+    float  gridRow                = floor((gridIndex + 0.5) / g_DetailGridColumns);
+    float  gridColumn             = gridIndex - gridRow * g_DetailGridColumns;
+    float  cellSizePixels         = g_InkDataOffsetV / g_DetailGridColumns;
+    settings.uvRotationCosSin      = encodedTransform.zw * (255.0 / 127.0) - 1.0; // 127 / 255 encodes zero
+    settings.repeatsPerHU          = exp2(encodedScaleRow.xy * (255.0 / 24.0) - 13.0); // 24 steps per octave
+    settings.translationUV         = encodedTransform.xy;
+    settings.atlasOriginPixels     = float2(gridColumn, gridRow) * cellSizePixels + 1.0;
+    settings.atlasInnerSizePixels  = cellSizePixels - 2.0;
+    settings.blendScale            = FetchDataPixel(InkDataDetail, id, ID_DETAIL_BLEND_SCALE) * (255.0 / 127.0);
 
-    float2 scaledPosition  = RotateInkDetail(projectionPos, paintRotation) * settings.scale;
-    float2 rotatedPosition = RotateInkDetail(scaledPosition, settings.rotation);
-    float2 repeatedUV   = frac(rotatedPosition + settings.translation + phase);
-    float2 atlasUV      = (settings.atlasOrigin + repeatedUV * settings.atlasSize) * g_DataRTSize;
+    // Local mode: ink-map HU -> paint HU; world mode keeps the projection axes unchanged.
+    float2 paintPositionHU = float2(
+        mapToPaintCosSin.x * projectionPositionHU.x - mapToPaintCosSin.y * projectionPositionHU.y,
+        mapToPaintCosSin.y * projectionPositionHU.x + mapToPaintCosSin.x * projectionPositionHU.y);
+    float2 scaledUV = paintPositionHU * settings.repeatsPerHU;
+    float2 rotatedUV = float2(
+        settings.uvRotationCosSin.x * scaledUV.x - settings.uvRotationCosSin.y * scaledUV.y,
+        settings.uvRotationCosSin.y * scaledUV.x + settings.uvRotationCosSin.x * scaledUV.y);
+    float2 repeatedUV   = frac(rotatedUV + settings.translationUV + phase);
+    float2 atlasUV      = (settings.atlasOriginPixels + repeatedUV * settings.atlasInnerSizePixels) * g_DataRTSize;
     float4 detailSample = tex2Dlod(InkDataDetail, float4(atlasUV, 0, 0));
 
     // Convert the sample to the value range of each mode, then apply $detailblendscale to all channels.
@@ -532,17 +539,20 @@ InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int packedDeta
     if (mode == DETAIL_MODE_NORMAL)   s.rgb = TO_SIGNED(s.rgb);
     if (mode == DETAIL_MODE_THINFILM) s.rg  = TO_SIGNED(s.rg);
     float normalZ = sqrt(saturate(1.0 - dot(s.xy, s.xy)));
-    s *= settings.blendscale;
+    s *= settings.blendScale;
 
     [branch]
     if (mode == DETAIL_MODE_MATERIAL || mode == DETAIL_MODE_NORMAL || mode == DETAIL_MODE_THINFILM) {
-        // Undo image rotation, then assign XY to the world axes of the projection plane.
-        float2 slope = {
-            settings.rotation.x * s.x + settings.rotation.y * s.y,
-           -settings.rotation.y * s.x + settings.rotation.x * s.y,
-        };
-        slope = RotateInkDetail(slope, float2(paintRotation.x, -paintRotation.y));
-        effect.normalSlope = slope.x * projectionWorldU + slope.y * projectionWorldV;
+        // Transpose the material UV rotation, then the ink-map -> paint rotation, without rescaling XY.
+        float2 normalXYInPaint = float2(
+            settings.uvRotationCosSin.x * s.x + settings.uvRotationCosSin.y * s.y,
+           -settings.uvRotationCosSin.y * s.x + settings.uvRotationCosSin.x * s.y);
+        float2 paintToMapCosSin = float2(mapToPaintCosSin.x, -mapToPaintCosSin.y);
+        float2 normalXYInProjection = float2(
+            paintToMapCosSin.x * normalXYInPaint.x - paintToMapCosSin.y * normalXYInPaint.y,
+            paintToMapCosSin.y * normalXYInPaint.x + paintToMapCosSin.x * normalXYInPaint.y);
+        effect.normalSlopeWorld = normalXYInProjection.x * projectionWorldU
+                                + normalXYInProjection.y * projectionWorldV;
         effect.normalZ     = normalZ;
     }
 
@@ -566,27 +576,29 @@ InkDetailEffect FetchInkDetails(const PsVertexInfo i, float3 IDs, int packedDeta
         effect.filmStrength  = saturate(s.a);
     }
 
-    float heightSettings = round(encodedScale.w * 255.0);
-    float heightCode     = floor(heightSettings / 8.0);
-    float heightMode     = heightSettings - heightCode * 8.0;
-    float heightSource   = floor(heightMode / 2.0);
+    float heightBlendByte         = round(encodedScaleRow.w * 255.0);
+    float heightLimitSqrtCode5    = floor(heightBlendByte / 8.0);
+    float heightSourceInvertBits  = heightBlendByte - heightLimitSqrtCode5 * 8.0;
+    float heightSource            = floor(heightSourceInvertBits / 2.0);
     [branch]
     if (heightSource > 0.0) {
-        float value = heightSource < 1.5 ? height + depth
-                    : heightSource < 2.5 ? height : depth;
-        // Heights and the decoded limit share HEIGHT_TO_HU units, so the conversion cancels.
-        float heightMax = (heightCode + 1.0) / 32.0;
-        float weight = saturate(value / (heightMax * heightMax));
-        if (heightMode - heightSource * 2.0 > 0.5) weight = 1.0 - weight;
+        // Source 1 = thickness, 2 = height, 3 = ground depth; all in HEIGHT_TO_HU units.
+        float heightBlendInput = heightSource < 1.5 ? height + depth
+                               : heightSource < 2.5 ? height : depth;
+        // The stored limit is sqrt(maxHU / HEIGHT_TO_HU), quantized to a nonzero 5-bit level.
+        float heightLimitSqrt = (heightLimitSqrtCode5 + 1.0) / 32.0;
+        float heightWeight = saturate(heightBlendInput / (heightLimitSqrt * heightLimitSqrt));
+        if (heightSourceInvertBits - heightSource * 2.0 > 0.5)
+            heightWeight = 1.0 - heightWeight;
 
-        effect.normalSlope   *= weight;
-        effect.normalZ        = lerp(1.0, effect.normalZ, weight);
-        effect.roughnessAdd  *= weight;
-        effect.specularScale  = lerp(1.0, effect.specularScale, weight);
-        effect.colorScale     = lerp(1.0, effect.colorScale, weight);
-        effect.colorAdd      *= weight;
-        effect.emission      *= weight;
-        effect.filmStrength  *= weight;
+        effect.normalSlopeWorld *= heightWeight;
+        effect.normalZ         = lerp(1.0, effect.normalZ, heightWeight);
+        effect.roughnessAdd    *= heightWeight;
+        effect.specularScale   = lerp(1.0, effect.specularScale, heightWeight);
+        effect.colorScale      = lerp(1.0, effect.colorScale, heightWeight);
+        effect.colorAdd        *= heightWeight;
+        effect.emission        *= heightWeight;
+        effect.filmStrength    *= heightWeight;
     }
 
     return effect;
@@ -699,7 +711,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     float2 pixelUV = (floor(inkUV.xy / g_RTSize) + 0.5) * g_RTSize + INKMAP_INDICES;
     float4 inkIDs  = tex2Dlod(InkMap, float4(pixelUV, 0.0, 0.0));
     float3 IDs     = { round(inkIDs.r * 255.0), round(inkIDs.g * 255.0), inkIDs.b };
-    int detailMode = (int)round(inkIDs.a * 255.0);
+    int detailModeRotationByte = (int)round(inkIDs.a * 255.0);
     clip(floor(IDs.x + IDs.y + IDs.z) - 0.5);
 
     // Samples ink parameters
@@ -707,17 +719,17 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     params.additive = FetchAdditive(inkUV.xy);
     params.multiplicative = FetchMultiplicative(inkUV.xy);
     FetchHeightDepthAndNormal(i, inkUV.xy, params);
-    FetchInkMaterial(IDs, params);
+    FetchInkMaterialParams(IDs, params);
 
-    InkDetailEffect detail    = FetchInkDetails(i, IDs, detailMode, inkUV,
-        params.height, params.depth, params.detailLocal);
+    InkDetailEffect detail    = EvaluateInkDetail(i, IDs, detailModeRotationByte, inkUV,
+        params.height, params.depth, params.usePaintLocalDetail);
     params.pbr.roughness      = saturate(params.pbr.roughness + detail.roughnessAdd);
     params.pbr.specularScale *= detail.specularScale;
     params.multiplicative    *= detail.colorScale;
     params.additive          *= detail.colorScale;
 
     // The ink interface refracts the underlay, regardless of the underlay bumpmap
-    float3 interfaceNormal = normalize(ApplyInkDetailNormal(params.normal, detail));
+    float3 interfaceNormal = normalize(ApplyDetailNormalWorld(params.normal, detail));
     UVs    uv              = ApplyParallaxGeometry(i, params, interfaceNormal);
 
     // Match Source's shading basis without changing the UV gradients used by parallax.
@@ -731,9 +743,9 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     // Blend ink and world normals in world space.
     float3 geometryNormal   = normalize(mul(FetchGeometryNormal(i, uv), shadingBasis));
     // Both thicknesses are in height-map units; the HU conversion cancels in their ratio.
-    float bumpBlend = saturate((params.height + params.depth) * SAFERCP(params.bumpBlendHeight));
-    float3 blendedNormal    = lerp(geometryNormal, params.normal, bumpBlend);
-    float3 worldSpaceNormal = normalize(ApplyInkDetailNormal(blendedNormal, detail));
+    float inkNormalWeight = saturate((params.height + params.depth) * SAFERCP(params.normalBlendThickness));
+    float3 blendedNormal    = lerp(geometryNormal, params.normal, inkNormalWeight);
+    float3 worldSpaceNormal = normalize(ApplyDetailNormalWorld(blendedNormal, detail));
     float3 tangentSpaceNormal = normalize(mul(shadingBasis, worldSpaceNormal));
 
     // Calculate diffuse color
