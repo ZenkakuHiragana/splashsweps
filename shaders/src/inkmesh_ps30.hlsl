@@ -127,8 +127,8 @@ static const sampler UnderlayAtlas        = TextureSampler5; // g_HasUnderlayAtl
 static const float3  g_SunDirection       = c0.xyz; // in world space
 static const float   g_DetailBlendMode    = c0.w;
 static const float   g_DetailGridColumns  = c1.x;   // Number of columns in the ink detail image grid
-static const float   g_InkMapHUPerUV     = c1.z;   // Packed-surface HU per ink UV: 2 / HammerUnitsToUV
 static const float   g_MaterialFlags      = c1.y;
+static const float   g_InkMapHUPerUV      = c1.z;   // Packed-surface HU per ink UV: 2 / HammerUnitsToUV
 static const float2  g_LightmapSize       = c2.xy;  // One over lightmap size
 static const float2  g_DetailScale        = c2.zw;
 static const float3  g_Color              = c3.rgb;
@@ -420,8 +420,10 @@ float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
     }
 }
 
-// Samples already-lit geometry sample from geometry textures
-float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapFinalColor) {
+// Samples already-lit geometry sample from geometry textures.
+// extraLight: light the frame buffer received on top of geometryLightmapColor, e.g. flashlights.
+float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv,
+    float3 lightmapFinalColor, float3 geometryLightmapColor, out float3 extraLight) {
     float fbRatio = uv.edgefade;
     float4 fb = tex2Dlod(FrameBuffer, float4(uv.screen, 0.0, 0.0));
     if (fb.a * DEPTHWRITE_TO_HU < uv.depth - max(2.0, uv.depth * 0.015)) {
@@ -450,6 +452,14 @@ float3 FetchGeometrySamples(const PsVertexInfo i, const UVs uv, float3 lightmapF
         detail = tex2Dgrad(UnderlayDetail, uv.detail, ddxDetail, ddyDetail) * g_DetailTint;
     }
     albedo.rgb = ApplyDetailSample(albedo, detail).rgb * g_Color;
+
+    // Solve fb = albedo * (geometryLightmapColor + extraLight) per channel,
+    // as LightmappedGeneric's flashlight pass multiplies its light by each albedo channel.
+    // Anything else in fb, e.g. specular, envmap, or emission, counts as light too.
+    // A channel with zero albedo shows no flashlight, but SAFERCP multiplies any residual there by 1e16.
+    // The albedo of 4WayBlend misses the third and fourth textures and doesn't match fb.
+    extraLight = g_Is4WayBlend ? 0.0
+        : max(fb.rgb - albedo.rgb * geometryLightmapColor, 0.0) * SAFERCP(albedo.rgb) * fbRatio;
     return lerp(albedo.rgb * lightmapFinalColor, fb.rgb, fbRatio);
 }
 
@@ -741,24 +751,30 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     float3x3 shadingBasis = float3x3(tangent, binormal, normal);
 
     // Blend ink and world normals in world space.
-    float3 geometryNormal   = normalize(mul(FetchGeometryNormal(i, uv), shadingBasis));
-    // Both thicknesses are in height-map units; the HU conversion cancels in their ratio.
-    float inkNormalWeight = saturate((params.height + params.depth) * SAFERCP(params.normalBlendThickness));
-    float3 blendedNormal    = lerp(geometryNormal, params.normal, inkNormalWeight);
-    float3 worldSpaceNormal = normalize(ApplyDetailNormalWorld(blendedNormal, detail));
-    float3 tangentSpaceNormal = normalize(mul(shadingBasis, worldSpaceNormal));
+    float3 geometryNormal      = normalize(FetchGeometryNormal(i, uv));
+    float3 geometryNormalWorld = mul(geometryNormal, shadingBasis);
+    float  inkNormalWeight     = saturate((params.height + params.depth) * SAFERCP(params.normalBlendThickness));
+    float3 blendedNormal       = lerp(geometryNormal, params.normal, inkNormalWeight);
+    float3 worldSpaceNormal    = normalize(ApplyDetailNormalWorld(blendedNormal, detail));
+    float3 tangentSpaceNormal  = normalize(mul(shadingBasis, worldSpaceNormal));
 
     // Calculate diffuse color
-    float3   lightmapFactors = CalcLightmapFactors(tangentSpaceNormal);
     float3x3 lightmapColors  = FetchLightmapSamples(i, uv.lightmap);
+    float3   lightmapFactors = CalcLightmapFactors(tangentSpaceNormal);
     float3   lightmapFinal   = CalcFinalLightmapColor(lightmapFactors, lightmapColors);
-    float3   geometryLit     = FetchGeometrySamples(i, uv, lightmapFinal) * params.multiplicative;
-    float3   inkLit          = (params.additive + detail.colorAdd) * lightmapFinal;
-    float3   albedo          = geometryLit + inkLit;
+
+    // The frame buffer is lit with the geometry's own normal, not the ink's.
+    float3 extraLight;
+    float3 geometryLit = params.multiplicative * FetchGeometrySamples(i, uv, lightmapFinal,
+        CalcFinalLightmapColor(CalcLightmapFactors(geometryNormalWorld), lightmapColors), extraLight);
 
     // Modulate surface albedo and add ink color
     float3 ambientOcclusion = { 1.0, 1.0, 1.0 }; // dummy!
-    float3 result = albedo * lerp(1.0, DIFFUSE_MIN, params.pbr.metallic) + detail.emission;
+    float  diffuseScale = lerp(1.0, DIFFUSE_MIN, params.pbr.metallic);
+    float3 inkColor = params.additive + detail.colorAdd;
+    float3 inkLit = inkColor * lightmapFinal;
+    float3 albedo = geometryLit + inkLit;
+    float3 result = albedo * diffuseScale + detail.emission;
 
     // Simplified pass doesn't need specular component
     if (g_Simplified) {
@@ -766,6 +782,9 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
         output.finalColorWithoutSSR = float4(result * g_TonemapScale, 1.0);
         return output;
     }
+
+    // Flashlight / projected texture estimation
+    result += inkColor * extraLight * diffuseScale;
 
     // ^ Diffuse component (multiplies to the final result)
     // -------------------------------------------------------------------------

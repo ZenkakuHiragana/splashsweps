@@ -213,6 +213,7 @@ local function enumerateMaterials(materialsInMap, cubemapLookup)
 
     ---Enumeration ID --> material information
     local FLAGS2_BUMPED_LIGHTMAP = 8 -- (1 << 3)
+    local IdentityMatrix = Matrix()
     local materialInfo = {} ---@type table<integer, ss.SurfaceBuilder.MaterialInfo>
     for enumerationID, name in ipairs(materialNames) do
         if enumerationIDToArrayIndex[enumerationID] then
@@ -232,7 +233,7 @@ local function enumerateMaterials(materialsInMap, cubemapLookup)
                     Detail               = baseTexture2 or mat:GetString "$detail",
                     BaseTextureTransform = mat:GetMatrix "$basetexturetransform",
                     BumpTextureTransform = mat:GetMatrix "$bumptransform",
-                    BlendMaskTransform   = mat:GetMatrix "$blendmasktransform",
+                    BlendMaskTransform   = mat:GetMatrix "$blendmasktransform" or IdentityMatrix,
                     DetailBlendFactor    = mat:GetFloat  "$detailblendfactor",
                     DetailBlendMode      = mat:GetInt    "$detailblendmode",
                     DetailScale          = mat:GetVector "$detailscale",
@@ -549,18 +550,10 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
             0, 0, 0, 0,
             0, 0, 0, 0)
         mat:SetMatrix("$invviewprojmat", m)
-        local matf = CreateMaterial(
-            string.format("splashsweps_meshf_%d_%s", sortID, game.GetMap()),
-            "LightmappedGeneric", {
-                ["$basetexture"] = "white",
-                ["$bumpmap"]     = materialInfo.Bumpmap or "null-bumpmap",
-            })
         ss.InkMeshMaterials[mat] = materialInfo.Material
         renderBatch[#renderBatch + 1] = {
-            Material           = mat,
-            MaterialFlashlight = matf,
-            Mesh               = Mesh(mat),
-            MeshFlashlight     = Mesh(matf),
+            Material = mat,
+            Mesh     = Mesh(mat),
         }
     end
 
@@ -675,7 +668,7 @@ local function storeDebugMeshData(debugMeshData, vertexBatches)
     end
 end
 
----Writes each vertex batch into the matching normal and flashlight IMesh.
+---Writes each vertex batch into the matching ink IMesh.
 ---@param renderBatch   ss.RenderBatch                      Render entries created from the same vertexBatches order.
 ---@param vertexBatches ss.SurfaceBuilder.MeshVertexBatch[] Vertex batches to write one-to-one with renderBatch.
 local function writeMeshVertexBatches(renderBatch, vertexBatches)
@@ -694,20 +687,6 @@ local function writeMeshVertexBatches(renderBatch, vertexBatches)
             mesh.TexCoord(5, unpack(v.InkBinormal_V))
             mesh.TexCoord(6, unpack(v.LightmapTangent_U))
             mesh.TexCoord(7, unpack(v.LightmapBinormal_V))
-            mesh.AdvanceVertex()
-        end
-        mesh.End()
-
-        mesh.Begin(renderBatch[i].MeshFlashlight, MATERIAL_TRIANGLES, #vertices / 3)
-        for _, v in ipairs(vertices) do
-            mesh.Normal(v.WorldNormal_dU[1], v.WorldNormal_dU[2], v.WorldNormal_dU[3])
-            mesh.UserData(v.WorldTangent_U[1], v.WorldTangent_U[2], v.WorldTangent_U[3], 1)
-            mesh.TangentS(v.WorldTangent_U[1], v.WorldTangent_U[2], v.WorldTangent_U[3])
-            mesh.TangentT(v.WorldBinormal_V[1], v.WorldBinormal_V[2], v.WorldBinormal_V[3])
-            mesh.Position(v.Position)
-            mesh.TexCoord(0, v.WorldTangent_U[4], v.WorldBinormal_V[4]) -- Correctly bind geometry's bumpmap UV
-            mesh.TexCoord(1, v.LightmapTangent_U[4], v.LightmapBinormal_V[4])
-            mesh.TexCoord(2, v.WorldNormal_dU[4], 0)
             mesh.AdvanceVertex()
         end
         mesh.End()

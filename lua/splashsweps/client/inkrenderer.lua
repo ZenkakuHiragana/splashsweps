@@ -167,16 +167,6 @@ local function DrawNormalMesh(m, _)
     m.Mesh:Draw()
 end
 
-local currentFlashlightMaterial = nil ---@type IMaterial?
-local function DrawFlashlightMesh(m, _)
-    local mat = m.MaterialFlashlight
-    if currentFlashlightMaterial ~= mat then
-        render.SetMaterial(mat)
-        currentFlashlightMaterial = mat
-    end
-    m.MeshFlashlight:Draw()
-end
-
 local function DrawWaterMesh(m, _)
     m.Mesh:Draw()
 end
@@ -204,11 +194,6 @@ end
 local function DrawNormalMeshes()
     currentNormalMaterial = nil
     DrawMesh(DrawNormalMesh)
-end
-
-local function DrawFlashlightMeshes()
-    currentFlashlightMaterial = nil
-    DrawMesh(DrawFlashlightMesh)
 end
 
 local SSRViewMatrix = Matrix()
@@ -344,12 +329,6 @@ function(bDrawingDepth, bDrawingSkybox)
 
     render.SetMaterial(SSRCompositeMaterial)
     render.DrawScreenQuad()
-
-    render.OverrideBlend(true,
-        BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD,
-        BLEND_ONE, BLEND_ONE, BLENDFUNC_ADD)
-    render.RenderFlashlights(DrawFlashlightMeshes)
-    render.OverrideBlend(false)
 end)
 
 net.Receive("SplashSWEPs: Paint", function()
