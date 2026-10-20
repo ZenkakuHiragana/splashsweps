@@ -100,10 +100,6 @@ VS_OUTPUT main(const VS_INPUT v) {
     uvPos += paintAxisVInInkMap * v.size.y * CornerSignY[cornerIndex];
     uvPos *= HammerUnitsToUV;
 
-    // Convert position to local to specific region
-    uvPos *= 0.5;
-    uvPos += INKMAP_REGION_OFFSETS[regionIndex];
-
     VS_OUTPUT output;
     float2 corner = ConstantUV[cornerIndex];
     float  zScale = saturate(v.size.z / HEIGHT_TO_HU);
@@ -115,7 +111,8 @@ VS_OUTPUT main(const VS_INPUT v) {
         = v.surfaceClipRange.yxwz * 0.5 + INKMAP_REGION_OFFSETS[regionIndex].xyxy;
     output.typeRegionTimeZScale = float4(inkType, regionIndex, time, zScale);
     output.paintPlacement = float4(inkMapCenterHU, DecodeInkMapToPaintCosSin(paintRotationCode5));
-    output.pos = float4(uvPos * 2.0 - 1.0, time, 1.0);
+    // Fold region placement into clip space to avoid rounding the shifted UV before subtracting 1.
+    output.pos = float4(uvPos + (INKMAP_REGION_OFFSETS[regionIndex] * 2.0 - 1.0), time, 1.0);
     output.pos.y *= -1.0;
     return output;
 }
