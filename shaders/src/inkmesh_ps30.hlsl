@@ -194,14 +194,14 @@ float2 AtlasUV(float2 uv, float2 cell) {
     return (frac(uv) + cell) * ATLAS_CELL_SIZE;
 }
 
-// dx, dy: gradients of uv
-float4 SampleAtlas(float2 uv, float2 dx, float2 dy, float2 cell) {
-    return tex2Dgrad(UnderlayAtlas, AtlasUV(uv, cell), dx * ATLAS_CELL_SIZE, dy * ATLAS_CELL_SIZE);
+// The atlas is a render target, which has no mipmaps regardless of its flags (garrysmod-issues #4718).
+float4 SampleAtlas(float2 uv, float2 cell) {
+    return tex2Dlod(UnderlayAtlas, float4(AtlasUV(uv, cell), 0.0, 0.0));
 }
 
 // Atlas colors are stored without sRGB decoding, unlike the separate UnderlayAlbedo sampler.
-float4 FetchAtlasAlbedo(float2 uv, float2 dx, float2 dy, float2 scale, float2 cell) {
-    float4 color = SampleAtlas(uv * scale, dx * scale, dy * scale, cell);
+float4 FetchAtlasAlbedo(float2 uv, float2 scale, float2 cell) {
+    float4 color = SampleAtlas(uv * scale, cell);
     color.rgb = pow(abs(color.rgb), 2.2);
     return color;
 }
@@ -218,12 +218,9 @@ float2 ApplyBlendMaskTransform(float2 uv) {
 }
 
 float ModulateBlend(float raw, float2 uv) {
-    // Preserve the implicit sample gradients, including frac seams, outside the branch.
-    float2 sampleUV = AtlasUV(uv, ATLAS_BLENDMODULATE);
-    float2 dx = ddx(sampleUV), dy = ddy(sampleUV);
     [branch]
     if (g_NeedsBlendModulation) {
-        float4 blendModulation = tex2Dgrad(UnderlayAtlas, sampleUV, dx, dy);
+        float4 blendModulation = SampleAtlas(uv, ATLAS_BLENDMODULATE);
         raw = smoothstep(blendModulation.g - blendModulation.r, blendModulation.g + blendModulation.r, raw);
     }
     return raw;
@@ -512,12 +509,11 @@ float3 FetchGeometryNormal(const PsVertexInfo i, UVs uv, float3 layerWeights) {
     float2 dx = ddx(wuv), dy = ddy(wuv);
     float3 geometryNormal = tex2Dgrad(UnderlayBumpmap, uv.bump, dx, dy).rgb;
 #if IS_WVT
-    float3 normal2 = tex2Dgrad(UnderlayAtlas, AtlasUV(uv.bump, ATLAS_BUMPMAP2), dx, dy).rgb;
+    float3 normal2 = SampleAtlas(uv.bump, ATLAS_BUMPMAP2).rgb;
     geometryNormal = lerp(geometryNormal, normal2, layerWeights.x);
 #elif IS_4WAYBLEND
     // $bumpmap2 is scaled by $texture2_uvscale, and blended only if it exists.
-    float2 scale   = g_4WayUVScale2;
-    float3 normal2 = tex2Dgrad(UnderlayAtlas, AtlasUV(uv.bump * scale, ATLAS_BUMPMAP2), dx * scale, dy * scale).rgb;
+    float3 normal2 = SampleAtlas(uv.bump * g_4WayUVScale2, ATLAS_BUMPMAP2).rgb;
     geometryNormal = lerp(geometryNormal, normal2, layerWeights.x * g_4WayHasBumpmap2);
 #endif
     geometryNormal *= 2.0;
@@ -556,37 +552,35 @@ float3x3 FetchLightmapSamples(const PsVertexInfo i, float2 uv) {
 
 // Samples the geometry textures and blends them as the geometry's material does.
 GeometryAlbedo FetchGeometryAlbedo(const PsVertexInfo i, const UVs uv) {
-    float2 duv = ApplyDetailTransform(i.worldUV);
     float2 wuv = ApplyBaseTransform(i.worldUV);
-    float2 wdx = ddx(wuv), wdy = ddy(wuv);
-    float2 ddxDetail = ddx(duv), ddyDetail = ddy(duv);
-    float4 albedo = tex2Dgrad(UnderlayAlbedo, uv.base, wdx, wdy);
+    float4 albedo = tex2Dgrad(UnderlayAlbedo, uv.base, ddx(wuv), ddy(wuv));
     float  detailBlendFactor = g_DetailBlendFactor;
     GeometryAlbedo result;
     result.layerWeights = 0.0;
 #if HAS_UNDERLAY_ATLAS
-    float4 detail = g_DetailTint * SampleAtlas(uv.detail, ddxDetail, ddyDetail, ATLAS_DETAIL);
+    float4 detail = g_DetailTint * SampleAtlas(uv.detail, ATLAS_DETAIL);
 #else
-    float4 detail = g_DetailTint * tex2Dgrad(UnderlayDetail, uv.detail, ddxDetail, ddyDetail);
+    float2 duv = ApplyDetailTransform(i.worldUV);
+    float4 detail = g_DetailTint * tex2Dgrad(UnderlayDetail, uv.detail, ddx(duv), ddy(duv));
 #endif
 
 #if IS_WVT
     result.layerWeights.x = uv.blend.x;
-    albedo = lerp(albedo, FetchAtlasAlbedo(uv.base, wdx, wdy, 1.0, ATLAS_BASETEXTURE2), uv.blend.x);
+    albedo = lerp(albedo, FetchAtlasAlbedo(uv.base, 1.0, ATLAS_BASETEXTURE2), uv.blend.x);
 #elif IS_4WAYBLEND
     // The flashlight pass of Lightmapped_4WayBlend only takes the first layer (garrysmod-issues #6549).
     result.flashlit = ApplyDetailSample(albedo, detail, detailBlendFactor).rgb * g_Color;
 
     // Each layer's weight depends on its color and the luminance accumulated so far, not on the blended color.
     float  luminance = smoothstep(g_4WayLumRange1.x, g_4WayLumRange1.y, dot(albedo.rgb, LUMINANCE_FACTOR));
-    float4 color = FetchAtlasAlbedo(uv.base, wdx, wdy, g_4WayUVScale2, ATLAS_BASETEXTURE2);
+    float4 color = FetchAtlasAlbedo(uv.base, g_4WayUVScale2, ATLAS_BASETEXTURE2);
     float3 w;
     w.x    = Next4WayLayerWeight(luminance, color.rgb, uv.blend.x, 1.0);
     albedo = lerp(albedo, color, w.x);
-    color  = FetchAtlasAlbedo(uv.base, wdx, wdy, g_4WayUVScale3, ATLAS_BASETEXTURE3);
+    color  = FetchAtlasAlbedo(uv.base, g_4WayUVScale3, ATLAS_BASETEXTURE3);
     w.y    = Next4WayLayerWeight(luminance, color.rgb, uv.blend.y, 256.0);
     albedo = lerp(albedo, color * lerp(1.0, 2.0 * albedo, g_4WayBlendMode3), w.y);
-    color  = FetchAtlasAlbedo(uv.base, wdx, wdy, g_4WayUVScale4, ATLAS_BASETEXTURE4);
+    color  = FetchAtlasAlbedo(uv.base, g_4WayUVScale4, ATLAS_BASETEXTURE4);
     w.z    = Next4WayLayerWeight(luminance, color.rgb, uv.blend.z, 65536.0);
     albedo = lerp(albedo, color * lerp(1.0, 2.0 * albedo, g_4WayBlendMode4), w.z);
     result.layerWeights = w;
