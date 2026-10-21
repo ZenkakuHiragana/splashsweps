@@ -1,6 +1,6 @@
 "Screenspace_General_8Tex"
 {
-    "$vertexshader"           "splashsweps/inkssr_compose_vs30"
+    "$vertexshader"           "splashsweps/inkssr_vs30"
     "$pixshader"              "splashsweps/inkssr_compose_ps30"
     "$basetexture"            "splashsweps_gbuf_inkcolor"
     "$texture1"               "splashsweps_gbuf_inkcolor_blur"

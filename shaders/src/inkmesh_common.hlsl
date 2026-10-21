@@ -67,8 +67,8 @@ struct VertexInfo {
     float4 inkBinormal_V      : TEXCOORD5; // w:  ink V
     float4 lightmapTangent_U  : TEXCOORD6; // w:  lightmap U
     float4 lightmapBinormal_V : TEXCOORD7; // w:  lightmap V
-    float4 worldPos           : TEXCOORD8; // w:  unused
-    float4 clipPos            : TEXCOORD9;
+    float4 worldPos_ClipW     : TEXCOORD8; // w:  clip-space W
+    float4 vertexBlend_ClipZ  : TEXCOORD9; // xyz: vertex blend of $basetexture2, 3, and 4, w: clip-space Z
 };
 
 // Constants
@@ -87,10 +87,10 @@ const float4 c11       : register(c11); // $viewprojmat
 const float4 c12       : register(c12);
 const float4 c13       : register(c13);
 const float4 c14       : register(c14);
-const float4 c15       : register(c15); // xyz: blend transform row 0
-const float4 c16       : register(c16); // xyz: blend transform row 1
-const float4 c17       : register(c17); // unused
-const float4 c18       : register(c18); // unused
+const float4 c15       : register(c15); // $invviewprojmat: blend transform or Lightmapped_4WayBlend parameters
+const float4 c16       : register(c16);
+const float4 c17       : register(c17);
+const float4 c18       : register(c18);
 const float4 HDRParams : register(c30);
 
 static const float2 g_DataRTSize     = s1Size.xy;

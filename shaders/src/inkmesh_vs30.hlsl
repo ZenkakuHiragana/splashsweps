@@ -24,9 +24,8 @@ VS_OUTPUT main(const VS_INPUT v) {
     VS_OUTPUT w;
     w.clipPos               = clipPos;
     w.vi                    = v.vi;
-    w.vi.clipPos            = clipPos;
-    w.vi.worldPos.xyz       = mul(float4(v.pos, 1.0), cModel);
-    w.vi.worldPos.w         = v.color.a;
+    w.vi.worldPos_ClipW     = float4(mul(float4(v.pos, 1.0), cModel), clipPos.w);
+    w.vi.vertexBlend_ClipZ  = float4(v.color.arg, clipPos.z);
     w.vi.worldNormal_dU.xyz = mul(v.normal, (float3x3)cModel);
 
     w.vi.surfaceClipRange   = v.vi.surfaceClipRange.yxwz;

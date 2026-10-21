@@ -224,51 +224,50 @@ concommand.Add("ss_debug_shader_screen", function(_, _, args)
 end)
 
 concommand.Add("ss_reload_shader", function(_, _, _)
-    ---@param baseName string
-    ---@return string? vertexShader
-    ---@return string? pixelShader
-    local function FindLatestShaderPair(baseName)
-        local path = "shaders/fxc/splashsweps/*%s_%s30.vcs"
-        local vs = file.Find(path:format(baseName, "vs"), "GAME", "datedesc")
-        local ps = file.Find(path:format(baseName, "ps"), "GAME", "datedesc")
-        if not (vs and vs[1] and ps and ps[1]) then return end
-        return "splashsweps/" .. vs[1]:sub(1, -5), "splashsweps/" .. ps[1]:sub(1, -5)
+    local latestShaderNames = {} ---@type table<string, string|false> Shader file name without number -> result
+
+    ---Finds the latest build of the shader a material refers to, numbered by build.ps1 or not.
+    ---Shaders are shared between materials, and inkmesh materials use the pixel shader for their underlay.
+    ---Each shader is searched once, as hundreds of materials share a few shaders.
+    ---@param shaderName string? Value of $vertexshader or $pixshader, e.g. "splashsweps/3_inkmesh_ps30"
+    ---@return string? latestShaderName Shader name of the latest build, e.g. "splashsweps/4_inkmesh_ps30"
+    local function FindLatestShader(shaderName)
+        if not shaderName then return end
+        local name = shaderName:gsub("^splashsweps/", ""):gsub("^%d+_", "")
+        if latestShaderNames[name] == nil then
+            local found = file.Find(string.format("shaders/fxc/splashsweps/*%s.vcs", name), "GAME", "datedesc")
+            latestShaderNames[name] = found and found[1] and "splashsweps/" .. found[1]:sub(1, -5) or false
+        end
+        return latestShaderNames[name] or nil
     end
 
-    local inkVS, inkPS = FindLatestShaderPair "inkmesh"
-    local ssrVS, ssrPS = FindLatestShaderPair "inkssr_compose"
-    local ssrTraceVS, ssrTracePS = FindLatestShaderPair "inkssr"
-    if not (inkVS and inkPS and ssrVS and ssrPS
-        and ssrTraceVS and ssrTracePS) then
-        print "[SplashSWEPs] Could not find all inkmesh and SSR shader pairs."
-        return
+    local materials = {} ---@type IMaterial[]
+    for _, name in ipairs { "inkmesh", "inkssr_compose", "inkssr" } do
+        materials[#materials + 1] = Material("splashsweps/shaders/" .. name)
     end
-
-    print(string.format(
-        "Reloading shaders: %s, %s, %s, %s, %s, %s",
-        inkVS, inkPS, ssrVS, ssrPS,
-        ssrTraceVS, ssrTracePS))
     for _, batch in ipairs(ss.RenderBatches) do
         for _, model in ipairs(batch) do
-            model.Material:SetString("$vertexshader", inkVS)
-            model.Material:SetString("$pixshader", inkPS)
-            model.Material:Recompute()
+            materials[#materials + 1] = model.Material
         end
     end
 
-    local waterMaterial = Material "splashsweps/shaders/inkmesh"
-    waterMaterial:SetString("$vertexshader", inkVS)
-    waterMaterial:SetString("$pixshader", inkPS)
-    waterMaterial:Recompute()
+    local updates = {} ---@type { [1]: IMaterial, [2]: string, [3]: string }[]
+    for _, material in ipairs(materials) do
+        local vs = FindLatestShader(material:GetString "$vertexshader")
+        local ps = FindLatestShader(material:GetString "$pixshader")
+        if not (vs and ps) then
+            print("[SplashSWEPs] Could not find the shaders of " .. material:GetName())
+            return
+        end
+        updates[#updates + 1] = { material, vs, ps }
+    end
 
-    local ssrMaterials = {
-        { Material "splashsweps/shaders/inkssr_compose", ssrVS, ssrPS },
-        { Material "splashsweps/shaders/inkssr", ssrTraceVS, ssrTracePS },
-    }
-    for _, entry in ipairs(ssrMaterials) do
-        entry[1]:SetString("$vertexshader", entry[2])
-        entry[1]:SetString("$pixshader", entry[3])
-        entry[1]:Recompute()
+    -- Every search has succeeded here, so all values are shader names.
+    print("Reloading shaders: " .. table.concat(table.ClearKeys(latestShaderNames), ", "))
+    for _, update in ipairs(updates) do
+        update[1]:SetString("$vertexshader", update[2])
+        update[1]:SetString("$pixshader", update[3])
+        update[1]:Recompute()
     end
 end)
 

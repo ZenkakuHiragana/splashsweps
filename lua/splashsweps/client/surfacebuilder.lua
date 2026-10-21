@@ -438,7 +438,6 @@ end
 local function buildBaseInkMeshMaterialParams()
     return {
         ["$vertexshader"]           = "splashsweps/inkmesh_vs30",
-        ["$pixshader"]              = "splashsweps/inkmesh_ps30",
         ["$basetexture"]            = ss.RenderTarget.StaticTextures.InkMap:GetName(),
         ["$texture1"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
         ["$texture2"]               = ss.RenderTarget.FrameTextures.SceneColorDepth:GetName(),
@@ -495,6 +494,10 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         local hasDetail             = tobool(materialInfo.Detail)
         local detailBlendMode       = materialInfo.DetailBlendMode or 0
         local bmtstr                = materialInfo.Material:GetString "$blendmodulatetexture"
+        -- Each kind of underlay has its own pixel shader; see inkmesh_ps30.hlsl.
+        materialParams["$pixshader"] = materialInfo.HasBaseTexture3 and "splashsweps/inkmesh_4wayblend_ps30"
+                                    or materialInfo.HasBaseTexture2 and "splashsweps/inkmesh_wvt_ps30"
+                                    or "splashsweps/inkmesh_ps30"
         materialParams["$texture3"] = materialInfo.BaseTexture or "white"
         materialParams["$texture4"] = materialInfo.Bumpmap or "null-bumpmap"
         materialParams["$texture5"] = materialInfo.Detail or "white"
@@ -504,8 +507,6 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         materialParams["$c1_x"]     = detailGridColumns
         materialParams["$c1_z"]     = 2 / ss.RenderTarget.HammerUnitsToUV -- InkMap region UV -> packed-surface HU.
         materialParams["$c1_y"]     = (materialInfo.NeedsBumpedLightmaps and 1 or 0)
-                                    + (materialInfo.HasBaseTexture2 and 2 or 0)
-                                    + (materialInfo.HasBaseTexture3 and 4 or 0)
                                     + (bmtstr and 8 or 0)
         materialParams["$c2_x"]     = 1 / pageWidth
         materialParams["$c2_y"]     = 1 / pageHeight
