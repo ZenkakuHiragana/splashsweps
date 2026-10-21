@@ -29,7 +29,9 @@ static const int DETAIL_MODE_THINFILM = 5;
 // Ink map layout: four regions with the same surface packing, at these UV offsets
 //   additive color  : rgb = additive color, a = detail U phase (code / 255; 0 and 1 coincide)
 //   multiplicative  : rgb = multiplicative color, a = detail V phase (same encoding)
-//   indices         : rgb = ink type IDs, a = upper detail mode (low 3 bits) + rotation (high 5 bits)
+//   indices         : r = lower ink type ID, g = upper ink type ID,
+//                     b = boundary distance (high 4 bits) + upper layer blend (low 4 bits), see below,
+//                     a = upper detail mode (low 3 bits) + rotation (high 5 bits)
 //   height and depth: rg = height, ba = ground depth, both in 16 bits (see EncodeUnorm16)
 static const float2 INKMAP_ADDITIVE       = { 0.0, 0.0 };
 static const float2 INKMAP_MULTIPLICATIVE = { 0.5, 0.0 };
@@ -188,4 +190,29 @@ float2 EncodeUnorm16(float x) {
 
 float DecodeUnorm16(float2 hiLo) {
     return dot(hiLo, float2(256.0, 1.0)) / 257.0; // (hi * 256 + lo) * 255 / 65535
+}
+
+// Blue channel of the indices region.
+//   High 4 bits: distance from the texel center to the boundary of its region, in ink map texels.
+//                Code 0 means one texel or farther, so the cleared value 0 is already valid.
+//   Low 4 bits : blend of the upper layer (g) over the lower layer (r), code / 15.
+static const float INDICES_CODE_MAX = 15.0;
+
+float2 DecodeIndicesDistanceBlend(float b) {
+    float byte         = round(b * 255.0);
+    float distanceCode = floor(byte / 16.0);
+    float blendCode    = byte - distanceCode * 16.0;
+    return float2(1.0 - distanceCode / INDICES_CODE_MAX, blendCode / INDICES_CODE_MAX);
+}
+
+// distanceTexels is saturated; blendCode is an integer from 0 to 15.
+float EncodeIndicesDistanceBlend(float distanceTexels, float blendCode) {
+    float distanceCode = INDICES_CODE_MAX - round(saturate(distanceTexels) * INDICES_CODE_MAX);
+    return (distanceCode * 16.0 + blendCode) / 255.0;
+}
+
+// Whether an indices texel, read at its center, holds any paint: an ink type ID or an upper layer blend.
+// The boundary band of a paint may write only the distance into an empty texel.
+bool IsIndicesPainted(float4 indices) {
+    return max(max(indices.r, indices.g), DecodeIndicesDistanceBlend(indices.b).y) > 0.0;
 }

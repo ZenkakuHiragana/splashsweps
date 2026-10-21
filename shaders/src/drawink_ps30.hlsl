@@ -13,13 +13,13 @@ struct PS_INPUT {
     float4 inkAndTintUV         : TEXCOORD0;
     float4 shapeUVAndDetail     : TEXCOORD1;
     float4 surfaceClipRange     : TEXCOORD2;
-    float4 typeRegionTimeZScale : TEXCOORD3;
+    float4 typeRegionBandZScale : TEXCOORD3;
     float4 paintPlacement       : TEXCOORD4;
+    float2 shapeDistanceScale   : TEXCOORD5; // x: HU per shape mask alpha unit, y: Hammer units to UV
 };
 
 struct PS_OUTPUT {
     float4 color : COLOR0;
-    float  depth : DEPTH0;
 };
 
 // Batch-start snapshot: the sampler reads InkMap2, copied once before the queue is drawn.
@@ -34,25 +34,37 @@ struct PsInputBundle {
     OldInk old;
 };
 
-// Shape masks are signed distance fields with the edge at 0.5, toward 1 inside.
-// The server-side paint detection in inkshape.lua binarizes them by the same value.
+// Values written to the alpha channels of the additive, multiplicative, and index regions.
+struct InkMapDetailWrite {
+    float2 phaseUV;            // Phase in periods; UNORM8 stores code / 255, with 0 and 1 coincident.
+    float  modeRotationUNorm;  // (5-bit paint angle * 8 + 3-bit mode) / 255.
+};
+
+// Shape mask contract:
+//   alpha = 0.5 + (signed distance to the edge in mask pixels, positive inside) / (mask width in pixels),
+// correct over the whole mask. Outside the shape, the mask keeps its own margin.
+// The server-side paint detection in inkshape.lua binarizes the masks at the same edge value.
 static const float SHAPE_MASK_EDGE = 0.5;
 static const float eps = 5e-3;
 
 #define NODIG       (miscParam.w >= 0.5)              // w * 255 = 0bNHL0 0000
 #define HEIGHTONLY  (frac(miscParam.w * 2.0) >= 0.5)  // N = $nodig, H = $heightonly
 #define DETAILLOCAL (frac(miscParam.w * 4.0) >= 0.5)  // L = $detaillocal
-#define paintType  i.i.typeRegionTimeZScale.x
-#define regionID   i.i.typeRegionTimeZScale.y
-#define time       i.i.typeRegionTimeZScale.z
-#define zScale     i.i.typeRegionTimeZScale.w
+#define paintType  i.i.typeRegionBandZScale.x
+#define regionID   i.i.typeRegionBandZScale.y
+#define isBand     (i.i.typeRegionBandZScale.z > 0.5) // Boundary band outside the shape edge
+#define zScale     i.i.typeRegionBandZScale.w
 #define inkMapUV   ((i.i.screenPos + float2(0.5, 0.5)) * RcpRTSize)
+
+// A region of the ink map is half the render target, and one UV unit spans a region.
+#define TEXELS_PER_HU (i.i.shapeDistanceScale.y * 0.5 / RcpRTSize.x)
 
 // Ink map UV of the texel being painted, moved to the given region
 #define INKMAP_UV_AT(region) float4(inkMapUV - floor(inkMapUV * 2.0) * 0.5 + (region), 0.0, 0.0)
 
 int GetSurfaceIndex(float4 indexSample) {
-    return int(lerp(indexSample.r, indexSample.g, ceil(indexSample.b)) * 255);
+    float upperBlend = DecodeIndicesDistanceBlend(indexSample.b).y;
+    return int(lerp(indexSample.r, indexSample.g, ceil(upperBlend)) * 255);
 }
 
 void FetchOldInk(inout PsInputBundle i) {
@@ -68,7 +80,7 @@ static const int HEIGHT_TARGET_HEIGHT   = 0; // height value ranging from -1 to 
 static const int HEIGHT_TARGET_DEPTH    = 1; // negated depth value ranging from -1 to 0
 static const int HEIGHT_TARGET_STRENGTH = 2; // height value, used only for paintStrength
 float2 CalculateHeight(const PsInputBundle i, int target, float heightSample,
-    float shapeMask, float4 heightParam, float geometryPaintBias, float nodig, float flatten) {
+    float edgeDistanceHU, float4 heightParam, float geometryPaintBias, float nodig, float flatten) {
 
     // Height map blend parameters
     float maxHeight      = heightParam.y;
@@ -77,7 +89,10 @@ float2 CalculateHeight(const PsInputBundle i, int target, float heightSample,
     heightScale *= step(5.0e-3, abs(heightScale)) * zScale;
 
     // Shape strength scales the complete change, before viscosity divides digging between layers.
-    float shapeStrength = saturate((shapeMask - SHAPE_MASK_EDGE) / (1.0 - SHAPE_MASK_EDGE));
+    // It rises over the film thickness from the edge, as a 45-degree contact angle does,
+    // and over one ink map texel at least, so that the height has no step at the edge.
+    float riseWidthHU   = max(abs(heightScale) * HEIGHT_TO_HU, 1.0 / TEXELS_PER_HU);
+    float shapeStrength = saturate(edgeDistanceHU / riseWidthHU);
     float paintDir      = heightScale >= 0.0 ? 1.0 : -1.0;
     float paintHeight   = heightSample * heightScale; // -1.0 -- +1.0
     float paintDetail   = paintHeight - heightBaseline * heightScale;
@@ -123,17 +138,11 @@ float2 CalculateHeight(const PsInputBundle i, int target, float heightSample,
 
 // All three detail bytes follow the same adoption test as the upper material.
 float MaterialAdoptionStrength(const PsInputBundle i,
-    float heightSample, float shapeMask, float4 heightParam, float geometryBias, float4 miscParam) {
+    float heightSample, float edgeDistanceHU, float4 heightParam, float geometryBias, float4 miscParam) {
     if (HEIGHTONLY) return 0.0;
     return CalculateHeight(i, HEIGHT_TARGET_STRENGTH,
-        heightSample, shapeMask, heightParam, geometryBias, NODIG, miscParam.y).x;
+        heightSample, edgeDistanceHU, heightParam, geometryBias, NODIG, miscParam.y).x;
 }
-
-// Values written to the alpha channels of the additive, multiplicative, and index regions.
-struct InkMapDetailWrite {
-    float2 phaseUV;            // Phase in periods; UNORM8 stores code / 255, with 0 and 1 coincident.
-    float  modeRotationUNorm;  // (5-bit paint angle * 8 + 3-bit mode) / 255.
-};
 
 // Construct the center phase with the same quantized transform used by the display shader.
 InkMapDetailWrite EncodeDetailPlacement(const PsInputBundle i, float4 miscParam) {
@@ -162,7 +171,7 @@ InkMapDetailWrite EncodeDetailPlacement(const PsInputBundle i, float4 miscParam)
     return encoded;
 }
 
-PS_OUTPUT Additive(const PsInputBundle i, float t, float shapeMask) {
+PS_OUTPUT Additive(const PsInputBundle i, float edgeDistanceHU) {
     float4 add          = tex2D(BaseTextureAtlas, i.i.inkAndTintUV.xy);
     float4 tint         = tex2D(TintTextureAtlas, i.i.inkAndTintUV.zw);
     float4 old          = tex2D(InkMap, inkMapUV);
@@ -174,10 +183,10 @@ PS_OUTPUT Additive(const PsInputBundle i, float t, float shapeMask) {
     float  flatten      = miscParam.y;
     float  nodig        = NODIG;
     float paintStrength = CalculateHeight(i,
-        HEIGHT_TARGET_HEIGHT, add.a, shapeMask, heightParam, geometryBias, nodig, flatten).x;
+        HEIGHT_TARGET_HEIGHT, add.a, edgeDistanceHU, heightParam, geometryBias, nodig, flatten).x;
 
     float phase = old.a;
-    if (MaterialAdoptionStrength(i, add.a, shapeMask, heightParam, geometryBias, miscParam) >= eps)
+    if (MaterialAdoptionStrength(i, add.a, edgeDistanceHU, heightParam, geometryBias, miscParam) >= eps)
         phase = EncodeDetailPlacement(i, miscParam).phaseUV.x;
 
     // Basic tint by $color, $tintcolor, and $alpha
@@ -190,11 +199,11 @@ PS_OUTPUT Additive(const PsInputBundle i, float t, float shapeMask) {
     float3 tintLimit = pow(tint.rgb, maxLayers);
     float3 tintFade  = smoothstep(tintLimit, tintLimit + 0.0625, distance(old.rgb, add.rgb));
     float3 newColor  = old.rgb * lerp(1.0, tint.rgb, tintFade) + add.rgb * colorAlpha.aaa * tintFade;
-    PS_OUTPUT output = { newColor * (1.0 - erase), phase, t };
+    PS_OUTPUT output = { newColor * (1.0 - erase), phase };
     return output;
 }
 
-PS_OUTPUT Multiplicative(const PsInputBundle i, float t, float shapeMask) {
+PS_OUTPUT Multiplicative(const PsInputBundle i, float edgeDistanceHU) {
     float4 add         = tex2D(BaseTextureAtlas, i.i.inkAndTintUV.xy);
     float4 tint        = tex2D(TintTextureAtlas, i.i.inkAndTintUV.zw);
     float4 old         = tex2D(InkMap, inkMapUV);
@@ -207,9 +216,9 @@ PS_OUTPUT Multiplicative(const PsInputBundle i, float t, float shapeMask) {
     float nodig        = NODIG;
 
     float paintStrength = CalculateHeight(i, HEIGHT_TARGET_DEPTH,
-        add.a, shapeMask, heightParam, geometryBias, nodig, flatten).x;
+        add.a, edgeDistanceHU, heightParam, geometryBias, nodig, flatten).x;
     float phase = old.a;
-    if (MaterialAdoptionStrength(i, add.a, shapeMask, heightParam, geometryBias, miscParam) >= eps)
+    if (MaterialAdoptionStrength(i, add.a, edgeDistanceHU, heightParam, geometryBias, miscParam) >= eps)
         phase = EncodeDetailPlacement(i, miscParam).phaseUV.y;
 
     // Do not darken more than maxLayers times
@@ -222,11 +231,11 @@ PS_OUTPUT Multiplicative(const PsInputBundle i, float t, float shapeMask) {
     float3 tintClipped = max(old.rgb * tint.rgb, pow(tint.rgb, maxLayers));
     float3 tintFinal   = lerp(min(tintClipped, old.rgb), 1.0, erase);
     // Match indices/additive ordering so that the V phase belongs to the same paint.
-    PS_OUTPUT output   = { tintFinal, phase, t };
+    PS_OUTPUT output   = { tintFinal, phase };
     return output;
 }
 
-PS_OUTPUT HeightAndDepth(const PsInputBundle i, float t, float shapeMask) {
+PS_OUTPUT HeightAndDepth(const PsInputBundle i, float edgeDistanceHU) {
     float4 add          = tex2D(BaseTextureAtlas, i.i.inkAndTintUV.xy);
     float4 tintParam    = FetchDataPixel(InkDataDetail, paintType, ID_TINT_GEOMETRYPAINT);
     float4 heightParam  = FetchDataPixel(InkDataDetail, paintType, ID_HEIGHT_MAXLAYERS);
@@ -236,22 +245,34 @@ PS_OUTPUT HeightAndDepth(const PsInputBundle i, float t, float shapeMask) {
     float  nodig        = NODIG;
 
     float newHeight = CalculateHeight(i, HEIGHT_TARGET_HEIGHT,
-        add.a, shapeMask, heightParam, geometryBias, nodig, flatten).y;
+        add.a, edgeDistanceHU, heightParam, geometryBias, nodig, flatten).y;
     float newDepth = -CalculateHeight(i, HEIGHT_TARGET_DEPTH,
-        add.a, shapeMask, heightParam, geometryBias, nodig, flatten).y;
+        add.a, edgeDistanceHU, heightParam, geometryBias, nodig, flatten).y;
     PS_OUTPUT output = {
         EncodeUnorm16(TO_UNSIGNED(newHeight)),
         EncodeUnorm16(max(newDepth, i.old.depth)),
-        t,
     };
     return output;
 }
 
-PS_OUTPUT PaintIndices(const PsInputBundle i, float t, float shapeMask) {
+// Inside the shape, the paint writes the region it makes: its IDs, blend, and the distance to its edge.
+// In the band outside the edge, it keeps the IDs and only shortens the distance of other regions,
+// as its edge has become their boundary there. The band is drawn before every inside of the batch.
+// Every quad of a batch reads the same snapshot, so where two bands of a batch overlap,
+// the later band's distance remains instead of the nearer one.
+PS_OUTPUT PaintIndices(const PsInputBundle i, float edgeDistanceHU, float edgeDistanceTexels) {
     float4 old       = tex2D(InkMap, inkMapUV);
     float4 miscParam = FetchDataPixel(InkDataDetail, paintType, ID_MISC);
-    PS_OUTPUT output = { old, t };
-    if (max(old.r, max(old.g, old.b)) < 1.0 / 255.0) output.color.b = 1.0;
+    float2 oldDistanceBlend = DecodeIndicesDistanceBlend(old.b);
+    float  oldDistance      = oldDistanceBlend.x;
+    float  oldBlend         = oldDistanceBlend.y;
+    PS_OUTPUT output = { old };
+
+    // An empty texel gets the full upper blend, so that paint without a material still shows its volume.
+    if (!isBand && !IsIndicesPainted(old)) {
+        oldBlend = 1.0;
+        output.color.b = EncodeIndicesDistanceBlend(oldDistance, INDICES_CODE_MAX);
+    }
     if (HEIGHTONLY) return output;
 
     float4 add          = tex2D(BaseTextureAtlas, i.i.inkAndTintUV.xy);
@@ -260,20 +281,35 @@ PS_OUTPUT PaintIndices(const PsInputBundle i, float t, float shapeMask) {
     float4 heightParam  = FetchDataPixel(InkDataDetail, paintType, ID_HEIGHT_MAXLAYERS);
     float  geometryBias = tintParam.w;
     float adoptionStrength = MaterialAdoptionStrength(
-        i, add.a, shapeMask, heightParam, geometryBias, miscParam);
+        i, add.a, edgeDistanceHU, heightParam, geometryBias, miscParam);
     if (adoptionStrength < eps) return output;
 
     float4 colorAlpha   = FetchDataPixel(InkDataDetail, paintType, ID_COLOR_ALPHA);
     tint.rgb *= (1.0 - colorAlpha.aaa) * tintParam.rgb;
     tint.rgb = lerp(1.0, tint.rgb, adoptionStrength);
-    float thisID        = paintType / 255.0;
     float translucency  = dot(tint.rgb, GrayScaleFactor);
     bool  isOpaque      = translucency < eps;
-    float detailEncoded = EncodeDetailPlacement(i, miscParam).modeRotationUNorm;
+
+    // Opaque paint makes the region (this, none), and translucent paint makes (old lower, this).
+    float oldLowerID   = round(old.r * 255.0);
+    float oldUpperID   = round(old.g * 255.0);
+    bool  isSameRegion = isOpaque ? oldLowerID == paintType && oldUpperID == 0.0 : oldUpperID == paintType;
+    float oldBlendCode = round(oldBlend * INDICES_CODE_MAX);
+    if (isBand) {
+        float distance = isSameRegion ? oldDistance : min(oldDistance, -edgeDistanceTexels);
+        output.color.b = EncodeIndicesDistanceBlend(distance, oldBlendCode);
+        return output;
+    }
+
+    // The union with the same region reaches its boundary no closer than either part does.
+    float distance = max(edgeDistanceTexels, isSameRegion ? oldDistance : 0.0);
+    // Floor the share left to the lower layer, so that every translucent layer advances the blend.
+    float lowerShareCode = floor(translucency * (1.0 - oldBlend) * INDICES_CODE_MAX + 1.0e-3);
+    float detailEncoded  = EncodeDetailPlacement(i, miscParam).modeRotationUNorm;
     output.color = float4(
-        isOpaque ? thisID : old.r,
-        isOpaque ? 0.0    : thisID, // Opaque paint replaces the upper layer.
-        isOpaque ? 0.0    : 1.0 - translucency * (1.0 - output.color.b),
+        isOpaque ? paintType / 255.0 : old.r,
+        isOpaque ? 0.0 : paintType / 255.0, // Opaque paint replaces the upper layer.
+        EncodeIndicesDistanceBlend(distance, isOpaque ? 0.0 : INDICES_CODE_MAX - lowerShareCode),
         detailEncoded); // Upper detail mode and quantized paint rotation
     return output;
 }
@@ -284,16 +320,20 @@ PS_OUTPUT main(const PS_INPUT raw) {
     float2 surfaceClipRangeMax = i.i.surfaceClipRange.zw;
     clip(step(float4(surfaceClipRangeMin, inkMapUV), float4(inkMapUV, surfaceClipRangeMax)) - 0.5);
 
-    float4 shapeMask = tex2D(TintTextureAtlas, i.i.shapeUVAndDetail.xy);
-    clip(shapeMask.a < SHAPE_MASK_EDGE ? -1.0 : 1.0);
+    // Signed distance to the shape edge, positive inside
+    float shapeAlpha         = tex2D(TintTextureAtlas, i.i.shapeUVAndDetail.xy).a;
+    float edgeDistanceHU     = (shapeAlpha - SHAPE_MASK_EDGE) * i.i.shapeDistanceScale.x;
+    float edgeDistanceTexels = edgeDistanceHU * TEXELS_PER_HU;
+    // The band quad keeps the texels outside the edge within one texel, and the others the inside.
+    clip(isBand ? min(-edgeDistanceTexels, edgeDistanceTexels + 1.0) : edgeDistanceTexels);
 
     FetchOldInk(i);
     if (floor(regionID) == 0)
-        return Additive(i, time, shapeMask.a);
+        return Additive(i, edgeDistanceHU);
     else if (floor(regionID) == 1)
-        return Multiplicative(i, time, shapeMask.a);
+        return Multiplicative(i, edgeDistanceHU);
     else if (floor(regionID) == 2)
-        return PaintIndices(i, time, shapeMask.a);
+        return PaintIndices(i, edgeDistanceHU, edgeDistanceTexels);
     else
-        return HeightAndDepth(i, time, shapeMask.a);
+        return HeightAndDepth(i, edgeDistanceHU);
 }

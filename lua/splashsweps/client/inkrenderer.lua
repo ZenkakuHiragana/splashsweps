@@ -19,7 +19,6 @@ end
 ---@field base   number[] UV range for $basetexture
 ---@field shape  number[] UV range for the shape mask
 ---@field surf   number[] UV range for the surface
----@field time   number   CurTime()-based paint time
 ---@field tint   number[] UV range for $tinttexture
 ---@field typeid integer  ID of brush type
 ---@field detail integer  $detailblendmode of the ink type, 0 if the detail is disabled
@@ -35,15 +34,14 @@ end
 ---@field Material IMaterial The material to watch the changes.
 ---@field Fields   table<string, ss.Locals.Renderer.MaterialWatchState>
 
-local MinTime,    MaxTime    = 0, 0 --- = Queue[1].time, Queue[#Queue].time
 local NUM_REGION, NUM_VERTEX = 4, 4
+local INDICES_REGION = 2 -- Region of the ink type IDs, the only one the boundary band of a paint updates
 local NUM_TEXCOORDS = 7
 local SIZEOF_POS_NORMAL_COLOR = 4 * (3 + 3 + 1) -- pos: float3, normal: float3, color: uint8 * 4
 local SIZEOF_TEXCOORDS = NUM_TEXCOORDS * 4 * 4  -- texcoord: float4
 local SIZEOF_VERTEX = math.ceil((SIZEOF_POS_NORMAL_COLOR + SIZEOF_TEXCOORDS) / 16) * 16 -- float4 padding
-local TOTAL_VERTEX = NUM_VERTEX * NUM_REGION
 local MAX_VERTEX_SIZE_KB = (1024 + 512) * 1024 -- Maximum size of dynamic mesh hardcoded in Source
-local MAX_QUEUE = math.floor(MAX_VERTEX_SIZE_KB / (TOTAL_VERTEX * SIZEOF_VERTEX))
+local MAX_QUADS = math.floor(MAX_VERTEX_SIZE_KB / (NUM_VERTEX * SIZEOF_VERTEX))
 
 local FullFrameFb1 = render.GetScreenEffectTexture(1)
 local CopyFrameBufferMaterial = Material "splashsweps/shaders/copyfb"
@@ -361,8 +359,6 @@ function ss.PushPaintRenderTargetQueue(worldPos, worldAng, scale, shape, typeid)
     local inkshape = ss.InkShapes[shape]
     local inktype = ss.InkTypes[typeid]
     if not (inkshape and inktype) then return end
-    MaxTime = CurTime()
-    if #Queue == 0 then MinTime = MaxTime end
     local mins, maxs = ss.GetPaintBoundingBox(worldPos, worldAng, scale)
     for surf in ss.CollectSurfaces(mins, maxs) do
         for posWarp, angWarp in ss.EnumeratePaintPositions(surf, mins, maxs, worldPos, worldAng) do
@@ -372,7 +368,6 @@ function ss.PushPaintRenderTargetQueue(worldPos, worldAng, scale, shape, typeid)
                 scale  = scale,
                 base   = inktype.BaseUV,
                 shape  = inkshape.UV,
-                time   = MaxTime,
                 tint   = inktype.TintUV,
                 typeid = typeid,
                 detail = inktype.DetailBlendMode,
@@ -417,45 +412,59 @@ local mesh_Position           = mesh.Position
 local mesh_Normal             = mesh.Normal
 local mesh_Color              = mesh.Color
 local mesh_AdvanceVertex      = mesh.AdvanceVertex
-local mesh_VertexCount        = mesh.VertexCount
-local render_ClearDepth       = render.ClearDepth
 local render_CopyRenderTarget = render.CopyRenderTargetToTexture
 local render_PushRenderTarget = render.PushRenderTarget
 local render_PopRenderTarget  = render.PopRenderTarget
 local render_SetMaterial      = render.SetMaterial
-local max, min, RealFrameTime = math.max, math.min, RealFrameTime
+local min                     = math.min
 local ipairs, pairs, unpack   = ipairs, pairs, unpack
+
+---Adds a quad of a queued paint, starting a new dynamic mesh every MAX_QUADS quads.
+---@param q         ss.Locals.Renderer.Queue
+---@param region    integer Ink map region index
+---@param band      integer 255 for the boundary band outside the shape edge, 0 for the paint itself
+---@param quadIndex integer Zero-based index of this quad among all quads of the batch
+---@param numQuads  integer Number of quads in the batch
+---@return integer nextQuadIndex
+local function AddQuad(q, region, band, quadIndex, numQuads)
+    if quadIndex % MAX_QUADS == 0 then
+        if quadIndex > 0 then mesh_End() end
+        mesh_Begin(MATERIAL_QUADS, min(numQuads - quadIndex, MAX_QUADS))
+    end
+
+    -- 0b0000RRCC, RR = Region, CC = Corner
+    for i = region * NUM_VERTEX * 16, (region * NUM_VERTEX + NUM_VERTEX - 1) * 16, 16 do
+        mesh_Color(band, i, q.typeid, q.detail)
+        mesh_Normal(q.scale)
+        mesh_Position(q.pos)
+        mesh_TexCoord(0, q.ang.p, q.ang.y, q.ang.r, ss.RenderTarget.HammerUnitsToUV)
+        mesh_TexCoord(1, unpack(q.base))
+        mesh_TexCoord(2, unpack(q.tint))
+        mesh_TexCoord(3, unpack(q.shape))
+        mesh_TexCoord(4, unpack(q.surf))
+        mesh_TexCoord(5, unpack(q.row1))
+        mesh_TexCoord(6, unpack(q.row2))
+        mesh_AdvanceVertex()
+    end
+
+    return quadIndex + 1
+end
+
 hook.Add("RenderScreenspaceEffects", "SplashSWEPs: Paint ink in queue", function()
     if #Queue == 0 then return end
-    local numQuads = #Queue
-    local primitiveCount = min(numQuads, MAX_QUEUE) * NUM_REGION
-    local RcpTimeRange = 1 / max(MaxTime - MinTime, RealFrameTime())
+    local numQuads = #Queue * (NUM_REGION + 1) -- The boundary band and the regions of each paint
+    local quadIndex = 0
     render_PushRenderTarget(ss.RenderTarget.StaticTextures.InkMap)
     render_CopyRenderTarget(ss.RenderTarget.StaticTextures.InkMap2)
-    render_ClearDepth()
     render_SetMaterial(InkDrawMaterial)
-    mesh_Begin(MATERIAL_QUADS, primitiveCount)
+    -- Quads are drawn in the queue order without depth, and the later ones overwrite the earlier ones.
+    -- A band writes back the IDs of the batch-start snapshot, so every band goes before every paint.
     for _, q in ipairs(Queue) do
-        local normalizedTime = (q.time - MinTime) * RcpTimeRange * 255 -- pass this as color
-        if mesh_VertexCount() == primitiveCount * NUM_VERTEX then
-            numQuads = numQuads - MAX_QUEUE
-            primitiveCount = min(numQuads, MAX_QUEUE) * NUM_REGION
-            mesh_End()
-            mesh_Begin(MATERIAL_QUADS, primitiveCount)
-        end
-
-        for i = 0, (NUM_REGION * NUM_VERTEX - 1) * 16, 16 do -- 0b0000RRCC, RR = Region, CC = Corner
-            mesh_Color(normalizedTime, i, q.typeid, q.detail)
-            mesh_Normal(q.scale)
-            mesh_Position(q.pos)
-            mesh_TexCoord(0, q.ang.p, q.ang.y, q.ang.r, ss.RenderTarget.HammerUnitsToUV)
-            mesh_TexCoord(1, unpack(q.base))
-            mesh_TexCoord(2, unpack(q.tint))
-            mesh_TexCoord(3, unpack(q.shape))
-            mesh_TexCoord(4, unpack(q.surf))
-            mesh_TexCoord(5, unpack(q.row1))
-            mesh_TexCoord(6, unpack(q.row2))
-            mesh_AdvanceVertex()
+        quadIndex = AddQuad(q, INDICES_REGION, 255, quadIndex, numQuads)
+    end
+    for _, q in ipairs(Queue) do
+        for region = 0, NUM_REGION - 1 do
+            quadIndex = AddQuad(q, region, 0, quadIndex, numQuads)
         end
     end
     mesh_End()

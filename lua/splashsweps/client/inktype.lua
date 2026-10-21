@@ -33,7 +33,23 @@ local function HasAlphaChannel(path)
     return vtf and FORMATS_WITH_ALPHA[vtf.ImageFormat]
 end
 
+---Adds a vertex of CopyTextureToRect.
+---@param x number Destination position
+---@param y number Destination position
+---@param s number Source texture coordinate along the destination x axis
+---@param t number Source texture coordinate along the destination y axis
+---@param transposed boolean? True to read the source with its axes swapped
+local function AddCopyVertex(x, y, s, t, transposed)
+    if transposed then s, t = t, s end
+    mesh.Position(x, y, 0)
+    mesh.TexCoord(0, s, t)
+    mesh.TexCoord(1, 1, 1, 1, 1)
+    mesh.AdvanceVertex()
+end
+
 ---Copies a texture into the rectangle's one-pixel inset, transposing UVs if rect.rotated.
+---The quad also covers the one-pixel margin, which the copy shader fills with the edge pixels,
+---so that bilinear filtering up to the edge of the inset never reads the margin.
 ---Uses the current RT/2D context; the shared copy material's $c0_x selects the source alpha channel.
 -- I couldn't make it work with surface.DrawTexturedRect for some reason;
 -- sometimes all TEXCOORD0 are (0.5, 0.5), so I use the mesh library instead.
@@ -41,7 +57,7 @@ end
 ---@param rect ss.Rectangle
 ---@param drawcolor boolean
 ---@param drawalpha boolean
-function ss.CopyTextureToRect(tex, rect, drawcolor, drawalpha)
+local function CopyTextureToRect(tex, rect, drawcolor, drawalpha)
     cp:SetTexture("$basetexture", tex)
     cp:SetInt("$c0_y", 0)
     render.SetMaterial(cp)
@@ -52,24 +68,15 @@ function ss.CopyTextureToRect(tex, rect, drawcolor, drawalpha)
         drawalpha and BLEND_ONE or BLEND_ZERO,
         drawalpha and BLEND_ZERO or BLEND_ONE,
         BLENDFUNC_ADD)
+    -- The quad covers the whole rectangle, so its source coordinates go beyond [0, 1] by the margin.
+    local s0, s1 = -HALF_MARGIN / (rect.width - MARGIN), 1 + HALF_MARGIN / (rect.width - MARGIN)
+    local t0, t1 = -HALF_MARGIN / (rect.height - MARGIN), 1 + HALF_MARGIN / (rect.height - MARGIN)
     -- Transpose source UVs with the packed cell; negative atlas min U tells drawink_vs30 to undo it.
     mesh.Begin(MATERIAL_QUADS, 1)
-    mesh.Position(rect.left + HALF_MARGIN, rect.bottom + HALF_MARGIN, 0)
-    mesh.TexCoord(0, 0, 0)
-    mesh.TexCoord(1, 1, 1, 1, 1)
-    mesh.AdvanceVertex()
-    mesh.Position(rect.left + HALF_MARGIN, rect.top - HALF_MARGIN, 0)
-    mesh.TexCoord(0, rect.rotated and 1 or 0, rect.rotated and 0 or 1)
-    mesh.TexCoord(1, 1, 1, 1, 1)
-    mesh.AdvanceVertex()
-    mesh.Position(rect.right - HALF_MARGIN, rect.top - HALF_MARGIN, 0)
-    mesh.TexCoord(0, 1, 1)
-    mesh.TexCoord(1, 1, 1, 1, 1)
-    mesh.AdvanceVertex()
-    mesh.Position(rect.right - HALF_MARGIN, rect.bottom + HALF_MARGIN, 0)
-    mesh.TexCoord(0, rect.rotated and 0 or 1, rect.rotated and 1 or 0)
-    mesh.TexCoord(1, 1, 1, 1, 1)
-    mesh.AdvanceVertex()
+    AddCopyVertex(rect.left,  rect.bottom, s0, t0, rect.rotated)
+    AddCopyVertex(rect.left,  rect.top,    s0, t1, rect.rotated)
+    AddCopyVertex(rect.right, rect.top,    s1, t1, rect.rotated)
+    AddCopyVertex(rect.right, rect.bottom, s1, t0, rect.rotated)
     mesh.End()
     render.OverrideBlend(false)
 end
@@ -191,10 +198,10 @@ local function BuildAlbedoAtlas(sources)
         for _, rect in ipairs(packer.rects) do
             local inktype = rect.tag ---@type ss.InkType
             cp:SetInt("$c0_x", 3)
-            ss.CopyTextureToRect(sources.BaseNames[inktype.Index], rect, true, true)
+            CopyTextureToRect(sources.BaseNames[inktype.Index], rect, true, true)
             if sources.HeightNames[inktype.Index] then
                 cp:SetInt("$c0_x", CHANNEL_INDEX[sources.HeightChannels[inktype.Index]] or 0)
-                ss.CopyTextureToRect(sources.HeightNames[inktype.Index], rect, false, true)
+                CopyTextureToRect(sources.HeightNames[inktype.Index], rect, false, true)
             elseif not sources.BaseAlphaHeight[inktype.Index] then
                 -- The alpha channel is used as the height map
                 local tex = sources.TintNames[inktype.Index]
@@ -202,7 +209,7 @@ local function BuildAlbedoAtlas(sources)
                     tex = "grey" -- $tinttexture with no alpha channel
                     cp:SetInt("$c0_x", 0)
                 end
-                ss.CopyTextureToRect(tex, rect, false, true)
+                CopyTextureToRect(tex, rect, false, true)
             end
 
             -- Min U is strictly positive due to the margin; its sign encodes transposition.
@@ -236,7 +243,7 @@ local function BuildTintAtlas(sources)
     cam.Start2D()
         for _, rect in ipairs(tintPacker.rects) do
             local inktype = rect.tag ---@type ss.InkType
-            ss.CopyTextureToRect(sources.TintNames[inktype.Index], rect, true, false)
+            CopyTextureToRect(sources.TintNames[inktype.Index], rect, true, false)
             inktype.TintUV = {
                 (rect.rotated and -1 or 1) * (rect.left + HALF_MARGIN + 0.5) / rt:Width(),
                 (rect.bottom + HALF_MARGIN + 0.5) / rt:Height(),
@@ -245,16 +252,18 @@ local function BuildTintAtlas(sources)
             }
         end
 
-        -- Write shape atlas to the alpha channel
+        -- Write shape atlas to the alpha channel.
+        -- The whole mask spans the paint quad, as the server-side grid in paintablegrid.lua does,
+        -- and the margin repeats the edge pixels for bilinear filtering at the edge of the mask.
         for _, rect in ipairs(shapePacker.rects) do
             local shape = rect.tag ---@type ss.InkShape
             cp:SetInt("$c0_x", CHANNEL_INDEX[shape.Channel] or 3)
-            ss.CopyTextureToRect(shape.MaskTexture:StripExtension(), rect, false, true)
+            CopyTextureToRect(shape.MaskTexture:StripExtension(), rect, false, true)
             shape.UV = {
-                (rect.rotated and -1 or 1) * (rect.left + HALF_MARGIN + 0.5) / rt:Width(),
-                (rect.bottom + HALF_MARGIN + 0.5) / rt:Height(),
-                (rect.right  - HALF_MARGIN - 0.5) / rt:Width(),
-                (rect.top    - HALF_MARGIN - 0.5) / rt:Height(),
+                (rect.rotated and -1 or 1) * (rect.left + HALF_MARGIN) / rt:Width(),
+                (rect.bottom + HALF_MARGIN) / rt:Height(),
+                (rect.right  - HALF_MARGIN) / rt:Width(),
+                (rect.top    - HALF_MARGIN) / rt:Height(),
             }
         end
     cam.End2D()

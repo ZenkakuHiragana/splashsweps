@@ -447,16 +447,32 @@ float FetchHeight(float2 uv) {
     return TO_SIGNED(DecodeUnorm16(s.rg));
 }
 
-// Samples additive color with gamma correction
-float3 FetchAdditive(float2 uv) {
-    float4 s = tex2Dlod(InkMap, float4(uv + INKMAP_ADDITIVE, 0.0, 0.0));
-    return pow(abs(s.rgb), 2.2);
-}
+// The region of the ink map selected at the sample point, among the four nearest indices texels.
+struct InkRegionSelection {
+    float4 indices;      // Indices texel of the selected region
+    float2 texelUV;      // Center UV of that texel, without the region offset
+    float2 cornerUV;     // Center UV of the first of the four texels, without the region offset
+    float4 colorWeights; // Bilinear weights of the four texels, restricted to the selected region and normalized
+    bool   isUniform;    // All four texels belong to the selected region
+};
 
-// Samples multiplicative color with gamma correction
-float3 FetchMultiplicative(float2 uv) {
-    float4 s = tex2Dlod(InkMap, float4(uv + INKMAP_MULTIPLICATIVE, 0.0, 0.0));
-    return pow(abs(s.rgb), 2.2);
+// Samples a color region (additive or multiplicative) with gamma correction.
+// The color is interpolated over the texels of the selected region only,
+// so that it ends at the region boundary instead of fading out along the texel grid.
+float3 FetchRegionColor(const InkRegionSelection s, float2 uv, float2 regionOffset) {
+    float3 color = 0.0;
+    if (s.isUniform) {
+        color = tex2Dlod(InkMap, float4(uv + regionOffset, 0.0, 0.0)).rgb;
+    }
+    else {
+        float2 texelOffsets[4] = { float2(0.0, 0.0), float2(g_RTSize.x, 0.0), float2(0.0, g_RTSize.y), g_RTSize };
+        [unroll]
+        for (int k = 0; k < 4; k++) {
+            float4 t = tex2Dlod(InkMap, float4(s.cornerUV + texelOffsets[k] + regionOffset, 0.0, 0.0));
+            color += s.colorWeights[k] * t.rgb;
+        }
+    }
+    return pow(abs(color), 2.2);
 }
 
 // Samples height value and ground depth, and calculates the ink normal from the height
@@ -613,8 +629,9 @@ float3 EvaluateGeometryLighting(const UVs uv, const GeometryAlbedo albedo,
 }
 
 // Sample the upper material's image and evaluate its normal/color/lighting effects.
-// Discrete placement comes from texel centers; image position uses the continuous parallax hit.
-InkDetailEffect EvaluateInkDetail(const PsVertexInfo i, float3 IDs, int modeRotationByte,
+// Discrete placement comes from the texel the IDs were read from (idTexelUV, without the region offset);
+// image position uses the continuous parallax hit.
+InkDetailEffect EvaluateInkDetail(const PsVertexInfo i, float3 IDs, int modeRotationByte, float2 idTexelUV,
     float3 inkUV, float height, float depth, bool usePaintLocalDetail) {
     InkDetailEffect effect = (InkDetailEffect)0;
     effect.colorScale    = 1.0;
@@ -640,9 +657,8 @@ InkDetailEffect EvaluateInkDetail(const PsVertexInfo i, float3 IDs, int modeRota
         // The same flattened paint coordinates used by drawink, including atlas placement.
         projectionPositionHU = inkUV.xy * g_InkMapHUPerUV;
         mapToPaintCosSin = DecodeInkMapToPaintCosSin(paintRotationCode5);
-        float2 phaseUV = (floor(inkUV.xy / g_RTSize) + 0.5) * g_RTSize;
-        phase.x = tex2Dlod(InkMap, float4(phaseUV + INKMAP_ADDITIVE, 0.0, 0.0)).a;
-        phase.y = tex2Dlod(InkMap, float4(phaseUV + INKMAP_MULTIPLICATIVE, 0.0, 0.0)).a;
+        phase.x = tex2Dlod(InkMap, float4(idTexelUV + INKMAP_ADDITIVE, 0.0, 0.0)).a;
+        phase.y = tex2Dlod(InkMap, float4(idTexelUV + INKMAP_MULTIPLICATIVE, 0.0, 0.0)).a;
     }
 
     InkDetailSettings settings;
@@ -836,6 +852,58 @@ UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params, flo
     return uv;
 }
 
+// Selects the region of the ink map at the sample point.
+// Each of the four nearest texels votes its bilinear weight times its distance to the region boundary
+// for its own region, and the region with the most votes wins. Between two regions, this is the sign of
+// the interpolated signed distance, so the boundary passes between the texel centers.
+InkRegionSelection SelectInkRegion(float2 inkUV) {
+    float2 texelPos = inkUV / g_RTSize - 0.5;
+    float2 base     = floor(texelPos);
+    float2 f        = texelPos - base;
+    float2 uv00     = (base + 0.5) * g_RTSize;
+    float2 tapUV[4] = { uv00, uv00 + float2(g_RTSize.x, 0.0), uv00 + float2(0.0, g_RTSize.y), uv00 + g_RTSize };
+    float4 weights  = float4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
+    float4 taps[4];
+    float4 regions, votes;
+    [unroll]
+    for (int k = 0; k < 4; k++) {
+        taps[k] = tex2Dlod(InkMap, float4(tapUV[k] + INKMAP_INDICES, 0.0, 0.0));
+        float2 distanceBlend = DecodeIndicesDistanceBlend(taps[k].b);
+        // Lower ID, upper ID, and whether anything is painted
+        regions[k] = dot(round(taps[k].rg * 255.0), float2(512.0, 2.0)) + (IsIndicesPainted(taps[k]) ? 1.0 : 0.0);
+        // A small constant breaks ties toward the heavier texels where every distance is zero.
+        votes[k] = weights[k] * (distanceBlend.x + 1.0e-3);
+    }
+
+    float4 scores = {
+        dot((float4)(regions == regions.x), votes),
+        dot((float4)(regions == regions.y), votes),
+        dot((float4)(regions == regions.z), votes),
+        dot((float4)(regions == regions.w), votes),
+    };
+    InkRegionSelection s;
+    s.indices  = taps[0];
+    s.texelUV  = tapUV[0];
+    s.cornerUV = uv00;
+    float best = scores.x;
+    float selectedRegion = regions.x;
+    [unroll]
+    for (int j = 1; j < 4; j++) {
+        if (scores[j] > best) {
+            best           = scores[j];
+            selectedRegion = regions[j];
+            s.indices      = taps[j];
+            s.texelUV      = tapUV[j];
+        }
+    }
+
+    // The selected region has a positive vote, so some of its texels have positive weights.
+    float4 inRegion = (float4)(regions == selectedRegion);
+    s.colorWeights  = weights * inRegion / dot(weights, inRegion);
+    s.isUniform     = all(inRegion);
+    return s;
+}
+
 PS_OUTPUT main(const PS_INPUT rawInput) {
     PsVertexInfo i = DecomposeInput(rawInput);
     float sceneViewDepthHU = tex2Dlod(FrameBuffer, float4(i.screenUV, 0.0, 0.0)).a * DEPTHWRITE_TO_HU;
@@ -846,21 +914,25 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     float3 inkUV   = g_Simplified ? i.inkUV : ApplyParallaxInk(i);
     float3 viewVec = g_EyePos.xyz - i.worldPos;
     float3 viewDir = normalize(viewVec);
-    float2 pixelUV = (floor(inkUV.xy / g_RTSize) + 0.5) * g_RTSize + INKMAP_INDICES;
-    float4 inkIDs  = tex2Dlod(InkMap, float4(pixelUV, 0.0, 0.0));
-    float3 IDs     = { round(inkIDs.r * 255.0), round(inkIDs.g * 255.0), inkIDs.b };
+    InkRegionSelection region = SelectInkRegion(inkUV.xy);
+    float4 inkIDs  = region.indices;
+    float3 IDs = {
+        round(inkIDs.r * 255.0),
+        round(inkIDs.g * 255.0),
+        DecodeIndicesDistanceBlend(inkIDs.b).y,
+    };
     int detailModeRotationByte = (int)round(inkIDs.a * 255.0);
     clip(floor(IDs.x + IDs.y + IDs.z) - 0.5);
 
     // Samples ink parameters
     MaterialParams params;
-    params.additive = FetchAdditive(inkUV.xy);
-    params.multiplicative = FetchMultiplicative(inkUV.xy);
+    params.additive = FetchRegionColor(region, inkUV.xy, INKMAP_ADDITIVE);
+    params.multiplicative = FetchRegionColor(region, inkUV.xy, INKMAP_MULTIPLICATIVE);
     FetchHeightDepthAndNormal(i, inkUV.xy, params);
     FetchInkMaterialParams(IDs, params);
 
     InkDetailEffect detail = EvaluateInkDetail(i, IDs,
-        detailModeRotationByte, inkUV, params.height, params.depth, params.usePaintLocalDetail);
+        detailModeRotationByte, region.texelUV, inkUV, params.height, params.depth, params.usePaintLocalDetail);
     float3 inkColor = params.additive * detail.colorScale + detail.colorAdd;
     params.pbr.roughness = saturate(params.pbr.roughness + detail.roughnessAdd);
     params.pbr.specularScale *= detail.specularScale;

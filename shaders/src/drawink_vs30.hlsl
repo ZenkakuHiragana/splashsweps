@@ -35,7 +35,7 @@
 //   y : Height
 //   z : Depth scale
 // COLOR0
-//   r : Normalized paint time
+//   r : x255 = 255 for the boundary band quad drawn before the paints, 0 otherwise
 //   g : x16 = 0bRRCC = Region and corner index
 //   b : x255 = Paint type ID
 //   a : x255 = $detailblendmode of the paint type, 0 if the detail is disabled
@@ -55,7 +55,7 @@ struct VS_INPUT {
     float4   surfaceClipRange      : TEXCOORD4;
     float4x2 worldToUV             : TEXCOORD5;
     float4   size                  : NORMAL0;
-    float4   timeIndexTypeDetail   : COLOR0;
+    float4   bandIndexTypeDetail   : COLOR0;
 };
 
 struct VS_OUTPUT {
@@ -63,15 +63,16 @@ struct VS_OUTPUT {
     float4 inkAndTintUV         : TEXCOORD0;
     float4 shapeUVAndDetail     : TEXCOORD1; // xy: shape atlas UV, z: mode / 255, w: 5-bit paint angle
     float4 surfaceClipRange     : TEXCOORD2;
-    float4 typeRegionTimeZScale : TEXCOORD3;
+    float4 typeRegionBandZScale : TEXCOORD3;
     float4 paintPlacement       : TEXCOORD4; // xy: packed-surface HU center, zw: ink-map -> paint (cos, sin)
+    float2 shapeDistanceScale   : TEXCOORD5; // x: HU per shape mask alpha unit, y: Hammer units to UV
 };
 
-#define time                 v.timeIndexTypeDetail.x
-#define regionIndex      int(v.timeIndexTypeDetail.y * 4)
-#define cornerIndex int(fmod(v.timeIndexTypeDetail.y * 16, 4))
-#define inkType        floor(v.timeIndexTypeDetail.z * 255)
-#define detailMode           v.timeIndexTypeDetail.a
+#define isBand               v.bandIndexTypeDetail.x
+#define regionIndex      int(v.bandIndexTypeDetail.y * 4)
+#define cornerIndex int(fmod(v.bandIndexTypeDetail.y * 16, 4))
+#define inkType        floor(v.bandIndexTypeDetail.z * 255)
+#define detailMode           v.bandIndexTypeDetail.a
 #define HammerUnitsToUV      v.worldAngles.w
 
 float2 AtlasUV(float4 range, float2 corner) {
@@ -79,6 +80,16 @@ float2 AtlasUV(float4 range, float2 corner) {
     bool transposed = range.x < 0.0;
     range.x = abs(range.x);
     return lerp(range.xy, range.zw, transposed ? corner.yx : corner);
+}
+
+// The shape mask alpha is 0.5 + (signed distance in mask pixels) / (mask width in pixels).
+// The mask spans the paint quad, so one alpha unit is W pixels of 2 * size.x / W and 2 * size.y / H HU.
+// The shorter of the two is used for both directions; masks keep their pixels nearly square in HU.
+float ShapeMaskAlphaToHU(float4 shapeRange, float2 halfSize) {
+    // The atlas is square, so the cell's UV extents give the mask aspect ratio.
+    float2 cellUV      = abs(float2(shapeRange.z - abs(shapeRange.x), shapeRange.w - shapeRange.y));
+    float  widthHeight = shapeRange.x < 0.0 ? cellUV.y / cellUV.x : cellUV.x / cellUV.y;
+    return 2.0 * min(halfSize.x, halfSize.y * widthHeight);
 }
 
 VS_OUTPUT main(const VS_INPUT v) {
@@ -109,10 +120,12 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.shapeUVAndDetail = float4(AtlasUV(v.shapeMaskAtlasRange, corner), detailMode, paintRotationCode5);
     output.surfaceClipRange
         = v.surfaceClipRange.yxwz * 0.5 + INKMAP_REGION_OFFSETS[regionIndex].xyxy;
-    output.typeRegionTimeZScale = float4(inkType, regionIndex, time, zScale);
+    output.typeRegionBandZScale = float4(inkType, regionIndex, isBand, zScale);
     output.paintPlacement = float4(inkMapCenterHU, DecodeInkMapToPaintCosSin(paintRotationCode5));
+    output.shapeDistanceScale = float2(ShapeMaskAlphaToHU(v.shapeMaskAtlasRange, v.size.xy), HammerUnitsToUV);
     // Fold region placement into clip space to avoid rounding the shifted UV before subtracting 1.
-    output.pos = float4(uvPos + (INKMAP_REGION_OFFSETS[regionIndex] * 2.0 - 1.0), time, 1.0);
+    // Paints are drawn in queue order without depth, so later quads overwrite earlier ones.
+    output.pos = float4(uvPos + (INKMAP_REGION_OFFSETS[regionIndex] * 2.0 - 1.0), 0.0, 1.0);
     output.pos.y *= -1.0;
     return output;
 }
