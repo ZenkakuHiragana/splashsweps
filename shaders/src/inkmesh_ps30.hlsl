@@ -885,7 +885,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     float3 geometryNormal      = normalize(FetchGeometryNormal(i, uv, geometryAlbedo.layerWeights));
     float3 geometryNormalWorld = mul(geometryNormal, shadingBasis);
     float  inkNormalWeight     = saturate((params.height + params.depth) * SAFERCP(params.normalBlendThickness));
-    float3 blendedNormal       = lerp(geometryNormal, params.normal, inkNormalWeight);
+    float3 blendedNormal       = lerp(geometryNormalWorld, params.normal, inkNormalWeight);
     float3 worldSpaceNormal    = normalize(ApplyDetailNormalWorld(blendedNormal, detail,
         GetDetailProjectionBasis(i, params.usePaintLocalDetail)));
     float3 tangentSpaceNormal  = normalize(mul(shadingBasis, worldSpaceNormal));
@@ -898,7 +898,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     // The frame buffer is lit with the geometry's own normal, not the ink's.
     float3 extraLight;
     float3 geometryLit = params.multiplicative * EvaluateGeometryLighting(uv, geometryAlbedo, lightmapFinal,
-        CalcFinalLightmapColor(CalcLightmapFactors(geometryNormalWorld), lightmapColors), extraLight);
+        CalcFinalLightmapColor(CalcLightmapFactors(geometryNormal), lightmapColors), extraLight);
 
     // Modulate surface albedo and add ink color
     float3 ambientOcclusion = { 1.0, 1.0, 1.0 }; // dummy!

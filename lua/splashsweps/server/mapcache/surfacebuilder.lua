@@ -728,10 +728,11 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
         local i1 = triangles[i]
         local i2 = triangles[i + 1]
         local i3 = triangles[i + 2]
-        local triNormal = (deformed[i2] - deformed[i1]):Cross(deformed[i3] - deformed[i1])
+        -- All triangles share the engine's winding (BuildTriTLtoBR/BLtoTR in builddisp.cpp),
+        -- so this order gives the front side however the surface is folded.
+        local triNormal = (deformed[i3] - deformed[i1]):Cross(deformed[i2] - deformed[i1])
         if triNormal:LengthSqr() > ss.eps then
             triNormal:Normalize()
-            if triNormal:Dot(parentNormal) < 0 then triNormal:Mul(-1) end
             normals[i1]:Add(triNormal)
             normals[i2]:Add(triNormal)
             normals[i3]:Add(triNormal)
