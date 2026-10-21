@@ -491,6 +491,21 @@ local function CalculateTriangleComponents(surf)
     end
 end
 
+---Packs the blend factors toward $basetexture2, 3, and 4 for PrecachedData.Vertex.BumpmapUV.z.
+---WorldVertexTransition has only the first one, the vertex alpha.
+---@param dispVert   ss.Binary.BSP.DISP_VERTS
+---@param multiblend ss.Binary.BSP.DISP_MULTIBLEND? Only for Lightmapped_4WayBlend.
+---@return integer
+local function PackVertexBlend(dispVert, multiblend)
+    if not multiblend then
+        return math.Round(math.Clamp(dispVert.alpha, 0, 255))
+    end
+
+    local function to8Bit(x) return math.Round(math.Clamp(x, 0, 1) * 255) end
+    local m = multiblend.multiblend -- x, y, z, w
+    return to8Bit(m[2]) + to8Bit(m[3]) * 256 + to8Bit(m[4]) * 65536
+end
+
 ---Construct a polygon from a raw displacement data
 ---@param bsp ss.RawBSPResults
 ---@param rawFace ss.Binary.BSP.FACES
@@ -557,6 +572,8 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
     local surf            = ss.new "PrecachedData.Surface"
     local rawDispInfo     = bsp.DISPINFO
     local rawDispVerts    = bsp.DISP_VERTS
+    local rawMultiBlend   = bsp.DISP_MULTIBLEND
+    local multiblendStart = bsp.DispMultiBlendStart[rawFace.dispInfo + 1]
     local lightmapWidth   = rawFace.lightmapTextureSizeInLuxels[1]
     local lightmapHeight  = rawFace.lightmapTextureSizeInLuxels[2]
     local dispInfo        = rawDispInfo[rawFace.dispInfo + 1]
@@ -654,7 +671,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
             bumpmapuv[i] = Bilerp(
                 bumpmapCorners[1], bumpmapCorners[2],
                 bumpmapCorners[3], bumpmapCorners[4], u, v)
-            bumpmapuv[i].z = dispVert.alpha
+            bumpmapuv[i].z = PackVertexBlend(dispVert, multiblendStart and rawMultiBlend[multiblendStart + i - 1])
             lightmapuv[i] = Bilerp(
                 lightmapCorners[1], lightmapCorners[2],
                 lightmapCorners[3], lightmapCorners[4], u, v)

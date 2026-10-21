@@ -19,7 +19,7 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---One vertex worth of packed data passed to inkmesh_vs30.
 ---@class ss.SurfaceBuilder.MeshVertex
 ---@field Position           Vector   World-space position written with mesh.Position.
----@field Color              number[] xyz: unused                      w: displacement vertex alpha
+---@field Color              number[] xyz: blend toward $basetexture2, 3, and 4, w: unused.
 ---@field UVRange            number[] xy:  min ink-map UV,            zw: max ink-map UV for surface clipping.
 ---@field WorldTangent_U     number[] xyz: world tangent,              w: geometry texture U.
 ---@field WorldBinormal_V    number[] xyz: world binormal,             w: geometry texture V.
@@ -473,6 +473,39 @@ local function buildBaseInkMeshMaterialParams()
     }
 end
 
+---Packs Lightmapped_4WayBlend parameters into the layout inkmesh_ps30.hlsl reads from $invviewprojmat.
+---@param m   VMatrix   Destination matrix.
+---@param mat IMaterial Lightmapped_4WayBlend material.
+local function set4WayBlendParams(m, mat)
+    ---@param name string
+    ---@return integer
+    local function to8Bit(name)
+        return math.Round(math.Clamp(mat:GetFloat(name), 0, 1) * 255)
+    end
+
+    ---@param format string Parameter name with %d for the layer number.
+    ---@return integer
+    local function packLayers(format)
+        return to8Bit(format:format(2)) + to8Bit(format:format(3)) * 256 + to8Bit(format:format(4)) * 65536
+    end
+
+    -- $textureN_uvscale can be a float or a 2D vector; GetVector returns (v, v, v) for a float.
+    local uvScale2 = mat:GetVector "$texture2_uvscale"
+    local uvScale3 = mat:GetVector "$texture3_uvscale"
+    local uvScale4 = mat:GetVector "$texture4_uvscale"
+    m:SetUnpacked(
+        packLayers "$texture%d_blendstart",
+        packLayers "$texture%d_blendend",
+        packLayers "$texture%d_lumstart",
+        packLayers "$texture%d_lumend",
+        packLayers "$lumblendfactor%d",
+        packLayers "$texture%d_bumpblendfactor",
+        packLayers "$detailblendfactor%d",
+        to8Bit "$texture1_lumstart" + to8Bit "$texture1_lumend" * 256 + (mat:GetString "$bumpmap2" and 255 or 0) * 65536,
+        uvScale2.x, uvScale3.x, uvScale4.x, mat:GetInt "$texture3_blendmode",
+        uvScale2.y, uvScale3.y, uvScale4.y, mat:GetInt "$texture4_blendmode")
+end
+
 ---Creates render material and IMesh containers for each vertex batch.
 ---@param lightmapLayout ss.SurfaceBuilder.LightmapLayout    SortID-indexed material and lightmap data.
 ---@param vertexBatches  ss.SurfaceBuilder.MeshVertexBatch[] Draw-sized vertex batches to mirror.
@@ -541,15 +574,19 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
             materialInfo.BumpTextureTransform:GetField(2, 4),
             hasDetail and (materialInfo.DetailBlendFactor or 1) or 0)
         mat:SetMatrix("$viewprojmat", m)
-        m:SetUnpacked(
-            materialInfo.BlendMaskTransform:GetField(1, 1),
-            materialInfo.BlendMaskTransform:GetField(1, 2),
-            materialInfo.BlendMaskTransform:GetField(1, 4), 0,
-            materialInfo.BlendMaskTransform:GetField(2, 1),
-            materialInfo.BlendMaskTransform:GetField(2, 2),
-            materialInfo.BlendMaskTransform:GetField(2, 4), 0,
-            0, 0, 0, 0,
-            0, 0, 0, 0)
+        if materialInfo.HasBaseTexture3 then
+            set4WayBlendParams(m, materialInfo.Material)
+        else
+            m:SetUnpacked(
+                materialInfo.BlendMaskTransform:GetField(1, 1),
+                materialInfo.BlendMaskTransform:GetField(1, 2),
+                materialInfo.BlendMaskTransform:GetField(1, 4), 0,
+                materialInfo.BlendMaskTransform:GetField(2, 1),
+                materialInfo.BlendMaskTransform:GetField(2, 2),
+                materialInfo.BlendMaskTransform:GetField(2, 4), 0,
+                0, 0, 0, 0,
+                0, 0, 0, 0)
+        end
         mat:SetMatrix("$invviewprojmat", m)
         ss.InkMeshMaterials[mat] = materialInfo.Material
         renderBatch[#renderBatch + 1] = {
@@ -598,9 +635,15 @@ local function buildMeshVertexBatches(surfaceInfo, meshGroups, bumpmapOffsetsByF
                 ContinueVertexBatch()
                 local tr = v.DispPaintOrigin or v.Translation
                 local uv = worldToUV * tr + uvInfo.Translation * scale
+                local blend = v.BumpmapUV.z
                 currentVertices[#currentVertices + 1] = {
                     Position = v.Translation,
-                    Color = { 0, 0, 0, math.Clamp(v.BumpmapUV.z, 0, 255) },
+                    Color = {
+                        bit.band(blend, 255),
+                        bit.band(bit.rshift(blend, 8), 255),
+                        bit.rshift(blend, 16),
+                        255,
+                    },
                     UVRange = {
                         uvInfo.OffsetU + bilinearGuard,
                         uvInfo.OffsetV + bilinearGuard,

@@ -619,6 +619,17 @@ ss.bstruct "BSP.DISP_VERTS" {
     "Float  alpha",
 }
 
+---@class ss.Binary.BSP.DISP_MULTIBLEND
+---@field multiblend       number[] Blend factors (x, y, z, w); Lightmapped_4WayBlend blends layers 2, 3, and 4 by y, z, and w.
+---@field alphablend       number[]
+---@field multiblendColors Vector[]
+ss.bstruct "BSP.DISP_MULTIBLEND" {
+    Size = 80,
+    "Float  multiblend       4",
+    "Float  alphablend       4",
+    "Vector multiblendColors 4",
+}
+
 ---@class ss.Binary.BSP.CUBEMAPS
 ---@field origin Vector
 ---@field size   integer
@@ -757,10 +768,12 @@ ss.bstruct "BSP.GAME_LUMP.sprp" { -- Static Props
 ---@field DISPINFO                  ss.Binary.BSP.DISPINFO[]
 ---@field DISP_VERTS                ss.Binary.BSP.DISP_VERTS[]
 ---@field DISP_TRIS                 integer[]
+---@field DISP_MULTIBLEND           ss.Binary.BSP.DISP_MULTIBLEND[]
 ---@field LIGHTING                  string
 ---@field LIGHTING_HDR              string
 ---@field GAME_LUMP                 ss.Binary.BSP.GAME_LUMP
 ---@field TexDataStringTableToIndex integer[]
+---@field DispMultiBlendStart       table<integer, integer> DISPINFO index --> index of its first DISP_MULTIBLEND record
 ---@field [string]                  BSP.DefinedStructures
 ss.struct "RawBSPResults" {
     header = {
@@ -786,10 +799,12 @@ ss.struct "RawBSPResults" {
     DISPINFO = {},
     DISP_VERTS = {},
     DISP_TRIS = {},
+    DISP_MULTIBLEND = {},
     LIGHTING = "",
     LIGHTING_HDR = "",
     GAME_LUMP = { lumpCount = 0 },
     TexDataStringTableToIndex = {},
+    DispMultiBlendStart = {},
 }
 
 local GameLumpToRead = { sprp = "BSP.GAME_LUMP.sprp" }
@@ -820,6 +835,7 @@ local LumpsToRead = {
     DISPINFO             = "BSP.DISPINFO",
     DISP_VERTS           = "BSP.DISP_VERTS",
     DISP_TRIS            = "UShort",
+    DISP_MULTIBLEND      = "BSP.DISP_MULTIBLEND",
     LIGHTING             = "Raw",
     LIGHTING_HDR         = "Raw",
     CUBEMAPS             = "BSP.CUBEMAPS",
@@ -949,6 +965,18 @@ function ss.LoadBSP()
 
     print "    Constructing texture name table..."
     t.TexDataStringTableToIndex = table.Flip(t.TEXDATA_STRING_TABLE)
+
+    -- Only displacements with this flag have DISP_MULTIBLEND records, one per vertex, in DISPINFO order.
+    -- See engine/disp_mapload.cpp in Source.
+    print "    Associating displacement multiblend data..."
+    local DISP_INFO_FLAG_HAS_MULTIBLEND = 0x40000000
+    local multiblendStart = 1
+    for i, dispInfo in ipairs(t.DISPINFO) do
+        if bit.band(dispInfo.minTesselation, DISP_INFO_FLAG_HAS_MULTIBLEND) ~= 0 then
+            t.DispMultiBlendStart[i] = multiblendStart
+            multiblendStart = multiblendStart + (2 ^ dispInfo.power + 1) ^ 2
+        end
+    end
 
     local elapsed = math.Round((SysTime() - t0) * 1000, 2)
     print("Done.  Elapsed time: " .. elapsed .. " ms.")

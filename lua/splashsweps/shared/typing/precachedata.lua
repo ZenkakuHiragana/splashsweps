@@ -32,7 +32,8 @@ end
 ---@field LightmapTangent   Vector
 ---@field LightmapBinormal  Vector
 ---@field LightmapUV        Vector  Relative Lightmap UV values in luxels.
----@field BumpmapUV         Vector  Bumpmap UV coordinates of the original face in texels. Z = DISP_VERTS.alpha
+---@field BumpmapUV         Vector  Bumpmap UV coordinates of the original face in texels.
+---                                 Z = blend factors toward $basetexture2, 3, and 4 as b2 + b3 * 256 + b4 * 65536.
 ---@field DispPaintOrigin   Vector? Displacement-only world-space reference point used to compute paint/ink UV.
 ss.struct "PrecachedData.Vertex" (setmetatable({
     Vector(),
