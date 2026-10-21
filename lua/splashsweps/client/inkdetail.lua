@@ -7,6 +7,7 @@ local locals = ss.Locals ---@class ss.Locals
 if not locals.InkDetail then
     ---@class ss.Locals.InkDetail
     ---@field BaseTextureNames string[]                              $basetexture of each ink type, which also provides its average height
+    ---@field AverageHeights   table<string, number>                 Mean alpha of each texture's smallest stored mipmap
     ---@field CellImages       table<integer, ITexture>              Image copied into each grid cell, nil for generated cells
     ---@field Slots            table<integer, integer>               Grid cell of each ink type, nil if the ink type has no detail image
     ---@field Animations       table<integer, ss.InkDetailAnimation> External frame variable and last copied frame, per animated cell
@@ -20,6 +21,7 @@ if not locals.InkDetail then
     ---@field LastStates       table<string, table>                  Material name --> input snapshot from its last successful draw
     locals.InkDetail = {
         BaseTextureNames = {},
+        AverageHeights = {},
         CellImages = {},
         Slots = {},
         Animations = {},
@@ -63,12 +65,35 @@ local InkDetail            = locals.InkDetail
 ---@field State table Inputs of drawing, kept per material
 ---@field Draw ss.InkDetailDraw? Function returned by the updater
 
+---Averages the smallest stored mipmap, including levels the engine may omit without ALL_MIPS.
+---@param path string
+---@return number
+local function GetAverageHeight(path)
+    if InkDetail.AverageHeights[path] then return InkDetail.AverageHeights[path] end
+    local vtf = ss.ReadVTF(path)
+    ss.assert(vtf, "Automatic height baseline has invalid texture (" .. path .. ")") ---@cast vtf -?
+    local level = #vtf.Images
+    local image = vtf.Images[level]
+    local alpha = 0
+    for y = 0, image.Height - 1 do
+        for x = 0, image.Width - 1 do
+            alpha = alpha + ss.ReadPixelFromVTF(vtf, x, y, level).a
+        end
+    end
+    local average = alpha / (255 * image.Width * image.Height)
+    InkDetail.AverageHeights[path] = average
+    return average
+end
+
 ---Reads VMT settings and encodes numeric RGBA rows shared with inkmesh_common.hlsl.
 ---Lua row j corresponds to shader row ID j - 1; image cell numbers are 1-based here.
 ---@param mat IMaterial The material of the ink type
 ---@param detailSlot integer? Grid cell of the detail image, nil if the ink type has none
+---@param baseTextureName string Source of the automatic height baseline
 ---@return number[][] rows Data rows of four components each
-local function EncodeInkTypeRows(mat, detailSlot)
+local function EncodeInkTypeRows(mat, detailSlot, baseTextureName)
+    local heightbaseline = mat:GetFloat "$heightbaseline" or -1
+    if heightbaseline < 0 then heightbaseline = GetAverageHeight(baseTextureName) end
     local detailtexturetransform = mat:GetMatrix "$detailtexturetransform" or Matrix()
     local detailtransformscale   = detailtexturetransform:GetScale()
     local detailTranslationUV    = detailtexturetransform:GetTranslation()
@@ -91,7 +116,7 @@ local function EncodeInkTypeRows(mat, detailSlot)
             (mat:GetInt "$maxlayers" or 1) / 255,
             maxheight,
             math.Remap(mat:GetFloat "$heightmapscale" or 1, -1, 1, 0, 1),
-            mat:GetFloat "$heightbaseline" or -1,
+            heightbaseline,
         }, {
             mat:GetFloat "$erase"           or 0,
             mat:GetFloat "$flatten"         or 0,
@@ -198,15 +223,15 @@ local function WriteDetailCells(textures, drawRequests)
 end
 
 ---Writes data rows of ink types below the grid cells so that they can be read in the shader.
----A negative $heightbaseline is then replaced with the average height of $basetexture.
+---Automatic height baselines have already been resolved from the smallest stored mipmaps.
 ---The Details render target must be pushed and cam.Start2D() must be called beforehand.
 ---@param rowsByType table<integer, number[][]> Ink type index --> data rows from EncodeInkTypeRows()
 local function WriteInkTypeRows(rowsByType)
     if not next(rowsByType) then return end
-    local imageAreaSizePx = ss.RenderTarget.DetailsImageSize
-    local numRows         = 0
-    for _, rows in pairs(rowsByType) do
+    local numRows = 0
+    for i, rows in pairs(rowsByType) do
         numRows = numRows + #rows
+        InkDetail.ParameterRows[i] = rows
     end
 
     copyMaterial:SetTexture("$basetexture", "color/white")
@@ -217,6 +242,7 @@ local function WriteInkTypeRows(rowsByType)
         BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD,
         BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
     mesh.Begin(MATERIAL_POINTS, numRows)
+    local imageAreaSizePx = ss.RenderTarget.DetailsImageSize
     for i, rows in pairs(rowsByType) do
         for j, float4 in ipairs(rows) do
             mesh.Position(i, j + imageAreaSizePx, 0)
@@ -227,16 +253,6 @@ local function WriteInkTypeRows(rowsByType)
     end
     mesh.End()
     render.OverrideBlend(false)
-
-    -- Cache encoder inputs; a negative baseline is replaced only in the GPU texture below.
-    for i, rows in pairs(rowsByType) do
-        InkDetail.ParameterRows[i] = rows
-        local heightbaseline = rows[3][4]
-        if heightbaseline < 0 then
-            ss.CopyTextureToRect(InkDetail.BaseTextureNames[i],
-                ss.MakeRectangle(1, 1, i - 1, 3 - 1 + imageAreaSizePx), false, true)
-        end
-    end
 end
 
 ---@class ss.MaterialProxyKey
@@ -428,7 +444,9 @@ local function UpdateFromMaterials()
     local rowsByType = {} ---@type table<integer, number[][]>
     for _, entry in ipairs(InkDetail.ProxiedMaterials) do
         render.SetMaterial(entry.Material) -- Ink definitions need an explicit bind to execute their proxies.
-        local rows    = EncodeInkTypeRows(entry.Material, InkDetail.Slots[entry.Index])
+        local slot = InkDetail.Slots[entry.Index]
+        local btstr = InkDetail.BaseTextureNames[entry.Index]
+        local rows = EncodeInkTypeRows(entry.Material, slot, btstr)
         local changed = false
         for j, row in ipairs(rows) do
             for k, value in ipairs(row) do
@@ -496,7 +514,7 @@ function ss.PrepareInkDetailsRT(baseTextureNames)
             end
         end
 
-        rowsByType[i] = EncodeInkTypeRows(mat, slots[i])
+        rowsByType[i] = EncodeInkTypeRows(mat, slots[i], baseTextureNames[i])
         if hasProxies then
             proxiedMaterials[#proxiedMaterials + 1] = {
                 Material = mat,
@@ -588,7 +606,7 @@ end
 function ss.WriteInkTypesRT(imageCells, inkTypes)
     local rowsByType = {} ---@type table<integer, number[][]>
     for _, i in ipairs(inkTypes) do
-        rowsByType[i] = EncodeInkTypeRows(Material(ss.InkTypes[i].Identifier), InkDetail.Slots[i])
+        rowsByType[i] = EncodeInkTypeRows(Material(ss.InkTypes[i].Identifier), InkDetail.Slots[i], InkDetail.BaseTextureNames[i])
     end
     WriteAtlas(imageCells, rowsByType)
 end
