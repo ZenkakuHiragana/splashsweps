@@ -13,6 +13,7 @@ const float4 c0 : register(c0);
 // x = 0 -> do nothing special; just rendering
 // x = 1 -> additive flashlight
 // y -> Hammer Unit to UV multiplier
+// z -> Margin per side of each face cell in Hammer Units
 const float4 c1 : register(c1);
 
 const float4x4 Model_T_World : register(c11);
@@ -184,16 +185,17 @@ float3 PixelShaderDoLightingLinear(
     return linearColor;
 }
 
-//      sz   sx
-//    +----+----+
-// sx |  0 |    |
-//    +----+----+
-// sy |  1 |  4 |
-//    +----+----+
-//    |  2 |    |
-//    +----+----+
-//    |  3 |  5 |
-//    +----+----+
+// Each cell has a margin m = c1.z on both sides, and the face starts at m inside the cell.
+//            sz+2m   sx+2m
+//          +-------+-------+
+//   sx+2m  |   0   |       |
+//          +-------+-------+
+//   sy+2m  |   1   |   4   |
+//          +-------+-------+
+//   sx+2m  |   2   |       |
+//          +-------+-------+
+//   sy+2m  |   3   |   5   |
+//          +-------+-------+
 float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
     float3 localPos = mul(float4(worldPos, 1.0), Model_T_World).xyz;
     float3 localNormal = mul(float4(worldNormal, 0.0), Model_T_World).xyz;
@@ -201,6 +203,7 @@ float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
     float maxAbsComponent = max(absLocalNormal.x, max(absLocalNormal.y, absLocalNormal.z));
 
     const float uvScale = c1.y;
+    const float marginPerSide = c1.z;
     const float3 size = c0.xyz;
     const float3 normals[6] = {
         { 1.0, 0.0, 0.0 }, { 0.0,  1.0, 0.0 }, { 0.0, 0.0,  1.0 },
@@ -275,9 +278,9 @@ float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
 
     float2 faceSizeInAbsoluteUV = abs(mul(faceSizeInModelSystem, absoluteuvRlocaluv));
     float4x4 worldToUV = mul(faceTworld, absoluteuvRlocaluv4);
-    float3 faceUVOriginInLocalUV = size * uvOffsetCoefficients[faceIndex];
-    faceUVOriginInLocalUV.x += faceUVOriginInLocalUV.y;
-    faceUVOriginInLocalUV.y = faceUVOriginInLocalUV.z;
+    float3 faceUVOriginInLocalUV = (size + 2.0 * marginPerSide) * uvOffsetCoefficients[faceIndex];
+    faceUVOriginInLocalUV.x += faceUVOriginInLocalUV.y + marginPerSide;
+    faceUVOriginInLocalUV.y = faceUVOriginInLocalUV.z + marginPerSide;
     faceUVOriginInLocalUV.z = 0.0;
     float2 faceUVOriginInAbsoluteUV
         = mul(faceUVOriginInLocalUV.xy, absoluteuvRlocaluv)

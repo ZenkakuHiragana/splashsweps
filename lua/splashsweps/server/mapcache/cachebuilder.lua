@@ -97,7 +97,9 @@ end
 ---* +x, -x: size.y, size.z
 ---* +y, -y: size.x, size.z
 ---
----There are three patterns of unpacking and the one with minimum wasted spaces is selected:
+---There are three patterns of unpacking and the one with minimum wasted spaces is selected.
+---Each face cell additionally has m = ss.MARGIN_HAMMER_UNITS on both sides.
+---The figure below omits them, so the returned size has 8m in w (4 cells) and 4m in h (2 cells) in addition:
 ---
 ---```text
 ---.   (1)               (2)               (3)
@@ -116,24 +118,25 @@ end
 ---```
 ---@param mins Vector
 ---@param maxs Vector
----@return number
----@return number
----@return integer
+---@return number # w including the margins.
+---@return number # h including the margins.
+---@return integer # The selected pattern.
 local function GetStaticPropUVSize(mins, maxs)
     local size = maxs - mins
     local sx, sy, sz = size:Unpack()
+    local margin = 2 * ss.MARGIN_HAMMER_UNITS -- Both sides of each face cell
 
     -- Pattern 1
-    local width1 = 2 * (sx + sy)
-    local height1 = sx + sz
+    local width1 = 2 * (sx + sy) + 4 * margin
+    local height1 = sx + sz + 2 * margin
 
     -- Pattern 2
-    local width2 = 2 * (sy + sz)
-    local height2 = sx + sy
+    local width2 = 2 * (sy + sz) + 4 * margin
+    local height2 = sx + sy + 2 * margin
 
     -- Pattern 3
-    local width3 = 2 * (sx + sz)
-    local height3 = sy + sz
+    local width3 = 2 * (sx + sz) + 4 * margin
+    local height3 = sy + sz + 2 * margin
 
     -- Find the pattern with the smallest area
     if sx < sy and sx < sz then

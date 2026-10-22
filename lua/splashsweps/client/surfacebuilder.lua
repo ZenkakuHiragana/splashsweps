@@ -893,6 +893,7 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                 mdl:SetKeyValue("fademindist", prop.FadeMin or -1)
                 mdl:SetKeyValue("fademaxdist", prop.FadeMax or 0)
                 mdl:SetModelScale(prop.Scale or 1)
+                mdl:SetSkin(prop.Skin or 0)
                 mdl.RenderOverride = RenderOverride
                 local fadeMax = prop.FadeMax and prop.FadeMax > 0 and prop.FadeMax or false
                 local mins, maxs = mdl:GetModelBounds()
@@ -941,6 +942,7 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                     ["$c0_y"] = size.y,
                     ["$c0_z"] = size.z,
                     ["$c1_x"] = 0,
+                    ["$c1_z"] = ss.MARGIN_HAMMER_UNITS,
                     ["$c0_w"] = prop.UnwrapIndex,
                 })
                 for j, name in ipairs(mdl:GetMaterials()) do

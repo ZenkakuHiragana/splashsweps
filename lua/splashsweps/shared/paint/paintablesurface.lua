@@ -285,6 +285,10 @@ end
 ---.    u
 ---```
 ---
+---Each cell above additionally has `m = ss.MARGIN_HAMMER_UNITS` on both sides like the other surfaces,
+---so the cell of a face with `uvOffsetCoefficients = (a, b, c)` starts at
+---`u = a * (sx + 2m) + b * (sy + 2m)` and `v = c * (sz + 2m)`, and its face starts at `m` inside the cell.
+---
 ---The area of total wasted space is `2 * sx * sx`, so if `sx` is not the shortest,
 ---We swap the basis of the OBB as follows:
 ---
@@ -327,6 +331,8 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
         vec(2, 1, 0), vec(1, 1, 0), vec(2, 1, 1),
         vec(1, 0, 0), vec(0, 0, 0), vec(1, 0, 1),
     }
+    local marginPerSide = ss.MARGIN_HAMMER_UNITS
+    local bothSidesMargin = ss.vector_one * 2 * marginPerSide
     local worldTmodel = Matrix()
     local absoluteuvRlocaluv = Matrix()
     local modelUVOriginInAbsoluteUV = Vector()
@@ -346,28 +352,16 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
         end
 
         local modelTworld = worldTmodel:GetInverseTR()
-        local obbHalfExtent = boundingBoxSize / 2
-        local aabbCenter = worldTmodel * obbHalfExtent
-        local aabbHalfExtent = Vector(
-            obbHalfExtent.x * math.abs(worldTmodel:GetField(1, 1)) +
-            obbHalfExtent.y * math.abs(worldTmodel:GetField(1, 2)) +
-            obbHalfExtent.z * math.abs(worldTmodel:GetField(1, 3)),
-            obbHalfExtent.x * math.abs(worldTmodel:GetField(2, 1)) +
-            obbHalfExtent.y * math.abs(worldTmodel:GetField(2, 2)) +
-            obbHalfExtent.z * math.abs(worldTmodel:GetField(2, 3)),
-            obbHalfExtent.x * math.abs(worldTmodel:GetField(3, 1)) +
-            obbHalfExtent.y * math.abs(worldTmodel:GetField(3, 2)) +
-            obbHalfExtent.z * math.abs(worldTmodel:GetField(3, 3)))
-        local aabbMax = aabbCenter + aabbHalfExtent
-        local aabbMin = aabbCenter - aabbHalfExtent
-        local hammerToPixel ---@type number
+        local aabbMin, aabbMax = ss.TransformAABB(worldTmodel, vector_origin, boundingBoxSize)
+        local uvScale ---@type number
+        local bilinearGuard ---@type number
         local isRotated ---@type boolean
         if CLIENT then
             local rtIndex = #ss.RenderTarget.Resolutions
             local rtSize = ss.RenderTarget.Resolutions[rtIndex]
-            local uvScale = ss.RenderTarget.HammerUnitsToUV or 1
             local uv = setmetatable(uvInfo[i][rtIndex], StaticPropUVMeta)
-            hammerToPixel = uvScale * rtSize
+            uvScale = ss.RenderTarget.HammerUnitsToUV
+            bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
             isRotated = uv.Offset.z > 0
             if isRotated then
                 -- +--------> v
@@ -430,7 +424,7 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
                 --         modelUVOriginInAbsoluteUV
                 --         + absoluteuvRlocaluv * faceUVOrigin (in model system)
                 --                    |
-                -- +-------------> v  |    ,--- faceUVOrigin = (OffsetU, OffsetV)
+                -- +-------------> v  |    ,--- faceUVOrigin (the clip range adds the margin around it)
                 -- |\\                |   /
                 -- | \ \             /   @=====> v" ----+ (x , y )
                 -- |  \  \          /    |              |    face local system
@@ -443,7 +437,7 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
                 --           \         \ |              |    from static prop UV info
                 --            \          X=====> x -----+ (u", v")
                 --            /\  v'    /                    face local UV
-                --           /  \ ^   /                      stored to WorldToUVMatrix
+                --           /  \ ^   /                      WorldToUVRow1/2 maps the world to (u, v)
                 --          /    \| / <--- faceUVOrigin (in model system)
                 --         |      *-----> u'
                 --         |
@@ -452,15 +446,16 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
                 faceSizeInAbsoluteUV:SetUnpacked(
                     math.abs(faceSizeInAbsoluteUV.x),
                     math.abs(faceSizeInAbsoluteUV.y), 0)
-                local faceUVOrigin = boundingBoxSize * uvOffsetCoefficients[j]
+                local faceUVOrigin = (boundingBoxSize + bothSidesMargin) * uvOffsetCoefficients[j]
                 faceUVOrigin:SetUnpacked(
-                    faceUVOrigin.x + faceUVOrigin.y,
-                    faceUVOrigin.z, 0) -- in model local UV
+                    faceUVOrigin.x + faceUVOrigin.y + marginPerSide,
+                    faceUVOrigin.z + marginPerSide, 0) -- in model local UV
                 faceUVOrigin:Rotate(absoluteuvRlocaluv:GetAngles())
                 faceUVOrigin:Add(modelUVOriginInAbsoluteUV) -- in absolute UV
-                faceUVOrigin.x = faceUVOrigin.x - (isRotated and faceSizeInAbsoluteUV.x or 0)
                 worldToUV:Set(absoluteuvRlocaluv)
-                worldToUV:SetField(1, 4, isRotated and faceSizeInAbsoluteUV.x or 0) -- Translation X
+                worldToUV:SetField(1, 4, faceUVOrigin.x)
+                worldToUV:SetField(2, 4, faceUVOrigin.y)
+                faceUVOrigin.x = faceUVOrigin.x - (isRotated and faceSizeInAbsoluteUV.x or 0)
                 worldToUV:Mul(ps.WorldToLocalGridMatrix) -- absoluteuvTlocaluv * faceTworld
                 ps.WorldToUVRow1 = {
                     worldToUV:GetField(1, 1),
@@ -474,10 +469,10 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
                     worldToUV:GetField(2, 3),
                     worldToUV:GetField(2, 4),
                 }
-                ps.OffsetU  = faceUVOrigin.x * hammerToPixel
-                ps.OffsetV  = faceUVOrigin.y * hammerToPixel
-                ps.UVWidth  = faceSizeInAbsoluteUV.x * hammerToPixel
-                ps.UVHeight = faceSizeInAbsoluteUV.y * hammerToPixel
+                ps.OffsetU  = (faceUVOrigin.x - marginPerSide) * uvScale + bilinearGuard
+                ps.OffsetV  = (faceUVOrigin.y - marginPerSide) * uvScale + bilinearGuard
+                ps.UVWidth  = (faceSizeInAbsoluteUV.x + 2 * marginPerSide) * uvScale - 2 * bilinearGuard
+                ps.UVHeight = (faceSizeInAbsoluteUV.y + 2 * marginPerSide) * uvScale - 2 * bilinearGuard
             end
             ss.SurfaceArray[index] = ps
         end

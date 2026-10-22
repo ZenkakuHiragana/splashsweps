@@ -1014,6 +1014,53 @@ function ss.BuildSurfaceCache(bsp, ishdr)
     return surfInfo, water
 end
 
+---studiohdr_t::illumposition follows id, version, checksum, name[64], length, and eyeposition.
+local STUDIOHDR_ILLUMPOSITION_OFFSET = 92
+
+---Corresponds to STATIC_PROP_USE_LIGHTING_ORIGIN in gamebspfile.h.
+local STATIC_PROP_USE_LIGHTING_ORIGIN = 0x2
+
+---Reads studiohdr_t::illumposition of the model.
+---@param name string Path to the model.
+---@return Vector # The model origin if the model cannot be opened.
+local function ReadIlluminationPosition(name)
+    local f = file.Open(name, "rb", "GAME")
+    if not f then return Vector() end
+    f:Seek(STUDIOHDR_ILLUMPOSITION_OFFSET)
+    local illumposition = Vector(f:ReadFloat(), f:ReadFloat(), f:ReadFloat())
+    f:Close()
+    return illumposition
+end
+
+---Finds the cubemap sample the engine uses for a static prop:
+---the nearest one to the lighting origin as FindEnvCubemapForPoint in lightcache.cpp does.
+---The lighting origin is the one in the lump if STATIC_PROP_USE_LIGHTING_ORIGIN is set,
+---or illumposition of the model transformed by the prop otherwise as CStaticProp::Init does.
+---This is also the case for models whose illumposition is relative to an attachment
+---because CStaticProp::GetAttachment returns the transform of the prop itself.
+---@param bsp           ss.RawBSPResults
+---@param prop          ss.Binary.BSP.StaticProp
+---@param illumposition Vector illumposition of the model.
+---@return integer # Index to the cubemap samples in the lump, or 0 if the map has no cubemaps.
+local function FindStaticPropCubemap(bsp, prop, illumposition)
+    local lightingOrigin = prop.lightingOrigin
+    if bit.band(prop.flags, STATIC_PROP_USE_LIGHTING_ORIGIN) == 0 then
+        lightingOrigin = LocalToWorld(illumposition, angle_zero, prop.origin, prop.angle)
+    end
+
+    local nearestIndex = 0
+    local nearestDistanceSqr = math.huge
+    for i, sample in ipairs(bsp.CUBEMAPS or {}) do
+        local distanceSqr = lightingOrigin:DistToSqr(sample.origin)
+        if distanceSqr < nearestDistanceSqr then
+            nearestIndex = i
+            nearestDistanceSqr = distanceSqr
+        end
+    end
+
+    return nearestIndex
+end
+
 ---Extracts surfaces from static props.
 ---@param bsp ss.RawBSPResults
 ---@param cache ss.PrecachedData
@@ -1021,6 +1068,7 @@ function ss.BuildStaticPropCache(bsp, cache)
     print "Generating static prop surfaces..."
     local results = {} ---@type ss.PrecachedData.StaticProp[]
     local uvinfo = {} ---@type ss.PrecachedData.StaticProp.UVInfo[][]
+    local illumpositions = {} ---@type table<string, Vector>
     for _, prop in ipairs(bsp.sprp.prop or {}) do
         if prop.solid > 0 then
             local modelIndex = prop.propType + 1
@@ -1030,6 +1078,7 @@ function ss.BuildStaticPropCache(bsp, cache)
             local surf = util.GetSurfaceData(index)
             if info and surf and surf.material ~= MAT_GRATE then
                 local scale = prop.uniformScale or 1
+                illumpositions[name] = illumpositions[name] or ReadIlluminationPosition(name)
                 results[#results + 1] = {
                     Angles = prop.angle,
                     BoundsMax = info.HullMax * scale,
@@ -1039,7 +1088,9 @@ function ss.BuildStaticPropCache(bsp, cache)
                     ModelIndex = modelIndex,
                     Position = prop.origin,
                     Scale = scale,
+                    Skin = prop.skin,
                     UnwrapIndex = 1,
+                    CubemapIndex = FindStaticPropCubemap(bsp, prop, illumpositions[name]),
                 }
                 uvinfo[#uvinfo + 1] = {}
                 for i = 1, #ss.RenderTarget.Resolutions do

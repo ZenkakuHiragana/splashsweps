@@ -80,13 +80,14 @@ function ss.BuildSurfaceHash(surfaces, staticProps, hash)
         end
     end
 
+    local localToWorld = Matrix()
     for i, s in ipairs(staticProps) do
-        local localToWorld = Matrix()
+        -- World AABB of the rotated OBB, plus the margin as the other surfaces have
         localToWorld:SetAngles(s.Angles)
         localToWorld:SetTranslation(s.Position)
-        local maxs = localToWorld * s.BoundsMax
-        local mins = localToWorld * s.BoundsMin
-        OrderVectors(mins, maxs)
+        local mins, maxs = ss.TransformAABB(localToWorld, s.BoundsMin, s.BoundsMax)
+        mins:Sub(vector_one * ss.MARGIN_HAMMER_UNITS)
+        maxs:Add(vector_one * ss.MARGIN_HAMMER_UNITS)
         for h in hashpairs(mins, maxs) do
             hash[h] = hash[h] or {}
             for j = 1, 6 do

@@ -39,7 +39,8 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
                 UV = info,
                 Rectangle = rect,
             }
-            rects[#surfaces + i] = ss.MakeRectangle(rect.x + margin, rect.y + margin, 0, 0, tag)
+            -- The rectangle already includes the margins of each face; see GetStaticPropUVSize.
+            rects[#surfaces + i] = ss.MakeRectangle(rect.x, rect.y, 0, 0, tag)
         end
 
         local packer = ss.MakeRectanglePacker(rects):packall()
@@ -74,8 +75,8 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
                     workMatrix:GetTranslation() + rect.bottomleft + marginVector)
             else ---@cast tag { UV: ss.PrecachedData.StaticProp.UVInfo, Rectangle: Vector }
                 local rotated = rect.istall ~= (tag.Rectangle.x < tag.Rectangle.y)
-                tag.UV.Width = width - margin
-                tag.UV.Height = height - margin
+                tag.UV.Width = width
+                tag.UV.Height = height
                 tag.UV.Offset:SetUnpacked(rect.left, rect.bottom, rotated and 1 or 0)
             end
         end

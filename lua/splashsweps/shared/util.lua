@@ -66,3 +66,22 @@ end
 function ss.MaxVector(a, b)
     return Vector(math.max(a.x, b.x), math.max(a.y, b.y), math.max(a.z, b.z))
 end
+
+---Calculates AABB in another coordinate system containing given AABB.
+---@param m    VMatrix Transformation to the target coordinate system.
+---@param mins Vector  AABB minimum.
+---@param maxs Vector  AABB maximum.
+---@return Vector mins AABB minimum in the target coordinate system.
+---@return Vector maxs AABB maximum in the target coordinate system.
+function ss.TransformAABB(m, mins, maxs)
+    local center = m * ((mins + maxs) / 2)
+    local halfExtent = (maxs - mins) / 2
+    local function extent(i)
+        return halfExtent.x * math.abs(m:GetField(i, 1))
+             + halfExtent.y * math.abs(m:GetField(i, 2))
+             + halfExtent.z * math.abs(m:GetField(i, 3))
+    end
+
+    local transformedHalfExtent = Vector(extent(1), extent(2), extent(3))
+    return center - transformedHalfExtent, center + transformedHalfExtent
+end

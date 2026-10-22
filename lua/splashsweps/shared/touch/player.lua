@@ -52,25 +52,6 @@ local function DrawNearestOnFlatSurface(surf, toWorld, worldToLocal, nearestFrom
     end
 end
 
----Calculates AABB in another coordinate system containing given AABB.
----@param m    VMatrix Transformation to the target coordinate system.
----@param mins Vector  AABB minimum.
----@param maxs Vector  AABB maximum.
----@return Vector mins AABB minimum in the target coordinate system.
----@return Vector maxs AABB maximum in the target coordinate system.
-local function TransformAABB(m, mins, maxs)
-    local center = m * ((mins + maxs) / 2)
-    local halfExtent = (maxs - mins) / 2
-    local function extent(i)
-        return halfExtent.x * math.abs(m:GetField(i, 1))
-             + halfExtent.y * math.abs(m:GetField(i, 2))
-             + halfExtent.z * math.abs(m:GetField(i, 3))
-    end
-
-    local transformedHalfExtent = Vector(extent(1), extent(2), extent(3))
-    return center - transformedHalfExtent, center + transformedHalfExtent
-end
-
 local lastTrace ---@type Structure.TraceResult
 local lastAim = Vector()
 hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
@@ -152,7 +133,7 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     -- Brush models have no displacements, so their surfaces are always flat.
     for ent, modelIndex, worldToModel in ss.CollectBrushEntities(queryMins, queryMaxs) do
         local modelToWorld = ent:GetWorldTransformMatrix()
-        local localMins, localMaxs = TransformAABB(worldToModel, queryMins, queryMaxs)
+        local localMins, localMaxs = ss.TransformAABB(worldToModel, queryMins, queryMaxs)
         for surf in ss.CollectBrushModelSurfaces(modelIndex, localMins, localMaxs) do
             DrawSurfaceBounds(surf, modelToWorld, t)
             DrawNearestOnFlatSurface(surf, modelToWorld, worldToModel, nearestFrom, t)

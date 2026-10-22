@@ -46,17 +46,17 @@ ss.struct "PrecachedData.Vertex" (setmetatable({
     Vector(),
     nil,
 }, {
-    Translation       = 1,
-    Normal            = 2,
-    Tangent           = 3,
-    Binormal          = 4,
-    LightmapTangent   = 5,
-    LightmapBinormal  = 6,
-    LightmapUV        = 7,
-    BumpmapUV         = 8,
-    DispPaintOrigin   = 9,
-    __index           = indexer,
-    __newindex        = newindexer,
+    Translation      = 1,
+    Normal           = 2,
+    Tangent          = 3,
+    Binormal         = 4,
+    LightmapTangent  = 5,
+    LightmapBinormal = 6,
+    LightmapUV       = 7,
+    BumpmapUV        = 8,
+    DispPaintOrigin  = 9,
+    __index          = indexer,
+    __newindex       = newindexer,
 }))
 
 ---Precached transformation matrix stored in a local file.
@@ -113,8 +113,8 @@ ss.struct "PrecachedData.DirectionalLight" (setmetatable({
 ---Offset (left and top position) in the UV space in hammer units.
 ---Z indicates if this rectangle is rotated.
 ---@field Offset Vector
----@field Width  number Width in the UV space in hammer units.
----@field Height number Height in the UV space in hammer units.
+---@field Width  number Width in the UV space in hammer units, including the margins of each face.
+---@field Height number Height in the UV space in hammer units, including the margins of each face.
 ss.struct "PrecachedData.StaticProp.UVInfo" (setmetatable({
     Vector(),
     0,
@@ -172,15 +172,18 @@ ss.struct "PrecachedData.UVInfo" (setmetatable({
 
 ---Fetched static prop information from the Game lump.
 ---@class ss.PrecachedData.StaticProp
----@field Angles      Angle   The angle of the prop.
----@field BoundsMax   Vector  OBB maximum.
----@field BoundsMin   Vector  OBB minimum.
----@field FadeMax     number  Fade-out distance which completely hides this model.
----@field FadeMin     number  Fade-out distance which starts fading.
----@field ModelIndex  integer Index to array of paths to mdl.
----@field Position    Vector  The origin.
----@field Scale       number  The model scale of this prop.
----@field UnwrapIndex integer Describes how the bounding box is unwrapped in UV space.  See GetStaticPropUVSize in cachebuilder.lua.
+---@field Angles       Angle   The angle of the prop.
+---@field BoundsMax    Vector  OBB maximum.
+---@field BoundsMin    Vector  OBB minimum.
+---@field FadeMax      number  Fade-out distance which completely hides this model.
+---@field FadeMin      number  Fade-out distance which starts fading.
+---@field ModelIndex   integer Index to array of paths to mdl.
+---@field Position     Vector  The origin.
+---@field Scale        number  The model scale of this prop.
+---@field Skin         integer The skin of this prop.
+---@field UnwrapIndex  integer Describes how the bounding box is unwrapped in UV space.  See GetStaticPropUVSize in cachebuilder.lua.
+---@field CubemapIndex integer Index to the cubemap the engine uses for this prop, or 0 if none.
+---                            It is the index in the cubemap lump, which is the same as ss.PrecachedData.SurfaceInfo.Cubemaps.
 ss.struct "PrecachedData.StaticProp" (setmetatable({
     Angle(),
     Vector(),
@@ -191,16 +194,20 @@ ss.struct "PrecachedData.StaticProp" (setmetatable({
     Vector(),
     1,
     1,
+    0,
+    0,
 }, {
-    Angles      = 1,
-    BoundsMax   = 2,
-    BoundsMin   = 3,
-    FadeMax     = 4,
-    FadeMin     = 5,
-    ModelIndex  = 6,
-    Position    = 7,
-    Scale       = 8,
-    UnwrapIndex = 9,
+    Angles       = 1,
+    BoundsMax    = 2,
+    BoundsMin    = 3,
+    FadeMax      = 4,
+    FadeMin      = 5,
+    ModelIndex   = 6,
+    Position     = 7,
+    Scale        = 8,
+    UnwrapIndex  = 9,
+    Skin         = 10,
+    CubemapIndex = 11,
     __index    = indexer,
     __newindex = newindexer,
 }))
