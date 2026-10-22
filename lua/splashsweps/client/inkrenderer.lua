@@ -193,6 +193,25 @@ local function DrawMesh(handler)
     end
 end
 
+local function DrawFlashlightMeshes()
+    for _, model in ipairs(ss.RenderBatches) do
+        local ent = model.BrushEntity
+        if #model.FlashlightMeshes > 0 and (not ent or IsValid(ent)) then
+            if IsValid(ent) then ---@cast ent -?
+                cam.PushModelMatrix(ent:GetWorldTransformMatrix())
+            end
+
+            for _, m in ipairs(model.FlashlightMeshes) do
+                m:Draw()
+            end
+
+            if IsValid(ent) then
+                cam.PopModelMatrix()
+            end
+        end
+    end
+end
+
 local function DrawNormalMeshes()
     currentNormalMaterial = nil
     DrawMesh(DrawNormalMesh)
@@ -316,7 +335,7 @@ function(bDrawingDepth, bDrawingSkybox)
     render.DrawQuad(ScreenQuadCorners[1], ScreenQuadCorners[2], ScreenQuadCorners[3], ScreenQuadCorners[4])
     render.RenderFlashlights(function()
         render.SetMaterial(FlashlightBakeMaterial)
-        DrawMesh(DrawMeshOnly)
+        DrawFlashlightMeshes()
     end)
     render.PopRenderTarget()
 

@@ -737,6 +737,37 @@ local function writeMeshVertexBatches(renderBatch, vertexBatches)
     end
 end
 
+---Writes the positions and normals of all vertex batches into as few IMeshes as possible.
+---The flashlight pass draws them with a single material, so the batches need no split by material.
+---@param renderBatch   ss.RenderBatch                      Render batch to store the meshes.
+---@param vertexBatches ss.SurfaceBuilder.MeshVertexBatch[] Vertex batches of the model.
+local function writeFlashlightMeshes(renderBatch, vertexBatches)
+    local flashlightMaterial = Material "splashsweps/shaders/lightmappedgeneric"
+    local vertices = {} ---@type ss.SurfaceBuilder.MeshVertex[]
+    local function flush()
+        if #vertices == 0 then return end
+        local m = Mesh(flashlightMaterial)
+        mesh.Begin(m, MATERIAL_TRIANGLES, #vertices / 3)
+        for _, v in ipairs(vertices) do
+            mesh.Position(v.Position)
+            mesh.Normal(v.WorldNormal_dU[1], v.WorldNormal_dU[2], v.WorldNormal_dU[3])
+            mesh.AdvanceVertex()
+        end
+        mesh.End()
+        renderBatch.FlashlightMeshes[#renderBatch.FlashlightMeshes + 1] = m
+        vertices = {}
+    end
+
+    -- Each batch holds whole triangles, so a full mesh never splits one.
+    for _, vertexBatch in ipairs(vertexBatches) do
+        for _, v in ipairs(vertexBatch.Vertices) do
+            if #vertices >= MAX_TRIANGLES * 3 then flush() end
+            vertices[#vertices + 1] = v
+        end
+    end
+    flush()
+end
+
 ---Coordinates material enumeration, lightmap packing, batching, and final IMesh construction.
 ---@param surfaceInfo    ss.PrecachedData.SurfaceInfo Cached BSP surface data used to build ink meshes.
 ---@param materialsInMap string[]                     Map material names, usually from game.GetMap():GetMaterials().
@@ -753,6 +784,7 @@ local function BuildInkMesh(surfaceInfo, materialsInMap)
         local renderBatch = buildRenderBatches(lightmapLayout, vertexBatches, ss.RenderBatches[modelIndex])
         storeDebugMeshData(ss.DebugMeshData, vertexBatches)
         writeMeshVertexBatches(renderBatch, vertexBatches)
+        writeFlashlightMeshes(renderBatch, vertexBatches)
     end
 end
 
@@ -779,7 +811,7 @@ function ss.SetupModels(surfaceInfo, numModels, materialNames)
     end)
 
     for i = 1, numModels do
-        ss.RenderBatches[i] = { BrushEntity = entities[i - 1] }
+        ss.RenderBatches[i] = { BrushEntity = entities[i - 1], FlashlightMeshes = {} }
     end
 
     BuildInkMesh(surfaceInfo, materialNames)

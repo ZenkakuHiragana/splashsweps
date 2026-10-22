@@ -7,6 +7,7 @@ if not SplashSWEPs then
 
     ---@class ss.RenderBatch
     ---@field BrushEntity Entity? The brush entity tied to this mesh, if any.
+    ---@field FlashlightMeshes IMesh[] Positions and normals of all the surfaces in this model, for the flashlight pass.
     ---@field [integer] ss.MeshData List of meshes to render this model.
 
     ---@class ss
