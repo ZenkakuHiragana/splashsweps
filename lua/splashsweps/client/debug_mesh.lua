@@ -209,7 +209,7 @@ concommand.Add("ss_debug_shader_screen", function(_, _, args)
     if screenDebugEnabled then
         hook.Add("PostDrawOpaqueRenderables", hookScreen, DrawScreenDebug)
         hook.Add("HUDPaint", hookScreen, function()
-            render.DrawTextureToScreenRect(ss.RenderTarget.FrameTextures.SceneColorDepth, 16, 16, 512, 1024 * ScrH() / ScrW())
+            render.DrawTextureToScreenRect(ss.RenderTarget.FrameTextures.SceneAndFlashlight, 16, 16, 512, 1024 * ScrH() / ScrW())
         end)
     else
         hook.Remove("PostDrawOpaqueRenderables", hookScreen)

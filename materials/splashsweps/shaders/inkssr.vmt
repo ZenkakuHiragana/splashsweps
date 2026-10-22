@@ -2,7 +2,7 @@
 {
     "$vertexshader"           "splashsweps/inkssr_vs30"
     "$pixshader"              "splashsweps/inkssr_ps30"
-    "$basetexture"            "splashsweps_scenecolordepth"
+    "$basetexture"            "splashsweps_sceneandflashlight"
     "$texture1"               "splashsweps_gbuf_inkcolor"
     "$texture2"               "splashsweps_gbuf_inknormals"
     "$texture3"               "__rt_supertexture1"

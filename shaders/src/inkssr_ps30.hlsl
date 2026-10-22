@@ -1,6 +1,6 @@
 #include "inkmesh_common.hlsl"
 
-sampler SceneColorDepth : register(s0);
+sampler SceneAndFlashlight : register(s0);
 sampler GBufInkColor    : register(s1);
 sampler GBufInkNormals  : register(s2);
 sampler GBufReflection  : register(s3);
@@ -27,11 +27,11 @@ static const float3 g_ViewUp      = c12.xyz;
 static const float3 g_ViewForward = c13.xyz;
 static const float3 g_ViewOrigin  = c14.xyz;
 
-// SceneColorDepth stacks the frame buffer copy with the view depth in alpha (upper half)
+// SceneAndFlashlight stacks the frame buffer copy with the view depth in alpha (upper half)
 // on the flashlight light of the ink meshes (lower half).
 // The frame buffer is read with bilinear filtering, so its v stops half a texel before the lower half.
 float4 SampleScene(float2 screenUV) {
-    return tex2Dlod(SceneColorDepth, float4(screenUV.x, min(screenUV.y * 0.5, 0.5 - s0Size.y * 0.5), 0.0, 0.0));
+    return tex2Dlod(SceneAndFlashlight, float4(screenUV.x, min(screenUV.y * 0.5, 0.5 - s0Size.y * 0.5), 0.0, 0.0));
 }
 
 float3 ReconstructWorldPosition(float2 uv, float viewDepth) {

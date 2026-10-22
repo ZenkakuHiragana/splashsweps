@@ -4,7 +4,7 @@
     "$pixshader"              "splashsweps/inkmesh_ps30"
     "$basetexture"            "splashsweps_inkmap"
     "$texture1"               "splashsweps_details"
-    "$texture2"               "splashsweps_scenecolordepth"
+    "$texture2"               "splashsweps_sceneandflashlight"
     "$texture3"               "white"
     "$texture4"               "null-bumpmap"
     "$texture5"               "null"

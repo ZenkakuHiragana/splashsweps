@@ -44,10 +44,10 @@ local MAX_VERTEX_SIZE_KB = (1024 + 512) * 1024 -- Maximum size of dynamic mesh h
 local MAX_QUADS = math.floor(MAX_VERTEX_SIZE_KB / (NUM_VERTEX * SIZEOF_VERTEX))
 
 local FullFrameFb1 = render.GetScreenEffectTexture(1)
-local CopyFrameBufferMaterial = Material "splashsweps/shaders/copyfb"
-local CopyBackgroundMaterial = Material "splashsweps/shaders/copyfb_background"
-local CopyDepthMaterial = Material "splashsweps/shaders/copydepth"
-local FlashlightMaterial = Material "splashsweps/shaders/flashlight"
+local SceneCopyMaterial = Material "splashsweps/shaders/scene_copy"
+local InkColorInitMaterial = Material "splashsweps/shaders/gbuf_inkcolor_init"
+local FlashlightInitMaterial = Material "splashsweps/shaders/flashlight_init"
+local FlashlightBakeMaterial = Material "splashsweps/shaders/lightmappedgeneric"
 local SSRTraceMaterial = Material "splashsweps/shaders/inkssr"
 local SSRCompositeMaterial = Material "splashsweps/shaders/inkssr_compose"
 local SSRDownsampleMaterial = Material "splashsweps/shaders/inkssr_downsample"
@@ -60,7 +60,7 @@ local net_ReadInt = net.ReadInt
 local net_ReadUInt = net.ReadUInt
 local Vector, Angle = Vector, Angle
 
-local CopyCorners = { Vector(0, 0, 0), Vector(1, 0, 0), Vector(1, 1, 0), Vector(0, 1, 0) }
+local ScreenQuadCorners = { Vector(0, 0, 0), Vector(1, 0, 0), Vector(1, 1, 0), Vector(0, 1, 0) }
 
 ---CurTime() based time to perform traces to check player's ink state.
 ---@type ss.Locals.Renderer.Queue[]
@@ -218,8 +218,8 @@ local function UpdateViewParameters()
 
     -- Maps the view depth to the depth buffer value of the current projection.
     local znear, zfar = view.znear, view.zfar
-    CopyDepthMaterial:SetFloat("$c0_x", zfar / (zfar - znear))
-    CopyDepthMaterial:SetFloat("$c0_y", -znear * zfar / (zfar - znear))
+    FlashlightInitMaterial:SetFloat("$c0_x", zfar / (zfar - znear))
+    FlashlightInitMaterial:SetFloat("$c0_y", -znear * zfar / (zfar - znear))
 end
 
 hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
@@ -296,29 +296,26 @@ function(bDrawingDepth, bDrawingSkybox)
         return
     end
 
+    -- Frame buffer copy for SSR reflection and underlay sampling
     UpdateViewParameters()
     render.CopyRenderTargetToTexture(FullFrameFb1)
-    -- Background of InkColor; zero alpha marks it as not a painted surface.
-    -- The other G-buffers are read only where InkColor's alpha marks a painted surface,
-    -- and the ink meshes write all of them there, so they need no clearing.
     render.PushRenderTarget(ss.RenderTarget.FrameTextures.InkColor)
     render.ClearDepth(false)
-    render.SetMaterial(CopyBackgroundMaterial)
-    render.DrawQuad(CopyCorners[1], CopyCorners[2], CopyCorners[3], CopyCorners[4])
+    render.SetMaterial(InkColorInitMaterial)
+    render.DrawQuad(ScreenQuadCorners[1], ScreenQuadCorners[2], ScreenQuadCorners[3], ScreenQuadCorners[4])
     render.PopRenderTarget()
 
-    -- Upper half of SceneColorDepth: frame buffer color and view depth.
+    -- Upper half of SceneAndFlashlight: frame buffer color and view depth.
     -- Lower half: light the ink meshes receive from flashlights, behind the scene depth.
     local w, h = ScrW(), ScrH()
-    render.PushRenderTarget(ss.RenderTarget.FrameTextures.SceneColorDepth, 0, 0, w, h)
-    render.SetMaterial(CopyFrameBufferMaterial)
-    render.DrawQuad(CopyCorners[1], CopyCorners[2], CopyCorners[3], CopyCorners[4])
+    render.PushRenderTarget(ss.RenderTarget.FrameTextures.SceneAndFlashlight, 0, 0, w, h)
+    render.SetMaterial(SceneCopyMaterial)
+    render.DrawQuad(ScreenQuadCorners[1], ScreenQuadCorners[2], ScreenQuadCorners[3], ScreenQuadCorners[4])
     render.SetViewPort(0, h, w, h)
-    render.Clear(0, 0, 0, 0, true, false)
-    render.SetMaterial(CopyDepthMaterial)
-    render.DrawQuad(CopyCorners[1], CopyCorners[2], CopyCorners[3], CopyCorners[4])
+    render.SetMaterial(FlashlightInitMaterial)
+    render.DrawQuad(ScreenQuadCorners[1], ScreenQuadCorners[2], ScreenQuadCorners[3], ScreenQuadCorners[4])
     render.RenderFlashlights(function()
-        render.SetMaterial(FlashlightMaterial)
+        render.SetMaterial(FlashlightBakeMaterial)
         DrawMesh(DrawMeshOnly)
     end)
     render.PopRenderTarget()

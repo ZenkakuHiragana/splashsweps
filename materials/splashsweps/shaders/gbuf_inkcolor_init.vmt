@@ -1,7 +1,7 @@
 "Screenspace_General"
 {
     "$pixshader"              "splashsweps/copyfb_ps30"
-    "$vertexshader"           "splashsweps/copyfb_vs30"
+    "$vertexshader"           "splashsweps/screenquad_vs30"
     "$basetexture"            "_rt_fullframefb1"
     "$texture1"               "_rt_resolvedfullframedepth"
     "$linearread_basetexture" "0"
@@ -19,5 +19,5 @@
     "$depthtest"              "0"
     "$vertextransform"        "1"
     "$tcsize0"                "2"
-    "$c0_x"                   "1"
+    "$c0_x"                   "0"
 }

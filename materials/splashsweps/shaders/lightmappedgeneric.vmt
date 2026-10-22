@@ -1,6 +1,5 @@
 "LightmappedGeneric"
 {
     "$basetexture" "white"
-    "$bumpamp" "null-bumpmap"
     "$nolod" "1"
 }

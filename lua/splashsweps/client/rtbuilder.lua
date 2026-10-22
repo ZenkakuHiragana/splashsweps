@@ -43,7 +43,7 @@ local TEXTUREFLAGS = {
 local RTNAMES = {
     INKMAP      = "splashsweps_inkmap",
     INKMAP2     = "splashsweps_inkmap2",
-    SCENE       = "splashsweps_scenecolordepth",
+    SCENE       = "splashsweps_sceneandflashlight",
     GCOLOR      = "splashsweps_gbuf_inkcolor",
     GCOLOR_BLUR = "splashsweps_gbuf_inkcolor_blur",
     GNORMAL     = "splashsweps_gbuf_inknormals",
@@ -76,21 +76,21 @@ if not ss.RenderTarget then
         },
         ---One-frame textures for forward MRT shading and SSR composition.
         ---@class ss.RenderTarget.FrameTextures
-        ---@field SceneColorDepth ITexture? Twice the screen height. Upper half: frame buffer copy + alpha channel as depth buffer. Lower half: flashlight light on the ink meshes.
-        ---@field SSRResult       ITexture? Half-resolution (hit UV * confidence, blur width in pixels at roughness = 100% * confidence, confidence).
-        ---@field InkColor        ITexture? Background or painted color without SSR; alpha is the painted-surface mask.
-        ---@field InkColorBlur    ITexture? Quarter-resolution copy of InkColor for reflections on rough surfaces.
-        ---@field InkNormals      ITexture? G-Buffer to store octahedral encoded ink normals.
-        ---@field Reflection      ITexture? G-Buffer to store precomputed reflection weights and ink height.
-        ---@field Envmap          ITexture? G-Buffer to store precomputed $envmap sample and ink roughness.
+        ---@field SceneAndFlashlight ITexture? Twice the screen height. Upper half: frame buffer copy + alpha channel as depth buffer. Lower half: flashlight light on the ink meshes.
+        ---@field SSRResult          ITexture? Half-resolution (hit UV * confidence, blur width in pixels at roughness = 100% * confidence, confidence).
+        ---@field InkColor           ITexture? Background or painted color without SSR; alpha is the painted-surface mask.
+        ---@field InkColorBlur       ITexture? Quarter-resolution copy of InkColor for reflections on rough surfaces.
+        ---@field InkNormals         ITexture? G-Buffer to store octahedral encoded ink normals.
+        ---@field Reflection         ITexture? G-Buffer to store precomputed reflection weights and ink height.
+        ---@field Envmap             ITexture? G-Buffer to store precomputed $envmap sample and ink roughness.
         FrameTextures = {
-            SceneColorDepth = nil,
-            SSRResult       = nil,
-            InkColor        = nil,
-            InkColorBlur    = nil,
-            InkNormals      = nil,
-            Reflection      = nil,
-            Envmap          = nil,
+            SceneAndFlashlight = nil,
+            SSRResult          = nil,
+            InkColor           = nil,
+            InkColorBlur       = nil,
+            InkNormals         = nil,
+            Reflection         = nil,
+            Envmap             = nil,
         },
         ---List of render target resolutions available.
         Resolutions = {
@@ -138,18 +138,18 @@ function ss.SetupRenderTargets()
         CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA8888)
     rt.HammerUnitsToPixels = rt.HammerUnitsToUV * rtSize
-    rt.FrameTextures.SceneColorDepth = GetRenderTargetEx(RTNAMES.SCENE,
+    rt.FrameTextures.SceneAndFlashlight = GetRenderTargetEx(RTNAMES.SCENE,
         ScrW(), ScrH() * 2,
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_SEPARATE,
         RTFLAGS.FRAME,
         CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA16161616F)
-    rt.FrameTextures.SSRResult       = GetGBuffer(RTNAMES.SSR_RESULT,  MATERIAL_RT_DEPTH_NONE, 0.5)
-    rt.FrameTextures.InkColor        = GetGBuffer(RTNAMES.GCOLOR,      MATERIAL_RT_DEPTH_SEPARATE)
-    rt.FrameTextures.InkColorBlur    = GetGBuffer(RTNAMES.GCOLOR_BLUR, MATERIAL_RT_DEPTH_NONE, InkSSRBlurResolutionMul)
-    rt.FrameTextures.InkNormals      = GetGBuffer(RTNAMES.GNORMAL,     MATERIAL_RT_DEPTH_NONE)
-    rt.FrameTextures.Reflection      = render.GetSuperFPTex()
-    rt.FrameTextures.Envmap          = render.GetSuperFPTex2()
+    rt.FrameTextures.SSRResult    = GetGBuffer(RTNAMES.SSR_RESULT,  MATERIAL_RT_DEPTH_NONE, 0.5)
+    rt.FrameTextures.InkColor     = GetGBuffer(RTNAMES.GCOLOR,      MATERIAL_RT_DEPTH_SEPARATE)
+    rt.FrameTextures.InkColorBlur = GetGBuffer(RTNAMES.GCOLOR_BLUR, MATERIAL_RT_DEPTH_NONE, InkSSRBlurResolutionMul)
+    rt.FrameTextures.InkNormals   = GetGBuffer(RTNAMES.GNORMAL,     MATERIAL_RT_DEPTH_NONE)
+    rt.FrameTextures.Reflection   = render.GetSuperFPTex()
+    rt.FrameTextures.Envmap       = render.GetSuperFPTex2()
     ss.ClearAllInk()
 end

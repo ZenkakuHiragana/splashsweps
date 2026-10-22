@@ -440,7 +440,7 @@ local function buildBaseInkMeshMaterialParams()
         ["$vertexshader"]           = "splashsweps/inkmesh_vs30",
         ["$basetexture"]            = ss.RenderTarget.StaticTextures.InkMap:GetName(),
         ["$texture1"]               = ss.RenderTarget.StaticTextures.Details:GetName(),
-        ["$texture2"]               = ss.RenderTarget.FrameTextures.SceneColorDepth:GetName(),
+        ["$texture2"]               = ss.RenderTarget.FrameTextures.SceneAndFlashlight:GetName(),
         ["$texture7"]               = EnvmapDefault,
         ["$linearread_basetexture"] = "1",
         ["$linearread_texture1"]    = "1",

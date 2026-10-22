@@ -1,5 +1,0 @@
-// Draws the ink meshes in the flashlight pass to get the light amount.
-"LightmappedGeneric"
-{
-    "$basetexture" "vgui/white"
-}
