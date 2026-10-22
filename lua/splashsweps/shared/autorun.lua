@@ -39,6 +39,14 @@ if not ss.Locals then
     ---@type table<integer, integer[]>
     ss.SurfaceHash = {}
 
+    ---Paintable surfaces of brush entities, which are not registered to ss.SurfaceHash
+    ---because they can move away from where the map compiler put them.
+    --- `= { [model index] = { surface, ... }, ... }`
+    ---where the model index is 1-based index of the BSP model lump (`*N` model name refers to N + 1),
+    ---and the surfaces are in the model's local coordinate system.
+    ---@type table<integer, ss.PaintableSurface[]>
+    ss.BrushModelSurfaces = {}
+
     ---@class ss.HashParameters
     ---@field GridSizeSurface integer Grid cell size for spatial hashing surfaces in the world.
     ---@field MinGridSizeDisplacement integer Minimum grid cell size for spatial hashing triangles in a displacement.

@@ -116,9 +116,12 @@ function ss.BarycentricCoordinates(triangle, query)
 end
 
 ---Reads a surface list from a file and stores them for later use.
----@param surfaces ss.PrecachedData.Surface[]?
-function ss.SetupSurfaces(surfaces)
+---@param surfaces  ss.PrecachedData.Surface[]?
+---@param numModels integer Number of entries in the BSP model lump.
+function ss.SetupSurfaces(surfaces, numModels)
     if not surfaces then return end
+    ss.MAX_MODEL_INDEX_BITS = math.max(select(2, math.frexp(numModels - 1)), 1)
+    table.Empty(ss.BrushModelSurfaces)
     local SurfaceMeta = getmetatable(ss.new "PrecachedData.Surface")
     local MatrixMeta = getmetatable(ss.new "PrecachedData.MatrixTransform")
     local TriangleMeta = getmetatable(ss.new "PrecachedData.DisplacementTriangle")
@@ -186,6 +189,10 @@ function ss.SetupSurfaces(surfaces)
             ps.UVHeight = uvInfo.Height - 2 * bilinearGuard
         end
         ss.SurfaceArray[i] = ps
+        if surf.ModelIndex > 1 then
+            ss.BrushModelSurfaces[surf.ModelIndex]
+            = table.ForceInsert(ss.BrushModelSurfaces[surf.ModelIndex], ps)
+        end
     end
 end
 

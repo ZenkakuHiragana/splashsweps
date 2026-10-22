@@ -364,7 +364,13 @@ function(bDrawingDepth, bDrawingSkybox)
     render.DrawScreenQuad()
 end)
 
-net.Receive("SplashSWEPs: Paint", function()
+---Reads the common part of paint messages.
+---@return Vector  pos
+---@return Angle   angle
+---@return Vector  scale
+---@return integer shapeIndex
+---@return integer inktype
+local function ReadPaint()
     local inktype    = net_ReadUInt(ss.MAX_INKTYPE_BITS) + 1 -- Ink type
     local shapeIndex = net_ReadUInt(ss.MAX_INKSHAPE_BITS) + 1 -- Ink shape
     local pitch      = net_ReadInt(8) -- Pitch
@@ -382,41 +388,47 @@ net.Receive("SplashSWEPs: Paint", function()
         math_Remap(pitch, -128, 127, -180, 180),
         math_Remap(yaw,   -128, 127, -180, 180),
         math_Remap(roll,  -128, 127, -180, 180))
-    ss.Paint(pos, angle, scale, shapeIndex, inktype)
+    return pos, angle, scale, shapeIndex, inktype
+end
+
+net.Receive("SplashSWEPs: Paint", function()
+    ss.PaintWorld(ReadPaint())
 end)
 
----@param worldPos Vector  The origin.
----@param worldAng Angle   The normal and rotation.
----@param scale    Vector  Scale along the angles which is limited to 510 Hammer units because of network optimization.
----@param shape    integer The internal index of shape to paint.
----@param typeid   integer The internal index of ink type.
-function ss.PushPaintRenderTargetQueue(worldPos, worldAng, scale, shape, typeid)
+net.Receive("SplashSWEPs: Paint brush model", function()
+    local modelIndex = net_ReadUInt(ss.MAX_MODEL_INDEX_BITS) + 1 -- Model index
+    ss.PaintBrushModel(modelIndex, ReadPaint())
+end)
+
+---Queues a paint onto a surface to draw it into the ink map.
+---@param surf   ss.PaintableSurface The surface to paint.
+---@param pos    Vector  The origin in the same coordinate system as the surface.
+---@param ang    Angle   The normal and rotation in the same coordinate system as the surface.
+---@param scale  Vector  Scale along the angles which is limited to 510 Hammer units because of network optimization.
+---@param shape  integer The internal index of shape to paint.
+---@param typeid integer The internal index of ink type.
+function ss.PushPaintRenderTargetQueue(surf, pos, ang, scale, shape, typeid)
     local inkshape = ss.InkShapes[shape]
     local inktype = ss.InkTypes[typeid]
     if not (inkshape and inktype) then return end
-    local mins, maxs = ss.GetPaintBoundingBox(worldPos, worldAng, scale)
-    for surf in ss.CollectSurfaces(mins, maxs) do
-        for posWarp, angWarp in ss.EnumeratePaintPositions(surf, mins, maxs, worldPos, worldAng) do
-            Queue[#Queue + 1] = {
-                pos    = posWarp,
-                ang    = angWarp,
-                scale  = scale,
-                base   = inktype.BaseUV,
-                shape  = inkshape.UV,
-                tint   = inktype.TintUV,
-                typeid = typeid,
-                detail = inktype.DetailBlendMode,
-                row1   = surf.WorldToUVRow1,
-                row2   = surf.WorldToUVRow2,
-                surf   = {
-                    surf.OffsetU,
-                    surf.OffsetV,
-                    surf.OffsetU + surf.UVWidth,
-                    surf.OffsetV + surf.UVHeight,
-                },
-            }
-        end
-    end
+    Queue[#Queue + 1] = {
+        pos    = pos,
+        ang    = ang,
+        scale  = scale,
+        base   = inktype.BaseUV,
+        shape  = inkshape.UV,
+        tint   = inktype.TintUV,
+        typeid = typeid,
+        detail = inktype.DetailBlendMode,
+        row1   = surf.WorldToUVRow1,
+        row2   = surf.WorldToUVRow2,
+        surf   = {
+            surf.OffsetU,
+            surf.OffsetV,
+            surf.OffsetU + surf.UVWidth,
+            surf.OffsetV + surf.UVHeight,
+        },
+    }
 end
 
 ---Clears all painted ink in the map.

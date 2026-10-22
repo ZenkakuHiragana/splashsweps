@@ -71,7 +71,7 @@ local function LoadCache()
     ss.LoadInkTypes()
     ss.LoadInkTypesRT()
     ss.SetupModels(surfaces, cache.NumModels, cache.MaterialNames)
-    ss.SetupSurfaces(surfaces.Surfaces)
+    ss.SetupSurfaces(surfaces.Surfaces, cache.NumModels)
     ss.SetupSurfacesStaticProp(cache.StaticProps, staticPropUV)
     ss.SetupStaticProps(cache.StaticProps, cache.StaticPropMDL, staticPropUV)
 end

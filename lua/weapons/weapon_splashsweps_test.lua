@@ -103,21 +103,61 @@ function SWEP:PrimaryAttack()
     self:SetNextPrimaryFire(CurTime() + self.Primary.Delay)
 end
 
+---Draws the serverside paint grid of a surface.
+---@param surf    ss.PaintableSurface
+---@param toWorld VMatrix? Transformation from the surface's coordinate system to the world if it is a brush model.
+local function DrawGrid(surf, toWorld)
+    local gridToWorld = surf.WorldToLocalGridMatrix:GetInverseTR()
+    if toWorld then gridToWorld = toWorld * gridToWorld end
+    for y = 0, surf.Grid.Height - 1 do
+        for x = 0, surf.Grid.Width - 1 do
+            local pixel = surf.Grid[y * surf.Grid.Width + x + 1] or 0
+            local xy = Vector(x + 0.5, y + 0.5, 0.1) * ss.InkGridCellSize
+            local color = pixel > 0 and Color(128, 255, 128) or Color(255, 255, 255)
+            debugoverlay.Cross(gridToWorld * xy, ss.InkGridCellSize / 2, 5, color, true)
+        end
+    end
+end
+
 function SWEP:SecondaryAttack()
     local Owner = self:GetOwner()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
     self:EmitSound("Weapon_AR2.Empty")
     local tr = Owner:GetEyeTrace()
     local pos = tr.HitPos
-    local normal = tr.HitNormal
     for surf in ss.CollectSurfaces(pos - ss.vector_one, pos + ss.vector_one) do
-        for y = 0, surf.Grid.Height - 1 do
-            for x = 0, surf.Grid.Width - 1 do
-                local pixel = surf.Grid[y * surf.Grid.Width + x + 1] or 0
-                local xy = Vector(x + 0.5, y + 0.5, 0.1) * ss.InkGridCellSize
-                local color = pixel > 0 and Color(128, 255, 128) or Color(255, 255, 255)
-                debugoverlay.Cross(surf.WorldToLocalGridMatrix:GetInverseTR() * xy, ss.InkGridCellSize / 2, 5, color, true)
+        DrawGrid(surf)
+    end
+
+    for ent, modelIndex, worldToModel in ss.CollectBrushEntities(pos - ss.vector_one, pos + ss.vector_one) do
+        local localPos = worldToModel * pos
+        for surf in ss.CollectBrushModelSurfaces(modelIndex, localPos - ss.vector_one, localPos + ss.vector_one) do
+            DrawGrid(surf, ent:GetWorldTransformMatrix())
+        end
+    end
+end
+
+---Checks if the ink is painted under the player and indicates it by a sound.
+---@param self     SplatoonWeaponBase
+---@param surfaces fun(): ss.PaintableSurface Surfaces to check.
+---@param mins     Vector AABB minimum to check in the surfaces' coordinate system.
+---@param maxs     Vector AABB maximum to check in the surfaces' coordinate system.
+---@param pos      Vector Position to check in the surfaces' coordinate system.
+---@param ang      Angle  Angles of the surface normal in the surfaces' coordinate system.
+---@param worldPos Vector Position to draw debug overlay in world coordinates.
+local function CheckInk(self, surfaces, mins, maxs, pos, ang, worldPos)
+    for surf in surfaces do
+        for p in ss.EnumeratePaintPositions(surf, mins, maxs, pos, ang) do
+            local color = ss.ReadGrid(surf, p)
+            debugoverlay.Box(
+                worldPos, -ss.vector_one, ss.vector_one + vector_up * 72, FrameTime() * 2,
+                color and Color(0, 255, 128, 16) or Color(255, 255, 255, 16))
+            if color then
+                self.LoopSound:Play()
+            else
+                self.LoopSound:Stop()
             end
+            break
         end
     end
 end
@@ -126,24 +166,30 @@ function SWEP:Think()
     local Owner = self:GetOwner()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
     local tr = util.QuickTrace(Owner:GetPos(), -vector_up * 16, Owner)
+    local ang = tr.HitNormal:Angle()
+    local mins = tr.HitPos - ss.vector_one
+    local maxs = tr.HitPos + ss.vector_one
+    ang:RotateAroundAxis(ang:Right(), -90)
     if tr.HitWorld then
-        local mins = tr.HitPos - ss.vector_one
-        local maxs = tr.HitPos + ss.vector_one
-        for surf in ss.CollectSurfaces(mins, maxs) do
-            for pos, ang in ss.EnumeratePaintPositions(surf, mins, maxs, tr.HitPos, tr.HitNormal:Angle()) do
-                local color = ss.ReadGrid(surf, pos)
-                debugoverlay.Box(
-                    tr.HitPos, -ss.vector_one, ss.vector_one + vector_up * 72, FrameTime() * 2,
-                    color and Color(0, 255, 128, 16) or Color(255, 255, 255, 16))
-                if color then
-                    self.LoopSound:Play()
-                else
-                    self.LoopSound:Stop()
-                end
-                break
+        CheckInk(self, ss.CollectSurfaces(mins, maxs), mins, maxs, tr.HitPos, ang, tr.HitPos)
+        return
+    end
+
+    if IsValid(tr.Entity) then
+        for ent, modelIndex, worldToModel in ss.CollectBrushEntities(mins, maxs) do
+            if ent == tr.Entity then
+                local normalInWorld = Matrix()
+                normalInWorld:SetAngles(ang)
+                local localPos = worldToModel * tr.HitPos
+                local localAng = (worldToModel * normalInWorld):GetAngles()
+                local localMins = localPos - ss.vector_one
+                local localMaxs = localPos + ss.vector_one
+                CheckInk(self, ss.CollectBrushModelSurfaces(modelIndex, localMins, localMaxs),
+                    localMins, localMaxs, localPos, localAng, tr.HitPos)
+                return
             end
         end
-    else
-        self.LoopSound:Stop()
     end
+
+    self.LoopSound:Stop()
 end

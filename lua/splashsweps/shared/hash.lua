@@ -96,7 +96,19 @@ function ss.BuildSurfaceHash(surfaces, staticProps, hash)
     end
 end
 
----Generator function to enumerate surfaces containing given AABB.
+---Tests if the minimum bounding box of the surface intersects with given AABB.
+---@param s    ss.PaintableSurface
+---@param mins Vector AABB minimum in the same coordinate system as the surface.
+---@param maxs Vector AABB maximum in the same coordinate system as the surface.
+---@return boolean
+local function isSurfaceIntersecting(s, mins, maxs)
+    return IsOBBIntersectingOBB(
+        s.MBBOrigin, s.MBBAngles, vector_origin, s.MBBSize,
+        vector_origin, angle_zero, mins, maxs, ss.eps)
+end
+
+---Generator function to enumerate surfaces of the worldspawn and static props containing given AABB.
+---Surfaces of brush entities are enumerated by ss.CollectBrushEntities and ss.CollectBrushModelSurfaces.
 ---@param mins Vector AABB minimum.
 ---@param maxs Vector AABB maximum.
 ---@return fun(): ss.PaintableSurface
@@ -110,15 +122,44 @@ function ss.CollectSurfaces(mins, maxs)
                 if not hasSeenThisSurface[i] then
                     hasSeenThisSurface[i] = true
                     local s = ss.SurfaceArray[i]
-                    -- debugoverlay.BoxAngles(
-                    --     s.MBBOrigin, vector_origin, s.MBBSize, s.MBBAngles,
-                    --     FrameTime() * 5, Color(255, 255, 128, 0))
-                    if IsOBBIntersectingOBB(
-                        s.MBBOrigin, s.MBBAngles, vector_origin, s.MBBSize,
-                        vector_origin, angle_zero, mins, maxs, ss.eps) then
+                    if isSurfaceIntersecting(s, mins, maxs) then
                         yield(s)
                     end
                 end
+            end
+        end
+    end)
+end
+
+---Generator function to enumerate surfaces of a brush model containing given AABB.
+---@param modelIndex integer Index of the brush model obtained by ss.CollectBrushEntities.
+---@param mins       Vector  AABB minimum in the model's local coordinates.
+---@param maxs       Vector  AABB maximum in the model's local coordinates.
+---@return fun(): ss.PaintableSurface
+function ss.CollectBrushModelSurfaces(modelIndex, mins, maxs)
+    mins = mins - vector_tenth
+    maxs = maxs + vector_tenth
+    return wrap(function()
+        for _, s in ipairs(ss.BrushModelSurfaces[modelIndex] or {}) do
+            if isSurfaceIntersecting(s, mins, maxs) then
+                yield(s)
+            end
+        end
+    end)
+end
+
+---Generator function to enumerate brush entities with paintable surfaces near given AABB.
+---@param mins Vector AABB minimum in world coordinates.
+---@param maxs Vector AABB maximum in world coordinates.
+---@return fun(): Entity, integer, VMatrix # The entity, its model index, and world-to-model transformation.
+function ss.CollectBrushEntities(mins, maxs)
+    return wrap(function()
+        for _, ent in ipairs(ents.FindInBox(mins, maxs)) do
+            local n = tonumber((ent:GetModel() or ""):match "^%*(%d+)$")
+            if n and ss.BrushModelSurfaces[n + 1] then
+                local worldToModel = ent:GetWorldTransformMatrix()
+                worldToModel:InvertTR()
+                yield(ent, n + 1, worldToModel)
             end
         end
     end)

@@ -15,6 +15,62 @@ local InkCheckInterval = 1 / 20
 ---@type table<Player, number>
 local NextCheckTime = locals.Touch.NextInkCheckTimePlayer
 
+local identity = Matrix()
+
+---Draws bounding boxes and the grid origin of a surface.
+---@param surf    ss.PaintableSurface
+---@param toWorld VMatrix Transformation from the surface's coordinate system to the world.
+---@param t       number  Duration of the overlay.
+local function DrawSurfaceBounds(surf, toWorld, t)
+    local mbb = Matrix()
+    mbb:SetTranslation(surf.MBBOrigin)
+    mbb:SetAngles(surf.MBBAngles)
+    mbb = toWorld * mbb
+    local m = toWorld * surf.WorldToLocalGridMatrix:GetInverseTR()
+    local width = surf.Grid.Width * ss.InkGridCellSize
+    local height = surf.Grid.Height * ss.InkGridCellSize
+    local size = Vector(width, height)
+    debugoverlay.BoxAngles(toWorld:GetTranslation(), surf.AABBMin, surf.AABBMax, toWorld:GetAngles(), t, color_transparent)
+    debugoverlay.BoxAngles(mbb:GetTranslation() + vector_up, vector_origin, surf.MBBSize, mbb:GetAngles(), t, Color(255, 255, 160, 2))
+    debugoverlay.BoxAngles(m:GetTranslation(), vector_origin, size, m:GetAngles(), t, Color(0, 255, 0, 0))
+end
+
+---Draws the nearest point on a flat surface from the query point.
+---@param surf         ss.PaintableSurface
+---@param toWorld      VMatrix Transformation from the surface's coordinate system to the world.
+---@param worldToLocal VMatrix Transformation from the world to the surface's coordinate system.
+---@param nearestFrom  Vector  The query point in world coordinates.
+---@param t            number  Duration of the overlay.
+local function DrawNearestOnFlatSurface(surf, toWorld, worldToLocal, nearestFrom, t)
+    local nearestLocal = surf.WorldToLocalGridMatrix * (worldToLocal * nearestFrom)
+    if not (nearestLocal.x < 0 or nearestLocal.x > surf.Grid.Width * ss.InkGridCellSize
+    or nearestLocal.y < 0 or nearestLocal.y > surf.Grid.Height * ss.InkGridCellSize) then
+        local nearest2D = Vector(nearestLocal.x, nearestLocal.y)
+        local nearest = toWorld * (surf.WorldToLocalGridMatrix:GetInverseTR() * nearest2D)
+        debugoverlay.Cross(nearest, 10, t, Color(255, 255, 0), true)
+        debugoverlay.Line(nearestFrom, nearest, t, Color(255, 255, 0), true)
+    end
+end
+
+---Calculates AABB in another coordinate system containing given AABB.
+---@param m    VMatrix Transformation to the target coordinate system.
+---@param mins Vector  AABB minimum.
+---@param maxs Vector  AABB maximum.
+---@return Vector mins AABB minimum in the target coordinate system.
+---@return Vector maxs AABB maximum in the target coordinate system.
+local function TransformAABB(m, mins, maxs)
+    local center = m * ((mins + maxs) / 2)
+    local halfExtent = (maxs - mins) / 2
+    local function extent(i)
+        return halfExtent.x * math.abs(m:GetField(i, 1))
+             + halfExtent.y * math.abs(m:GetField(i, 2))
+             + halfExtent.z * math.abs(m:GetField(i, 3))
+    end
+
+    local transformedHalfExtent = Vector(extent(1), extent(2), extent(3))
+    return center - transformedHalfExtent, center + transformedHalfExtent
+end
+
 local lastTrace ---@type Structure.TraceResult
 local lastAim = Vector()
 hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
@@ -50,12 +106,7 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
 
     for surf in ss.CollectSurfaces(queryMins, queryMaxs) do
         local m = surf.WorldToLocalGridMatrix:GetInverseTR()
-        local width = surf.Grid.Width * ss.InkGridCellSize
-        local height = surf.Grid.Height * ss.InkGridCellSize
-        local size = Vector(width, height)
-        debugoverlay.Box(Vector(), surf.AABBMin, surf.AABBMax, t, color_transparent)
-        debugoverlay.BoxAngles(surf.MBBOrigin + vector_up, vector_origin, surf.MBBSize, surf.MBBAngles, t, Color(255, 255, 160, 2))
-        debugoverlay.BoxAngles(m:GetTranslation(), vector_origin, size, m:GetAngles(), t, Color(0, 255, 0, 0))
+        DrawSurfaceBounds(surf, identity, t)
         if surf.Triangles then
             for tri in ss.CollectDisplacementTriangles(surf, queryMins, queryMaxs) do
             -- for _, tri in ipairs(surf.Triangles) do
@@ -94,14 +145,17 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
                 end
             end
         else
-            local nearestLocal = surf.WorldToLocalGridMatrix * nearestFrom
-            if not (nearestLocal.x < 0 or nearestLocal.x > surf.Grid.Width * ss.InkGridCellSize
-            or nearestLocal.y < 0 or nearestLocal.y > surf.Grid.Height * ss.InkGridCellSize) then
-                local nearest2D = Vector(nearestLocal.x, nearestLocal.y)
-                local nearest = m * nearest2D
-                debugoverlay.Cross(nearest, 10, t, Color(255, 255, 0), true)
-                debugoverlay.Line(nearestFrom, nearest, t, Color(255, 255, 0), true)
-            end
+            DrawNearestOnFlatSurface(surf, identity, identity, nearestFrom, t)
+        end
+    end
+
+    -- Brush models have no displacements, so their surfaces are always flat.
+    for ent, modelIndex, worldToModel in ss.CollectBrushEntities(queryMins, queryMaxs) do
+        local modelToWorld = ent:GetWorldTransformMatrix()
+        local localMins, localMaxs = TransformAABB(worldToModel, queryMins, queryMaxs)
+        for surf in ss.CollectBrushModelSurfaces(modelIndex, localMins, localMaxs) do
+            DrawSurfaceBounds(surf, modelToWorld, t)
+            DrawNearestOnFlatSurface(surf, modelToWorld, worldToModel, nearestFrom, t)
         end
     end
 end)

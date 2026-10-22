@@ -48,7 +48,7 @@ local function LoadCache()
 
     ss.SurfaceHash = ldr.SurfaceHash
     ss.HashParameters = setmetatable(cache.HashParameters, getmetatable(ss.new "PrecachedData.HashParameters"))
-    ss.SetupSurfaces(ldr.Surfaces)
+    ss.SetupSurfaces(ldr.Surfaces, cache.NumModels)
     ss.SetupSurfacesStaticProp(cache.StaticProps, cache.StaticPropLDR)
     ss.LoadInkFeatures()
     ss.LoadInkShapes()
@@ -62,6 +62,7 @@ end)
 
 util.AddNetworkString "SplashSWEPs: Clear all ink"
 util.AddNetworkString "SplashSWEPs: Paint"
+util.AddNetworkString "SplashSWEPs: Paint brush model"
 
 ---Clears all painted ink in the map.
 function ss.ClearAllInk()
