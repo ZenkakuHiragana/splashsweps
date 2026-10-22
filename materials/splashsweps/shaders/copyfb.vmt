@@ -19,4 +19,5 @@
     "$depthtest"              "0"
     "$vertextransform"        "1"
     "$tcsize0"                "2"
+    "$c0_x"                   "1"
 }

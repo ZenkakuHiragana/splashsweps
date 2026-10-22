@@ -82,7 +82,6 @@ struct MaterialParams {
 
 struct GeometryAlbedo {
     float3 color;        // All layers blended, with $detail and $color
-    float3 flashlit;     // Albedo the flashlight pass of the geometry multiplies its light by
     float3 layerWeights; // Weights of $basetexture2, 3, and 4, which also blend the bumpmaps
 };
 
@@ -155,7 +154,7 @@ static const float2  g_LightmapSize       = c2.xy;  // One over lightmap size
 static const float2  g_DetailScale        = c2.zw;
 static const float3  g_Color              = c3.rgb;
 static const float2  g_RTSize             = s0Size; // One over ink map size
-static const float2  g_FbSize             = s2Size; // One over frame buffer size
+static const float2  g_FbSize             = s2Size * float2(1.0, 2.0); // One over frame buffer size
 static const float2  g_UnderlayAlbedoSize = s3Size; // One over $basetexture size
 static const float3  BaseTransform[2]     = { c11.xyz, c12.xyz };
 static const float3  BumpTransform[2]     = { c13.xyz, c14.xyz };
@@ -584,9 +583,6 @@ GeometryAlbedo FetchGeometryAlbedo(const PsVertexInfo i, const UVs uv) {
     result.layerWeights.x = uv.blend.x;
     albedo = lerp(albedo, FetchAtlasAlbedo(uv.base, 1.0, ATLAS_BASETEXTURE2), uv.blend.x);
 #elif IS_4WAYBLEND
-    // The flashlight pass of Lightmapped_4WayBlend only takes the first layer (garrysmod-issues #6549).
-    result.flashlit = ApplyDetailSample(albedo, detail, detailBlendFactor).rgb * g_Color;
-
     // Each layer's weight depends on its color and the luminance accumulated so far, not on the blended color.
     float  luminance = smoothstep(g_4WayLumRange1.x, g_4WayLumRange1.y, dot(albedo.rgb, LUMINANCE_FACTOR));
     float4 color = FetchAtlasAlbedo(uv.base, g_4WayUVScale2, ATLAS_BASETEXTURE2);
@@ -604,27 +600,28 @@ GeometryAlbedo FetchGeometryAlbedo(const PsVertexInfo i, const UVs uv) {
 #endif
 
     result.color = ApplyDetailSample(albedo, detail, detailBlendFactor).rgb * g_Color;
-#if !IS_4WAYBLEND
-    result.flashlit = result.color;
-#endif
     return result;
 }
 
+// FrameBuffer stacks the frame buffer copy with the view depth in alpha (upper half)
+// on the flashlight light of the ink meshes (lower half).
+// The frame buffer is read with bilinear filtering, so its v stops half a texel before the lower half.
+float4 SampleScene(float2 screenUV) {
+    return tex2Dlod(FrameBuffer, float4(screenUV.x, min(screenUV.y * 0.5, 0.5 - s2Size.y * 0.5), 0.0, 0.0));
+}
+
+// Light the flashlights cast on the ink mesh at the pixel center screenUV.
+float3 SampleFlashlight(float2 screenUV) {
+    return tex2Dlod(FrameBuffer, float4(screenUV.x, 0.5 + screenUV.y * 0.5, 0.0, 0.0)).rgb / g_TonemapScale;
+}
+
 // Lit geometry color: the frame buffer, or the geometry albedo lit by lightmapFinalColor where it's unavailable.
-// extraLight: light the frame buffer received on top of geometryLightmapColor, e.g. flashlights.
-float3 EvaluateGeometryLighting(const UVs uv, const GeometryAlbedo albedo,
-    float3 lightmapFinalColor, float3 geometryLightmapColor, out float3 extraLight) {
+float3 EvaluateGeometryLighting(const UVs uv, const GeometryAlbedo albedo, float3 lightmapFinalColor) {
     float fbRatio = uv.edgefade;
-    float4 fb = tex2Dlod(FrameBuffer, float4(uv.screen, 0.0, 0.0));
+    float4 fb = SampleScene(uv.screen);
     if (fb.a * DEPTHWRITE_TO_HU < uv.depth - max(2.0, uv.depth * 0.015)) {
         fbRatio = 0.0;
     }
-
-    // Solve fb = albedo.color * geometryLightmapColor + albedo.flashlit * extraLight per channel,
-    // as LightmappedGeneric's flashlight pass multiplies its light by each albedo channel.
-    // Anything else in fb, e.g. specular, envmap, or emission, counts as light too.
-    // A channel with zero albedo shows no flashlight, but SAFERCP multiplies any residual there by 1e16.
-    extraLight = max(fb.rgb - albedo.color * geometryLightmapColor, 0.0) * SAFERCP(albedo.flashlit) * fbRatio;
     return lerp(albedo.color * lightmapFinalColor, fb.rgb, fbRatio);
 }
 
@@ -906,7 +903,7 @@ InkRegionSelection SelectInkRegion(float2 inkUV) {
 
 PS_OUTPUT main(const PS_INPUT rawInput) {
     PsVertexInfo i = DecomposeInput(rawInput);
-    float sceneViewDepthHU = tex2Dlod(FrameBuffer, float4(i.screenUV, 0.0, 0.0)).a * DEPTHWRITE_TO_HU;
+    float sceneViewDepthHU = SampleScene(i.screenUV).a * DEPTHWRITE_TO_HU;
     float depthToleranceHU = max(2.0, i.clipW * 0.015);
     clip(sceneViewDepthHU - i.clipW + depthToleranceHU);
 
@@ -967,10 +964,7 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
     float3   lightmapFactors = CalcLightmapFactors(tangentSpaceNormal);
     float3   lightmapFinal   = CalcFinalLightmapColor(lightmapFactors, lightmapColors);
 
-    // The frame buffer is lit with the geometry's own normal, not the ink's.
-    float3 extraLight;
-    float3 geometryLit = params.multiplicative * EvaluateGeometryLighting(uv, geometryAlbedo, lightmapFinal,
-        CalcFinalLightmapColor(CalcLightmapFactors(geometryNormal), lightmapColors), extraLight);
+    float3 geometryLit = params.multiplicative * EvaluateGeometryLighting(uv, geometryAlbedo, lightmapFinal);
 
     // Modulate surface albedo and add ink color
     float3 ambientOcclusion = { 1.0, 1.0, 1.0 }; // dummy!
@@ -986,8 +980,8 @@ PS_OUTPUT main(const PS_INPUT rawInput) {
         return output;
     }
 
-    // Flashlight / projected texture estimation
-    result += inkColor * extraLight * diffuseScale;
+    // Flashlights and projected textures
+    result += inkColor * SampleFlashlight(i.screenUV) * diffuseScale;
 
     // ^ Diffuse component (multiplies to the final result)
     // -------------------------------------------------------------------------

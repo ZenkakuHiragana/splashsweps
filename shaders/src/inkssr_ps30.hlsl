@@ -19,13 +19,20 @@ static const float RAY_SPAN_SCALE    = 0.25; // Scale factor for jumping depth b
 static const float ROUGHNESS_SCALE   = 4.0;  // Scale factor for roughness
 static const float REFLECTION_SPREAD = 0.25; // Tangent of the reflection cone half-angle at roughness = 100%
 
-static const float2 g_FbSize      = s0Size;            // One over frame buffer size
-static const float2 g_RenderSize  = s0Size * 2.0;      // RT size = always 0.5x resolution of the frame buffer
+static const float2 g_FbSize      = s0Size * float2(1.0, 2.0); // One over frame buffer size
+static const float2 g_RenderSize  = g_FbSize * 2.0;    // RT size = always 0.5x resolution of the frame buffer
 static const float2 g_RenderPx    = rcp(g_RenderSize); // Render target resolution in px
 static const float3 g_ViewRight   = c11.xyz;
 static const float3 g_ViewUp      = c12.xyz;
 static const float3 g_ViewForward = c13.xyz;
 static const float3 g_ViewOrigin  = c14.xyz;
+
+// SceneColorDepth stacks the frame buffer copy with the view depth in alpha (upper half)
+// on the flashlight light of the ink meshes (lower half).
+// The frame buffer is read with bilinear filtering, so its v stops half a texel before the lower half.
+float4 SampleScene(float2 screenUV) {
+    return tex2Dlod(SceneColorDepth, float4(screenUV.x, min(screenUV.y * 0.5, 0.5 - s0Size.y * 0.5), 0.0, 0.0));
+}
 
 float3 ReconstructWorldPosition(float2 uv, float viewDepth) {
     float2 ndc = float2(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
@@ -77,7 +84,7 @@ void RefineSurfaceCrossing(inout float3 inFront, inout float3 behind, inout floa
     [unroll]
     for (int k = 0; k < BINARY_STEPS; k++) {
         float3 midUVQ    = lerp(inFront, behind, 0.5);
-        float4 midSample = tex2Dlod(SceneColorDepth, float4(midUVQ.xy, 0.0, 0.0));
+        float4 midSample = SampleScene(midUVQ.xy);
         if (midSample.a * DEPTHWRITE_TO_HU < rcp(midUVQ.z)) {
             behind = midUVQ;
             behindSample = midSample;
@@ -101,7 +108,7 @@ void RefineGapEdge(
     [unroll]
     for (int k = 0; k < BINARY_STEPS; k++) {
         float3 midUVQ    = lerp(beforeGap, pastGap, 0.5);
-        float4 midSample = tex2Dlod(SceneColorDepth, float4(midUVQ.xy, 0.0, 0.0));
+        float4 midSample = SampleScene(midUVQ.xy);
         if (midSample.a * DEPTHWRITE_TO_HU - previousDepth > gapThreshold) {
             pastGap = midUVQ;
             pastSample = midSample;
@@ -215,7 +222,7 @@ float4 SampleScreenSpaceReflection(
         float3 uvq = lerp(rayStartUVQ, rayEndUVQ, t);
         if (ScreenEdgeFade(uvq.xy) <= 0.0) break;
 
-        float4 sceneSample = tex2Dlod(SceneColorDepth, float4(uvq.xy, 0.0, 0.0));
+        float4 sceneSample = SampleScene(uvq.xy);
         float sceneSampleDepth = sceneSample.a * DEPTHWRITE_TO_HU;
         if (sceneSampleDepth <= 1.0e-3) continue; // Seems like the ray is on the viewmodel, skipping...
 
@@ -274,7 +281,7 @@ float4 main(float4 i : VPOS) : COLOR0 {
     float4 reflectionParams = tex2Dlod(GBufReflection, uv);
     if (dot(reflectionParams.rgb, reflectionParams.rgb) <= 0.0) return 0.0;
 
-    float4 scene          = tex2Dlod(SceneColorDepth, uv);
+    float4 scene          = SampleScene(uv.xy);
     float4 normals        = tex2Dlod(GBufInkNormals,  uv);
     float4 envmapParams   = tex2Dlod(GBufEnvmap,      uv);
     float  viewDepth      = scene.a * DEPTHWRITE_TO_HU;

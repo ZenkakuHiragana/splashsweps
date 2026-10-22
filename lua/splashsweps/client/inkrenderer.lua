@@ -45,6 +45,9 @@ local MAX_QUADS = math.floor(MAX_VERTEX_SIZE_KB / (NUM_VERTEX * SIZEOF_VERTEX))
 
 local FullFrameFb1 = render.GetScreenEffectTexture(1)
 local CopyFrameBufferMaterial = Material "splashsweps/shaders/copyfb"
+local CopyBackgroundMaterial = Material "splashsweps/shaders/copyfb_background"
+local CopyDepthMaterial = Material "splashsweps/shaders/copydepth"
+local FlashlightMaterial = Material "splashsweps/shaders/flashlight"
 local SSRTraceMaterial = Material "splashsweps/shaders/inkssr"
 local SSRCompositeMaterial = Material "splashsweps/shaders/inkssr_compose"
 local SSRDownsampleMaterial = Material "splashsweps/shaders/inkssr_downsample"
@@ -165,7 +168,8 @@ local function DrawNormalMesh(m, _)
     m.Mesh:Draw()
 end
 
-local function DrawWaterMesh(m, _)
+---Draws the mesh with the material already set.
+local function DrawMeshOnly(m, _)
     m.Mesh:Draw()
 end
 
@@ -195,7 +199,7 @@ local function DrawNormalMeshes()
 end
 
 local SSRViewMatrix = Matrix()
-local function UpdateSSRView()
+local function UpdateViewParameters()
     local view = render.GetViewSetup()
     local origin = view.origin
     local angles = view.angles
@@ -211,6 +215,11 @@ local function UpdateSSRView()
         forward.x, forward.y, forward.z, 0,
         origin.x, origin.y, origin.z, 1)
     SSRTraceMaterial:SetMatrix("$viewprojmat", SSRViewMatrix)
+
+    -- Maps the view depth to the depth buffer value of the current projection.
+    local znear, zfar = view.znear, view.zfar
+    CopyDepthMaterial:SetFloat("$c0_x", zfar / (zfar - znear))
+    CopyDepthMaterial:SetFloat("$c0_y", -znear * zfar / (zfar - znear))
 end
 
 hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
@@ -283,25 +292,35 @@ function(bDrawingDepth, bDrawingSkybox)
     local isDrawingWater = rt and rt:GetName():find "_rt_waterref"
     if isDrawingWater then
         render.SetMaterial(InkWaterMaterial)
-        DrawMesh(DrawWaterMesh)
+        DrawMesh(DrawMeshOnly)
         return
     end
 
-    UpdateSSRView()
+    UpdateViewParameters()
     render.CopyRenderTargetToTexture(FullFrameFb1)
-    -- Clear auxiliary fields and the ink depth buffer before seeding InkColor.
-    -- Clearing after the copy would erase the background used by reflection hits.
+    -- Background of InkColor; zero alpha marks it as not a painted surface.
+    -- The other G-buffers are read only where InkColor's alpha marks a painted surface,
+    -- and the ink meshes write all of them there, so they need no clearing.
     render.PushRenderTarget(ss.RenderTarget.FrameTextures.InkColor)
-    render.SetRenderTargetEx(1, ss.RenderTarget.FrameTextures.InkNormals)
-    render.SetRenderTargetEx(2, ss.RenderTarget.FrameTextures.Reflection)
-    render.SetRenderTargetEx(3, ss.RenderTarget.FrameTextures.Envmap)
-    render.Clear(0, 0, 0, 0, true, false)
+    render.ClearDepth(false)
+    render.SetMaterial(CopyBackgroundMaterial)
+    render.DrawQuad(CopyCorners[1], CopyCorners[2], CopyCorners[3], CopyCorners[4])
     render.PopRenderTarget()
 
-    render.PushRenderTarget(ss.RenderTarget.FrameTextures.SceneColorDepth)
-    render.SetRenderTargetEx(1, ss.RenderTarget.FrameTextures.InkColor)
+    -- Upper half of SceneColorDepth: frame buffer color and view depth.
+    -- Lower half: light the ink meshes receive from flashlights, behind the scene depth.
+    local w, h = ScrW(), ScrH()
+    render.PushRenderTarget(ss.RenderTarget.FrameTextures.SceneColorDepth, 0, 0, w, h)
     render.SetMaterial(CopyFrameBufferMaterial)
     render.DrawQuad(CopyCorners[1], CopyCorners[2], CopyCorners[3], CopyCorners[4])
+    render.SetViewPort(0, h, w, h)
+    render.Clear(0, 0, 0, 0, true, false)
+    render.SetMaterial(CopyDepthMaterial)
+    render.DrawQuad(CopyCorners[1], CopyCorners[2], CopyCorners[3], CopyCorners[4])
+    render.RenderFlashlights(function()
+        render.SetMaterial(FlashlightMaterial)
+        DrawMesh(DrawMeshOnly)
+    end)
     render.PopRenderTarget()
 
     render.PushRenderTarget(ss.RenderTarget.FrameTextures.InkColor)
