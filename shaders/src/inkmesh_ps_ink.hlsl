@@ -1,14 +1,24 @@
+#ifndef INKMESH_PS_INK_HLSL
+#define INKMESH_PS_INK_HLSL
+
 // Ink part of the ink mesh pixel shaders for SplashSWEPs, shared by the geometry kinds.
 //
-//   inkmesh_ps30.hlsl (world)          staticprop_ps30.hlsl (static props)
-//   +------------------------------+   +------------------------------+
-//   | #include inkmesh_common.hlsl |   | #include inkmesh_common.hlsl |
-//   | #include inkmesh_ps_ink.hlsl |   | #include inkmesh_ps_ink.hlsl |  <- this file
-//   | geometry part: lightmaps     |   | geometry part: ambient cube  |
-//   |                              |   |   and lights of the prop     |
-//   | #include inkmesh_ps_main.hlsl|   | #include inkmesh_ps_main.hlsl|  <- main()
-//   +------------------------------+   +------------------------------+
-//   inkmesh_wvt_ps30.hlsl and inkmesh_4wayblend_ps30.hlsl include inkmesh_ps30.hlsl.
+//   entry shader                  defines
+//   ----------------------------  ----------------------------------
+//   inkmesh_ps30.hlsl             -
+//   inkmesh_wvt_ps30.hlsl         UNDERLAY_KIND = UNDERLAY_WVT
+//   inkmesh_4wayblend_ps30.hlsl   UNDERLAY_KIND = UNDERLAY_4WAYBLEND
+//   staticprop_ps30.hlsl          INKMESH_STATIC_PROP
+//
+//   entry shader
+//   `-- inkmesh_ps_main.hlsl              main()
+//       `-- inkmesh_ps_world.hlsl         geometry part: lightmaps
+//           (inkmesh_ps_staticprop.hlsl   with INKMESH_STATIC_PROP: ambient cube and lights)
+//           `-- inkmesh_ps_ink.hlsl       this file
+//               `-- inkmesh_common.hlsl
+//
+// Each file includes what it uses, so that each file can be checked alone, as HLSL Tools does.
+// inkmesh_ps_main.hlsl alone is checked as the world version.
 //
 // The geometry part defines the following, which main() uses:
 //   PS_INPUT, PsVertexInfo, UVs      .. the input and the UVs, with the fields inkmesh_ps_main.hlsl reads
@@ -24,6 +34,8 @@
 //       float exponent, float3x3 shadingBasis)
 //   float3 GeometryRimLightColor(GeometryLight)
 //   GEOMETRY_LIGHT_SCALE             .. the scale of the specular and the rim light
+
+#include "inkmesh_common.hlsl"
 
 // Build configurations
 #define g_EnvmapEnabled
@@ -309,3 +321,5 @@ InkRegionSelection SelectInkRegion(float2 inkUV) {
     s.isUniform     = all(inRegion);
     return s;
 }
+
+#endif

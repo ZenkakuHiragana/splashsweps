@@ -1,5 +1,11 @@
-// Shading of the ink mesh pixel shaders for SplashSWEPs, shared by the geometry kinds.
-// Included last by the geometry pixel shaders; see inkmesh_ps_ink.hlsl.
+// Shading of the ink mesh pixel shaders for SplashSWEPs, shared by the geometry kinds; see inkmesh_ps_ink.hlsl
+
+// Geometry part selected by the entry shader
+#ifdef INKMESH_STATIC_PROP
+#include "inkmesh_ps_staticprop.hlsl"
+#else
+#include "inkmesh_ps_world.hlsl"
+#endif
 
 // Axes the ink detail image is projected along, in world space: rows are U, V, and the projection Z.
 // World mode projects along the positive world axis of the largest absolute component of the mesh normal,

@@ -14,7 +14,7 @@ struct VS_INPUT {
     float4 tangentT    : BINORMAL0;
 };
 
-// See staticprop_ps30.hlsl for PS_INPUT
+// See inkmesh_ps_staticprop.hlsl for PS_INPUT
 struct VS_OUTPUT {
     float4 pos               : POSITION;
     float4 worldPos_ClipW    : TEXCOORD0;

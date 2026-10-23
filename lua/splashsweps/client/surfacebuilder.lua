@@ -472,7 +472,7 @@ local function buildBaseInkMeshMaterialParams()
     }
 end
 
----Packs Lightmapped_4WayBlend parameters into the layout inkmesh_ps30.hlsl reads from $invviewprojmat.
+---Packs Lightmapped_4WayBlend parameters into the layout inkmesh_ps_world.hlsl reads from $invviewprojmat.
 ---@param m   VMatrix   Destination matrix.
 ---@param mat IMaterial Lightmapped_4WayBlend material.
 local function set4WayBlendParams(m, mat)
@@ -526,7 +526,7 @@ local function buildRenderBatches(lightmapLayout, vertexBatches, renderBatch)
         local hasDetail             = tobool(materialInfo.Detail)
         local detailBlendMode       = materialInfo.DetailBlendMode or 0
         local bmtstr                = materialInfo.Material:GetString "$blendmodulatetexture"
-        -- Each kind of underlay has its own pixel shader; see inkmesh_ps30.hlsl.
+        -- Each kind of underlay has its own pixel shader; see inkmesh_ps_world.hlsl.
         materialParams["$pixshader"] = materialInfo.HasBaseTexture3 and "splashsweps/inkmesh_4wayblend_ps30"
                                     or materialInfo.HasBaseTexture2 and "splashsweps/inkmesh_wvt_ps30"
                                     or "splashsweps/inkmesh_ps30"
@@ -892,7 +892,7 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo, cubemaps)
                 end
                 localTworld:InvertTR()
 
-                -- $invviewprojmat = c15..c18 of staticprop_ps30.hlsl:
+                -- $invviewprojmat = c15..c18 of inkmesh_ps_staticprop.hlsl:
                 --   rows 1-3  world -> bounding box (origin at the minimum corner, axes permuted)
                 --   row 4     size.x  size.y  size.z  margin
                 localTworld:SetField(4, 1, size.x)

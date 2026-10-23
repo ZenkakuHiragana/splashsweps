@@ -1,3 +1,6 @@
+#ifndef INKMESH_COMMON_HLSL
+#define INKMESH_COMMON_HLSL
+
 
 // Data texture layout
 #define ID_COLOR_ALPHA        0
@@ -217,3 +220,5 @@ float EncodeIndicesDistanceBlend(float distanceTexels, float blendCode) {
 bool IsIndicesPainted(float4 indices) {
     return max(max(indices.r, indices.g), DecodeIndicesDistanceBlend(indices.b).y) > 0.0;
 }
+
+#endif
