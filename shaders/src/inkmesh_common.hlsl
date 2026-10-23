@@ -42,6 +42,7 @@ static const float2 INKMAP_REGION_OFFSETS[4] = {
 };
 
 static const float  TAU              = 6.283185307179586; // = 2π
+static const float  DEPTH_BIAS       = 2.0e-5; // Depth bias of the ink meshes in normalized device coordinates
 static const float  DEPTHWRITE_TO_HU = 4000.0; // Hardcoded in DepthWrite shader used in _rt_resolvedfullframedepth
 static const float  HEIGHT_TO_HU     = 24.0;   // Ink height map to hammer unit conversion constant
 static const float3 GrayScaleFactor  = { 0.2126, 0.7152, 0.0722 };

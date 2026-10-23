@@ -1,12 +1,8 @@
-// Ink Mesh Pixel Shader for SplashSWEPs
+// Ink Mesh Pixel Shader for SplashSWEPs, world geometry part
 // Based on LightmappedGeneric pixel shader with bumped lightmaps
 
 #include "inkmesh_common.hlsl"
-
-// Build configurations
-#define g_EnvmapEnabled
-#define g_PhongEnabled
-#define g_RimEnabled
+#include "inkmesh_ps_ink.hlsl"
 
 // Kind of the underlay material, built as separate shaders so that the temp registers are allocated per kind.
 // This file is for the materials without $basetexture2, and also for the simplified pass.
@@ -25,13 +21,6 @@
 struct PS_INPUT {
     float4 screenPos : VPOS;
     VertexInfo vi;
-};
-
-struct PS_OUTPUT {
-    float4 finalColorWithoutSSR : COLOR0;
-    float4 encodedNormals       : COLOR1; // encoded normal vector of xy: painted ink, zw: the mesh
-    float4 reflectionAndHeight  : COLOR2; // reflected ink color and ink height
-    float4 envmapAndRoughness   : COLOR3; // envmap sample and ink roughness
 };
 
 struct UVs {
@@ -62,67 +51,6 @@ struct PsVertexInfo {
     float3x3 lightmapTransform;
 };
 
-struct PseudoPBR {
-    float metallic;
-    float roughness;
-    float specularScale;
-    float refraction;
-};
-
-struct MaterialParams {
-    float  normalBlendThickness; // Thickness / HEIGHT_TO_HU, from $bumpblendheight.
-    bool   usePaintLocalDetail;  // Selected from the same upper material as the detail image.
-    float  height;
-    float  depth;
-    float3 additive;
-    float3 multiplicative;
-    float3 normal;
-    PseudoPBR pbr;
-};
-
-struct GeometryAlbedo {
-    float3 color;        // All layers blended, with $detail and $color
-    float3 layerWeights; // Weights of $basetexture2, 3, and 4, which also blend the bumpmaps
-};
-
-struct InkDetailSettings {
-    float4 blendScale;        // $detailblendscale
-    float2 uvRotationCosSin;  // Material UV rotation, decoded (cos, sin); not re-normalized.
-    float2 repeatsPerHU;      // $detailtexturetransform scale / $detailperiod
-    float2 translationUV;     // Offset in periods, applied after rotation.
-    float2 atlasOriginPixels; // First image texel, inside the cell's wrapping border.
-    float  atlasInnerSizePixels;
-};
-
-struct InkDetailEffect {
-    float3 colorAdd;
-    float3 emission;
-    float3 normal;   // Detail normal along the projection axes U, V, and Z; need not be unit length.
-    float  colorScale;
-    float  specularScale;
-    float  roughnessAdd;
-    float  filmThickness; // Thin film thickness in nanometers
-    float  filmStrength;  // Blend factor from the plain Fresnel term to the thin film one
-};
-
-static const float ALBEDO_ALPHA_MIN   = 0.0625;
-static const float DIFFUSE_MIN        = 0.0625; // Diffuse factor at metallic = 100%
-static const float FRESNEL_MIN        = 0.04;   // Fresnel coefficient at metallic = 0%
-static const float PHONG_EXPONENT_MIN = 1024;   // Exponent at roughness = 0%
-static const float PHONG_EXPONENT_MAX = 32;     // Exponent at roughness = 100%
-static const float RIM_EXPONENT_MIN   = 6;      // Exponent at roughness = 0%
-static const float RIM_EXPONENT_MAX   = 2;      // Exponent at roughness = 100%
-static const float RIM_ROUGHNESS_MIN  = 0.25;   // Rim lighting strength at roughness = 0%
-static const float RIM_ROUGHNESS_MAX  = 0.0625; // Rim lighting strength at roughness = 100%
-static const float RIM_METALIC_MIN    = 0.25;   // Rim lighting strength at metalic = 0%
-static const float RIM_METALIC_MAX    = 0.0625; // Rim lighting strength at metalic = 100%
-static const float RIMLIGHT_FADE_MIN  = 128.0;  // Rim lighting near distance
-static const float RIMLIGHT_FADE_MAX  = 2048.0; // Rim lighting falloff distance
-static const float RIMLIGHT_MAX_SCALE = 0.125;  // Rim lighting max scale
-static const float ENVMAP_LOD_MAX     = 2.0;    // Envmap mip level at roughness = 100%
-static const float FILM_THICKNESS_MAX = 600.0;  // Thin film thickness in nanometers at B * $detailblendscale.z = 1
-static const float FILM_IOR           = 1.33;   // Refractive index of the thin film
-static const float3 FILM_WAVELENGTHS  = { 650.0, 532.0, 450.0 }; // Wavelengths of R, G, B in nanometers
 static const float3 LUMINANCE_FACTOR  = { 0.2125, 0.7154, 0.0721 }; // Luminance() of Lightmapped_4WayBlend
 static const float3x3 BumpBasis = {
     // Bumped lightmap basis vectors (same as LightmappedGeneric) in tangent space
@@ -131,39 +59,19 @@ static const float3x3 BumpBasis = {
     { -0.40824833512306213, -0.70710676908493042, 0.57735025882720947 },
 };
 
-// Samplers
-sampler InkMap          : register(s0);
-sampler InkDataDetail   : register(s1);
-sampler FrameBuffer     : register(s2);
-sampler UnderlayAlbedo  : register(s3);
-sampler UnderlayBumpmap : register(s4);
 #if HAS_UNDERLAY_ATLAS
 sampler UnderlayAtlas   : register(s5); // Built by ss.BuildUnderlayTexturePack
 #else
 sampler UnderlayDetail  : register(s5); // $detail
 #endif
 sampler Lightmap        : register(s6);
-sampler Envmap          : register(s7);
 
-static const float3  g_SunDirection       = c0.xyz; // in world space
 static const float   g_DetailBlendMode    = c0.w;
-static const float   g_DetailGridColumns  = c1.x;   // Number of columns in the ink detail image grid
 static const float   g_MaterialFlags      = c1.y;
-static const float   g_InkMapHUPerUV      = c1.z;   // Packed-surface HU per ink UV: 2 / HammerUnitsToUV
 static const float2  g_LightmapSize       = c2.xy;  // One over lightmap size
 static const float2  g_DetailScale        = c2.zw;
-static const float3  g_Color              = c3.rgb;
-static const float2  g_RTSize             = s0Size; // One over ink map size
-static const float2  g_FbSize             = s2Size * float2(1.0, 2.0); // One over frame buffer size
-static const float2  g_UnderlayAlbedoSize = s3Size; // One over $basetexture size
-static const float3  BaseTransform[2]     = { c11.xyz, c12.xyz };
-static const float3  BumpTransform[2]     = { c13.xyz, c14.xyz };
 static const float4  g_DetailTint         = { c11.w, c12.w, c13.w, 1.0 };
 static const float   g_DetailBlendFactor  = c14.w;
-static const float   g_TonemapScale       = HDRParams.x;
-static const float   g_LightmapScale      = HDRParams.y;
-static const float   g_EnvmapScale        = HDRParams.z;
-static const float   g_GammaScale         = HDRParams.w; // = TonemapScale ^ (1 / 2.2)
 
 // Bit flags:
 //   0x01 .. has $bumpmap
@@ -281,48 +189,6 @@ PsVertexInfo DecomposeInput(const PS_INPUT i) {
     return v;
 }
 
-// Blinn-Phong specular calculation
-float CalcBlinnPhongSpec(float3 normal, float3 lightDir, float3 viewDir, float exponent) {
-    float3 halfVector = normalize(lightDir + viewDir);
-    float nDotH = saturate(dot(normal, halfVector));
-    return pow(nDotH, exponent);
-}
-
-// Schlick's approximation of Fresnel reflection
-float3 CalcFresnel(float3 normal, float3 viewDirection, float3 f0) {
-    float nDotV = saturate(dot(normal, viewDirection));
-    return lerp(f0, float3(1.0, 1.0, 1.0), pow(1.0 - nDotV, 5.0));
-}
-
-// Approximated thin film interference: the reflectance of each channel
-// oscillates with the optical path difference between the two film surfaces.
-// Returns the factor of the Fresnel term, which is 1 at zero thickness.
-float3 CalcThinFilmInterference(float3 normal, float3 viewDirection, float thickness) {
-    float nDotV = saturate(dot(normal, viewDirection));
-    float cosT  = sqrt(saturate(1.0 - (1.0 - nDotV * nDotV) / (FILM_IOR * FILM_IOR)));
-    float opd   = 2.0 * FILM_IOR * thickness * cosT;
-    return 0.5 + 0.5 * cos(radians(360.0) * opd / FILM_WAVELENGTHS);
-}
-
-// Estimate the screen-space pixel offset where the perspective-correct UV would
-// become targetUV.  Around the current pixel, the rasterizer interpolates uv / w
-// and 1 / w linearly in screen space:
-//     U(x, y) = (uvOverW + d(uvOverW)/dx * x + d(uvOverW)/dy * y)
-//             / (invW    + d(invW)   /dx * x + d(invW)   /dy * y)
-// Solving U(x, y) = targetUV gives a 2D linear system for x and y.
-// The returned offset is in screen pixels; callers multiply by g_FbSize
-// to convert it to normalized framebuffer UVs.
-float2 ProjectiveUVToScreenOffset(float2 uv, float2 targetUV, float clipW) {
-    float  invW      = rcp(max(clipW, 1.0e-12));
-    float2 uvOverW   = uv * invW;
-    float  invWdx    = ddx(invW),    invWdy    = ddy(invW);
-    float2 uvOverWdx = ddx(uvOverW), uvOverWdy = ddy(uvOverW);
-    float2 a         = uvOverWdx - targetUV * invWdx;
-    float2 b         = uvOverWdy - targetUV * invWdy;
-    float2 c         = targetUV * invW - uvOverW;
-    return DecomposeBasis(a, b, c).xy;
-}
-
 float3 CalcLightmapFactors(float3 normal) {
     [branch]
     if (g_HasBumpedLightmap) {
@@ -343,56 +209,6 @@ float3 CalcFinalLightmapColor(float3 lightmapFactors, float3x3 lightmapColors) {
     lightmapFinalColor *= rcp(max(dot(lightmapFactors, float3(1.0, 1.0, 1.0)), 1.0e-3));
     lightmapFinalColor *= g_LightmapScale;
     return lightmapFinalColor;
-}
-
-// Axes the ink detail image is projected along, in world space: rows are U, V, and the projection Z.
-// World mode projects along the positive world axis of the largest absolute component of the mesh normal,
-// and takes the other two axes in X, Y, Z order as U and V.
-// Local mode takes the flattened paint coordinates used by drawink, which follow
-// brush transforms and the displacement's existing paint mapping.
-// Derived from the vertex inputs where needed, as carrying them takes too many temp registers.
-float3x3 GetDetailProjectionBasis(const PsVertexInfo i, bool usePaintLocalDetail) {
-    if (usePaintLocalDetail) {
-        return float3x3(
-            normalize(i.inkTransform[0]),
-            normalize(i.inkTransform[1]),
-            normalize(i.worldTransform[2]));
-    }
-
-    float3 absNormal = abs(i.worldTransform[2]);
-    if (absNormal.x >= absNormal.y && absNormal.x >= absNormal.z) {
-        return float3x3(0, 1, 0,  0, 0, 1,  1, 0, 0);
-    }
-    else if (absNormal.y >= absNormal.z) {
-        return float3x3(1, 0, 0,  0, 0, 1,  0, 1, 0);
-    }
-    else {
-        return float3x3(1, 0, 0,  0, 1, 0,  0, 0, 1);
-    }
-}
-
-// Partial derivative blending of the detail normal, evaluated in world space.
-// Permuting the base normal N into the projection space, adding the detail slopes,
-// and permuting the result back is equivalent to:
-//   detail Z * N + (N's component along the projection axis) * detail slopes in world
-// The result is not normalized. The length of worldNormal cancels at final normalization.
-// basis: GetDetailProjectionBasis
-float3 ApplyDetailNormalWorld(float3 worldNormal, InkDetailEffect detail, float3x3 basis) {
-    float3 slopeWorld = detail.normal.x * basis[0] + detail.normal.y * basis[1];
-    float3 n = detail.normal.z * worldNormal + dot(worldNormal, basis[2]) * slopeWorld;
-    return dot(n, n) == 0.0 ? worldNormal : n;
-}
-
-float2 ApplyBaseTransform(float2 uv) {
-    return float2(
-        dot(float3(uv, 1.0), BaseTransform[0]),
-        dot(float3(uv, 1.0), BaseTransform[1]));
-}
-
-float2 ApplyBumpTransform(float2 uv) {
-    return float2(
-        dot(float3(uv, 1.0), BumpTransform[0]),
-        dot(float3(uv, 1.0), BumpTransform[1]));
 }
 
 float2 ApplyDetailTransform(float2 uv) {
@@ -438,83 +254,6 @@ float4 ApplyDetailSample(float4 albedo, float4 detailSample, float factor) {
         albedo.rgb *= dot(detailSample.rgb, 2.0 / 3.0);
     }
     return albedo;
-}
-
-// Samples only height value
-float FetchHeight(float2 uv) {
-    float4 s = tex2Dlod(InkMap, float4(uv + INKMAP_HEIGHT_DEPTH, 0.0, 0.0));
-    return TO_SIGNED(DecodeUnorm16(s.rg));
-}
-
-// The region of the ink map selected at the sample point, among the four nearest indices texels.
-struct InkRegionSelection {
-    float4 indices;      // Indices texel of the selected region
-    float2 texelUV;      // Center UV of that texel, without the region offset
-    float2 cornerUV;     // Center UV of the first of the four texels, without the region offset
-    float4 colorWeights; // Bilinear weights of the four texels, restricted to the selected region and normalized
-    bool   isUniform;    // All four texels belong to the selected region
-};
-
-// Samples a color region (additive or multiplicative) with gamma correction.
-// The color is interpolated over the texels of the selected region only,
-// so that it ends at the region boundary instead of fading out along the texel grid.
-float3 FetchRegionColor(const InkRegionSelection s, float2 uv, float2 regionOffset) {
-    float3 color = 0.0;
-    if (s.isUniform) {
-        color = tex2Dlod(InkMap, float4(uv + regionOffset, 0.0, 0.0)).rgb;
-    }
-    else {
-        float2 texelOffsets[4] = { float2(0.0, 0.0), float2(g_RTSize.x, 0.0), float2(0.0, g_RTSize.y), g_RTSize };
-        [unroll]
-        for (int k = 0; k < 4; k++) {
-            float4 t = tex2Dlod(InkMap, float4(s.cornerUV + texelOffsets[k] + regionOffset, 0.0, 0.0));
-            color += s.colorWeights[k] * t.rgb;
-        }
-    }
-    return pow(abs(color), 2.2);
-}
-
-// Samples height value and ground depth, and calculates the ink normal from the height
-void FetchHeightDepthAndNormal(const PsVertexInfo i, float2 uv, inout MaterialParams params) {
-    float4 s = tex2Dlod(InkMap, float4(uv + INKMAP_HEIGHT_DEPTH, 0.0, 0.0));
-    params.height = TO_SIGNED(DecodeUnorm16(s.rg));
-    params.depth  = DecodeUnorm16(s.ba);
-
-    // Forward differences of the height over deltaUV, in Hammer units per ink map UV.
-    float2 deltaUV = g_RTSize * 2.0;
-    float2 hxy = {
-        FetchHeight(uv + float2(deltaUV.x, 0.0)),
-        FetchHeight(uv + float2(0.0, deltaUV.y)),
-    };
-
-    // The first two rows of inkTransform are the world gradients of ink map U and V.
-    // Chain rule: the height field's world normal is N - (dz/du * grad(u) + dz/dv * grad(v)).
-    float2 slope = (hxy - params.height) * HEIGHT_TO_HU / deltaUV;
-    params.normal = normalize(mul(float3(-slope, 1.0), i.inkTransform));
-}
-
-// Fetch blended lighting/thickness; select the upper material's local-detail flag without blending it.
-void FetchInkMaterialParams(float3 IDs, inout MaterialParams params) {
-    float4 s;
-    int id1 = (int)IDs.x;
-    int id2 = (int)IDs.y;
-    float idBlend = IDs.z;
-
-    s = FetchDataPixel(InkDataDetail, id1, ID_MATERIAL_REFRACT);
-    params.pbr.metallic      = s.r;
-    params.pbr.roughness     = s.g;
-    params.pbr.specularScale = s.b;
-    params.pbr.refraction    = s.a;
-    s = FetchDataPixel(InkDataDetail, id2, ID_MATERIAL_REFRACT);
-    params.pbr.metallic      = lerp(params.pbr.metallic,      s.r, idBlend);
-    params.pbr.roughness     = lerp(params.pbr.roughness,     s.g, idBlend);
-    params.pbr.specularScale = lerp(params.pbr.specularScale, s.b, idBlend);
-    params.pbr.refraction    = lerp(params.pbr.refraction,    s.a, idBlend);
-
-    float4 misc1 = FetchDataPixel(InkDataDetail, id1, ID_MISC);
-    float4 misc2 = FetchDataPixel(InkDataDetail, id2, ID_MISC);
-    params.normalBlendThickness = lerp(misc1.b, misc2.b, idBlend);
-    params.usePaintLocalDetail = frac((id2 > 0 ? misc2.a : misc1.a) * 4.0) >= 0.5;
 }
 
 // Sample world bumpmap, blended as the geometry's material does
@@ -603,233 +342,13 @@ GeometryAlbedo FetchGeometryAlbedo(const PsVertexInfo i, const UVs uv) {
     return result;
 }
 
-// FrameBuffer stacks the frame buffer copy with the view depth in alpha (upper half)
-// on the flashlight light of the ink meshes (lower half).
-// The frame buffer is read with bilinear filtering, so its v stops half a texel before the lower half.
-float4 SampleScene(float2 screenUV) {
-    return tex2Dlod(FrameBuffer, float4(screenUV.x, min(screenUV.y * 0.5, 0.5 - s2Size.y * 0.5), 0.0, 0.0));
-}
-
-// Light the flashlights cast on the ink mesh at the pixel center screenUV.
-float3 SampleFlashlight(float2 screenUV) {
-    return tex2Dlod(FrameBuffer, float4(screenUV.x, 0.5 + screenUV.y * 0.5, 0.0, 0.0)).rgb / g_TonemapScale;
-}
-
-// Lit geometry color: the frame buffer, or the geometry albedo lit by lightmapFinalColor where it's unavailable.
-float3 EvaluateGeometryLighting(const UVs uv, const GeometryAlbedo albedo, float3 lightmapFinalColor) {
-    float fbRatio = uv.edgefade;
-    float4 fb = SampleScene(uv.screen);
-    if (fb.a * DEPTHWRITE_TO_HU < uv.depth - max(2.0, uv.depth * 0.015)) {
-        fbRatio = 0.0;
-    }
-    return lerp(albedo.color * lightmapFinalColor, fb.rgb, fbRatio);
-}
-
-// Sample the upper material's image and evaluate its normal/color/lighting effects.
-// Discrete placement comes from the texel the IDs were read from (idTexelUV, without the region offset);
-// image position uses the continuous parallax hit.
-InkDetailEffect EvaluateInkDetail(const PsVertexInfo i, float3 IDs, int modeRotationByte, float2 idTexelUV,
-    float3 inkUV, float height, float depth, bool usePaintLocalDetail) {
-    InkDetailEffect effect = (InkDetailEffect)0;
-    effect.colorScale    = 1.0;
-    effect.specularScale = 1.0;
-    effect.normal        = float3(0.0, 0.0, 1.0);
-    int paintRotationCode5 = modeRotationByte / 8;
-    int mode = modeRotationByte - paintRotationCode5 * 8;
-    if (mode == DETAIL_MODE_NONE) return effect;
-    int id  = (int)(IDs.y > 0.0 ? IDs.y : IDs.x);
-
-    // Project detail sample position onto the 2D plane of the projection axes
-    float3x3 projectionBasis = GetDetailProjectionBasis(i, usePaintLocalDetail);
-
-    // The parallax ray's Z is in HEIGHT_TO_HU units along the mesh normal.
-    // Evaluate the display texture at that hit, not at the unshifted mesh pixel.
-    float3 viewVec = g_EyePos.xyz - i.worldPos;
-    float3 worldPos = i.worldPos + viewVec * inkUV.z * HEIGHT_TO_HU * SAFERCP(dot(viewVec, i.worldTransform[2]));
-    float2 projectionPositionHU = float2(dot(worldPos, projectionBasis[0]), dot(worldPos, projectionBasis[1]));
-    float2 mapToPaintCosSin = float2(1.0, 0.0); // World mode keeps the projection axes.
-    float2 phase = 0.0;
-    [branch]
-    if (usePaintLocalDetail) {
-        // The same flattened paint coordinates used by drawink, including atlas placement.
-        projectionPositionHU = inkUV.xy * g_InkMapHUPerUV;
-        mapToPaintCosSin = DecodeInkMapToPaintCosSin(paintRotationCode5);
-        phase.x = tex2Dlod(InkMap, float4(idTexelUV + INKMAP_ADDITIVE, 0.0, 0.0)).a;
-        phase.y = tex2Dlod(InkMap, float4(idTexelUV + INKMAP_MULTIPLICATIVE, 0.0, 0.0)).a;
-    }
-
-    InkDetailSettings settings;
-    float4 encodedTransform       = FetchDataPixel(InkDataDetail, id, ID_DETAIL_TRANSFORM);
-    float4 encodedScaleRow        = FetchDataPixel(InkDataDetail, id, ID_DETAIL_SCALE);
-    float  gridIndex              = round(encodedScaleRow.z * 255.0);
-    float  gridRow                = floor((gridIndex + 0.5) / g_DetailGridColumns);
-    float  gridColumn             = gridIndex - gridRow * g_DetailGridColumns;
-    float  cellSizePixels         = g_InkDataOffsetV / g_DetailGridColumns;
-    settings.uvRotationCosSin     = encodedTransform.zw * (255.0 / 127.0) - 1.0; // 127 / 255 encodes zero
-    settings.repeatsPerHU         = exp2(encodedScaleRow.xy * (255.0 / 24.0) - 13.0); // 24 steps per octave
-    settings.translationUV        = encodedTransform.xy;
-    settings.atlasOriginPixels    = float2(gridColumn, gridRow) * cellSizePixels + 1.0;
-    settings.atlasInnerSizePixels = cellSizePixels - 2.0;
-    settings.blendScale           = FetchDataPixel(InkDataDetail, id, ID_DETAIL_BLEND_SCALE) * (255.0 / 127.0);
-
-    // Local mode: ink-map HU -> paint HU; world mode keeps the projection axes unchanged.
-    float2 paintPositionHU = float2(
-        mapToPaintCosSin.x * projectionPositionHU.x - mapToPaintCosSin.y * projectionPositionHU.y,
-        mapToPaintCosSin.y * projectionPositionHU.x + mapToPaintCosSin.x * projectionPositionHU.y);
-    float2 scaledUV = paintPositionHU * settings.repeatsPerHU;
-    float2 rotatedUV = float2(
-        settings.uvRotationCosSin.x * scaledUV.x - settings.uvRotationCosSin.y * scaledUV.y,
-        settings.uvRotationCosSin.y * scaledUV.x + settings.uvRotationCosSin.x * scaledUV.y);
-    float2 repeatedUV   = frac(rotatedUV + settings.translationUV + phase);
-    float2 atlasUV      = (settings.atlasOriginPixels + repeatedUV * settings.atlasInnerSizePixels) * g_DataRTSize;
-    float4 detailSample = tex2Dlod(InkDataDetail, float4(atlasUV, 0, 0));
-
-    // Convert the sample to the value range of each mode, then apply $detailblendscale to all channels.
-    // RG of the normal modes stores normal XY. Reconstruct Z before the scale steepens XY.
-    float4 s = detailSample;
-    if (mode == DETAIL_MODE_MATERIAL) s     = TO_SIGNED(s);
-    if (mode == DETAIL_MODE_NORMAL)   s.rgb = TO_SIGNED(s.rgb);
-    if (mode == DETAIL_MODE_THINFILM) s.rg  = TO_SIGNED(s.rg);
-    float normalZ = sqrt(saturate(1.0 - dot(s.xy, s.xy)));
-    s *= settings.blendScale;
-
-    [branch]
-    if (mode == DETAIL_MODE_MATERIAL || mode == DETAIL_MODE_NORMAL || mode == DETAIL_MODE_THINFILM) {
-        // Transpose the material UV rotation, then the ink-map -> paint rotation, without rescaling XY.
-        float2 normalXYInPaint = float2(
-            settings.uvRotationCosSin.x * s.x + settings.uvRotationCosSin.y * s.y,
-           -settings.uvRotationCosSin.y * s.x + settings.uvRotationCosSin.x * s.y);
-        float2 paintToMapCosSin = float2(mapToPaintCosSin.x, -mapToPaintCosSin.y);
-        float2 normalXYInProjection = float2(
-            paintToMapCosSin.x * normalXYInPaint.x - paintToMapCosSin.y * normalXYInPaint.y,
-            paintToMapCosSin.y * normalXYInPaint.x + paintToMapCosSin.x * normalXYInPaint.y);
-        effect.normal = float3(normalXYInProjection, normalZ);
-    }
-
-    [branch]
-    if (mode == DETAIL_MODE_MATERIAL) {
-        effect.colorScale   = max(0.0, 1.0 + s.a);
-        effect.roughnessAdd = s.b;
-    }
-    else if (mode == DETAIL_MODE_NORMAL) {
-        effect.specularScale = s.a;
-    }
-    else if (mode == DETAIL_MODE_EMISSION) {
-        effect.emission = s.rgb * s.a;
-    }
-    else if (mode == DETAIL_MODE_COLOR) {
-        effect.colorScale = 1.0 - s.a;
-        effect.colorAdd   = s.rgb * s.a;
-    }
-    else if (mode == DETAIL_MODE_THINFILM) {
-        effect.filmThickness = s.b * FILM_THICKNESS_MAX;
-        effect.filmStrength  = saturate(s.a);
-    }
-
-    float heightBlendByte        = round(encodedScaleRow.w * 255.0);
-    float heightLimitSqrtCode5   = floor(heightBlendByte / 8.0);
-    float heightSourceInvertBits = heightBlendByte - heightLimitSqrtCode5 * 8.0;
-    float heightSource           = floor(heightSourceInvertBits / 2.0);
-    [branch]
-    if (heightSource > 0.0) {
-        // Source 1 = thickness, 2 = height, 3 = ground depth; all in HEIGHT_TO_HU units.
-        float heightBlendInput = heightSource < 1.5 ? height + depth
-                               : heightSource < 2.5 ? height : depth;
-        // The stored limit is sqrt(maxHU / HEIGHT_TO_HU), quantized to a nonzero 5-bit level.
-        float heightLimitSqrt = (heightLimitSqrtCode5 + 1.0) / 32.0;
-        float heightWeight = saturate(heightBlendInput / (heightLimitSqrt * heightLimitSqrt));
-        if (heightSourceInvertBits - heightSource * 2.0 > 0.5)
-            heightWeight = 1.0 - heightWeight;
-
-        effect.normal        = lerp(float3(0.0, 0.0, 1.0), effect.normal, heightWeight);
-        effect.roughnessAdd *= heightWeight;
-        effect.specularScale = lerp(1.0, effect.specularScale, heightWeight);
-        effect.colorScale    = lerp(1.0, effect.colorScale, heightWeight);
-        effect.colorAdd     *= heightWeight;
-        effect.emission     *= heightWeight;
-        effect.filmStrength *= heightWeight;
-    }
-
-    return effect;
-}
-
-// Steep Parallax Occlusion Mapping
-float3 ApplyParallaxInk(const PsVertexInfo i) {
-    const float PIXELS_PER_STEP_RCP = rcp(16.0);
-    const float MIN_STEPS = 2.0;
-    const float MAX_STEPS = 12.0;
-    float3 worldPos = i.worldPos;
-    float3 inkUV    = i.inkUV;
-    float3x3 tangentSpaceInk = i.inkTransform;
-    tangentSpaceInk[2] /= HEIGHT_TO_HU;
-
-    float3 boxMin      = { i.minUV, -1.0 - 1e-5 };
-    float3 boxMax      = { i.maxUV,  0.0        };
-    float3 viewDir     = mul(tangentSpaceInk, g_EyePos.xyz - worldPos);
-    float3 viewDirInv  = SAFERCP(viewDir);
-    float3 fractionMin = (boxMin - inkUV) * viewDirInv;
-    float3 fractionMax = (boxMax - inkUV) * viewDirInv;
-    float3 fractionFar = min(fractionMin, fractionMax);
-    float  fractionEnd = max(max(fractionFar.x, fractionFar.y), fractionFar.z);
-    float3 rayStart    = inkUV;
-    float3 rayEnd      = inkUV + viewDir * fractionEnd;
-    float  pixelPerUV  = rcp(max(min(length(ddx(inkUV.xy)), length(ddy(inkUV.xy))), 1.0e-8));
-    float  numSteps    = distance(rayStart.xy, rayEnd.xy);
-    numSteps *= PIXELS_PER_STEP_RCP * pixelPerUV;
-    numSteps = clamp(round(numSteps), MIN_STEPS, MAX_STEPS);
-    float3 previousRay;
-    float3 currentRay = rayStart;
-    float previousInkHeight;
-    float currentInkHeight = FetchHeight(currentRay.xy);
-    if (currentInkHeight >= 0.0) return currentRay;
-    [unroll]
-    for (int j = 1; j <= MAX_STEPS; j++) {
-        if (j > (int)numSteps) break;
-        float fraction = (float)j / numSteps;
-        previousInkHeight = currentInkHeight;
-        previousRay = currentRay;
-        currentRay = lerp(rayStart, rayEnd, fraction);
-        currentInkHeight = FetchHeight(currentRay.xy);
-        if (currentInkHeight >= 0.0) return currentRay;
-        if ((previousInkHeight <= previousRay.z && currentRay.z <= currentInkHeight) ||
-            (previousRay.z <= previousInkHeight && currentInkHeight <= currentRay.z)) {
-            float previousHeightLeft = previousRay.z - previousInkHeight;
-            float currentHeightExceeds = currentInkHeight - currentRay.z;
-            float parallaxRefinement = currentHeightExceeds / (previousHeightLeft + currentHeightExceeds);
-            inkUV = lerp(currentRay, previousRay, parallaxRefinement);
-            return clamp(inkUV, float3(i.minUV, -1.0), float3(i.maxUV,  1.0));
-        }
-    }
-    return clamp(inkUV, float3(i.minUV, -1.0), float3(i.maxUV,  1.0));
-}
-
-// interfaceNormal: world normal of the ink surface, without the underlay bumpmap
-UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params, float3 interfaceNormal) {
-    UVs uv;
-    float3 meshNormal = i.worldTransform[2];
-    float3 viewVec    = g_EyePos.xyz - i.worldPos;
-
-    // Straight view ray reaching the ground at params.depth below the mesh, in Hammer units
-    float  viewVecZ = max(dot(viewVec, meshNormal) / HEIGHT_TO_HU, 1.0e-3);
-    float3 parallax = -viewVec * params.depth / viewVecZ;
-
-    // Approximated refraction: the view ray shifts against the interface slope,
-    // in proportion to the liquid thickness (interface height + ground depth).
-    float  thickness      = (params.height + params.depth) * HEIGHT_TO_HU;
-    float3 interfaceSlope = interfaceNormal - meshNormal * dot(interfaceNormal, meshNormal);
-    float3 refraction     = -thickness * params.pbr.refraction * interfaceSlope;
-
-    // Rows of the transforms are the world gradients of texels: TEXINFO.textureVecs and TEXINFO.lightmapVecs
-    float3 worldOffset = parallax + refraction;
-    float2 uvOffset = float2(
-        dot(i.worldTransform[0], worldOffset),
-        dot(i.worldTransform[1], worldOffset)) * g_UnderlayAlbedoSize;
+// Shifts the UVs of the world geometry by the parallax and the refraction.
+// The first two rows of lightmapTransform are TEXINFO.lightmapVecs.
+void ApplyGeometryParallax(const PsVertexInfo i, float3 worldOffset, float2 uvOffset, float2 worldUVParallax,
+    inout UVs uv) {
     float2 lightmapOffset = float2(
         dot(i.lightmapTransform[0], worldOffset),
         dot(i.lightmapTransform[1], worldOffset)) * g_LightmapSize;
-    float2 worldUVParallax = i.worldUV + uvOffset;
-    uv.base     = ApplyBaseTransform(worldUVParallax);
-    uv.bump     = ApplyBumpTransform(worldUVParallax);
     uv.detail   = ApplyDetailTransform(worldUVParallax);
     uv.lightmap = i.lightmapUV + lightmapOffset;
 
@@ -840,222 +359,48 @@ UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params, flo
 #if IS_WVT
     uv.blend.x = ModulateBlend(uv.blend.x, ApplyBlendMaskTransform(worldUVParallax));
 #endif
-
-    float2 offset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + uvOffset, i.clipW);
-    float2 s      = i.screenUV + offset * g_FbSize;
-    uv.edgefade   = ScreenEdgeFade(s);
-    uv.screen     = saturate(s);
-    uv.depth      = i.clipW + ddx(i.clipW) * offset.x + ddy(i.clipW) * offset.y;
-    return uv;
 }
 
-// Selects the region of the ink map at the sample point.
-// Each of the four nearest texels votes its bilinear weight times its distance to the region boundary
-// for its own region, and the region with the most votes wins. Between two regions, this is the sign of
-// the interpolated signed distance, so the boundary passes between the texel centers.
-InkRegionSelection SelectInkRegion(float2 inkUV) {
-    float2 texelPos = inkUV / g_RTSize - 0.5;
-    float2 base     = floor(texelPos);
-    float2 f        = texelPos - base;
-    float2 uv00     = (base + 0.5) * g_RTSize;
-    float2 tapUV[4] = { uv00, uv00 + float2(g_RTSize.x, 0.0), uv00 + float2(0.0, g_RTSize.y), uv00 + g_RTSize };
-    float4 weights  = float4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
-    float4 taps[4];
-    float4 regions, votes;
-    [unroll]
-    for (int k = 0; k < 4; k++) {
-        taps[k] = tex2Dlod(InkMap, float4(tapUV[k] + INKMAP_INDICES, 0.0, 0.0));
-        float2 distanceBlend = DecodeIndicesDistanceBlend(taps[k].b);
-        // Lower ID, upper ID, and whether anything is painted
-        regions[k] = dot(round(taps[k].rg * 255.0), float2(512.0, 2.0)) + (IsIndicesPainted(taps[k]) ? 1.0 : 0.0);
-        // A small constant breaks ties toward the heavier texels where every distance is zero.
-        votes[k] = weights[k] * (distanceBlend.x + 1.0e-3);
-    }
+// Light the world geometry receives, from the lightmap
+struct GeometryLight {
+    float3x3 colors;  // Lightmap samples along BumpBasis
+    float3   factors; // Weights of the samples from the normal
+    float3   diffuse; // Final lightmap color
+};
 
-    float4 scores = {
-        dot((float4)(regions == regions.x), votes),
-        dot((float4)(regions == regions.y), votes),
-        dot((float4)(regions == regions.z), votes),
-        dot((float4)(regions == regions.w), votes),
-    };
-    InkRegionSelection s;
-    s.indices  = taps[0];
-    s.texelUV  = tapUV[0];
-    s.cornerUV = uv00;
-    float best = scores.x;
-    float selectedRegion = regions.x;
-    [unroll]
-    for (int j = 1; j < 4; j++) {
-        if (scores[j] > best) {
-            best           = scores[j];
-            selectedRegion = regions[j];
-            s.indices      = taps[j];
-            s.texelUV      = tapUV[j];
-        }
-    }
-
-    // The selected region has a positive vote, so some of its texels have positive weights.
-    float4 inRegion = (float4)(regions == selectedRegion);
-    s.colorWeights  = weights * inRegion / dot(weights, inRegion);
-    s.isUniform     = all(inRegion);
-    return s;
+GeometryLight EvaluateGeometryLight(const PsVertexInfo i,
+    const UVs uv, float3 tangentSpaceNormal, float3 worldSpaceNormal) {
+    GeometryLight light;
+    light.colors  = FetchLightmapSamples(i, uv.lightmap);
+    light.factors = CalcLightmapFactors(tangentSpaceNormal);
+    light.diffuse = CalcFinalLightmapColor(light.factors, light.colors);
+    return light;
 }
 
-PS_OUTPUT main(const PS_INPUT rawInput) {
-    PsVertexInfo i = DecomposeInput(rawInput);
-    float sceneViewDepthHU = SampleScene(i.screenUV).a * DEPTHWRITE_TO_HU;
-    float depthToleranceHU = max(2.0, i.clipW * 0.015);
-    clip(sceneViewDepthHU - i.clipW + depthToleranceHU);
-
-    // Z = final ray marching height
-    float3 inkUV   = g_Simplified ? i.inkUV : ApplyParallaxInk(i);
-    float3 viewVec = g_EyePos.xyz - i.worldPos;
-    float3 viewDir = normalize(viewVec);
-    InkRegionSelection region = SelectInkRegion(inkUV.xy);
-    float4 inkIDs  = region.indices;
-    float3 IDs = {
-        round(inkIDs.r * 255.0),
-        round(inkIDs.g * 255.0),
-        DecodeIndicesDistanceBlend(inkIDs.b).y,
-    };
-    int detailModeRotationByte = (int)round(inkIDs.a * 255.0);
-    clip(floor(IDs.x + IDs.y + IDs.z) - 0.5);
-
-    // Samples ink parameters
-    MaterialParams params;
-    params.additive = FetchRegionColor(region, inkUV.xy, INKMAP_ADDITIVE);
-    params.multiplicative = FetchRegionColor(region, inkUV.xy, INKMAP_MULTIPLICATIVE);
-    FetchHeightDepthAndNormal(i, inkUV.xy, params);
-    FetchInkMaterialParams(IDs, params);
-
-    InkDetailEffect detail = EvaluateInkDetail(i, IDs,
-        detailModeRotationByte, region.texelUV, inkUV, params.height, params.depth, params.usePaintLocalDetail);
-    float3 inkColor = params.additive * detail.colorScale + detail.colorAdd;
-    params.pbr.roughness = saturate(params.pbr.roughness + detail.roughnessAdd);
-    params.pbr.specularScale *= detail.specularScale;
-    params.multiplicative *= detail.colorScale;
-
-    // The ink interface refracts the underlay, regardless of the underlay bumpmap
-    float3 interfaceNormal = normalize(
-        ApplyDetailNormalWorld(params.normal, detail,
-        GetDetailProjectionBasis(i, params.usePaintLocalDetail)));
-    UVs uv = ApplyParallaxGeometry(i, params, interfaceNormal);
-    GeometryAlbedo geometryAlbedo = FetchGeometryAlbedo(i, uv);
-
-    // Match Source's shading basis without changing the UV gradients used by parallax.
-    float3 normal = normalize(i.worldTransform[2]);
-    float3 tangent = normalize(cross(normal, i.worldTransform[1]));
-    float3 binormal = normalize(cross(tangent, normal));
-    if (dot(normal, cross(i.worldTransform[0], i.worldTransform[1])) > 0.0)
-        tangent = -tangent;
-    float3x3 shadingBasis = float3x3(tangent, binormal, normal);
-
-    // Blend ink and world normals in world space.
-    float3 geometryNormal      = normalize(FetchGeometryNormal(i, uv, geometryAlbedo.layerWeights));
-    float3 geometryNormalWorld = mul(geometryNormal, shadingBasis);
-    float  inkNormalWeight     = saturate((params.height + params.depth) * SAFERCP(params.normalBlendThickness));
-    float3 blendedNormal       = lerp(geometryNormalWorld, params.normal, inkNormalWeight);
-    float3 worldSpaceNormal    = normalize(ApplyDetailNormalWorld(blendedNormal, detail,
-        GetDetailProjectionBasis(i, params.usePaintLocalDetail)));
-    float3 tangentSpaceNormal  = normalize(mul(shadingBasis, worldSpaceNormal));
-
-    // Calculate diffuse color
-    float3x3 lightmapColors  = FetchLightmapSamples(i, uv.lightmap);
-    float3   lightmapFactors = CalcLightmapFactors(tangentSpaceNormal);
-    float3   lightmapFinal   = CalcFinalLightmapColor(lightmapFactors, lightmapColors);
-
-    float3 geometryLit = params.multiplicative * EvaluateGeometryLighting(uv, geometryAlbedo, lightmapFinal);
-
-    // Modulate surface albedo and add ink color
-    float3 ambientOcclusion = { 1.0, 1.0, 1.0 }; // dummy!
-    float  diffuseScale = lerp(1.0, DIFFUSE_MIN, params.pbr.metallic);
-    float3 inkLit = inkColor * lightmapFinal;
-    float3 albedo = geometryLit + inkLit;
-    float3 result = albedo * diffuseScale + detail.emission;
-
-    // Simplified pass doesn't need specular component
-    if (g_Simplified) {
-        PS_OUTPUT output = (PS_OUTPUT)0.0;
-        output.finalColorWithoutSSR = float4(result * g_TonemapScale, 1.0);
-        return output;
-    }
-
-    // Flashlights and projected textures
-    result += inkColor * SampleFlashlight(i.screenUV) * diffuseScale;
-
-    // ^ Diffuse component (multiplies to the final result)
-    // -------------------------------------------------------------------------
-    // v Specular component (accumulates to the final result)
-
-    // Fresnel term shared by the specular and the reflection, tinted by the thin film interference
-    float3 fresnel = CalcFresnel(worldSpaceNormal, viewDir, lerp(FRESNEL_MIN, albedo, params.pbr.metallic));
-    [branch]
-    if (detail.filmStrength > 0.0) {
-        float3 interference = CalcThinFilmInterference(worldSpaceNormal, viewDir, detail.filmThickness);
-        fresnel *= lerp(1.0, interference, detail.filmStrength);
-    }
-
-#ifdef g_PhongEnabled
-    float  phongExponent = lerp(PHONG_EXPONENT_MIN, PHONG_EXPONENT_MAX, params.pbr.roughness);
+// Specular from the sun, or from the light direction the bumped lightmap implies.
+// The result is scaled by GEOMETRY_LIGHT_SCALE afterwards.
+float3 EvaluateGeometryPhong(const PsVertexInfo i, const GeometryLight light,
+    float3 worldSpaceNormal, float3 viewDir, float exponent, float3x3 shadingBasis) {
     float3 phongLightDir = g_SunDirection;
     [branch]
     if (g_HasBumpedLightmap) {
-        float3 strength = mul(lightmapColors, GrayScaleFactor);
+        float3 strength = mul(light.colors, GrayScaleFactor);
         float3 fakeTangentLightDir = mul(strength, BumpBasis);
         float3 fakeWorldLightDir = mul(fakeTangentLightDir, shadingBasis);
         phongLightDir = lerp(g_SunDirection, fakeWorldLightDir, saturate(strength));
     }
 
-    float spec = CalcBlinnPhongSpec(worldSpaceNormal, phongLightDir, viewDir, phongExponent);
-    float3 phongSpecular = mul(lightmapFactors * spec, lightmapColors);
-    phongSpecular *= fresnel;
-    phongSpecular *= ambientOcclusion;
-    phongSpecular *= params.pbr.specularScale;
-    phongSpecular *= g_LightmapScale;
-    result += phongSpecular;
-#endif
-
-#ifdef g_RimEnabled
-    float3 worldMeshNormal = i.worldTransform[2];
-    float rimExponent = lerp(RIM_EXPONENT_MIN, RIM_EXPONENT_MAX, params.pbr.roughness);
-    float rimNormalDotViewDir = saturate(dot(worldMeshNormal, viewDir));
-    float rimScale = saturate(pow(1.0 - rimNormalDotViewDir, rimExponent));
-    rimScale *= lerp(RIM_METALIC_MIN, RIM_METALIC_MAX, params.pbr.metallic);
-    rimScale *= lerp(RIM_ROUGHNESS_MIN, RIM_ROUGHNESS_MAX, params.pbr.roughness);
-    rimScale *= saturate(
-        (RIMLIGHT_FADE_MAX - i.clipZ) /
-        (RIMLIGHT_FADE_MAX - RIMLIGHT_FADE_MIN));
-
-    // Use average lightmap color as rim light color
-    float3 rimLighting = mul(lightmapFactors, lightmapColors);
-    rimLighting = lerp(rimLighting, albedo, params.pbr.metallic);
-    rimLighting *= min(rimScale, RIMLIGHT_MAX_SCALE);
-    rimLighting *= params.pbr.specularScale;
-    rimLighting *= g_LightmapScale;
-    result += rimLighting;
-#endif
-
-#ifdef g_EnvmapEnabled
-    float3 reflectDir    = reflect(-viewDir, worldSpaceNormal);
-    // Rougher surfaces read the coarser mip levels of the envmap
-    float3 envmapSample  = texCUBElod(Envmap, float4(reflectDir, params.pbr.roughness * ENVMAP_LOD_MAX)).rgb * g_EnvmapScale;
-    float3 envmapAlbedo  = lerp(float3(1.0, 1.0, 1.0), albedo, params.pbr.metallic);
-    float3 reflectionWeight = envmapAlbedo;
-    reflectionWeight *= fresnel;
-    reflectionWeight *= ambientOcclusion;
-    reflectionWeight *= params.pbr.specularScale;
-#endif
-
-    // ^ Specular component (accumulates to the final result)
-    // -------------------------------------------------------------------------
-    PS_OUTPUT output = {
-        { result, 1.0 },
-        {
-            EncodeOctahedralUnitVector(worldSpaceNormal),
-            EncodeOctahedralUnitVector(i.worldTransform[2])
-        },
-        { reflectionWeight, params.height },
-        { envmapSample, params.pbr.roughness }
-    };
-    return output;
+    float spec = CalcBlinnPhongSpec(worldSpaceNormal, phongLightDir, viewDir, exponent);
+    return mul(light.factors * spec, light.colors);
 }
+
+// Use average lightmap color as rim light color.
+// The result is scaled by GEOMETRY_LIGHT_SCALE afterwards.
+float3 GeometryRimLightColor(const GeometryLight light) {
+    return mul(light.factors, light.colors);
+}
+
+// The lightmap samples need the lightmap scale, which CalcFinalLightmapColor applies to the diffuse light
+#define GEOMETRY_LIGHT_SCALE g_LightmapScale
+
+#include "inkmesh_ps_main.hlsl"

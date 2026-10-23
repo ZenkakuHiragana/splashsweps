@@ -1,5 +1,7 @@
-// Painted Static Props Vertex Shader for SplashSWEPs
+// Ink Mesh Vertex Shader for SplashSWEPs, static prop part
 // Based on VertexLitGeneric vertex shader
+// The previous VertexLitGeneric draw of the same prop leaves the ambient cube and the lights in the constants.
+#include "inkmesh_common.hlsl"
 
 struct VS_INPUT {
     float4 pos         : POSITION0;
@@ -12,14 +14,19 @@ struct VS_INPUT {
     float4 tangentT    : BINORMAL0;
 };
 
+// See staticprop_ps30.hlsl for PS_INPUT
 struct VS_OUTPUT {
-    float4 pos                     : POSITION;
-    float3 diffuse                 : COLOR0;
-    float4 uv_depth                : TEXCOORD0;
-    float4 vWorldPos_BinormalX     : TEXCOORD1;
-    float4 vWorldNormal_BinormalY  : TEXCOORD2;
-    float4 vWorldTangent_BinormalZ : TEXCOORD3;
-    float4 vLightAtten             : TEXCOORD4;
+    float4 pos               : POSITION;
+    float4 worldPos_ClipW    : TEXCOORD0;
+    float4 worldNormal_ClipZ : TEXCOORD1;
+    float2 modelUV           : TEXCOORD2;
+    float4 lightAtten        : TEXCOORD3;
+    float3 ambientXPos       : TEXCOORD4;
+    float3 ambientXNeg       : TEXCOORD5;
+    float3 ambientYPos       : TEXCOORD6;
+    float3 ambientYNeg       : TEXCOORD7;
+    float3 ambientZPos       : TEXCOORD8;
+    float3 ambientZNeg       : TEXCOORD9;
 };
 
 struct LightInfo {
@@ -36,45 +43,10 @@ const float3 cAmbientCubeZ[2] : register(c25);
 const float4x4 cModelViewProj : register(c4);
 const float4x4 cViewProj      : register(c8);
 const float4x3 cModel[53]     : register(c58);
-const int g_nLightCountRegister : register(i0);
-#define g_nLightCount g_nLightCountRegister.x
 LightInfo cLightInfo[4] : register(c27);
 
 #define COMPRESSED_VERTS
 #include "decompress_vertex.hlsl"
-
-float3 AmbientLight(const float3 worldNormal) {
-    float3 nSquared = worldNormal * worldNormal;
-    int3 isNegative = (worldNormal < 0.0);
-    return nSquared.x * cAmbientCubeX[isNegative.x] +
-           nSquared.y * cAmbientCubeY[isNegative.y] +
-           nSquared.z * cAmbientCubeZ[isNegative.z];
-}
-
-float SoftenCosineTerm(float flDot) {
-    return (flDot + (flDot * flDot)) * 0.5;
-}
-
-float CosineTerm(const float3 worldPos, const float3 worldNormal, int lightNum, bool bHalfLambert) {
-    // Calculate light direction assuming this is a point or spot
-    float3 lightDir = normalize(cLightInfo[lightNum].pos.xyz - worldPos);
-
-    // Select the above direction or the one in the structure, based upon light type
-    lightDir = lerp(lightDir, -cLightInfo[lightNum].dir.xyz, cLightInfo[lightNum].color.w);
-
-    // compute N dot L
-    float NDotL = dot(worldNormal, lightDir);
-
-    if (bHalfLambert) {
-        NDotL = NDotL * 0.5 + 0.5;
-        NDotL = NDotL * NDotL;
-    }
-    else {
-        NDotL = max(0.0, NDotL);
-        NDotL = SoftenCosineTerm(NDotL);
-    }
-    return NDotL;
-}
 
 float VertexAtten(const float3 worldPos, int lightNum) {
     // Get light direction
@@ -106,22 +78,6 @@ float VertexAtten(const float3 worldPos, int lightNum) {
     return lerp(flAtten, 1.0, cLightInfo[lightNum].color.w);
 }
 
-float3 DoLightInternal(const float3 worldPos, const float3 worldNormal, int lightNum, bool bHalfLambert) {
-    return cLightInfo[lightNum].color.xyz *
-        CosineTerm(worldPos, worldNormal, lightNum, bHalfLambert) *
-        VertexAtten(worldPos, lightNum);
-}
-
-float3 DoLighting(const float3 worldPos, const float3 worldNormal, bool bHalfLambert) {
-    float3 linearColor = float3(0.0, 0.0, 0.0);
-    for (int i = 0; i < g_nLightCount; i++) {
-        linearColor += DoLightInternal(worldPos, worldNormal, i, bHalfLambert);
-    }
-
-    linearColor += AmbientLight(worldNormal); // ambient light is already remapped
-    return linearColor;
-}
-
 VS_OUTPUT main(const VS_INPUT v) {
     VS_OUTPUT output;
 
@@ -130,10 +86,9 @@ VS_OUTPUT main(const VS_INPUT v) {
     float3 worldPos = v.pos.xyz;
     float3 normal = v.normal.xyz;
     float4 tangent = { normalize(cross(up, normal)), 1.0 };
-    float3 binormal = normalize(cross(normal, tangent.xyz));
     float3 worldNormal = normal;
     float3 worldTangentS = tangent.xyz;
-    float3 worldTangentT = binormal;
+    float3 worldTangentT = normalize(cross(normal, tangent.xyz));
 
 #ifdef COMPRESSED_VERTS
     DecompressVertex_NormalTangent(v.normal, v.tangentS, normal, tangent);
@@ -146,19 +101,19 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.pos = mul(float4(worldPos, 1.0), cModelViewProj);
 #endif
 
-    output.uv_depth.xy = v.uv;
-    output.uv_depth.z = output.pos.z;
-    output.uv_depth.w = output.pos.w;
-    output.diffuse = DoLighting(worldPos, worldNormal, true);
-    output.vWorldPos_BinormalX.xyz     = worldPos;
-    output.vWorldNormal_BinormalY.xyz  = worldNormal;
-    output.vWorldTangent_BinormalZ.xyz = worldTangentS;
-    output.vWorldPos_BinormalX.w       = worldTangentT.x;
-    output.vWorldNormal_BinormalY.w    = worldTangentT.y;
-    output.vWorldTangent_BinormalZ.w   = worldTangentT.z;
-    output.vLightAtten.x = VertexAtten(worldPos, 0);
-    output.vLightAtten.y = VertexAtten(worldPos, 1);
-    output.vLightAtten.z = VertexAtten(worldPos, 2);
-    output.vLightAtten.w = VertexAtten(worldPos, 3);
+    output.pos.z            -= DEPTH_BIAS * output.pos.w;
+    output.worldPos_ClipW    = float4(worldPos, output.pos.w);
+    output.worldNormal_ClipZ = float4(worldNormal, output.pos.z);
+    output.modelUV           = v.uv;
+    output.lightAtten.x      = VertexAtten(worldPos, 0);
+    output.lightAtten.y      = VertexAtten(worldPos, 1);
+    output.lightAtten.z      = VertexAtten(worldPos, 2);
+    output.lightAtten.w      = VertexAtten(worldPos, 3);
+    output.ambientXPos       = cAmbientCubeX[0];
+    output.ambientXNeg       = cAmbientCubeX[1];
+    output.ambientYPos       = cAmbientCubeY[0];
+    output.ambientYNeg       = cAmbientCubeY[1];
+    output.ambientZPos       = cAmbientCubeZ[0];
+    output.ambientZNeg       = cAmbientCubeZ[1];
     return output;
 }

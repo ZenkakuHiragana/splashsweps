@@ -1,24 +1,73 @@
+// Ink Mesh Pixel Shader for SplashSWEPs, static prop part
+// Draws the ink on the model of a static prop, which reads the ink map by the box projection of its bounding box.
+// The previous VertexLitGeneric draw of the same prop leaves its lighting in the constants.
 
-sampler Albedo : register(s0); // $basetexture
-sampler Normal : register(s1); // $texture1
-sampler OriginalBaseTexture : register(s2); // $texture2
+#include "inkmesh_common.hlsl"
+#include "inkmesh_ps_ink.hlsl"
 
-// Fixed as there is no way to provide current projected texture to draw
-sampler FlashlightSampler : register(s3);
+// See staticprop_vs30.hlsl for VS_OUTPUT
+struct PS_INPUT {
+    float4 screenPos         : VPOS;
+    float4 worldPos_ClipW    : TEXCOORD0;
+    float4 worldNormal_ClipZ : TEXCOORD1;
+    float2 modelUV           : TEXCOORD2;
+    float4 lightAtten        : TEXCOORD3;
+    float3 ambientXPos       : TEXCOORD4;
+    float3 ambientXNeg       : TEXCOORD5;
+    float3 ambientYPos       : TEXCOORD6;
+    float3 ambientYNeg       : TEXCOORD7;
+    float3 ambientZPos       : TEXCOORD8;
+    float3 ambientZNeg       : TEXCOORD9;
+};
 
-// xyz -> OBB size
-// w = 1, 2, 3 -> UV expansion pattern
-const float4 c0 : register(c0);
+struct UVs {
+    float2 base;
+    float2 bump;
+    float2 screen;
+    float  edgefade;
+    float  depth;
+};
 
-// x = 0 -> do nothing special; just rendering
-// x = 1 -> additive flashlight
-// y -> Hammer Unit to UV multiplier
-// z -> Margin per side of each face cell in Hammer Units
-const float4 c1 : register(c1);
+struct PsVertexInfo {
+    float2   screenUV;
+    float3   worldPos;
+    float    clipZ;
+    float    clipW;
+    float2   minUV;
+    float2   maxUV;
+    float3   inkUV;
+    float2   worldUV;        // Model UV
+    float3x3 worldTransform; // Rows: world gradients of the model texels U and V, and the mesh normal
+    float3x3 inkTransform;   // Rows: world gradients of the ink map U and V, and the mesh normal
+    float4   lightAtten;     // Attenuation of the four lights
+    float3   ambientCube[6]; // +X, -X, +Y, -Y, +Z, -Z
+};
 
-const float4x4 Model_T_World : register(c11);
-const float4x4 AbsoluteUV_T_LocalUV : register(c15);
+// Rendering for the water reflection is not used for static props
+static const bool g_Simplified = false;
 
+// Placement of the prop in the ink map, which ss.SetupStaticProps writes to the material.
+// It takes the registers the world part uses only for lightmaps and blended layers:
+//
+//   register   world part          static prop part
+//   ---------  ------------------  ------------------------------
+//   c1.y       material flags      g_PackedRotatedWidth
+//   c1.w       -                   g_ClipGuard
+//   c2.xy      1 / lightmap size   g_PackedOrigin
+//   c15..c17   blend parameters    LocalTWorld
+//   c18        blend parameters    g_BoxSize, g_FaceMargin
+//
+// c0.w, c2.zw, and c11..c14.w are left alone: RefreshMaterial in inkrenderer.lua writes them.
+static const float  g_PackedRotatedWidth = c1.y;  // Width of the packed rectangle in Hammer units if rotated, 0 otherwise
+static const float  g_ClipGuard          = c1.w;  // Inset of the clip range of each face in ink map UV
+static const float2 g_PackedOrigin       = c2.xy; // Origin of the packed rectangle in Hammer units
+static const float3 g_BoxSize            = c18.xyz;
+static const float  g_FaceMargin         = c18.w; // Margin of each face cell per side in Hammer units
+
+// World to the bounding box, whose origin is the minimum corner and whose axes are permuted for the unwrap pattern
+static const float4 LocalTWorld[3] = { c15, c16, c17 };
+
+//  Leftover from VertexLitGeneric.
 //  We store four light colors and positions in an
 //  array of three of these structures like so:
 //
@@ -37,155 +86,16 @@ const float4x4 AbsoluteUV_T_LocalUV : register(c15);
 //    |       L2.pos       |      |
 //    +------+------+------+------+
 //
-struct PixelShaderLightInfo {
-    float4 color;
-    float4 pos;
-};
-
-// Leftover from VertexLitGeneric
-const float4 c20 : register(c20); // PixelShaderLightInfo cLightInfo[3];
+const float4 c20 : register(c20);
 const float4 c21 : register(c21);
-const float4 c22 : register(c22); // g_FlashlightAttenuationFactors
-const float4 c23 : register(c23); // g_FlashlightPos
-const float4 c24 : register(c24); // g_FlashlightWorldToTexture through c27
+const float4 c22 : register(c22);
+const float4 c23 : register(c23);
+const float4 c24 : register(c24);
 const float4 c25 : register(c25);
-const float4 c26 : register(c26);
-const float4 c27 : register(c27);
+static const float3 LightColors[4]    = { c20.rgb, c22.rgb, c24.rgb, float3(c20.w, c21.w, c22.w) };
+static const float3 LightPositions[4] = { c21.xyz, c23.xyz, c25.xyz, float3(c23.w, c24.w, c25.w) };
 
-const float4 g_EyePos : register(c10);
-#define g_fSpecExp g_EyePos.w
-
-const float4 cFlashlightColor : register(c28);
-#define flFlashlightNoLambertValue cFlashlightColor.w
-
-const float4 HDRParams : register(c30);
-#define g_TonemapScale  HDRParams.x
-#define g_LightmapScale HDRParams.y
-#define g_EnvmapScale   HDRParams.z
-#define g_GammaScale    HDRParams.w // = TonemapScale ^ (1 / 2.2)
-
-// Taken from common_flashlight_fxc.h
-float RemapNormalizedValClamped(float val, float A, float B) {
-    return saturate((val - A) / (B - A));
-}
-
-float SoftenCosineTerm(float flDot) {
-    return (flDot + (flDot * flDot)) * 0.5;
-}
-
-float3 Vec3TangentToWorld(float3 iTangentVector, float3 iWorldNormal, float3 iWorldTangent, float3 iWorldBinormal) {
-    float3 vWorldVector;
-    vWorldVector.xyz = iTangentVector.x * iWorldTangent.xyz;
-    vWorldVector.xyz += iTangentVector.y * iWorldBinormal.xyz;
-    vWorldVector.xyz += iTangentVector.z * iWorldNormal.xyz;
-    return vWorldVector.xyz; // Return without normalizing
-}
-
-float3 Vec3TangentToWorldNormalized(float3 iTangentVector, float3 iWorldNormal, float3 iWorldTangent, float3 iWorldBinormal) {
-    return normalize(Vec3TangentToWorld( iTangentVector, iWorldNormal, iWorldTangent, iWorldBinormal));
-}
-
-// Taken from common_flashlight_fxc.h
-float3 DoFlashlight(
-    float3 flashlightPos, float3 worldPos, float4 flashlightSpacePosition,
-    float3 worldNormal, float3 attenuationFactors, float farZ, sampler FlashlightSampler) {
-    float3 vProjCoords = flashlightSpacePosition.xyz / flashlightSpacePosition.w;
-    float3 flashlightColor = tex2D(FlashlightSampler, vProjCoords.xy).rgb;
-    flashlightColor *= flashlightSpacePosition.www > float3(0.0, 0.0, 0.0); // Catch back projection (ps2b and up)
-    flashlightColor *= cFlashlightColor.xyz; // Flashlight color
-
-    float3 delta = flashlightPos - worldPos;
-    float3 L = normalize(delta);
-    float distSquared = dot(delta, delta);
-    float dist = sqrt(distSquared);
-    float endFalloffFactor = RemapNormalizedValClamped(dist, farZ, 0.6 * farZ);
-
-    // Attenuation for light and to fade out shadow over distance
-    float fAtten = saturate(dot(attenuationFactors, float3(1.0, 1.0 / dist, 1.0 / distSquared)));
-    float flLDotWorldNormal = dot(L.xyz, worldNormal.xyz);
-    float3 diffuseLighting = fAtten;
-    diffuseLighting *= saturate(flLDotWorldNormal + flFlashlightNoLambertValue); // Lambertian term
-    diffuseLighting *= flashlightColor;
-    diffuseLighting *= endFalloffFactor;
-    return diffuseLighting;
-}
-
-float3 SpecularLight(
-    const float3 vWorldNormal, const float3 vLightDir,
-    const float fSpecularExponent, const float3 vEyeDir) {
-    float3 vReflect = reflect(-vEyeDir, vWorldNormal);     // Reflect view through normal
-    float3 vSpecular = saturate(dot(vReflect, vLightDir)); // L.R (use half-angle instead?)
-    vSpecular = pow(vSpecular.x, fSpecularExponent);       // Raise to specular power
-    return vSpecular;
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: Compute scalar diffuse term
-//-----------------------------------------------------------------------------
-float3 DiffuseTerm(
-    const bool bHalfLambert,
-    const float3 worldNormal,
-    const float3 lightDir) {
-    float fResult;
-    float NDotL = dot(worldNormal, lightDir); // Unsaturated dot (-1 to 1 range)
-
-    if (bHalfLambert) {
-        fResult = saturate(NDotL * 0.5 + 0.5); // Scale and bias to 0 to 1 range
-        fResult *= fResult; // Square
-    }
-    else {
-        fResult = saturate(NDotL); // Saturate pure Lambertian term
-        fResult = SoftenCosineTerm(fResult); // For CS:GO
-    }
-
-    return float3(fResult, fResult, fResult);
-}
-
-float3 PixelShaderDoGeneralDiffuseLight(
-    const float fAtten, const float3 worldPos, const float3 worldNormal,
-    const float3 vPosition, const float3 vColor, const bool bHalfLambert) {
-    float3 lightDir = normalize(vPosition - worldPos);
-    return vColor * fAtten * DiffuseTerm(
-        bHalfLambert, worldNormal, lightDir);
-}
-
-float3 PixelShaderDoLightingLinear(
-    const float3 worldPos, const float3 worldNormal, const float4 lightAtten,
-    const int nNumLights, PixelShaderLightInfo cLightInfo[3], const bool bHalfLambert,
-    float flDirectShadow = 1.0) {
-    float3 linearColor = 0.0f;
-    if (nNumLights > 0) {
-        // First local light will always be forced to a directional light
-        // in CS:GO (see CanonicalizeMaterialLightingState() in shaderapidx8.cpp)
-        // - it may be completely black.
-        linearColor += PixelShaderDoGeneralDiffuseLight(
-            lightAtten.x, worldPos, worldNormal,
-            cLightInfo[0].pos.xyz, cLightInfo[0].color.rgb, bHalfLambert);
-        linearColor *= flDirectShadow;
-        if (nNumLights > 1) {
-            linearColor += PixelShaderDoGeneralDiffuseLight(
-                lightAtten.y, worldPos, worldNormal,
-                cLightInfo[1].pos.xyz, cLightInfo[1].color.rgb, bHalfLambert);
-            if (nNumLights > 2) {
-                linearColor += PixelShaderDoGeneralDiffuseLight(
-                    lightAtten.z, worldPos, worldNormal,
-                    cLightInfo[2].pos.xyz, cLightInfo[2].color.rgb, bHalfLambert);
-                if (nNumLights > 3) {
-                    // Unpack the 4th light's data from tight constant packing
-                    float3 vLight3Color = float3(cLightInfo[0].color.w, cLightInfo[0].pos.w, cLightInfo[1].color.w);
-                    float3 vLight3Pos = float3(cLightInfo[1].pos.w, cLightInfo[2].color.w, cLightInfo[2].pos.w);
-                    linearColor += PixelShaderDoGeneralDiffuseLight(
-                        lightAtten.w, worldPos, worldNormal,
-                        vLight3Pos, vLight3Color, bHalfLambert);
-                }
-            }
-        }
-    }
-
-    return linearColor;
-}
-
-// Each cell has a margin m = c1.z on both sides, and the face starts at m inside the cell.
+// Cells of the six faces in the packed rectangle (not rotated). m = g_FaceMargin.
 //            sz+2m   sx+2m
 //          +-------+-------+
 //   sx+2m  |   0   |       |
@@ -196,15 +106,21 @@ float3 PixelShaderDoLightingLinear(
 //          +-------+-------+
 //   sy+2m  |   3   |   5   |
 //          +-------+-------+
-float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
-    float3 localPos = mul(float4(worldPos, 1.0), Model_T_World).xyz;
-    float3 localNormal = mul(float4(worldNormal, 0.0), Model_T_World).xyz;
+// Selects the face of the bounding box from the mesh normal, and projects the position onto it.
+void MapToInkMap(const float3 worldPos, const float3 worldNormal, inout PsVertexInfo v) {
+    float3 localPos = {
+        dot(float4(worldPos, 1.0), LocalTWorld[0]),
+        dot(float4(worldPos, 1.0), LocalTWorld[1]),
+        dot(float4(worldPos, 1.0), LocalTWorld[2]),
+    };
+    float3 localNormal = {
+        dot(worldNormal, LocalTWorld[0].xyz),
+        dot(worldNormal, LocalTWorld[1].xyz),
+        dot(worldNormal, LocalTWorld[2].xyz),
+    };
     float3 absLocalNormal = abs(localNormal);
     float maxAbsComponent = max(absLocalNormal.x, max(absLocalNormal.y, absLocalNormal.z));
 
-    const float uvScale = c1.y;
-    const float marginPerSide = c1.z;
-    const float3 size = c0.xyz;
     const float3 normals[6] = {
         { 1.0, 0.0, 0.0 }, { 0.0,  1.0, 0.0 }, { 0.0, 0.0,  1.0 },
         {-1.0, 0.0, 0.0 }, { 0.0, -1.0, 0.0 }, { 0.0, 0.0, -1.0 },
@@ -218,22 +134,6 @@ float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
         cross(normals[2], tangents[2]), cross(normals[3], tangents[3]),
         cross(normals[4], tangents[4]), cross(normals[5], tangents[5]),
     };
-    const float3x3 modelRfaces[6] = {
-        { tangents[0], binormals[0], normals[0] },
-        { tangents[1], binormals[1], normals[1] },
-        { tangents[2], binormals[2], normals[2] },
-        { tangents[3], binormals[3], normals[3] },
-        { tangents[4], binormals[4], normals[4] },
-        { tangents[5], binormals[5], normals[5] },
-    };
-    const float3x3 faceRmodels[6] = {
-        transpose(modelRfaces[0]),
-        transpose(modelRfaces[1]),
-        transpose(modelRfaces[2]),
-        transpose(modelRfaces[3]),
-        transpose(modelRfaces[4]),
-        transpose(modelRfaces[5]),
-    };
     const float3 faceOriginCoefficients[6] = {
         { 1, 1, 1 }, { 0, 1, 1 }, { 0, 1, 1 },
         { 0, 0, 1 }, { 1, 0, 1 }, { 0, 0, 0 },
@@ -241,14 +141,6 @@ float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
     const float3 uvOffsetCoefficients[6] = {
         { 2, 1, 0 }, { 1, 1, 0 }, { 2, 1, 1 },
         { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 1 },
-    };
-    const float2x2 absoluteuvRlocaluv = (const float2x2)AbsoluteUV_T_LocalUV;
-    const float2 absoluteUVOriginInLocalUV = AbsoluteUV_T_LocalUV[3].xy;
-    const float4x4 absoluteuvRlocaluv4 = {
-        { absoluteuvRlocaluv[0], 0.0, 0.0 },
-        { absoluteuvRlocaluv[1], 0.0, 0.0 },
-        { 0.0, 0.0, 1.0, 0.0 },
-        { 0.0, 0.0, 0.0, 1.0 },
     };
 
     int faceIndex;
@@ -260,85 +152,144 @@ float2 CalculateMappedUV(const float3 worldPos, const float3 worldNormal) {
         faceIndex = localNormal.z < 0 ? 5 : 2;
     }
 
-    float3x3 faceRmodel = faceRmodels[faceIndex];
-    float3 faceOriginInModelSystem = size * faceOriginCoefficients[faceIndex];
-    float2 faceSizeInModelSystem = {
-        abs(dot(size, tangents[faceIndex])),
-        abs(dot(size, binormals[faceIndex])),
-    };
+    // Face UV, its world gradients, and the face size, in Hammer units
+    float3 tangent    = tangents[faceIndex];
+    float3 binormal   = binormals[faceIndex];
+    float3 faceOrigin = g_BoxSize * faceOriginCoefficients[faceIndex];
+    float2 faceUV     = { dot(localPos - faceOrigin, tangent), dot(localPos - faceOrigin, binormal) };
+    float2 faceSize   = { abs(dot(g_BoxSize, tangent)), abs(dot(g_BoxSize, binormal)) };
+    float3 faceGradU  = mul(tangent,  float3x3(LocalTWorld[0].xyz, LocalTWorld[1].xyz, LocalTWorld[2].xyz));
+    float3 faceGradV  = mul(binormal, float3x3(LocalTWorld[0].xyz, LocalTWorld[1].xyz, LocalTWorld[2].xyz));
 
-    float3 modelOriginInFaceSystem = mul(-faceOriginInModelSystem, faceRmodel);
-    float4x4 faceTmodel = {
-        { faceRmodel[0],           0.0 },
-        { faceRmodel[1],           0.0 },
-        { faceRmodel[2],           0.0 },
-        { modelOriginInFaceSystem, 1.0 },
-    };
-    float4x4 faceTworld = mul(Model_T_World, faceTmodel);
+    // Position of the face in the packed rectangle
+    float3 cellOffset   = (g_BoxSize + 2.0 * g_FaceMargin) * uvOffsetCoefficients[faceIndex];
+    float2 faceUVOrigin = float2(cellOffset.x + cellOffset.y, cellOffset.z) + g_FaceMargin;
+    float2 localUV      = faceUVOrigin + faceUV;
+    float2 localMin     = faceUVOrigin - g_FaceMargin;
+    float2 localMax     = faceUVOrigin + faceSize + g_FaceMargin;
 
-    float2 faceSizeInAbsoluteUV = abs(mul(faceSizeInModelSystem, absoluteuvRlocaluv));
-    float4x4 worldToUV = mul(faceTworld, absoluteuvRlocaluv4);
-    float3 faceUVOriginInLocalUV = (size + 2.0 * marginPerSide) * uvOffsetCoefficients[faceIndex];
-    faceUVOriginInLocalUV.x += faceUVOriginInLocalUV.y + marginPerSide;
-    faceUVOriginInLocalUV.y = faceUVOriginInLocalUV.z + marginPerSide;
-    faceUVOriginInLocalUV.z = 0.0;
-    float2 faceUVOriginInAbsoluteUV
-        = mul(faceUVOriginInLocalUV.xy, absoluteuvRlocaluv)
-        + absoluteUVOriginInLocalUV;
-    float2 uv = mul(float4(worldPos, 1.0), worldToUV).xy + faceUVOriginInAbsoluteUV;
-    return uv.yx * uvScale;
+    // Packed rectangle to the ink map, where the rotated one maps (u, v) to (width - v, u)
+    bool   isRotated = g_PackedRotatedWidth > 0.0;
+    float2 packedUV  = isRotated ? float2(g_PackedRotatedWidth - localUV.y, localUV.x) : localUV;
+    float2 packedMin = isRotated ? float2(g_PackedRotatedWidth - localMax.y, localMin.x) : localMin;
+    float2 packedMax = isRotated ? float2(g_PackedRotatedWidth - localMin.y, localMax.x) : localMax;
+    float3 gradU     = isRotated ? -faceGradV : faceGradU;
+    float3 gradV     = isRotated ?  faceGradU : faceGradV;
+
+    // U and V in the cache are V and U in the ink map, as ss.SetupSurfaces and inkmesh_vs30.hlsl do
+    float uvPerHU  = rcp(g_InkMapHUPerUV);
+    v.inkUV        = float3((g_PackedOrigin + packedUV).yx * uvPerHU, 0.0);
+    v.minUV        = (g_PackedOrigin + packedMin).yx * uvPerHU + g_ClipGuard;
+    v.maxUV        = (g_PackedOrigin + packedMax).yx * uvPerHU - g_ClipGuard;
+    v.inkTransform = float3x3(gradV * uvPerHU, gradU * uvPerHU, worldNormal);
 }
 
-struct PS_INPUT {
-    float2 pos                     : VPOS;
-    float3 diffuse                 : COLOR0;
-    float4 uv_depth                : TEXCOORD0;
-    float4 vWorldPos_BinormalX     : TEXCOORD1;
-    float4 vWorldNormal_BinormalY  : TEXCOORD2;
-    float4 vWorldTangent_BinormalZ : TEXCOORD3;
-    float4 vLightAtten             : TEXCOORD4;
+PsVertexInfo DecomposeInput(const PS_INPUT i) {
+    PsVertexInfo v;
+    float3 worldPos    = i.worldPos_ClipW.xyz;
+    float3 worldNormal = normalize(i.worldNormal_ClipZ.xyz);
+    v.screenUV = (i.screenPos.xy + float2(0.5, 0.5)) * g_FbSize;
+    v.worldPos = worldPos;
+    v.clipZ    = i.worldNormal_ClipZ.w;
+    v.clipW    = i.worldPos_ClipW.w;
+    MapToInkMap(worldPos, worldNormal, v);
+
+    // The model has no world gradients of its UV, so take them from the screen-space derivatives.
+    // They are the gradients along the mesh plane that give the differences of the UV between the pixels.
+    float3x3 dual   = MakeBasisInverse(ddx(worldPos), ddy(worldPos), worldNormal);
+    float2   duvdx  = ddx(i.modelUV);
+    float2   duvdy  = ddy(i.modelUV);
+    float3   gradU  = duvdx.x * dual[0] + duvdy.x * dual[1];
+    float3   gradV  = duvdx.y * dual[0] + duvdy.y * dual[1];
+    v.worldUV        = i.modelUV;
+    v.worldTransform = float3x3(gradU / g_UnderlayAlbedoSize.x, gradV / g_UnderlayAlbedoSize.y, worldNormal);
+
+    v.lightAtten     = i.lightAtten;
+    v.ambientCube[0] = i.ambientXPos;
+    v.ambientCube[1] = i.ambientXNeg;
+    v.ambientCube[2] = i.ambientYPos;
+    v.ambientCube[3] = i.ambientYNeg;
+    v.ambientCube[4] = i.ambientZPos;
+    v.ambientCube[5] = i.ambientZNeg;
+    return v;
+}
+
+// Sample $bumpmap of the model
+float3 FetchGeometryNormal(const PsVertexInfo i, UVs uv, float3 layerWeights) {
+    float2 wuv = ApplyBumpTransform(i.worldUV);
+    float3 geometryNormal = tex2Dgrad(UnderlayBumpmap, uv.bump, ddx(wuv), ddy(wuv)).rgb;
+    geometryNormal *= 2.0;
+    geometryNormal -= 1.0;
+
+    // Handle missing bumpmap (default to flat normal)
+    bool hasNoBump = geometryNormal.x == -1.0 &&
+                     geometryNormal.y == -1.0 &&
+                     geometryNormal.z == -1.0;
+    if (hasNoBump) return float3(0.0, 0.0, 1.0);
+    return geometryNormal;
+}
+
+// Samples $basetexture of the model
+GeometryAlbedo FetchGeometryAlbedo(const PsVertexInfo i, const UVs uv) {
+    float2 wuv = ApplyBaseTransform(i.worldUV);
+    GeometryAlbedo result;
+    result.color        = tex2Dgrad(UnderlayAlbedo, uv.base, ddx(wuv), ddy(wuv)).rgb * g_Color;
+    result.layerWeights = 0.0;
+    return result;
+}
+
+// The model has no other UVs to shift
+void ApplyGeometryParallax(const PsVertexInfo i, float3 worldOffset, float2 uvOffset, float2 worldUVParallax,
+    inout UVs uv) {
+}
+
+// Light the static prop receives, from the ambient cube and the four lights
+struct GeometryLight {
+    float3 diffuse;
 };
 
-struct PS_OUTPUT {
-    float4 color : COLOR0;
-    float  depth : DEPTH0;
-};
+float3 AmbientLight(const PsVertexInfo i, float3 worldNormal) {
+    float3 nSquared = worldNormal * worldNormal;
+    return nSquared.x * (worldNormal.x < 0.0 ? i.ambientCube[1] : i.ambientCube[0]) +
+           nSquared.y * (worldNormal.y < 0.0 ? i.ambientCube[3] : i.ambientCube[2]) +
+           nSquared.z * (worldNormal.z < 0.0 ? i.ambientCube[5] : i.ambientCube[4]);
+}
 
-float4 main(const PS_INPUT i) : COLOR0 {
-    const float    depthRatio = 65534.0 / 65535.0;
-    const float4   g_FlashlightAttenuationFactors = c22;
-    const float3   g_FlashlightPos                = c23.xyz;
-    const float4x4 g_FlashlightWorldToTexture = {
-        c24.x, c25.x, c26.x, c27.x,
-        c24.y, c25.y, c26.y, c27.y,
-        c24.z, c25.z, c26.z, c27.z,
-        c24.w, c25.w, c26.w, c27.w,
-    };
-    const PixelShaderLightInfo cLightInfo[3] = {
-        { c20, c21 },
-        { c22, c23 },
-        { c24, c25 },
-    };
+// Half Lambert, which the static props have used for the lights
+float HalfLambert(float3 worldNormal, float3 lightDir) {
+    float NDotL = saturate(dot(worldNormal, lightDir) * 0.5 + 0.5);
+    return NDotL * NDotL;
+}
 
-    float3 vertexPos      = i.vWorldPos_BinormalX.xyz;
-    float3 vertexNormal   = i.vWorldNormal_BinormalY.xyz;
-    float3 vertexTangent  = i.vWorldTangent_BinormalZ.xyz;
-    float3 vertexBinormal = float3(
-        i.vWorldPos_BinormalX.w,
-        i.vWorldNormal_BinormalY.w,
-        i.vWorldTangent_BinormalZ.w);
-    float2 uv     = CalculateMappedUV(vertexPos, vertexNormal);
-    float4 albedo = tex2D(Albedo, uv);
-    float4 normal = tex2D(Normal, uv);
-    float  alpha  = tex2D(OriginalBaseTexture, i.uv_depth.xy).a;
-    if (normal.x == 0 && normal.y == 0 && normal.z == 0) {
-        normal = float4(0.5, 0.5, 1.0, 1.0);
+GeometryLight EvaluateGeometryLight(const PsVertexInfo i, const UVs uv, float3 tangentSpaceNormal, float3 worldSpaceNormal) {
+    GeometryLight light;
+    light.diffuse = AmbientLight(i, worldSpaceNormal);
+    [unroll]
+    for (int k = 0; k < 4; k++) {
+        float3 lightDir = normalize(LightPositions[k] - i.worldPos);
+        light.diffuse += LightColors[k] * i.lightAtten[k] * HalfLambert(worldSpaceNormal, lightDir);
     }
-    float3 tangentSpaceNormal = normal.xyz * 2.0 - 1.0;
-    float3 worldNormal = Vec3TangentToWorldNormalized(
-        tangentSpaceNormal, vertexNormal, vertexTangent, vertexBinormal);
-    float3 diffuseLighting = PixelShaderDoLightingLinear(
-        vertexPos, worldNormal, i.vLightAtten, 4, cLightInfo, true);
-    diffuseLighting += i.diffuse;
-    return albedo * float4(diffuseLighting, alpha) * g_TonemapScale;
+    return light;
 }
+
+// Specular from the four lights
+float3 EvaluateGeometryPhong(const PsVertexInfo i, const GeometryLight light,
+    float3 worldSpaceNormal, float3 viewDir, float exponent, float3x3 shadingBasis) {
+    float3 specular = 0.0;
+    [unroll]
+    for (int k = 0; k < 4; k++) {
+        float3 lightDir = normalize(LightPositions[k] - i.worldPos);
+        specular += LightColors[k] * i.lightAtten[k] * CalcBlinnPhongSpec(worldSpaceNormal, lightDir, viewDir, exponent);
+    }
+    return specular;
+}
+
+// Use the diffuse light as rim light color
+float3 GeometryRimLightColor(const GeometryLight light) {
+    return light.diffuse;
+}
+
+// The light constants are already in the linear scale
+#define GEOMETRY_LIGHT_SCALE 1.0
+
+#include "inkmesh_ps_main.hlsl"

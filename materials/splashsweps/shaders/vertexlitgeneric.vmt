@@ -1,9 +1,8 @@
 "VertexLitGeneric"
 {
-    // Dummy material used to pass flashlight information
-    // to custom shader's pixel shader constants.
+    // Draws the flashlight light the static props receive into the lower half of SceneAndFlashlight,
+    // as lightmappedgeneric.vmt does for the ink meshes.
     "$basetexture" "white"
     "$bumpmap"     "null-bumpmap"
     "$phong"       "0"
-    "$alphatest"   "1"
 }

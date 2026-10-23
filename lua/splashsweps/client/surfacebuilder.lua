@@ -12,7 +12,6 @@ local SurfaceMeta         = getmetatable(ss.new "PrecachedData.Surface")
 local UVInfoMeta          = getmetatable(ss.new "PrecachedData.UVInfo")
 local VertexMeta          = getmetatable(ss.new "PrecachedData.Vertex")
 local MAX_TRIANGLES       = math.floor(32768 / 3) -- mesh library limitation
-local MIN_DRAW_RADIUS     = 0.01 * 0.01 -- Squared minimum draw radius for static props relative to ScrH()
 local MAX_LIGHTMAP_WIDTH  = 512
 local MAX_LIGHTMAP_HEIGHT = 256
 
@@ -817,58 +816,37 @@ function ss.SetupModels(surfaceInfo, numModels, materialNames)
     BuildInkMesh(surfaceInfo, materialNames)
 end
 
----Builds render override functions of static props.
+---Creates the models and the ink materials of static props.
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
 ---@param modelNames     string[]
 ---@param uvInfo         ss.PrecachedData.StaticProp.UVInfo[][]
-function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
+---@param cubemaps       ss.PrecachedData.CubemapInfo[]
+function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo, cubemaps)
     local templateMaterial = Material "splashsweps/shaders/staticprop"
-    local dynamiclight = Material "splashsweps/shaders/phong"
-    local flashlight = Material "splashsweps/shaders/vertexlitgeneric"
-    local drawStaticProps = GetConVar "r_drawstaticprops"
     local materialCache = {} ---@type table<string, IMaterial>
+    local watchedMaterials = {} ---@type { Material: IMaterial }[]
+    local identity = Matrix()
     local matKeyValues = templateMaterial:GetKeyValues() ---@type table<string, string|number>
-    local view = Matrix()
+    local rtSize = ss.RenderTarget.Resolutions[#ss.RenderTarget.Resolutions]
+    local dataOffset = ss.RenderTarget.DetailsImageSize
+    local detailGridColumns = ss.RenderTarget.DetailGridColumns
+    local transforms = Matrix()
     matKeyValues["$flags"] = nil
     matKeyValues["$flags2"] = nil
     matKeyValues["$flags_defined"] = nil
     matKeyValues["$flags_defined2"] = nil
-    matKeyValues["$basetexture"] = "splashsweps_inkmap"
-    matKeyValues["$texture1"] = "splashsweps_params"
-    matKeyValues["$texture3"] = "effects/flashlight001"
-    matKeyValues["$c1_y"] = ss.RenderTarget.HammerUnitsToUV
-
-    ---@param self ss.PaintableCSEnt
-    ---@param flags Enum.STUDIO
-    local function RenderOverride(self, flags)
-        if LocalPlayer():KeyDown(IN_RELOAD) then return end
-        if bit.band(flags, STUDIO_SSAODEPTHTEXTURE) ~= 0 then return end
-        if bit.band(flags, STUDIO_SHADOWDEPTHTEXTURE) ~= 0 then return end
-        if not drawStaticProps:GetBool() then return end
-        if self.FadeMaxSqr and self:GetPos():DistToSqr(EyePos()) > self.FadeMaxSqr then return end
-        view:SetTranslation(EyePos())
-        view:SetAngles(EyeAngles())
-        view:InvertTR()
-        local fov = math.rad(render.GetViewSetup().fov)
-        local z = (view * self:GetPos()).x          -- projected z-position
-        local fp = ScrH() / (2 * math.tan(fov / 2)) -- focus distance in pixels
-        local r = self.ModelLengthSqr * fp * fp / (z * z)     -- draw radius on the screen in pixels
-        local minRadius = MIN_DRAW_RADIUS * ScrH() * ScrH()
-        if r < minRadius then return end
-        render.MaterialOverride(dynamiclight)
-        self:DrawModel(flags)
-        render.MaterialOverride()
-        render.OverrideDepthEnable(true, true)
-        render.DepthRange(0, 65534 / 65535)
-        self:DrawModel(flags)
-        render.OverrideDepthEnable(false)
-        render.OverrideBlend(true, BLEND_DST_COLOR, BLEND_ONE, BLENDFUNC_ADD)
-        render.MaterialOverride(flashlight)
-        render.RenderFlashlights(function() self:DrawModel(flags) end)
-        render.OverrideBlend(false)
-        render.MaterialOverride()
-        render.DepthRange(0, 1)
-    end
+    matKeyValues["$basetexture"] = ss.RenderTarget.StaticTextures.InkMap:GetName()
+    matKeyValues["$texture1"] = ss.RenderTarget.StaticTextures.Details:GetName()
+    matKeyValues["$texture2"] = ss.RenderTarget.FrameTextures.SceneAndFlashlight:GetName()
+    matKeyValues["$linearread_texture7"] = render.GetHDREnabled() and "1" or "0"
+    matKeyValues["$c1_x"] = detailGridColumns
+    matKeyValues["$c1_z"] = 2 / ss.RenderTarget.HammerUnitsToUV -- InkMap region UV -> packed-surface HU.
+    -- Inset of the clip range of each face, as the ink meshes have:
+    --   ss.SetupSurfacesStaticProp  guard = RT_BILINEAR_GUARD_PIXELS / rtSize   in region UV
+    --   inkmesh_vs30.hlsl           region UV * 0.5 = ink map UV
+    --   here                        0.5 * guard                                 in ink map UV
+    matKeyValues["$c1_w"] = 0.5 * ss.RT_BILINEAR_GUARD_PIXELS / rtSize
+    matKeyValues["$c3_w"] = dataOffset
 
     -- Matrix(X, Y, Z) * xyzTyzx = (Y, Z, X)
     local xyzTyzx = Matrix {
@@ -886,6 +864,7 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
         local modelName = modelNames[prop.ModelIndex]
         if modelName then
             ---@class ss.PaintableCSEnt : CSEnt
+            ---@field QueuedFlags Enum.STUDIO? Flags the engine drew this prop with in the current view.
             local mdl = ClientsideModel(modelName)
             if mdl then
                 mdl:SetPos(prop.Position or Vector())
@@ -894,36 +873,12 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                 mdl:SetKeyValue("fademaxdist", prop.FadeMax or 0)
                 mdl:SetModelScale(prop.Scale or 1)
                 mdl:SetSkin(prop.Skin or 0)
-                mdl.RenderOverride = RenderOverride
+                mdl.RenderOverride = ss.QueueStaticProp
                 local fadeMax = prop.FadeMax and prop.FadeMax > 0 and prop.FadeMax or false
                 local mins, maxs = mdl:GetModelBounds()
                 mdl.FadeMaxSqr = fadeMax and (fadeMax * fadeMax)
                 mdl.ModelLengthSqr = mins:DistToSqr(maxs)
                 local size = prop.BoundsMax - prop.BoundsMin
-                local absoluteuvTlocaluv = Matrix()
-                if uv.Offset.z > 0 then
-                    -- +--------> v
-                    -- |   v'
-                    -- |   ^
-                    -- v   +---> u'
-                    -- u    \__local texture space
-                    absoluteuvTlocaluv:SetUnpacked(
-                        0, -1, 0, uv.Offset.x + uv.Width,
-                        1,  0, 0, uv.Offset.y,
-                        0,  0, 1, uv.Offset.z,
-                        0,  0, 0, 1)
-                else
-                    -- +--------> v
-                    -- | local texture space
-                    -- |   +---> v'
-                    -- v   |
-                    -- u   u'
-                    absoluteuvTlocaluv:SetUnpacked(
-                        1, 0, 0, uv.Offset.x,
-                        0, 1, 0, uv.Offset.y,
-                        0, 0, 1, uv.Offset.z,
-                        0, 0, 0, 1)
-                end
                 local localTworld = mdl:GetWorldTransformMatrix()
                 localTworld:SetTranslation(localTworld * prop.BoundsMin)
                 if prop.UnwrapIndex == 2 then
@@ -937,27 +892,71 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo)
                 end
                 localTworld:InvertTR()
 
+                -- $invviewprojmat = c15..c18 of staticprop_ps30.hlsl:
+                --   rows 1-3  world -> bounding box (origin at the minimum corner, axes permuted)
+                --   row 4     size.x  size.y  size.z  margin
+                localTworld:SetField(4, 1, size.x)
+                localTworld:SetField(4, 2, size.y)
+                localTworld:SetField(4, 3, size.z)
+                localTworld:SetField(4, 4, ss.MARGIN_HAMMER_UNITS)
+
+                -- The cache has the cubemap names without the suffix,
+                -- while the $envmap of the map materials the ink meshes use has ".hdr" in HDR.
+                local cubemap = cubemaps[prop.CubemapIndex]
+                if cubemap then setmetatable(cubemap, CubemapInfoMeta) end
                 local params = table.Merge(matKeyValues, {
-                    ["$c0_x"] = size.x,
-                    ["$c0_y"] = size.y,
-                    ["$c0_z"] = size.z,
-                    ["$c1_x"] = 0,
-                    ["$c1_z"] = ss.MARGIN_HAMMER_UNITS,
-                    ["$c0_w"] = prop.UnwrapIndex,
+                    ["$texture7"] = cubemap and cubemap.Envmap .. (render.GetHDREnabled() and ".hdr" or "") or EnvmapDefault,
+                    ["$c1_y"] = uv.Offset.z > 0 and uv.Width or 0,
+                    ["$c2_x"] = uv.Offset.x,
+                    ["$c2_y"] = uv.Offset.y,
                 })
                 for j, name in ipairs(mdl:GetMaterials()) do
-                    local mdlmat = materialCache[name] or Material(name)
-                    local basetexture = mdlmat:GetTexture "$basetexture"
-                    local mat = CreateMaterial("splashsweps/sprp" .. i .. "-" .. j, "Screenspace_General", params)
-                    mat:SetMatrix("$viewprojmat", localTworld)
-                    mat:SetMatrix("$invviewprojmat", absoluteuvTlocaluv)
-                    mat:SetTexture("$texture2", basetexture:IsErrorTexture() and "grey" or basetexture)
+                    local mdlmat = materialCache[name]
+                    if not mdlmat then
+                        mdlmat = Material(name)
+                        materialCache[name] = mdlmat
+                        watchedMaterials[#watchedMaterials + 1] = { Material = mdlmat }
+                    end
+
+                    local baseTextureTransform = mdlmat:GetMatrix "$basetexturetransform" or identity
+                    local bumpTransform = mdlmat:GetMatrix "$bumptransform" or identity
+                    local color = (mdlmat:GetVector "$color" or ss.vector_one)
+                                * (mdlmat:GetVector "$color2" or ss.vector_one)
+                    params["$texture3"] = mdlmat:GetString "$basetexture" or "white"
+                    params["$texture4"] = mdlmat:GetString "$bumpmap" or "null-bumpmap"
+                    params["$c3_x"] = color.x
+                    params["$c3_y"] = color.y
+                    params["$c3_z"] = color.z
+                    -- CreateMaterial returns the existing material as is for the same name, so the name has the map.
+                    local mat = CreateMaterial(
+                        string.format("splashsweps_sprp_%d_%d_%s", i, j, game.GetMap()),
+                        "Screenspace_General_8tex", params)
+                    mat:SetFloat("$c1_x", detailGridColumns)
+                    mat:SetFloat("$c1_z", 2 / ss.RenderTarget.HammerUnitsToUV)
+                    mat:SetFloat("$c3_w", dataOffset)
+                    transforms:SetUnpacked(
+                        baseTextureTransform:GetField(1, 1),
+                        baseTextureTransform:GetField(1, 2),
+                        baseTextureTransform:GetField(1, 4), 0,
+                        baseTextureTransform:GetField(2, 1),
+                        baseTextureTransform:GetField(2, 2),
+                        baseTextureTransform:GetField(2, 4), 0,
+                        bumpTransform:GetField(1, 1),
+                        bumpTransform:GetField(1, 2),
+                        bumpTransform:GetField(1, 4), 0,
+                        bumpTransform:GetField(2, 1),
+                        bumpTransform:GetField(2, 2),
+                        bumpTransform:GetField(2, 4), 0)
+                    mat:SetMatrix("$viewprojmat", transforms)
+                    mat:SetMatrix("$invviewprojmat", localTworld)
                     mdl:SetSubMaterial(j - 1, "!" .. mat:GetName())
-                    materialCache[name] = mdlmat
+                    ss.InkMeshMaterials[mat] = mdlmat
                 end
             end
         end
     end
+
+    ss.BuildMaterialWatchList(watchedMaterials)
 end
 
 -- function ss.PrepareInkSurface()

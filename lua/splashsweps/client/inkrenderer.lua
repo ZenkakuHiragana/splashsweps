@@ -10,6 +10,7 @@ if not locals.Renderer then
     locals.Renderer.Queue = {}
     locals.Renderer.MaterialWatchList = {}
     locals.Renderer.LastSunDirection = Vector()
+    locals.Renderer.StaticPropQueue = {}
 end
 
 ---@class ss.Locals.Renderer.Queue
@@ -53,8 +54,12 @@ local SSRCompositeMaterial = Material "splashsweps/shaders/inkssr_compose"
 local SSRDownsampleMaterial = Material "splashsweps/shaders/inkssr_downsample"
 local InkWaterMaterial = Material "splashsweps/shaders/inkmesh"
 local InkDrawMaterial = Material "splashsweps/shaders/drawink"
+local StaticPropLightMaterial = Material "splashsweps/shaders/phong"
+local StaticPropFlashlightMaterial = Material "splashsweps/shaders/vertexlitgeneric"
 local CVarWireframe = GetConVar "mat_wireframe"
 local CVarMinecraft = GetConVar "mat_showlowresimage"
+local CVarDrawStaticProps = GetConVar "r_drawstaticprops"
+local MIN_DRAW_RADIUS = 0.01 * 0.01 -- Squared minimum draw radius for static props relative to ScrH()
 local math_Remap = math.Remap
 local net_ReadInt = net.ReadInt
 local net_ReadUInt = net.ReadUInt
@@ -65,6 +70,13 @@ local ScreenQuadCorners = { Vector(0, 0, 0), Vector(1, 0, 0), Vector(1, 1, 0), V
 ---CurTime() based time to perform traces to check player's ink state.
 ---@type ss.Locals.Renderer.Queue[]
 local Queue = locals.Renderer.Queue
+
+---Static props the engine draws in the current view, whose ink is drawn with the ink meshes.
+---@type ss.PaintableCSEnt[]
+local StaticPropQueue = locals.Renderer.StaticPropQueue
+
+---True while drawing the queued static props, so that their RenderOverride draws them.
+local isDrawingStaticProps = false
 
 ---@type ss.Locals.Renderer.MaterialWatchEntry[]
 local MaterialWatchList       = locals.Renderer.MaterialWatchList
@@ -217,6 +229,66 @@ local function DrawNormalMeshes()
     DrawMesh(DrawNormalMesh)
 end
 
+local StaticPropView = Matrix()
+
+---RenderOverride of the static props. The engine draws the props themselves, and these models draw the ink.
+---In each view:
+---
+---  PreDrawOpaqueRenderables        clears StaticPropQueue
+---  ss.QueueStaticProp              queues the prop unless it is faded out or too small on the screen
+---  PreDrawTranslucentRenderables   draws the queue after the ink meshes, in the flashlight and MRT passes
+---  `-- prop:DrawModel()            calls ss.QueueStaticProp again, which draws the model this time
+---
+---The queue is left undrawn where the ink meshes are not drawn: the water reflection, the 3D skybox, and IN_RELOAD.
+---@param self ss.PaintableCSEnt
+---@param flags Enum.STUDIO
+function ss.QueueStaticProp(self, flags)
+    if isDrawingStaticProps then
+        self:DrawModel(flags)
+        return
+    end
+
+    if bit.band(flags, STUDIO_SSAODEPTHTEXTURE) ~= 0 then return end
+    if bit.band(flags, STUDIO_SHADOWDEPTHTEXTURE) ~= 0 then return end
+    if not CVarDrawStaticProps:GetBool() then return end
+    if self.FadeMaxSqr and self:GetPos():DistToSqr(EyePos()) > self.FadeMaxSqr then return end
+    StaticPropView:SetTranslation(EyePos())
+    StaticPropView:SetAngles(EyeAngles())
+    StaticPropView:InvertTR()
+    local fov = math.rad(render.GetViewSetup().fov)
+    local z = (StaticPropView * self:GetPos()).x       -- projected z-position
+    local fp = ScrH() / (2 * math.tan(fov / 2))        -- focus distance in pixels
+    local r = self.ModelLengthSqr * fp * fp / (z * z) -- draw radius on the screen in pixels
+    local minRadius = MIN_DRAW_RADIUS * ScrH() * ScrH()
+    if r < minRadius then return end
+    self.QueuedFlags = flags
+    StaticPropQueue[#StaticPropQueue + 1] = self
+end
+
+---Draws the flashlight light the queued static props receive.
+local function DrawStaticPropsFlashlight()
+    isDrawingStaticProps = true
+    render.MaterialOverride(StaticPropFlashlightMaterial)
+    for _, prop in ipairs(StaticPropQueue) do
+        prop:DrawModel(prop.QueuedFlags)
+    end
+    render.MaterialOverride()
+    isDrawingStaticProps = false
+end
+
+---Draws the ink of the queued static props.
+local function DrawStaticPropsInk()
+    isDrawingStaticProps = true
+    for _, prop in ipairs(StaticPropQueue) do
+        -- VertexLitGeneric leaves the lighting of the prop in the shader constants the ink material reads.
+        render.MaterialOverride(StaticPropLightMaterial)
+        prop:DrawModel(prop.QueuedFlags)
+        render.MaterialOverride()
+        prop:DrawModel(prop.QueuedFlags)
+    end
+    isDrawingStaticProps = false
+end
+
 local SSRViewMatrix = Matrix()
 local function UpdateViewParameters()
     local view = render.GetViewSetup()
@@ -301,6 +373,11 @@ GetRenderTargetEx("_rt_resolvedfullframedepth", ScrW(), ScrH(),
     MATERIAL_RT_DEPTH_SHARED,
     bit.bor(4, 8, 256, 512, 65536), 0, 27)
 
+-- See ss.QueueStaticProp
+hook.Add("PreDrawOpaqueRenderables", "SplashSWEPs: Reset static prop queue", function()
+    for k in pairs(StaticPropQueue) do StaticPropQueue[k] = nil end
+end)
+
 hook.Add("PreDrawTranslucentRenderables", "SplashSWEPs: Draw ink",
 function(bDrawingDepth, bDrawingSkybox)
     -- if ss.GetOption "hideink" then return end
@@ -336,6 +413,7 @@ function(bDrawingDepth, bDrawingSkybox)
     render.RenderFlashlights(function()
         render.SetMaterial(FlashlightBakeMaterial)
         DrawFlashlightMeshes()
+        DrawStaticPropsFlashlight()
     end)
     render.PopRenderTarget()
 
@@ -345,6 +423,7 @@ function(bDrawingDepth, bDrawingSkybox)
     render.SetRenderTargetEx(3, ss.RenderTarget.FrameTextures.Envmap)
     render.OverrideDepthEnable(true, true)
     DrawNormalMeshes()
+    DrawStaticPropsInk()
     render.OverrideDepthEnable(false)
     render.PopRenderTarget()
 
@@ -521,7 +600,7 @@ end)
 
 ---Checks material proxied to be checked in the given list of materials
 ---and registers them to the watch list to be refreshed.
----@param mats table<integer, ss.SurfaceBuilder.MaterialInfo> Sparse enumeration-ID-indexed materials.
+---@param mats table<integer, { Material: IMaterial }> Materials, such as sparse enumeration-ID-indexed ss.SurfaceBuilder.MaterialInfo.
 function ss.BuildMaterialWatchList(mats)
     for _, m in pairs(mats) do
         local mat = m.Material
