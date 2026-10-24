@@ -76,6 +76,7 @@ ss.CACHE_VERSION = 6
 ---Indicates if this game is a single player game.
 ss.sp = game.SinglePlayer()
 
+include "splashsweps/shared/import.lua"
 include "splashsweps/shared/util.lua"
 include "splashsweps/shared/hash.lua"
 include "splashsweps/shared/struct.lua"

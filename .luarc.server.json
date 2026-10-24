@@ -12,7 +12,8 @@
         "continue"
     ],
     "runtime.special": {
-        "include": "dofile"
+        "include": "dofile",
+        "ss.import": "require"
     },
     "runtime.version": "LuaJIT",
     "workspace.checkThirdParty": false,
