@@ -269,6 +269,9 @@ concommand.Add("ss_reload_shader", function(_, _, _)
         update[1]:SetString("$pixshader", update[3])
         update[1]:Recompute()
     end
+
+    ss.ClearAllInk()
+    ss.LoadInkTypesRT()
 end)
 
 -- Rebuild RTs from the loaded definitions; VMT enumeration and updater loading live in LoadInkTypes.

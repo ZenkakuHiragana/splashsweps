@@ -164,5 +164,4 @@ function ss.SetupRenderTargets()
     rt.FrameTextures.InkNormals   = GetGBuffer(RTNAMES.GNORMAL,     MATERIAL_RT_DEPTH_NONE)
     rt.FrameTextures.Reflection   = render.GetSuperFPTex()
     rt.FrameTextures.Envmap       = render.GetSuperFPTex2()
-    ss.ClearAllInk()
 end

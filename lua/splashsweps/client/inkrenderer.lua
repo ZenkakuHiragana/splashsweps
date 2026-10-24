@@ -564,7 +564,6 @@ function ss.ClearAllInk()
     render.Clear(128, 0, 0, 0) -- 16-bit height = 0 and 16-bit depth = 0
     render.OverrideAlphaWriteEnable(false)
     render.PopRenderTarget()
-    ss.LoadInkTypesRT()
 end
 
 local mesh_Begin              = mesh.Begin

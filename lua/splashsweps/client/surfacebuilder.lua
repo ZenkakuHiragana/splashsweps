@@ -389,21 +389,16 @@ end
 ---@param surfaceInfo    ss.PrecachedData.SurfaceInfo     Cached BSP surface data to update in-place.
 ---@param lightmapLayout ss.SurfaceBuilder.LightmapLayout Packed lightmap layout from packLightmaps.
 ---@return ss.SurfaceBuilder.MeshGroup[][] meshGroupsByModel    Model-indexed mesh groups.
----@return number[]                        bumpmapOffsetsByFace Face-indexed lightmap U offsets for bumped lightmaps.
-local function buildMeshGroupsAndApplyLightmapUVs(surfaceInfo, lightmapLayout)
+local function buildMeshGroups(surfaceInfo, lightmapLayout)
     ---Model index ---> mesh groups for that model
     ---@type ss.SurfaceBuilder.MeshGroup[][]
     local meshGroupsByModel      = {}
-    local bumpmapOffsetsByFace   = {} ---@type number[] faceIndex --> bumpmap offset
     local sortIDToMeshGroupIndex = {} ---@type integer[][]
     for sortID, lightmapGroup in ipairs(lightmapLayout.Groups) do
-        local materialInfo = lightmapGroup.Material
         local pageWidth, pageHeight = getLightmapPageSize(lightmapLayout, lightmapGroup)
         for i, faceIndex in ipairs(lightmapGroup.FaceIndices) do
             local surf = setmetatable(surfaceInfo.Surfaces[faceIndex], SurfaceMeta)
-            local lightmapWidth = lightmapGroup.LightmapWidths[i]
             local lightmapCoordinates = lightmapGroup.FaceLightmaps[i]
-            bumpmapOffsetsByFace[faceIndex] = materialInfo.NeedsBumpedLightmaps and lightmapWidth / pageWidth or 0
             for _, v in ipairs(surf.Vertices) do
                 setmetatable(v, VertexMeta)
                 v.LightmapUV.x = (v.LightmapUV.x + lightmapCoordinates.x) / pageWidth
@@ -436,7 +431,22 @@ local function buildMeshGroupsAndApplyLightmapUVs(surfaceInfo, lightmapLayout)
         table.sort(meshGroups, function(a, b) return a.SortID < b.SortID end)
     end
 
-    return meshGroupsByModel, bumpmapOffsetsByFace
+    return meshGroupsByModel
+end
+
+---@param lightmapLayout ss.SurfaceBuilder.LightmapLayout Packed lightmap layout from packLightmaps.
+---@return number[] bumpmapOffsetsByFace Face-indexed lightmap U offsets for bumped lightmaps.
+local function buildBumpmapOffsets(lightmapLayout)
+    local bumpmapOffsetsByFace   = {} ---@type number[] faceIndex --> bumpmap offset
+    for _, lightmapGroup in ipairs(lightmapLayout.Groups) do
+        local materialInfo = lightmapGroup.Material
+        local pageWidth, _ = getLightmapPageSize(lightmapLayout, lightmapGroup)
+        for i, faceIndex in ipairs(lightmapGroup.FaceIndices) do
+            local lightmapWidth = lightmapGroup.LightmapWidths[i]
+            bumpmapOffsetsByFace[faceIndex] = materialInfo.NeedsBumpedLightmaps and lightmapWidth / pageWidth or 0
+        end
+    end
+    return bumpmapOffsetsByFace
 end
 
 ---Builds the shared key-values for dynamic inkmesh materials.
@@ -774,26 +784,6 @@ local function writeFlashlightMeshes(renderBatch, vertexBatches)
     flush()
 end
 
----Coordinates material enumeration, lightmap packing, batching, and final IMesh construction.
----@param surfaceInfo    ss.PrecachedData.SurfaceInfo Cached BSP surface data used to build ink meshes.
----@param materialsInMap string[]                     Map material names, usually from game.GetMap():GetMaterials().
-local function BuildInkMesh(surfaceInfo, materialsInMap)
-    local materialInfo = enumerateMaterials(materialsInMap, buildCubemapLookup(surfaceInfo.Cubemaps))
-    local lightmapLayout = packLightmaps(surfaceInfo, materialInfo)
-    local meshGroupsByModel, bumpmapOffsetsByFace = buildMeshGroupsAndApplyLightmapUVs(surfaceInfo, lightmapLayout)
-    ss.BuildMaterialWatchList(materialInfo)
-    ss.BuildUnderlayTexturePack(materialInfo)
-
-    ss.DebugMeshData = {} ---@type ss.SurfaceBuilder.MeshVertex[][]
-    for modelIndex, meshGroups in pairs(meshGroupsByModel) do
-        local vertexBatches = buildMeshVertexBatches(surfaceInfo, meshGroups, bumpmapOffsetsByFace)
-        local renderBatch = buildRenderBatches(lightmapLayout, vertexBatches, ss.RenderBatches[modelIndex])
-        storeDebugMeshData(ss.DebugMeshData, vertexBatches)
-        writeMeshVertexBatches(renderBatch, vertexBatches)
-        writeFlashlightMeshes(renderBatch, vertexBatches)
-    end
-end
-
 ---Reads through BSP models which includes the worldspawn and brush entities and constructs IMeshes from them.
 ---@param surfaceInfo   ss.PrecachedData.SurfaceInfo
 ---@param numModels     integer
@@ -820,7 +810,22 @@ function ss.SetupModels(surfaceInfo, numModels, materialNames)
         ss.RenderBatches[i] = { BrushEntity = entities[i - 1], FlashlightMeshes = {} }
     end
 
-    BuildInkMesh(surfaceInfo, materialNames)
+    local cubemapLookup = buildCubemapLookup(surfaceInfo.Cubemaps)
+    local materialInfo = enumerateMaterials(materialNames, cubemapLookup)
+    local lightmapLayout = packLightmaps(surfaceInfo, materialInfo)
+    local meshGroupsByModel = buildMeshGroups(surfaceInfo, lightmapLayout)
+    local bumpmapOffsets = buildBumpmapOffsets(lightmapLayout)
+    ss.BuildMaterialWatchList(materialInfo)
+    ss.BuildUnderlayTexturePack(materialInfo)
+
+    ss.DebugMeshData = {} ---@type ss.SurfaceBuilder.MeshVertex[][]
+    for modelIndex, meshGroups in pairs(meshGroupsByModel) do
+        local vertexBatches = buildMeshVertexBatches(surfaceInfo, meshGroups, bumpmapOffsets)
+        local renderBatch = buildRenderBatches(lightmapLayout, vertexBatches, ss.RenderBatches[modelIndex])
+        storeDebugMeshData(ss.DebugMeshData, vertexBatches)
+        writeMeshVertexBatches(renderBatch, vertexBatches)
+        writeFlashlightMeshes(renderBatch, vertexBatches)
+    end
 end
 
 ---Returns the $basetexture alpha below which the alpha test of a VertexLitGeneric material discards pixels,

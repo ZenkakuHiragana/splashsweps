@@ -78,6 +78,7 @@ local function LoadCache()
     ss.SetupSurfaces(surfaces.Surfaces, cache.NumModels)
     ss.SetupSurfacesStaticProp(cache.StaticProps, staticPropUV)
     ss.SetupStaticProps(cache.StaticProps, cache.StaticPropMDL, staticPropUV, surfaces.Cubemaps)
+    ss.ClearAllInk()
 end
 
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
