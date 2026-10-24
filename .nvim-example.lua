@@ -2,7 +2,11 @@
 -- Copy to .nvim.lua (or symlink it), enable 'exrc', and :trust the file.
 -- Game Lua uses separate server/client workspaces; other Lua keeps lua_ls.
 
-local root = vim.fs.dirname(vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p"))
+-- A project reached through a symlinked directory has two spellings. Neovim
+-- resolves a relative path containing a directory (`lua/...`) but keeps other
+-- names as given, so buffers of both spellings are normal.
+local source_root = vim.fs.normalize(vim.fs.dirname(vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p")))
+local root = vim.fs.normalize(vim.uv.fs_realpath(source_root) or source_root)
 local group = vim.api.nvim_create_augroup("splashsweps_gmod_lsp", { clear = true })
 local forced_realms = {}
 local buffer_uris = {}
@@ -10,11 +14,24 @@ local initialized = false
 local native_root_wrapper
 local native_generation = {}
 
-local function normalize(path)
+local function lower_path(path)
     return vim.fs.normalize(path or ""):gsub("\\", "/"):lower()
 end
 
-local root_key = normalize(root)
+local root_key = lower_path(root)
+local source_key = lower_path(source_root)
+
+-- Paths spelled through the unresolved project directory (configured libraries,
+-- the current directory) name the same files as the resolved root. Only the
+-- project prefix is mapped: links inside it, such as lua/types, stay as spelled.
+local function normalize(path)
+    path = lower_path(path)
+    if source_key ~= root_key
+        and (path == source_key or path:sub(1, #source_key + 1) == source_key .. "/") then
+        path = root_key .. path:sub(#source_key + 1)
+    end
+    return path
+end
 local lua_root = root_key .. "/lua"
 
 local function within(path, directory)
@@ -24,6 +41,16 @@ end
 
 local function is_gmod(path)
     return within(path, lua_root)
+end
+
+-- LuaLS attaches libraries only to files under its workspace as spelled, so a
+-- game client's workspace uses the spelling of the buffers it serves.
+local function root_spelling(path)
+    local key = lower_path(path)
+    if source_key ~= root_key and (key == source_key or key:sub(1, #source_key + 1) == source_key .. "/") then
+        return source_root
+    end
+    return root
 end
 
 local function is_project_client(client)
@@ -77,9 +104,12 @@ end
 local function native_workspace(workspace)
     workspace = vim.deepcopy(workspace or {})
     workspace.ignoreDir = workspace.ignoreDir or {}
-    local ignored = root .. "/lua"
-    if not vim.tbl_contains(workspace.ignoreDir, ignored) then
-        table.insert(workspace.ignoreDir, ignored)
+    -- LuaLS compares ignoreDir as spelled, and a native workspace may be rooted
+    -- through either spelling of the project directory.
+    for _, ignored in ipairs { root .. "/lua", vim.fs.normalize(source_root) .. "/lua" } do
+        if not vim.tbl_contains(workspace.ignoreDir, ignored) then
+            table.insert(workspace.ignoreDir, ignored)
+        end
     end
     workspace.library = vim.tbl_filter(function(path)
         local absolute = vim.fs.abspath(path)
@@ -238,9 +268,11 @@ local function reconcile(bufnr)
     else
         expected.lua_ls = true
     end
+    local game_root = lower_path(root_spelling(vim.api.nvim_buf_get_name(bufnr)))
     for _, client in ipairs(vim.lsp.get_clients { bufnr = bufnr, _uninitialized = true }) do
         if is_managed(client) then
-            if client:is_stopped() or not expected[client.name] then
+            if client:is_stopped() or not expected[client.name]
+                or (game and lower_path(client.root_dir) ~= game_root) then
                 -- Close the old URI before a saveas rename can notify the
                 -- previous realm (including an untransformed outside file).
                 client:notify("textDocument/didClose", {
@@ -265,6 +297,10 @@ local function reconcile(bufnr)
             end)
         elseif config then
             local resolved = vim.deepcopy(config)
+            if game then
+                -- Clients are reused per name and root, hence one per spelling in use.
+                resolved.root_dir = root_spelling(vim.api.nvim_buf_get_name(bufnr))
+            end
             resolved.root_dir = resolved.root_dir or vim.fs.root(bufnr, resolved.root_markers or { ".git" }) or root
             vim.lsp.start(resolved, { bufnr = bufnr })
         end
@@ -311,16 +347,19 @@ local function register_overseer_templates()
     vim.g.splashsweps_shader_compile_roots = registered
 end
 
+-- Reload the plugin as well as the exrc: a running LuaLS otherwise keeps its
+-- old plugin code even after the file on disk has changed. Only clients that
+-- exist while this file is being sourced belong to a previous load; stopping
+-- later (at VimEnter) would kill and restart the instances this load started.
+for _, client in ipairs(vim.lsp.get_clients { _uninitialized = true }) do
+    if is_project_client(client) and client.name:match "^lua_ls_gmod_" then
+        client:stop(true)
+    end
+end
+
 local function setup()
     configure_native()
     register_overseer_templates()
-    -- Reload the plugin as well as the exrc: a running LuaLS otherwise keeps
-    -- its old plugin code even after the file on disk has changed.
-    for _, client in ipairs(vim.lsp.get_clients { _uninitialized = true }) do
-        if is_project_client(client) and client.name:match "^lua_ls_gmod_" then
-            client:stop(true)
-        end
-    end
     ensure_gmod_configs()
     for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
         reconcile(bufnr)

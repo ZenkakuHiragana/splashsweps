@@ -84,6 +84,55 @@ function OnSetText(uri, text)
     local function offset(position)
         return guide.positionToOffset(state, position)
     end
+
+    -- Local references with their declaration offsets, ordered by position.
+    local localRefs
+    local function allLocalRefs()
+        if not localRefs then
+            localRefs = {}
+            guide.eachSourceType(state.ast, 'getlocal', function (ref)
+                if ref.node then
+                    localRefs[#localRefs + 1] = {
+                        offset(ref.start) + 1, offset(ref.finish), offset(ref.node.start) + 1,
+                    }
+                end
+            end)
+            table.sort(localRefs, function (a, b) return a[1] < b[1] end)
+        end
+        return localRefs
+    end
+
+    -- References in removed text to locals declared outside it, at their original
+    -- offsets. Keeping them marks a local used by either realm as used in both, and
+    -- the identifiers still map to their original source positions.
+    local function outerReferences(first, last)
+        local all = allLocalRefs()
+        local low, high = 1, #all + 1
+        while low < high do
+            local middle = (low + high) // 2
+            if all[middle][1] < first then
+                low = middle + 1
+            else
+                high = middle
+            end
+        end
+        local refs = {}
+        for index = low, #all do
+            local ref = all[index]
+            if ref[1] > last then
+                break
+            end
+            if ref[2] <= last and (ref[3] < first or ref[3] > last) then
+                refs[#refs + 1] = ref
+            end
+        end
+        return refs
+    end
+
+    local function newlines(first, last)
+        return (text:sub(first, last):gsub('[^\r\n]', ''))
+    end
+
     local function blank(first, last, keyword)
         if first > last then
             return
@@ -105,9 +154,40 @@ function OnSetText(uri, text)
         diffs[#diffs + 1] = { start = first, finish = last, text = replacement }
     end
 
+    -- Replaces removed text with `prefix local _ = { a, b }; suffix`, keeping
+    -- references to outer locals in place. One local per removed range keeps within
+    -- the parser's local limit; `;` ends the statement before a following
+    -- parenthesized call; line breaks go before inserted words to avoid trailing space.
+    local function replace(first, last, prefix, refs, suffix)
+        prefix = prefix and ' ' .. prefix or ''
+        suffix = suffix and ' ' .. suffix or ''
+        local cursor = first
+        if prefix == '' and newlines(first, (refs[1] and refs[1][1] or last + 1) - 1) ~= '' then
+            -- The line holding the removed text would be left with indentation only.
+            while cursor > 1 and text:sub(cursor - 1, cursor - 1):match('[ \t]') do
+                cursor = cursor - 1
+            end
+        end
+        for index, ref in ipairs(refs) do
+            local before = index == 1 and prefix or ','
+            diffs[#diffs + 1] = {
+                start = cursor, finish = ref[1] - 1,
+                text = before .. newlines(cursor, ref[1] - 1) .. (index == 1 and ' local _ = { ' or ' '),
+            }
+            cursor = ref[2] + 1
+        end
+        local separator = #refs > 0 and ' };' or prefix
+        local rest = separator .. newlines(cursor, last) .. suffix
+        if text:sub(last + 1, last + 1):match('[%w_]') then
+            -- Keep an inserted keyword apart from an immediately following one.
+            rest = rest .. '\n'
+        end
+        diffs[#diffs + 1] = { start = cursor, finish = last, text = rest ~= '' and rest or '\n' }
+    end
+
     local visited = {}
     local visit
-    local function visitIf(node)
+    local function visitIf(node, parent, index)
         local firstArm = node[1]
         local value = realmCondition(firstArm)
         if value == nil then
@@ -117,6 +197,7 @@ function OnSetText(uri, text)
             return false
         end
 
+        local head = offset(node.start) + 1
         local selected
         if value then
             selected = firstArm
@@ -124,35 +205,53 @@ function OnSetText(uri, text)
             selected = node[2]
         elseif node[2] then
             local nextArm = node[2]
-            blank(offset(node.start) + 1, offset(nextArm.start))
+            replace(head, offset(nextArm.start), nil, outerReferences(head, offset(nextArm.start)))
             -- Retain the remaining chain verbatim, even when its condition is compound.
             blank(offset(nextArm.keyword[1]) + 1, offset(nextArm.keyword[2]), 'if')
-            for index = 2, #node do
-                visit(node[index])
+            for arm = 2, #node do
+                visit(node[arm])
             end
             return false
         else
-            -- Lua newlines do not separate statements before a parenthesized call.
-            blank(offset(node.start) + 1, offset(node.finish), ';')
+            local refs = outerReferences(head, offset(node.finish))
+            if #refs > 0 then
+                replace(head, offset(node.finish), nil, refs)
+            else
+                -- Lua newlines do not separate statements before a parenthesized call.
+                blank(head, offset(node.finish), ';')
+            end
             return false
         end
 
         -- A do block retains the arm's local scope without a conditional return path.
-        blank(offset(node.start) + 1, offset(selected.bstart), 'do')
-        blank(offset(selected.bfinish) + 1, offset(node.finish) - 3)
-        visit(selected)
+        -- It ends before the kept references of the removed arms, so they bind to the
+        -- outer locals even when the selected arm declares the same names.
         local lastStatement = selected[#selected]
-        return lastStatement ~= nil and lastStatement.type == 'return'
+        local returns = lastStatement ~= nil and lastStatement.type == 'return'
+        -- After a return, the rest of the enclosing block is unreachable in this realm.
+        local siblings = returns and parent and parent[index + 1]
+        local bodyFirst, bodyLast = offset(selected.bstart), offset(selected.bfinish) + 1
+        local tailLast = siblings and offset(parent.bfinish) or offset(node.finish)
+        local before = selected == firstArm and {} or outerReferences(head, bodyFirst)
+        if #before > 0 then
+            replace(head, bodyFirst, nil, before, 'do')
+        else
+            blank(head, bodyFirst, 'do')
+        end
+        -- LuaLS does not mark a do block as returning, so the references may follow it.
+        replace(bodyLast, tailLast, 'end', outerReferences(bodyLast, tailLast))
+        visit(selected)
+        return returns
     end
 
-    visit = function(node)
+    visit = function(node, parent, index)
         if not node or visited[node] then
             return false
         end
         -- Multi-assignment select nodes can share their right-hand expression.
         visited[node] = true
         if node.type == 'if' then
-            return visitIf(node)
+            return visitIf(node, parent, index)
         end
 
         local statementIndex = 1
@@ -163,17 +262,13 @@ function OnSetText(uri, text)
                 return
             end
             if isBlock and child == node[statementIndex] then
-                local index = statementIndex
+                local current = statementIndex
                 statementIndex = statementIndex + 1
                 if stopped then
                     return
                 end
-                if visit(child) and node[index + 1] then
-                    -- Only sibling statements: never the enclosing end/else or function.
-                    -- Assignment nodes can end at the name; bfinish includes their values.
-                    blank(offset(child.finish) + 1, offset(node.bfinish))
-                    stopped = true
-                end
+                -- A returning realm branch has already removed the following statements.
+                stopped = visit(child, node, current)
             else
                 visit(child)
             end

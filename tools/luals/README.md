@@ -23,7 +23,7 @@ Use `:GLuaLsp` to inspect attachments. For the current game Lua buffer, use `:GL
 
 `realm.lua` runs as a LuaLS `runtime.plugin` and returns analysis-text diffs from `OnSetText`. It does not rewrite the source executed by the game.
 
-Only `if` statements whose condition is a standalone reference to the global `SERVER` or `CLIENT` are transformed. The selected branch becomes a `do` block to preserve local scope; unselected code is removed. If the selected branch ends with a direct `return` statement, subsequent statements in the block containing that `if` are also removed.
+Only `if` statements whose condition is a standalone reference to the global `SERVER` or `CLIENT` are transformed. The selected branch becomes a `do` block to preserve local scope; unselected code is removed. References in the removed code to locals declared outside it are kept in place as `local _ = { name };` (one statement per removed range, placed after the `do` block when the first branch is selected), so a local used only by the other realm is not reported as unused. If the selected branch ends with a direct `return` statement, subsequent statements in the block containing that `if` are also removed, keeping their references the same way. LuaLS does not report code after a returning `do` block as unreachable.
 
 ```lua
 if SERVER then return end

@@ -29,6 +29,21 @@ local examples = {
         text = 'if SERVER then return end\nlocal a,b = (function() if CLIENT then return 1,2 end return 3,4 end)()\nprint(a,b)',
         server = 1, client = 3,
     },
+    {
+        -- Each realm keeps references from the removed arm to outer locals.
+        text = 'local x, y = 1, 2\nif SERVER then print(x) else print(y) end\n(f)()',
+        server = 5, client = 5, keeps = { server = 'local _ = { y };', client = 'local _ = { x };' },
+    },
+    {
+        -- A same-named local in the selected arm does not capture the kept reference.
+        text = 'local x = 1\nif SERVER then local x = 2; print(x) else print(x) end',
+        server = 3, client = 2, keeps = { server = 'end local _ = { x };' },
+    },
+    {
+        -- References after a returning arm stay outside its block, without unreachable code.
+        text = 'local x = 1\nif CLIENT then return x end\nprint(x)\ng()',
+        server = 4, client = 3, keeps = { client = 'local _ = { x };' },
+    },
     { text = 'if SERVER and ready() then unknown() end', unchanged = true },
     { text = 'local SERVER = false\nif SERVER then unknown() end', unchanged = true },
 }
@@ -45,6 +60,8 @@ for _, realm in ipairs { 'server', 'client' } do
             assert(text == example.text, 'changed an unsupported condition')
         else
             assert(#after.ast == example[realm], realm .. ' example ' .. index .. ': changed statement boundaries\n' .. text)
+            local keep = example.keeps and example.keeps[realm]
+            assert(not keep or text:find(keep, 1, true), realm .. ' example ' .. index .. ': lost outer reference\n' .. text)
         end
         print('PASS parser', realm, index)
     end
