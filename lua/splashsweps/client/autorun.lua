@@ -26,6 +26,12 @@ if not SplashSWEPs then
     }
 end
 
+---@class ss
+local ss = SplashSWEPs
+
+---Envmap the engine falls back to when a material has no cubemap to use.
+ss.DEFAULT_ENVMAP = "editor/cubemap" .. (render.GetHDREnabled() and ".hdr" or "")
+
 include "splashsweps/shared/autorun.lua"
 include "splashsweps/client/debug_mesh.lua"
 include "splashsweps/client/inkdetail.lua"
@@ -35,10 +41,9 @@ include "splashsweps/client/rbtree.lua"
 include "splashsweps/client/rtbuilder.lua"
 include "splashsweps/client/session.lua"
 include "splashsweps/client/skylinepacker.lua"
+include "splashsweps/client/staticpropbuilder.lua"
 include "splashsweps/client/surfacebuilder.lua"
 
----@class ss
-local ss = SplashSWEPs
 local function LoadCache()
     local cachePath = string.format("splashsweps/%s.json", game.GetMap())
     local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
