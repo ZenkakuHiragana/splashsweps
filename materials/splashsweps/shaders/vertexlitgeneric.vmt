@@ -1,8 +1,10 @@
 "VertexLitGeneric"
 {
-    // Draws the flashlight light the static props receive into the lower half of SceneAndFlashlight,
-    // as lightmappedgeneric.vmt does for the ink meshes.
+    // Flashlight light on the static props. See DrawStaticPropsFlashlight in inkrenderer.lua.
+    // $alphatest: draws only where the depth equals. $nocull: the ink of $nocull materials has back faces.
     "$basetexture" "white"
     "$bumpmap"     "null-bumpmap"
     "$phong"       "0"
+    "$alphatest"   "1"
+    "$nocull"      "1"
 }

@@ -8,6 +8,7 @@
     "$linearread_texture2"    "1"
     "$linearread_texture3"    "0"
     "$linearread_texture4"    "1"
+    "$linearread_texture5"    "1"
 
     "$writealpha"   "1"
     "$cull"         "1"

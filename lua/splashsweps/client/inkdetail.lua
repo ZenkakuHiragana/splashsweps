@@ -575,10 +575,12 @@ function ss.PrepareInkDetailsRT(baseTextureNames)
     inkMeshMaterial:SetFloat("$c3_w", imageAreaSizePx)
     inkMeshMaterial:SetFloat("$c1_x", gridColumns)
     inkMeshMaterial:SetFloat("$c1_z", 2 / ss.RenderTarget.HammerUnitsToUV)
-    for material in pairs(ss.InkMeshMaterials) do
-        material:SetFloat("$c3_w", imageAreaSizePx)
-        material:SetFloat("$c1_x", gridColumns)
-        material:SetFloat("$c1_z", 2 / ss.RenderTarget.HammerUnitsToUV)
+    for _, materials in ipairs { ss.InkMeshMaterials, ss.StaticPropInkMaterials } do
+        for material in pairs(materials) do
+            material:SetFloat("$c3_w", imageAreaSizePx)
+            material:SetFloat("$c1_x", gridColumns)
+            material:SetFloat("$c1_z", 2 / ss.RenderTarget.HammerUnitsToUV)
+        end
     end
     return rowsByType
 end

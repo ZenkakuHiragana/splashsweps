@@ -3,38 +3,12 @@
 
 // Ink part of the ink mesh pixel shaders for SplashSWEPs, shared by the geometry kinds.
 //
-//   entry shader                  defines
-//   ----------------------------  ----------------------------------
-//   inkmesh_ps30.hlsl             -
-//   inkmesh_wvt_ps30.hlsl         UNDERLAY_KIND = UNDERLAY_WVT
-//   inkmesh_4wayblend_ps30.hlsl   UNDERLAY_KIND = UNDERLAY_4WAYBLEND
-//   staticprop_ps30.hlsl          INKMESH_STATIC_PROP
-//
-//   entry shader
+//   inkmesh_ps30.hlsl, inkmesh_wvt_ps30.hlsl, inkmesh_4wayblend_ps30.hlsl (UNDERLAY_KIND),
+//   staticprop_ps30.hlsl (INKMESH_STATIC_PROP)
 //   `-- inkmesh_ps_main.hlsl              main()
-//       `-- inkmesh_ps_world.hlsl         geometry part: lightmaps
-//           (inkmesh_ps_staticprop.hlsl   with INKMESH_STATIC_PROP: ambient cube and lights)
+//       `-- inkmesh_ps_world.hlsl         or inkmesh_ps_staticprop.hlsl with INKMESH_STATIC_PROP
 //           `-- inkmesh_ps_ink.hlsl       this file
 //               `-- inkmesh_common.hlsl
-//
-// Each file includes what it uses, so that each file can be checked alone, as HLSL Tools does.
-// inkmesh_ps_main.hlsl alone is checked as the world version.
-//
-// The geometry part defines the following, which main() uses:
-//   PS_INPUT, PsVertexInfo, UVs      .. the input and the UVs, with the fields inkmesh_ps_main.hlsl reads
-//   g_Simplified                     .. whether to draw the simplified pass for the water reflection
-//   PsVertexInfo DecomposeInput(PS_INPUT)
-//   GeometryAlbedo FetchGeometryAlbedo(PsVertexInfo, UVs)
-//   float3 FetchGeometryNormal(PsVertexInfo, UVs, float3 layerWeights) .. tangent space normal
-//   void ApplyGeometryParallax(PsVertexInfo, float3 worldOffset, float2 uvOffset, float2 worldUVParallax, inout UVs)
-//                                    .. shifts the UVs other than base and bump by the parallax
-//   GeometryLight                    .. the light the geometry receives, with float3 diffuse
-//   GeometryLight EvaluateGeometryLight(PsVertexInfo, UVs, float3 tangentSpaceNormal, float3 worldSpaceNormal)
-//   float3 EvaluateGeometryPhong(PsVertexInfo, GeometryLight, float3 worldSpaceNormal, float3 viewDir,
-//       float exponent, float3x3 shadingBasis)
-//   float3 GeometryRimLightColor(GeometryLight)
-//   GEOMETRY_LIGHT_SCALE             .. the scale of the specular and the rim light
-
 #include "inkmesh_common.hlsl"
 
 // Build configurations
@@ -117,10 +91,9 @@ sampler InkDataDetail   : register(s1);
 sampler FrameBuffer     : register(s2);
 sampler UnderlayAlbedo  : register(s3);
 sampler UnderlayBumpmap : register(s4);
-// s5 and s6 are defined by the geometry part
+// s5 and s6 are defined by the geometry part that uses them
 sampler Envmap          : register(s7);
 
-static const float3  g_SunDirection       = c0.xyz; // in world space
 static const float   g_DetailGridColumns  = c1.x;   // Number of columns in the ink detail image grid
 static const float   g_InkMapHUPerUV      = c1.z;   // Packed-surface HU per ink UV: 2 / HammerUnitsToUV
 static const float3  g_Color              = c3.rgb;
@@ -259,15 +232,10 @@ void FetchInkMaterialParams(float3 IDs, inout MaterialParams params) {
 }
 
 // FrameBuffer stacks the frame buffer copy with the view depth in alpha (upper half)
-// on the flashlight light of the ink meshes (lower half).
+// on the flashlight light of the world ink meshes (lower half).
 // The frame buffer is read with bilinear filtering, so its v stops half a texel before the lower half.
 float4 SampleScene(float2 screenUV) {
     return tex2Dlod(FrameBuffer, float4(screenUV.x, min(screenUV.y * 0.5, 0.5 - s2Size.y * 0.5), 0.0, 0.0));
-}
-
-// Light the flashlights cast on the ink mesh at the pixel center screenUV.
-float3 SampleFlashlight(float2 screenUV) {
-    return tex2Dlod(FrameBuffer, float4(screenUV.x, 0.5 + screenUV.y * 0.5, 0.0, 0.0)).rgb / g_TonemapScale;
 }
 
 // Selects the region of the ink map at the sample point.

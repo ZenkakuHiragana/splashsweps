@@ -44,6 +44,8 @@ local RTNAMES = {
     INKMAP      = "splashsweps_inkmap",
     INKMAP2     = "splashsweps_inkmap2",
     SCENE       = "splashsweps_sceneandflashlight",
+    PROPLIGHT   = "splashsweps_staticpropflashlight",
+    PROPLIGHT_MSAA = "splashsweps_staticpropflashlight_msaa",
     GCOLOR      = "splashsweps_gbuf_inkcolor",
     GCOLOR_BLUR = "splashsweps_gbuf_inkcolor_blur",
     GNORMAL     = "splashsweps_gbuf_inknormals",
@@ -76,7 +78,8 @@ if not ss.RenderTarget then
         },
         ---One-frame textures for forward MRT shading and SSR composition.
         ---@class ss.RenderTarget.FrameTextures
-        ---@field SceneAndFlashlight ITexture? Twice the screen height. Upper half: frame buffer copy + alpha channel as depth buffer. Lower half: flashlight light on the ink meshes.
+        ---@field SceneAndFlashlight ITexture? Twice the screen height. Upper half: frame buffer copy + alpha channel as depth buffer. Lower half: flashlight light on the world ink meshes.
+        ---@field StaticPropFlashlight ITexture? Flashlight light on the static props. See DrawStaticPropsFlashlight in inkrenderer.lua.
         ---@field SSRResult          ITexture? Half-resolution (hit UV * confidence, blur width in pixels at roughness = 100% * confidence, confidence).
         ---@field InkColor           ITexture? Background or painted color without SSR; alpha is the painted-surface mask.
         ---@field InkColorBlur       ITexture? Quarter-resolution copy of InkColor for reflections on rough surfaces.
@@ -85,6 +88,7 @@ if not ss.RenderTarget then
         ---@field Envmap             ITexture? G-Buffer to store precomputed $envmap sample and ink roughness.
         FrameTextures = {
             SceneAndFlashlight = nil,
+            StaticPropFlashlight = nil,
             SSRResult          = nil,
             InkColor           = nil,
             InkColorBlur       = nil,
@@ -102,6 +106,8 @@ if not ss.RenderTarget then
         HammerUnitsToUV = 1,
         ---Conversion multiplier from hammer units to texture pixels (= UV x render target resolution).
         HammerUnitsToPixels = 1,
+        ---True if StaticPropFlashlight shares the depth buffer of the frame, false with MSAA.
+        StaticPropFlashlightSharesDepth = true,
     }
 end
 
@@ -145,6 +151,13 @@ function ss.SetupRenderTargets()
         RTFLAGS.FRAME,
         CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA16161616F)
+    -- MATERIAL_RT_DEPTH_SHARED gets its own depth buffer with MSAA. Changing MSAA needs a map reload.
+    rt.StaticPropFlashlightSharesDepth = GetConVar "mat_antialias":GetInt() <= 1
+    if rt.StaticPropFlashlightSharesDepth then
+        rt.FrameTextures.StaticPropFlashlight = GetGBuffer(RTNAMES.PROPLIGHT, MATERIAL_RT_DEPTH_SHARED)
+    else
+        rt.FrameTextures.StaticPropFlashlight = GetGBuffer(RTNAMES.PROPLIGHT_MSAA, MATERIAL_RT_DEPTH_SEPARATE)
+    end
     rt.FrameTextures.SSRResult    = GetGBuffer(RTNAMES.SSR_RESULT,  MATERIAL_RT_DEPTH_NONE, 0.5)
     rt.FrameTextures.InkColor     = GetGBuffer(RTNAMES.GCOLOR,      MATERIAL_RT_DEPTH_SEPARATE)
     rt.FrameTextures.InkColorBlur = GetGBuffer(RTNAMES.GCOLOR_BLUR, MATERIAL_RT_DEPTH_NONE, InkSSRBlurResolutionMul)

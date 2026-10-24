@@ -50,7 +50,7 @@ struct PsVertexInfo {
     float3x3 lightmapTransform;
 };
 
-static const float3 LUMINANCE_FACTOR  = { 0.2125, 0.7154, 0.0721 }; // Luminance() of Lightmapped_4WayBlend
+static const float3 LUMINANCE_FACTOR = { 0.2125, 0.7154, 0.0721 }; // Luminance() of Lightmapped_4WayBlend
 static const float3x3 BumpBasis = {
     // Bumped lightmap basis vectors (same as LightmappedGeneric) in tangent space
     {  0.81649661064147949,  0.0,                 0.57735025882720947 },
@@ -59,18 +59,19 @@ static const float3x3 BumpBasis = {
 };
 
 #if HAS_UNDERLAY_ATLAS
-sampler UnderlayAtlas   : register(s5); // Built by ss.BuildUnderlayTexturePack
+sampler UnderlayAtlas  : register(s5); // Built by ss.BuildUnderlayTexturePack
 #else
-sampler UnderlayDetail  : register(s5); // $detail
+sampler UnderlayDetail : register(s5); // $detail
 #endif
-sampler Lightmap        : register(s6);
+sampler Lightmap       : register(s6);
 
-static const float   g_DetailBlendMode    = c0.w;
-static const float   g_MaterialFlags      = c1.y;
-static const float2  g_LightmapSize       = c2.xy;  // One over lightmap size
-static const float2  g_DetailScale        = c2.zw;
-static const float4  g_DetailTint         = { c11.w, c12.w, c13.w, 1.0 };
-static const float   g_DetailBlendFactor  = c14.w;
+static const float3 g_SunDirection      = c0.xyz; // in world space
+static const float  g_DetailBlendMode   = c0.w;
+static const float  g_MaterialFlags     = c1.y;
+static const float2 g_LightmapSize      = c2.xy;  // One over lightmap size
+static const float2 g_DetailScale       = c2.zw;
+static const float4 g_DetailTint        = { c11.w, c12.w, c13.w, 1.0 };
+static const float  g_DetailBlendFactor = c14.w;
 
 // Bit flags:
 //   0x01 .. has $bumpmap
@@ -376,8 +377,7 @@ GeometryLight EvaluateGeometryLight(const PsVertexInfo i,
     return light;
 }
 
-// Specular from the sun, or from the light direction the bumped lightmap implies.
-// The result is scaled by GEOMETRY_LIGHT_SCALE afterwards.
+// Specular from the sun, or from the light direction the bumped lightmap implies
 float3 EvaluateGeometryPhong(const PsVertexInfo i, const GeometryLight light,
     float3 worldSpaceNormal, float3 viewDir, float exponent, float3x3 shadingBasis) {
     float3 phongLightDir = g_SunDirection;
@@ -393,11 +393,15 @@ float3 EvaluateGeometryPhong(const PsVertexInfo i, const GeometryLight light,
     return mul(light.factors * spec, light.colors);
 }
 
-// Use average lightmap color as rim light color.
-// The result is scaled by GEOMETRY_LIGHT_SCALE afterwards.
+// Use average lightmap color as rim light color
 float3 GeometryRimLightColor(const GeometryLight light) {
     return mul(light.factors, light.colors);
 }
 
 // The lightmap samples need the lightmap scale, which CalcFinalLightmapColor applies to the diffuse light
 #define GEOMETRY_LIGHT_SCALE g_LightmapScale
+
+// Light the flashlights cast on the ink mesh at the pixel center screenUV.
+float3 SampleFlashlight(float2 screenUV) {
+    return tex2Dlod(FrameBuffer, float4(screenUV.x, 0.5 + screenUV.y * 0.5, 0.0, 0.0)).rgb / g_TonemapScale;
+}

@@ -11,7 +11,11 @@ if not locals.Renderer then
     locals.Renderer.MaterialWatchList = {}
     locals.Renderer.LastSunDirection = Vector()
     locals.Renderer.StaticPropQueue = {}
+    locals.Renderer.IsDrawingStaticProps = false
 end
+
+---@class ss.Locals.Renderer
+---@field IsDrawingStaticProps boolean True while the ink renderer draws the queued static props.
 
 ---@class ss.Locals.Renderer.Queue
 ---@field pos    Vector   The world position to paint
@@ -56,6 +60,7 @@ local InkWaterMaterial = Material "splashsweps/shaders/inkmesh"
 local InkDrawMaterial = Material "splashsweps/shaders/drawink"
 local StaticPropLightMaterial = Material "splashsweps/shaders/phong"
 local StaticPropFlashlightMaterial = Material "splashsweps/shaders/vertexlitgeneric"
+local StaticPropFlashlightMaterialMSAA = Material "splashsweps/shaders/vertexlitgeneric_msaa"
 local CVarWireframe = GetConVar "mat_wireframe"
 local CVarMinecraft = GetConVar "mat_showlowresimage"
 local CVarDrawStaticProps = GetConVar "r_drawstaticprops"
@@ -75,9 +80,6 @@ local Queue = locals.Renderer.Queue
 ---@type ss.PaintableCSEnt[]
 local StaticPropQueue = locals.Renderer.StaticPropQueue
 
----True while drawing the queued static props, so that their RenderOverride draws them.
-local isDrawingStaticProps = false
-
 ---@type ss.Locals.Renderer.MaterialWatchEntry[]
 local MaterialWatchList       = locals.Renderer.MaterialWatchList
 local MaterialWatchInterval   = { 0, 0.05, 0.5, 1, 2, 5, math.huge }
@@ -91,7 +93,13 @@ local MaterialWatchParameters = {
     ["$color"]                = "Vector",
     ["$color2"]               = "Vector",
 }
-local RefreshMaterial = {
+
+---Reflects a changed parameter of the source material to the ink material.
+---
+---  RefreshInkMaterial        world and static props   transforms, $color, $color2
+---  RefreshWorldInkMaterial   world                    the above and $detail*
+---@type table<string, fun(mat: IMaterial, src: IMaterial, value: any)>
+local RefreshInkMaterial = {
     ---@param mat IMaterial
     ---@param _   IMaterial
     ---@param value VMatrix
@@ -118,6 +126,28 @@ local RefreshMaterial = {
         m:SetField(4, 3, value:GetField(2, 4))
         mat:SetMatrix("$viewprojmat", m)
     end,
+    ---@param mat IMaterial
+    ---@param src IMaterial
+    ---@param value Vector
+    ["$color"] = function(mat, src, value)
+        local color = value * (src:GetVector "$color2" or ss.vector_one)
+        mat:SetFloat("$c3_x", color.x)
+        mat:SetFloat("$c3_y", color.y)
+        mat:SetFloat("$c3_z", color.z)
+    end,
+    ---@param mat IMaterial
+    ---@param src IMaterial
+    ---@param value Vector
+    ["$color2"] = function(mat, src, value)
+        local color = value * (src:GetVector "$color" or ss.vector_one)
+        mat:SetFloat("$c3_x", color.x)
+        mat:SetFloat("$c3_y", color.y)
+        mat:SetFloat("$c3_z", color.z)
+    end,
+}
+
+---@type table<string, fun(mat: IMaterial, src: IMaterial, value: any)>
+local RefreshWorldInkMaterial = table.Merge({
     ---@param mat IMaterial
     ---@param _   IMaterial
     ---@param value number
@@ -150,25 +180,7 @@ local RefreshMaterial = {
         m:SetField(3, 4, value.z)
         mat:SetMatrix("$viewprojmat", m)
     end,
-    ---@param mat IMaterial
-    ---@param src IMaterial
-    ---@param value Vector
-    ["$color"] = function(mat, src, value)
-        local color = value * (src:GetVector "$color2" or ss.vector_one)
-        mat:SetFloat("$c3_x", color.x)
-        mat:SetFloat("$c3_y", color.y)
-        mat:SetFloat("$c3_z", color.z)
-    end,
-    ---@param mat IMaterial
-    ---@param src IMaterial
-    ---@param value Vector
-    ["$color2"] = function(mat, src, value)
-        local color = value * (src:GetVector "$color" or ss.vector_one)
-        mat:SetFloat("$c3_x", color.x)
-        mat:SetFloat("$c3_y", color.y)
-        mat:SetFloat("$c3_z", color.z)
-    end,
-}
+}, RefreshInkMaterial)
 
 local currentNormalMaterial = nil ---@type IMaterial?
 local function DrawNormalMesh(m, _)
@@ -239,11 +251,11 @@ local StaticPropView = Matrix()
 ---  PreDrawTranslucentRenderables   draws the queue after the ink meshes, in the flashlight and MRT passes
 ---  `-- prop:DrawModel()            calls ss.QueueStaticProp again, which draws the model this time
 ---
----The queue is left undrawn where the ink meshes are not drawn: the water reflection, the 3D skybox, and IN_RELOAD.
+---The queue is left undrawn wherever the hook returns before drawing the ink meshes, such as the water reflection.
 ---@param self ss.PaintableCSEnt
 ---@param flags Enum.STUDIO
 function ss.QueueStaticProp(self, flags)
-    if isDrawingStaticProps then
+    if locals.Renderer.IsDrawingStaticProps then
         self:DrawModel(flags)
         return
     end
@@ -265,20 +277,26 @@ function ss.QueueStaticProp(self, flags)
     StaticPropQueue[#StaticPropQueue + 1] = self
 end
 
----Draws the flashlight light the queued static props receive.
+---Draws the flashlight light on the queued static props into StaticPropFlashlight.
+---
+---  depth buffer                  depth test                     transparent parts of alpha test
+---  ----------------------------  -----------------------------  -------------------------------
+---  the frame's                   equal (by $alphatest)          not lit
+---  from flashlight_init (MSAA)   less or equal                  lit
 local function DrawStaticPropsFlashlight()
-    isDrawingStaticProps = true
-    render.MaterialOverride(StaticPropFlashlightMaterial)
+    locals.Renderer.IsDrawingStaticProps = true
+    render.MaterialOverride(ss.RenderTarget.StaticPropFlashlightSharesDepth
+        and StaticPropFlashlightMaterial or StaticPropFlashlightMaterialMSAA)
     for _, prop in ipairs(StaticPropQueue) do
         prop:DrawModel(prop.QueuedFlags)
     end
     render.MaterialOverride()
-    isDrawingStaticProps = false
+    locals.Renderer.IsDrawingStaticProps = false
 end
 
 ---Draws the ink of the queued static props.
 local function DrawStaticPropsInk()
-    isDrawingStaticProps = true
+    locals.Renderer.IsDrawingStaticProps = true
     for _, prop in ipairs(StaticPropQueue) do
         -- VertexLitGeneric leaves the lighting of the prop in the shader constants the ink material reads.
         render.MaterialOverride(StaticPropLightMaterial)
@@ -286,7 +304,7 @@ local function DrawStaticPropsInk()
         render.MaterialOverride()
         prop:DrawModel(prop.QueuedFlags)
     end
-    isDrawingStaticProps = false
+    locals.Renderer.IsDrawingStaticProps = false
 end
 
 local SSRViewMatrix = Matrix()
@@ -313,6 +331,23 @@ local function UpdateViewParameters()
     FlashlightInitMaterial:SetFloat("$c0_y", -znear * zfar / (zfar - znear))
 end
 
+---Reflects the changed parameters of the source materials to their ink materials.
+---@param materials table<IMaterial, IMaterial> Ink material --> source material.
+---@param refreshers table<string, fun(mat: IMaterial, src: IMaterial, value: any)> RefreshInkMaterial or RefreshWorldInkMaterial.
+---@param refreshList table<IMaterial, string[]> Source material --> changed parameters.
+local function RefreshInkMaterials(materials, refreshers, refreshList)
+    for renderMaterial, geometryMaterial in pairs(materials) do
+        for _, key in ipairs(refreshList[geometryMaterial] or {}) do
+            local refresh = refreshers[key]
+            ---@type fun(self: IMaterial, key: string): number|Vector|VMatrix
+            local get = geometryMaterial["Get" .. (MaterialWatchParameters[key] or "???")]
+            if refresh and get then
+                refresh(renderMaterial, geometryMaterial, get(geometryMaterial, key))
+            end
+        end
+    end
+end
+
 hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
     local now = CurTime()
     local refreshList = {} ---@type table<IMaterial, string[]>
@@ -337,19 +372,8 @@ hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
         end
     end
 
-    for renderMaterial, geometryMaterial in pairs(ss.InkMeshMaterials) do
-        for _, key in ipairs(refreshList[geometryMaterial] or {}) do
-            ---@type fun(self: IMaterial, key: string): number|Vector|VMatrix
-            local get = geometryMaterial["Get" .. (MaterialWatchParameters[key] or "???")]
-            if get then
-                local value = get(geometryMaterial, key)
-                local refresh = RefreshMaterial[key]
-                if refresh then
-                    refresh(renderMaterial, geometryMaterial, value)
-                end
-            end
-        end
-    end
+    RefreshInkMaterials(ss.InkMeshMaterials, RefreshWorldInkMaterial, refreshList)
+    RefreshInkMaterials(ss.StaticPropInkMaterials, RefreshInkMaterial, refreshList)
 
     local sunInfo = util.GetSunInfo()
     local sunDir = sunInfo and sunInfo.direction or Vector(0, 0.3, 0.954)
@@ -358,6 +382,7 @@ hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
         InkWaterMaterial:SetFloat("$c0_x", sunDir.x)
         InkWaterMaterial:SetFloat("$c0_y", sunDir.y)
         InkWaterMaterial:SetFloat("$c0_z", sunDir.z)
+        -- Only the world part reads it. The static prop part uses the four lights instead.
         for m in pairs(ss.InkMeshMaterials) do
             m:SetFloat("$c0_x", sunDir.x)
             m:SetFloat("$c0_y", sunDir.y)
@@ -413,9 +438,20 @@ function(bDrawingDepth, bDrawingSkybox)
     render.RenderFlashlights(function()
         render.SetMaterial(FlashlightBakeMaterial)
         DrawFlashlightMeshes()
-        DrawStaticPropsFlashlight()
     end)
     render.PopRenderTarget()
+
+    if #StaticPropQueue > 0 then
+        render.PushRenderTarget(ss.RenderTarget.FrameTextures.StaticPropFlashlight)
+        if ss.RenderTarget.StaticPropFlashlightSharesDepth then
+            render.Clear(0, 0, 0, 0)
+        else
+            render.SetMaterial(FlashlightInitMaterial)
+            render.DrawQuad(ScreenQuadCorners[1], ScreenQuadCorners[2], ScreenQuadCorners[3], ScreenQuadCorners[4])
+        end
+        render.RenderFlashlights(DrawStaticPropsFlashlight)
+        render.PopRenderTarget()
+    end
 
     render.PushRenderTarget(ss.RenderTarget.FrameTextures.InkColor)
     render.SetRenderTargetEx(1, ss.RenderTarget.FrameTextures.InkNormals)

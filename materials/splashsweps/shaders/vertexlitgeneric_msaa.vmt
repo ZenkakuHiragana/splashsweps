@@ -1,0 +1,8 @@
+"VertexLitGeneric"
+{
+    // vertexlitgeneric.vmt for MSAA. See DrawStaticPropsFlashlight in inkrenderer.lua.
+    "$basetexture" "white"
+    "$bumpmap"     "null-bumpmap"
+    "$phong"       "0"
+    "$nocull"      "1"
+}

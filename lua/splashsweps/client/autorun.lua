@@ -16,9 +16,13 @@ if not SplashSWEPs then
         ---@type ss.RenderBatch[]
         RenderBatches = {},
 
-        ---Ink mesh material --> bound geometry material.
+        ---Ink material of the world ink meshes --> bound geometry material.
         ---@type table<IMaterial, IMaterial>
         InkMeshMaterials = {},
+
+        ---Ink material of the static props --> bound model material.
+        ---@type table<IMaterial, IMaterial>
+        StaticPropInkMaterials = {},
     }
 end
 

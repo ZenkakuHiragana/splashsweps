@@ -15,6 +15,13 @@ local MAX_TRIANGLES       = math.floor(32768 / 3) -- mesh library limitation
 local MAX_LIGHTMAP_WIDTH  = 512
 local MAX_LIGHTMAP_HEIGHT = 256
 
+-- MaterialVarFlags_t in imaterial.h of Source
+local MATERIAL_VAR_SELFILLUM           = 64
+local MATERIAL_VAR_ALPHATEST           = 256
+local MATERIAL_VAR_NOCULL              = 8192
+local MATERIAL_VAR_BASEALPHAENVMAPMASK = 1048576
+local MATERIAL_VAR_NORMALMAPALPHAENVMAPMASK = 4194304
+
 ---One vertex worth of packed data passed to inkmesh_vs30.
 ---@class ss.SurfaceBuilder.MeshVertex
 ---@field Position           Vector   World-space position written with mesh.Position.
@@ -816,6 +823,36 @@ function ss.SetupModels(surfaceInfo, numModels, materialNames)
     BuildInkMesh(surfaceInfo, materialNames)
 end
 
+---Returns the $basetexture alpha below which the alpha test of a VertexLitGeneric material discards pixels,
+---or 0 if the test does not read it. $alpha is not taken into account.
+---
+---  $alphatest   alpha of $basetexture used for                      returns
+---  ----------   -------------------------------------------------   ---------
+---  no           -                                                   0
+---  yes          $selfillum, $basealphaenvmapmask (the engine        0
+---               clears $alphatest), or $blendtintbybasealpha
+---  yes          none of them                                        reference
+---
+---$normalmapalphaenvmapmask with $bumpmap or $lightwarptexture takes the mask from $bumpmap instead.
+---See InitParamsVertexLitGeneric_DX9 in vertexlitgeneric_dx9_helper.cpp of Source.
+---@param mat IMaterial
+---@return number
+local function getAlphaTestReference(mat)
+    local flags = mat:GetInt "$flags" or 0
+    local hasTangentSpace = mat:GetString "$bumpmap" or mat:GetString "$lightwarptexture"
+    local usesNormalMapAlpha = hasTangentSpace and bit.band(flags, MATERIAL_VAR_NORMALMAPALPHAENVMAPMASK) ~= 0
+    if bit.band(flags, MATERIAL_VAR_ALPHATEST) == 0
+    or bit.band(flags, MATERIAL_VAR_SELFILLUM) ~= 0
+    or bit.band(flags, MATERIAL_VAR_BASEALPHAENVMAPMASK) ~= 0 and not usesNormalMapAlpha
+    or (mat:GetInt "$blendtintbybasealpha" or 0) ~= 0 then
+        return 0
+    end
+
+    -- The engine uses 0.7 unless $alphatestreference is positive, and compares 8-bit alpha with it.
+    local reference = mat:GetFloat "$alphatestreference" or 0
+    return math.floor((reference > 0 and reference or 0.7) * 255) / 255
+end
+
 ---Creates the models and the ink materials of static props.
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
 ---@param modelNames     string[]
@@ -827,7 +864,6 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo, cubemaps)
     local watchedMaterials = {} ---@type { Material: IMaterial }[]
     local identity = Matrix()
     local matKeyValues = templateMaterial:GetKeyValues() ---@type table<string, string|number>
-    local rtSize = ss.RenderTarget.Resolutions[#ss.RenderTarget.Resolutions]
     local dataOffset = ss.RenderTarget.DetailsImageSize
     local detailGridColumns = ss.RenderTarget.DetailGridColumns
     local transforms = Matrix()
@@ -838,14 +874,11 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo, cubemaps)
     matKeyValues["$basetexture"] = ss.RenderTarget.StaticTextures.InkMap:GetName()
     matKeyValues["$texture1"] = ss.RenderTarget.StaticTextures.Details:GetName()
     matKeyValues["$texture2"] = ss.RenderTarget.FrameTextures.SceneAndFlashlight:GetName()
+    matKeyValues["$texture5"] = ss.RenderTarget.FrameTextures.StaticPropFlashlight:GetName()
     matKeyValues["$linearread_texture7"] = render.GetHDREnabled() and "1" or "0"
+    matKeyValues["$c0_x"] = ss.RT_BILINEAR_GUARD_PIXELS
     matKeyValues["$c1_x"] = detailGridColumns
     matKeyValues["$c1_z"] = 2 / ss.RenderTarget.HammerUnitsToUV -- InkMap region UV -> packed-surface HU.
-    -- Inset of the clip range of each face, as the ink meshes have:
-    --   ss.SetupSurfacesStaticProp  guard = RT_BILINEAR_GUARD_PIXELS / rtSize   in region UV
-    --   inkmesh_vs30.hlsl           region UV * 0.5 = ink map UV
-    --   here                        0.5 * guard                                 in ink map UV
-    matKeyValues["$c1_w"] = 0.5 * ss.RT_BILINEAR_GUARD_PIXELS / rtSize
     matKeyValues["$c3_w"] = dataOffset
 
     -- Matrix(X, Y, Z) * xyzTyzx = (Y, Z, X)
@@ -900,12 +933,11 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo, cubemaps)
                 localTworld:SetField(4, 3, size.z)
                 localTworld:SetField(4, 4, ss.MARGIN_HAMMER_UNITS)
 
-                -- The cache has the cubemap names without the suffix,
-                -- while the $envmap of the map materials the ink meshes use has ".hdr" in HDR.
+                -- The cache has the cubemap names without ".hdr"
                 local cubemap = cubemaps[prop.CubemapIndex]
                 if cubemap then setmetatable(cubemap, CubemapInfoMeta) end
+                local nearestEnvmap = cubemap and cubemap.Envmap .. (render.GetHDREnabled() and ".hdr" or "") or EnvmapDefault
                 local params = table.Merge(matKeyValues, {
-                    ["$texture7"] = cubemap and cubemap.Envmap .. (render.GetHDREnabled() and ".hdr" or "") or EnvmapDefault,
                     ["$c1_y"] = uv.Offset.z > 0 and uv.Width or 0,
                     ["$c2_x"] = uv.Offset.x,
                     ["$c2_y"] = uv.Offset.y,
@@ -924,13 +956,25 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo, cubemaps)
                                 * (mdlmat:GetVector "$color2" or ss.vector_one)
                     params["$texture3"] = mdlmat:GetString "$basetexture" or "white"
                     params["$texture4"] = mdlmat:GetString "$bumpmap" or "null-bumpmap"
+                    -- $envmap        $texture7
+                    -- -------------  ------------------------------
+                    -- a texture      the texture
+                    -- env_cubemap    the cubemap of the prop
+                    -- none           the cubemap of the prop
+                    local envmap = mdlmat:GetString "$envmap"
+                    local envmapName = normalizeEnvmapName(envmap)
+                    params["$texture7"] = envmapName and envmapName ~= "env_cubemap" and envmap or nearestEnvmap
+                    params["$c1_w"] = getAlphaTestReference(mdlmat)
+                    params["$cull"] = bit.band(mdlmat:GetInt "$flags" or 0, MATERIAL_VAR_NOCULL) ~= 0 and 0 or 1
                     params["$c3_x"] = color.x
                     params["$c3_y"] = color.y
                     params["$c3_z"] = color.z
-                    -- CreateMaterial returns the existing material as is for the same name, so the name has the map.
+                    -- CreateMaterial reuses the material of the same name and ignores params,
+                    -- so the values that can change on reloading the same map are set again.
                     local mat = CreateMaterial(
                         string.format("splashsweps_sprp_%d_%d_%s", i, j, game.GetMap()),
                         "Screenspace_General_8tex", params)
+                    mat:SetTexture("$texture5", ss.RenderTarget.FrameTextures.StaticPropFlashlight)
                     mat:SetFloat("$c1_x", detailGridColumns)
                     mat:SetFloat("$c1_z", 2 / ss.RenderTarget.HammerUnitsToUV)
                     mat:SetFloat("$c3_w", dataOffset)
@@ -950,7 +994,7 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo, cubemaps)
                     mat:SetMatrix("$viewprojmat", transforms)
                     mat:SetMatrix("$invviewprojmat", localTworld)
                     mdl:SetSubMaterial(j - 1, "!" .. mat:GetName())
-                    ss.InkMeshMaterials[mat] = mdlmat
+                    ss.StaticPropInkMaterials[mat] = mdlmat
                 end
             end
         end

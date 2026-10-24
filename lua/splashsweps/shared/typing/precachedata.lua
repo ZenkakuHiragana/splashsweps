@@ -182,8 +182,7 @@ ss.struct "PrecachedData.UVInfo" (setmetatable({
 ---@field Scale        number  The model scale of this prop.
 ---@field Skin         integer The skin of this prop.
 ---@field UnwrapIndex  integer Describes how the bounding box is unwrapped in UV space.  See GetStaticPropUVSize in cachebuilder.lua.
----@field CubemapIndex integer Index to the cubemap the engine uses for this prop, or 0 if none.
----                            It is the index in the cubemap lump, which is the same as ss.PrecachedData.SurfaceInfo.Cubemaps.
+---@field CubemapIndex integer Index to ss.PrecachedData.SurfaceInfo.Cubemaps of the cubemap the engine uses, or 0 if none.
 ss.struct "PrecachedData.StaticProp" (setmetatable({
     Angle(),
     Vector(),

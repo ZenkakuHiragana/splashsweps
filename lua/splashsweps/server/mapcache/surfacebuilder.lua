@@ -1033,11 +1033,12 @@ local function ReadIlluminationPosition(name)
 end
 
 ---Finds the cubemap sample the engine uses for a static prop:
----the nearest one to the lighting origin as FindEnvCubemapForPoint in lightcache.cpp does.
----The lighting origin is the one in the lump if STATIC_PROP_USE_LIGHTING_ORIGIN is set,
----or illumposition of the model transformed by the prop otherwise as CStaticProp::Init does.
----This is also the case for models whose illumposition is relative to an attachment
----because CStaticProp::GetAttachment returns the transform of the prop itself.
+---the nearest one to the lighting origin, as FindEnvCubemapForPoint in lightcache.cpp does.
+---
+---  lighting origin                         when (CStaticProp::Init)
+---  --------------------------------------  --------------------------------------
+---  LightingOrigin in the lump              STATIC_PROP_USE_LIGHTING_ORIGIN is set
+---  illumposition transformed by the prop   otherwise
 ---@param bsp           ss.RawBSPResults
 ---@param prop          ss.Binary.BSP.StaticProp
 ---@param illumposition Vector illumposition of the model.

@@ -7,6 +7,7 @@
 // See staticprop_vs30.hlsl for VS_OUTPUT
 struct PS_INPUT {
     float4 screenPos         : VPOS;
+    float  face              : VFACE; // Negative on the back faces, drawn for $nocull materials
     float4 worldPos_ClipW    : TEXCOORD0;
     float4 worldNormal_ClipZ : TEXCOORD1;
     float2 modelUV           : TEXCOORD2;
@@ -45,23 +46,20 @@ struct PsVertexInfo {
 // Rendering for the water reflection is not used for static props
 static const bool g_Simplified = false;
 
-// Placement of the prop in the ink map, which ss.SetupStaticProps writes to the material.
-// It takes the registers the world part uses only for lightmaps and blended layers:
-//
-//   register   world part          static prop part
-//   ---------  ------------------  ------------------------------
-//   c1.y       material flags      g_PackedRotatedWidth
-//   c1.w       -                   g_ClipGuard
-//   c2.xy      1 / lightmap size   g_PackedOrigin
-//   c15..c17   blend parameters    LocalTWorld
-//   c18        blend parameters    g_BoxSize, g_FaceMargin
-//
-// c0.w, c2.zw, and c11..c14.w are left alone: RefreshMaterial in inkrenderer.lua writes them.
+// Light the flashlights cast on the static props, drawn with the depth buffer of the frame.
+// See DrawStaticPropsFlashlight in inkrenderer.lua.
+sampler StaticPropFlashlight : register(s5);
+
+// Written by ss.SetupStaticProps. c0.yzw, c2.zw, and c11..c14.w are unused.
 static const float  g_PackedRotatedWidth = c1.y;  // Width of the packed rectangle in Hammer units if rotated, 0 otherwise
-static const float  g_ClipGuard          = c1.w;  // Inset of the clip range of each face in ink map UV
+static const float  g_AlphaTestReference = c1.w;  // $basetexture alpha below this has no ink, 0 to draw everywhere
 static const float2 g_PackedOrigin       = c2.xy; // Origin of the packed rectangle in Hammer units
 static const float3 g_BoxSize            = c18.xyz;
 static const float  g_FaceMargin         = c18.w; // Margin of each face cell per side in Hammer units
+
+// Inset of the clip range of each face in ink map UV, as ss.SetupSurfacesStaticProp and inkmesh_vs30.hlsl do
+static const float RT_BILINEAR_GUARD_PIXELS = c0.x; // ss.RT_BILINEAR_GUARD_PIXELS
+static const float g_ClipGuard = 0.5 * RT_BILINEAR_GUARD_PIXELS * g_RTSize.x;
 
 // World to the bounding box, whose origin is the minimum corner and whose axes are permuted for the unwrap pattern
 static const float4 LocalTWorld[3] = { c15, c16, c17 };
@@ -184,6 +182,9 @@ void MapToInkMap(const float3 worldPos, const float3 worldNormal, inout PsVertex
 }
 
 PsVertexInfo DecomposeInput(const PS_INPUT i) {
+    // No ink where the alpha test of the prop material discards the prop
+    clip(tex2D(UnderlayAlbedo, ApplyBaseTransform(i.modelUV)).a - g_AlphaTestReference);
+
     PsVertexInfo v;
     float3 worldPos    = i.worldPos_ClipW.xyz;
     float3 worldNormal = normalize(i.worldNormal_ClipZ.xyz);
@@ -193,8 +194,12 @@ PsVertexInfo DecomposeInput(const PS_INPUT i) {
     v.clipW    = i.worldPos_ClipW.w;
     MapToInkMap(worldPos, worldNormal, v);
 
-    // The model has no world gradients of its UV, so take them from the screen-space derivatives.
-    // They are the gradients along the mesh plane that give the differences of the UV between the pixels.
+    // Both faces read the same ink, as MapToInkMap selects the face of the bounding box by the mesh normal.
+    // The back faces are shaded with the normal toward the viewer.
+    worldNormal *= sign(i.face);
+    v.inkTransform[2] = worldNormal;
+
+    // The model has no world gradients of its UV, so take them from the screen-space derivatives
     float3x3 dual   = MakeBasisInverse(ddx(worldPos), ddy(worldPos), worldNormal);
     float2   duvdx  = ddx(i.modelUV);
     float2   duvdy  = ddy(i.modelUV);
@@ -254,7 +259,7 @@ float3 AmbientLight(const PsVertexInfo i, float3 worldNormal) {
            nSquared.z * (worldNormal.z < 0.0 ? i.ambientCube[5] : i.ambientCube[4]);
 }
 
-// Half Lambert, which the static props have used for the lights
+// Half Lambert falloff of the four lights
 float HalfLambert(float3 worldNormal, float3 lightDir) {
     float NDotL = saturate(dot(worldNormal, lightDir) * 0.5 + 0.5);
     return NDotL * NDotL;
@@ -290,3 +295,8 @@ float3 GeometryRimLightColor(const GeometryLight light) {
 
 // The light constants are already in the linear scale
 #define GEOMETRY_LIGHT_SCALE 1.0
+
+// Light the flashlights cast on the prop at the pixel center screenUV.
+float3 SampleFlashlight(float2 screenUV) {
+    return tex2Dlod(StaticPropFlashlight, float4(screenUV, 0.0, 0.0)).rgb / g_TonemapScale;
+}
