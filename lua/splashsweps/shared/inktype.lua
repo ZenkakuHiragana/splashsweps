@@ -45,11 +45,9 @@ end
 
 ---Reads all JSON files and defines all ink types used in this addon.
 function ss.LoadInkTypes()
-    -- Load custom ink detail updater recursively
-    for lua in ss.IterateFilesRecursive("splashsweps/client/inktypes", "LUA") do
-        if SERVER then
-            AddCSLuaFile(lua)
-        else
+    -- Load custom ink detail updaters recursively. splashsweps_includes.lua sends them to clients.
+    if CLIENT then
+        for lua in ss.IterateFilesRecursive("splashsweps/client/inktypes", "LUA") do
             include(lua)
         end
     end

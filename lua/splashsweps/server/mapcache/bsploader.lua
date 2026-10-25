@@ -3,6 +3,8 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local Binary = ss.import "splashsweps/shared/binary/reader"
+
 ---Lump names. most of these are unused in this addon.
 ---@type table<integer, string>
 local LUMP = {
@@ -93,7 +95,7 @@ local BuiltinTypeSizes = {
 ---@field version     integer
 ---@field lumps       ss.Binary.BSP.LumpHeader[]
 ---@field mapRevision integer
-ss.bstruct "BSP.Header" {
+Binary.struct "BSP.Header" {
     "Long           identifier",
     "Long           version",
     "BSP.LumpHeader lumps 64",
@@ -105,7 +107,7 @@ ss.bstruct "BSP.Header" {
 ---@field fileLength integer
 ---@field version    integer
 ---@field fourCC     integer
-ss.bstruct "BSP.LumpHeader" {
+Binary.struct "BSP.LumpHeader" {
     ---@param self ss.BinaryStructureDefinition
     ---@param bsp File
     ---@return ss.Binary.BSP.LumpHeader
@@ -140,7 +142,7 @@ ss.bstruct "BSP.LumpHeader" {
 ---@field span                integer Where the neighbor fits onto this side of our displacement
 ---@field neighborSpan        integer Where we fit onto our neighbor
 ---@field padding             integer
-ss.bstruct "BSP.CDispSubNeighbor" {
+Binary.struct "BSP.CDispSubNeighbor" {
     "UShort neighbor",
     "Byte   neighborOrientation",
     "Byte   span",
@@ -150,7 +152,7 @@ ss.bstruct "BSP.CDispSubNeighbor" {
 
 ---@class ss.Binary.BSP.CDispNeighbor
 ---@field subneighbors ss.Binary.BSP.CDispSubNeighbor[]
-ss.bstruct "BSP.CDispNeighbor" {
+Binary.struct "BSP.CDispNeighbor" {
     "BSP.CDispSubNeighbor subneighbors 2",
 }
 
@@ -158,7 +160,7 @@ ss.bstruct "BSP.CDispNeighbor" {
 ---@field neighbors    integer[] Indices of neighbors
 ---@field numNeighbors integer
 ---@field padding      integer
-ss.bstruct "BSP.CDispCornerNeighbors" {
+Binary.struct "BSP.CDispCornerNeighbors" {
     "UShort neighbors 4",
     "Byte   numNeighbors",
     "Byte   padding",
@@ -170,7 +172,7 @@ ss.bstruct "BSP.CDispCornerNeighbors" {
 ---@field version    integer
 ---@field fileOffset integer
 ---@field fileLength integer
-ss.bstruct "BSP.dgamelump_t" {
+Binary.struct "BSP.dgamelump_t" {
     "Long   id",
     "UShort flags",
     "UShort version",
@@ -209,7 +211,7 @@ ss.bstruct "BSP.dgamelump_t" {
 ---@field flagsEx            integer?   since v10
 ---@field uniformScale       number?    since v11
 
-ss.bstruct "BSP.StaticProp.4" { -- version == 4
+Binary.struct "BSP.StaticProp.4" { -- version == 4
     Size = 56,
     "Vector origin",
     "Angle  angle",
@@ -224,7 +226,7 @@ ss.bstruct "BSP.StaticProp.4" { -- version == 4
     "Vector lightingOrigin",
 }
 
-ss.bstruct "BSP.StaticProp.5" { -- version == 5
+Binary.struct "BSP.StaticProp.5" { -- version == 5
     Size = 60,
     "Vector origin",
     "Angle  angle",
@@ -240,7 +242,7 @@ ss.bstruct "BSP.StaticProp.5" { -- version == 5
     "Float  forcedFadeScale", -- since v5
 }
 
-ss.bstruct "BSP.StaticProp.6" { -- version == 6
+Binary.struct "BSP.StaticProp.6" { -- version == 6
     Size = 64,
     "Vector origin",
     "Angle  angle",
@@ -258,7 +260,7 @@ ss.bstruct "BSP.StaticProp.6" { -- version == 6
     "UShort maxDXLevel",      -- v6, v7, v7*
 }
 
-ss.bstruct "BSP.StaticProp.7*" { -- version == 7 or version == 10 and size matches
+Binary.struct "BSP.StaticProp.7*" { -- version == 7 or version == 10 and size matches
     Size = 72,
     "Vector origin",
     "Angle  angle",
@@ -279,7 +281,7 @@ ss.bstruct "BSP.StaticProp.7*" { -- version == 7 or version == 10 and size match
     "UShort lightmapResY",    -- v7* only
 }
 
-ss.bstruct "BSP.StaticProp.7" { -- version == 7
+Binary.struct "BSP.StaticProp.7" { -- version == 7
     Size = 68,
     "Vector origin",
     "Angle  angle",
@@ -298,7 +300,7 @@ ss.bstruct "BSP.StaticProp.7" { -- version == 7
     "Byte   diffuseModulation 4", -- since v7
 }
 
-ss.bstruct "BSP.StaticProp.8" { -- version == 8
+Binary.struct "BSP.StaticProp.8" { -- version == 8
     Size = 68,
     "Vector origin",
     "Angle  angle",
@@ -318,7 +320,7 @@ ss.bstruct "BSP.StaticProp.8" { -- version == 8
     "Byte   diffuseModulation 4", -- since v7
 }
 
-ss.bstruct "BSP.StaticProp.9" { -- version == 9
+Binary.struct "BSP.StaticProp.9" { -- version == 9
     Size = 72,
     "Vector origin",
     "Angle  angle",
@@ -339,7 +341,7 @@ ss.bstruct "BSP.StaticProp.9" { -- version == 9
     "Long   disableX360",         -- v9, v10
 }
 
-ss.bstruct "BSP.StaticProp.10" { -- version == 10
+Binary.struct "BSP.StaticProp.10" { -- version == 10
     Size = 76,
     "Vector origin",
     "Angle  angle",
@@ -361,7 +363,7 @@ ss.bstruct "BSP.StaticProp.10" { -- version == 10
     "ULong  flagsEx",             -- since v10
 }
 
-ss.bstruct "BSP.StaticProp.11" { -- version == 11
+Binary.struct "BSP.StaticProp.11" { -- version == 11
     Size = 76,
     "Vector origin",
     "Angle  angle",
@@ -388,7 +390,7 @@ ss.bstruct "BSP.StaticProp.11" { -- version == 11
 ---@field normal   Vector
 ---@field dist     number
 ---@field axisType integer
-ss.bstruct "BSP.PLANES" {
+Binary.struct "BSP.PLANES" {
     Size = 12 + 4 + 4,
     "Vector normal",
     "Float  dist",
@@ -396,7 +398,7 @@ ss.bstruct "BSP.PLANES" {
 }
 
 ---@alias ss.Binary.BSP.EDGES integer[]
-ss.bstruct "BSP.EDGES" {
+Binary.struct "BSP.EDGES" {
     Size = 2 + 2,
     "UShort",
     "UShort"
@@ -421,7 +423,7 @@ ss.bstruct "BSP.EDGES" {
 ---@field numPrimitives               integer
 ---@field firstPrimitiveID            integer
 ---@field smoothingGroups             integer
-ss.bstruct "BSP.FACES" {
+Binary.struct "BSP.FACES" {
     Size = 56,
     "UShort planeNum",
     "Byte   side",
@@ -446,7 +448,7 @@ ss.bstruct "BSP.FACES" {
 ---@field firstSide integer
 ---@field numSides  integer
 ---@field contents  integer
-ss.bstruct "BSP.BRUSHES" {
+Binary.struct "BSP.BRUSHES" {
     Size = 4 + 4 + 4,
     "Long firstSide",
     "Long numSides",
@@ -458,7 +460,7 @@ ss.bstruct "BSP.BRUSHES" {
 ---@field texInfo  integer
 ---@field dispInfo integer
 ---@field bevel    integer
-ss.bstruct "BSP.BRUSHSIDES" {
+Binary.struct "BSP.BRUSHSIDES" {
     Size = 2 + 2 + 2 + 2,
     "UShort planeNum",
     "Short  texInfo",
@@ -475,7 +477,7 @@ ss.bstruct "BSP.BRUSHSIDES" {
 ---@field numFaces  integer
 ---@field area      integer
 ---@field padding   integer
-ss.bstruct "BSP.NODES" {
+Binary.struct "BSP.NODES" {
     Size = 32,
     "Long        planeNum",
     "Long        children 2",
@@ -499,7 +501,7 @@ ss.bstruct "BSP.NODES" {
 ---@field numLeafBrush     integer
 ---@field leafWaterDataID  integer
 ---@field padding          integer
-ss.bstruct "BSP.LEAFS" {
+Binary.struct "BSP.LEAFS" {
     Size = 32,
     "Long        contents",
     "Short       cluster",
@@ -527,7 +529,7 @@ ss.bstruct "BSP.LEAFS" {
 ---@field lightmapOffsetT number
 ---@field flags           integer
 ---@field texData         integer
-ss.bstruct "BSP.TEXINFO" {
+Binary.struct "BSP.TEXINFO" {
     Size = 72,
     "Vector textureVecS",
     "Float  textureOffsetS",
@@ -548,7 +550,7 @@ ss.bstruct "BSP.TEXINFO" {
 ---@field height            integer
 ---@field viewWidth         integer
 ---@field viewHeight        integer
-ss.bstruct "BSP.TEXDATA" {
+Binary.struct "BSP.TEXDATA" {
     Size = 4 * 3 + 4 + 4 + 4 + 4 + 4,
     "Vector reflectivity",
     "Long   nameStringTableID",
@@ -565,7 +567,7 @@ ss.bstruct "BSP.TEXDATA" {
 ---@field headNode  integer
 ---@field firstFace integer
 ---@field numFaces  integer
-ss.bstruct "BSP.MODELS" {
+Binary.struct "BSP.MODELS" {
     Size = 48,
     "Vector mins",
     "Vector maxs",
@@ -590,7 +592,7 @@ ss.bstruct "BSP.MODELS" {
 ---@field edgeNeighbors               ss.Binary.BSP.CDispNeighbor[]
 ---@field cornerNeighbors             ss.Binary.BSP.CDispCornerNeighbors[]
 ---@field allowedVerts                integer[]
-ss.bstruct "BSP.DISPINFO" {
+Binary.struct "BSP.DISPINFO" {
     Size = 176,
     "Vector                   startPosition",
     "Long                     dispVertStart",
@@ -612,7 +614,7 @@ ss.bstruct "BSP.DISPINFO" {
 ---@field vec   Vector
 ---@field dist  number
 ---@field alpha number
-ss.bstruct "BSP.DISP_VERTS" {
+Binary.struct "BSP.DISP_VERTS" {
     Size = 20,
     "Vector vec",
     "Float  dist",
@@ -623,7 +625,7 @@ ss.bstruct "BSP.DISP_VERTS" {
 ---@field multiblend       number[] Blend factors (x, y, z, w); Lightmapped_4WayBlend blends layers 2, 3, and 4 by y, z, and w.
 ---@field alphablend       number[]
 ---@field multiblendColors Vector[]
-ss.bstruct "BSP.DISP_MULTIBLEND" {
+Binary.struct "BSP.DISP_MULTIBLEND" {
     Size = 80,
     "Float  multiblend       4",
     "Float  alphablend       4",
@@ -634,7 +636,7 @@ ss.bstruct "BSP.DISP_MULTIBLEND" {
 ---@field origin Vector
 ---@field size   integer
 ---@field padding integer[]
-ss.bstruct "BSP.CUBEMAPS" {
+Binary.struct "BSP.CUBEMAPS" {
     Size = 16,
     "LongVector origin",
     "Byte       size",
@@ -644,7 +646,7 @@ ss.bstruct "BSP.CUBEMAPS" {
 ---@class ss.Binary.BSP.GAME_LUMP
 ---@field lumpCount integer
 ---@field [integer] ss.Binary.BSP.dgamelunp_t
-ss.bstruct "BSP.GAME_LUMP" {
+Binary.struct "BSP.GAME_LUMP" {
     "Long                lumpCount",
     "BSP.dgamelump_t nil lumpCount",
 }
@@ -652,7 +654,7 @@ ss.bstruct "BSP.GAME_LUMP" {
 ---@class ss.Binary.BSP.StaticPropDict
 ---@field dictEntries integer
 ---@field name        string[]
-ss.bstruct "BSP.StaticPropDict" {
+Binary.struct "BSP.StaticPropDict" {
     "Long           dictEntries",
     "String128 name dictEntries",
 }
@@ -660,7 +662,7 @@ ss.bstruct "BSP.StaticPropDict" {
 ---@class ss.Binary.BSP.StaticPropLeaf
 ---@field leafEntries integer
 ---@field leaf        integer[]
-ss.bstruct "BSP.StaticPropLeaf" {
+Binary.struct "BSP.StaticPropLeaf" {
     "Long        leafEntries",
     "UShort leaf leafEntries",
 }
@@ -672,15 +674,15 @@ ss.bstruct "BSP.StaticPropLeaf" {
 ---@field leaf        integer[]
 ---@field propEntries integer
 ---@field prop        ss.Binary.BSP.StaticProp[]
-ss.bstruct "BSP.GAME_LUMP.sprp" { -- Static Props
+Binary.struct "BSP.GAME_LUMP.sprp" { -- Static Props
     ---@param self ss.BinaryStructureDefinition
     ---@param binary File
     ---@param header ss.Binary.BSP.dgamelunp_t
     ---@return ss.Binary.BSP.GAME_LUMP.sprp
     Read = function(self, binary, header)
-        local names = ss.ReadStructureFromFile(binary, "BSP.StaticPropDict")
-        local leafs = ss.ReadStructureFromFile(binary, "BSP.StaticPropLeaf")
-        local propEntries = ss.ReadStructureFromFile(binary, "Long")
+        local names = Binary.Read(binary, "BSP.StaticPropDict")
+        local leafs = Binary.Read(binary, "BSP.StaticPropLeaf")
+        local propEntries = Binary.Read(binary, "Long")
 
         local offset = names.dictEntries * 128 + leafs.leafEntries * 2 + 4 * 3
         local nextlump = header.fileOffset + header.fileLength
@@ -689,18 +691,20 @@ ss.bstruct "BSP.GAME_LUMP.sprp" { -- Static Props
 
         local version = header.version
         local structType = "BSP.StaticProp." .. tostring(version) -- Size depends on game lump version
-        if version == 7 or version == 10 and sizeofStaticPropLump == ss.bstruct "BSP.StaticProp.7*".Size then
+        local staticProp7Star = Binary.Find "BSP.StaticProp.7*"
+        if version == 7 or version == 10 and staticProp7Star and sizeofStaticPropLump == staticProp7Star.Size then
             structType = "BSP.StaticProp.7*"
         end
 
         local props = {} ---@type ss.Binary.BSP.StaticProp[]
-        if #ss.bstruct(structType) > 0 then
+        local definition = Binary.Find(structType)
+        if definition and #definition > 0 then
             ---Prevent spamming error messages about the size of static prop lump.
             local sprpInvalidSize = false
             for i = 1, propEntries do
-                props[i] = ss.ReadStructureFromFile(binary, structType)
-                if sizeofStaticPropLump ~= ss.bstruct(structType).Size then
-                    binary:Skip(sizeofStaticPropLump - ss.bstruct(structType).Size)
+                props[i] = Binary.Read(binary, structType)
+                if sizeofStaticPropLump ~= definition.Size then
+                    binary:Skip(sizeofStaticPropLump - definition.Size)
                     if not sprpInvalidSize then
                         sprpInvalidSize = true
                         ErrorNoHalt(string.format(
@@ -709,7 +713,7 @@ ss.bstruct "BSP.GAME_LUMP.sprp" { -- Static Props
                             .. "    Calculated size of StaticPropLump_t: %d\n"
                             .. "    StaticPropLump_t version: %d\n"
                             .. "    Suggested size of StaticPropLump_t: %d\n",
-                            game.GetMap(), sizeofStaticPropLump, version, ss.bstruct(structType).Size))
+                            game.GetMap(), sizeofStaticPropLump, version, definition.Size))
                     end
                 end
             end
@@ -857,12 +861,12 @@ end
 ---@return integer
 local function decompress(bsp)
     local current       = bsp:Tell()
-    local actualSize    = ss.ReadStructureFromFile(bsp, 4)
+    local actualSize    = Binary.Read(bsp, 4)
     bsp:Seek(current)
-    local actualSizeNum = ss.ReadStructureFromFile(bsp, "Long")
-    local lzmaSize      = ss.ReadStructureFromFile(bsp, "Long")
-    local props         = ss.ReadStructureFromFile(bsp, 5)
-    local contents      = ss.ReadStructureFromFile(bsp, lzmaSize)
+    local actualSizeNum = Binary.Read(bsp, "Long")
+    local lzmaSize      = Binary.Read(bsp, "Long")
+    local props         = Binary.Read(bsp, 5)
+    local contents      = Binary.Read(bsp, lzmaSize)
     local formatted     = props .. actualSize .. "\0\0\0\0" .. contents
     return util.Decompress(formatted) or "", actualSizeNum
 end
@@ -890,10 +894,11 @@ local function readLump(bsp, header, structType)
     local t = {} ---@type BSP.DefinedStructures|BSP.DefinedStructures[]
     local offset = header.fileOffset
     local totalLength = header.fileLength
-    local elementLength = BuiltinTypeSizes[structType] or ss.bstruct(structType).Size or math.huge
+    local definition = Binary.Find(structType)
+    local elementLength = BuiltinTypeSizes[structType] or definition and definition.Size or math.huge
 
     bsp:Seek(offset)
-    local isCompressed = ss.ReadStructureFromFile(bsp, 4) == "LZMA"
+    local isCompressed = Binary.Read(bsp, 4) == "LZMA"
     if isCompressed then
         bsp, totalLength = openDecompressed(bsp)
     else
@@ -902,17 +907,17 @@ local function readLump(bsp, header, structType)
 
     local numElements = totalLength / elementLength
     if structType == "Raw" then
-        t = ss.ReadStructureFromFile(bsp, totalLength)
+        t = Binary.Read(bsp, totalLength)
     elseif structType == "String" then
-        t = ss.ReadStructureFromFile(bsp, totalLength):Split "\0"
+        t = Binary.Read(bsp, totalLength):Split "\0"
         if t[#t] == "" then t[#t] = nil end -- Remove the last empty string
     elseif numElements > 0 then
         for i = 1, numElements do
-            t[i] = ss.ReadStructureFromFile(bsp, structType)
+            t[i] = Binary.Read(bsp, structType)
         end
     else
         ---@type BSP.DefinedStructures
-        t = ss.ReadStructureFromFile(bsp, structType)
+        t = Binary.Read(bsp, structType)
     end
 
     if isCompressed then
@@ -932,7 +937,7 @@ function ss.LoadBSP()
     print "Loading BSP file..."
 
     local t = ss.new "RawBSPResults"
-    t.header = ss.ReadStructureFromFile(bsp, "BSP.Header")
+    t.header = Binary.Read(bsp, "BSP.Header")
     t.TexDataStringTableToIndex = {}
     print("    BSP file version: " .. t.header.version)
     for i = 1, #LUMP do
@@ -951,14 +956,14 @@ function ss.LoadBSP()
         if structType then
             print("        GameLump \"" .. idstr .. "\"... (version: " .. header.version .. ")")
             bsp:Seek(header.fileOffset)
-            local LZMAHeader = ss.ReadStructureFromFile(bsp, 4)
+            local LZMAHeader = Binary.Read(bsp, 4)
             if LZMAHeader == "LZMA" then
                 local tmp = openDecompressed(bsp)
-                t[idstr] = ss.ReadStructureFromFile(tmp, structType, header)
+                t[idstr] = Binary.Read(tmp, structType, header)
                 closeDecompressed(tmp)
             else
                 bsp:Seek(header.fileOffset)
-                t[idstr] = ss.ReadStructureFromFile(bsp, structType, header)
+                t[idstr] = Binary.Read(bsp, structType, header)
             end
         end
     end

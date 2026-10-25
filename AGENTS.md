@@ -3,7 +3,8 @@
 ## Repo shape
 
 - This is a Garry's Mod addon, not a conventional app/library build. Runtime entrypoint is `lua/autorun/splashsweps_includes.lua`.
-- New shared/client library files are wired through `lua/splashsweps/shared/autorun.lua`, `lua/splashsweps/client/autorun.lua`, or `lua/splashsweps/server/autorun.lua`. Follow that pattern instead of adding ad-hoc mid-file includes.
+- Module files are loaded by `ss.import "<path under lua/ without .lua>"` at the top of each file that uses them, not by `autorun.lua`. See `lua/splashsweps/shared/import.lua`. Other library files are still wired through `lua/splashsweps/shared/autorun.lua`, `lua/splashsweps/client/autorun.lua`, or `lua/splashsweps/server/autorun.lua`; do not add ad-hoc mid-file includes.
+- `lua/autorun/splashsweps_includes.lua` sends every Lua file under `splashsweps/shared/` and `splashsweps/client/`, including subdirectories, to clients.
 - `SplashSWEPs` is the shared namespace. `lua/splashsweps/server/autorun.lua` and `lua/splashsweps/client/autorun.lua` establish different realm state before loading shared code.
 
 ## High-value paths
@@ -29,6 +30,7 @@
 
 ## Code conventions that matter here
 
+- A module file starts with `local M = ss.module "<its import path>"` and ends with `return M`. Keep state that must survive hot reload in `ss.state("<its import path>", { ... })`, not `ss.Locals`. A class-like module is its own metatable (`M.__index = M`, constructor `M.new`, methods `function M:Method()`), as in `client/rbtree.lua`. Do not copy fields of an imported module into locals when the file is loaded; hot reload replaces them in the module table.
 - Shared typed data is built with `ss.struct "TypeName" { ... }` and instantiated with `ss.new "TypeName"`; follow that pattern when adding new structured shared data.
 - LuaLS annotations are pervasive in `lua/splashsweps/**`. Mirror `---@class` and `---@type` usage, especially for structured tables and empty table initializers, to keep realm-specific diagnostics useful.
 - Do not define `SplashSWEPs` namespace state from shared realm files. Realm-specific state belongs to that realm's autorun bootstrap or a file-local `ss.Locals` table.

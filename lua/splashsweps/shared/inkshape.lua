@@ -2,6 +2,7 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+local VTF = ss.import "splashsweps/shared/vtf/reader"
 local locals = ss.Locals ---@class ss.Locals
 if not locals.InkShapeLists then
     locals.InkShapeLists = {}
@@ -64,7 +65,7 @@ local function ReadPixelsFromVTF(vmt)
     if not path then return end
     if not path:EndsWith ".vtf" then path = path .. ".vtf" end
     if not file.Exists("materials/" .. path, "GAME") then return end
-    local vtf = ss.ReadVTF(path)
+    local vtf = VTF.Read(path)
     ss.assert(vtf, "Shape mask has invalid texture (" .. path .. ")") ---@cast vtf -?
 
     local width = vtf.Images[1].Width
@@ -82,7 +83,7 @@ local function ReadPixelsFromVTF(vmt)
             local above =  y > 0            and grid.IntegralImage[(y - 1) * width + x + 1] or 0
             local left  =  x > 0            and grid.IntegralImage[ y      * width + x    ] or 0
             local diag  = (x > 0 and y > 0) and grid.IntegralImage[(y - 1) * width + x    ] or 0
-            grid[index] = ss.ReadPixelFromVTF(vtf, x, y).a > SHAPE_MASK_EDGE
+            grid[index] = VTF.ReadPixel(vtf, x, y).a > SHAPE_MASK_EDGE
             grid.IntegralImage[index] = (grid[index] and 1 or 0) + left + above - diag
         end
     end

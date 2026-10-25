@@ -3,6 +3,8 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local BoundingBox = ss.import "splashsweps/server/mapcache/boundingbox"
+
 local abs = math.abs
 local ceil = math.ceil
 local floor = math.floor
@@ -594,8 +596,8 @@ local function BuildFromBrushFace(bsp, rawFace)
 
     if isDisplacement then
         local surf = BuildFromDisplacement(bsp, rawFace, filteredVertices, texInfo)
-        local mbrMatrix, mbrSize = ss.FindMBR(CollectDisplacementPaintOrigins(surf), angle)
-        local mbbMatrix, mbbSize = ss.FindMinimumOBB(surf.Vertices) -- For the deformed mesh
+        local mbrMatrix, mbrSize = BoundingBox.FindMBR(CollectDisplacementPaintOrigins(surf), angle)
+        local mbbMatrix, mbbSize = BoundingBox.FindMinimumOBB(surf.Vertices) -- For the deformed mesh
         local aabbSize = surf.AABBMax - surf.AABBMin
         if mbbSize.x * mbbSize.y * mbbSize.z < aabbSize.x * aabbSize.y * aabbSize.z then
             surf.MBBAngles:Set(mbbMatrix:GetAngles())
@@ -612,7 +614,7 @@ local function BuildFromBrushFace(bsp, rawFace)
         return surf, tobool(isWater)
     else
         local surf = ss.new "PrecachedData.Surface"
-        local mbrMatrix, mbrSize = ss.FindMBR(filteredVertices, angle)
+        local mbrMatrix, mbrSize = BoundingBox.FindMBR(filteredVertices, angle)
         local bumpmapU = {} ---@type number[]
         local bumpmapV = {} ---@type number[]
         local lightmapU = {} ---@type number[]

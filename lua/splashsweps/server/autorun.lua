@@ -16,10 +16,7 @@ if not SplashSWEPs then
 end
 
 include "splashsweps/shared/autorun.lua"
-include "splashsweps/shared/packer/packer.lua"
-include "splashsweps/shared/packer/structures.lua"
 include "splashsweps/server/playerconnection.lua"
-include "splashsweps/server/mapcache/boundingbox.lua"
 include "splashsweps/server/mapcache/bsploader.lua"
 include "splashsweps/server/mapcache/cachebuilder.lua"
 include "splashsweps/server/mapcache/lightmapbuilder.lua"

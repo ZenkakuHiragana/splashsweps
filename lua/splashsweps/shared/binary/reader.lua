@@ -1,7 +1,40 @@
 
+-- Reads values and structures from binary files such as BSP and VTF.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
+
+---@class ss.BinaryReader
+local Binary = ss.module "splashsweps/shared/binary/reader"
+
+---Structure definition to read binary data in a File.
+---@class ss.BinaryStructureDefinition
+---@field [integer] string
+---@field Read (fun(self: ss.BinaryStructureDefinition, binary: File, ...: any): table)? Special function to read this structure.
+---@field Size integer? The total size of this structure.
+
+---Defined binary structures, filled when the defining files are loaded.
+local definitions = ss.state("splashsweps/shared/binary/reader", {}) ---@type table<string, ss.BinaryStructureDefinition>
+
+---Defines a binary structure, which Binary.Read reads by its name.
+---```lua
+---Binary.struct "BSP.EDGES" { "UShort nil 2", Size = 2 + 2 }
+---```
+---@param typename string The name of binary structure
+---@return fun(definition: ss.BinaryStructureDefinition)
+function Binary.struct(typename)
+    return function(definition)
+        definitions[typename] = definition
+    end
+end
+
+---Returns the binary structure defined with the name.
+---@generic T
+---@param typename ss.Binary.`T` The name of binary structure
+---@return ss.BinaryStructureDefinition?
+function Binary.Find(typename)
+    return definitions[typename]
+end
 
 ---Read a value or structure from given binary file.
 ---The offset should correctly be set before call by binary:Seek().
@@ -12,7 +45,7 @@ if not ss then return end
 ---    - Additional built-in types: `Vector`, `ShortVector`, `LongVector`, `Angle`, or `SByte` (signed byte)
 ---    - `String` for null-terminated string
 ---    - `String%d` for a null-terminated string but padded to `%d` bytes.
----    - Structure name defined by ss.bstruct "T"
+---    - Structure name defined by Binary.struct "T"
 ---  - Table representing a structure
 ---    Table containing a sequence of strings formatted as
 ---    `<type> <fieldname> <array amount (optional)>`
@@ -41,7 +74,7 @@ if not ss then return end
 ---@overload fun(binary: File, arg: "ShortVector"): Vector
 ---@overload fun(binary: File, arg: "LongVector"):  Vector
 ---@overload fun(binary: File, arg: "String"):      string
-function ss.ReadStructureFromFile(binary, arg, ...)
+function Binary.Read(binary, arg, ...)
     if isnumber(arg) then ---@cast arg integer
         return binary:Read(arg)
     elseif istable(arg) then ---@cast arg ss.BinaryStructureDefinition
@@ -63,15 +96,15 @@ function ss.ReadStructureFromFile(binary, arg, ...)
                         ---@cast fieldKey string
                         ---@cast structure table<string, table[]>
                         structure[fieldKey] = structure[fieldKey] or {}
-                        structure[fieldKey][i] = ss.ReadStructureFromFile(binary, fieldType, ...)
+                        structure[fieldKey][i] = Binary.Read(binary, fieldType, ...)
                     else
                         ---@cast fieldKey integer
-                        structure[fieldKey] = ss.ReadStructureFromFile(binary, fieldType, ...)
+                        structure[fieldKey] = Binary.Read(binary, fieldType, ...)
                         fieldKey = fieldKey + 1
                     end
                 end
             else
-                structure[fieldKey] = ss.ReadStructureFromFile(binary, fieldType, ...)
+                structure[fieldKey] = Binary.Read(binary, fieldType, ...)
             end
         end
         return structure
@@ -96,15 +129,15 @@ function ss.ReadStructureFromFile(binary, arg, ...)
             return Vector(x, y, z)
         elseif arg:StartsWith "String" then
             local str = ""
-            local chr = ss.ReadStructureFromFile(binary, 1)
+            local chr = Binary.Read(binary, 1)
             local fixedLength = tonumber(arg:sub(#"String" + 1))
             local MAX_STRING_LENGTH = fixedLength or 1024
             while chr and chr ~= "\x00" and #str < MAX_STRING_LENGTH + 1 do
                 str = str .. chr
-                chr = ss.ReadStructureFromFile(binary, 1)
+                chr = Binary.Read(binary, 1)
             end
             for _ = 1, (fixedLength or 0) - (#str + 1) do
-                ss.ReadStructureFromFile(binary, 1)
+                Binary.Read(binary, 1)
             end
             return str
         elseif arg == "Vector" then
@@ -116,8 +149,8 @@ function ss.ReadStructureFromFile(binary, arg, ...)
             return binary["Read" .. arg](binary)
         elseif tonumber(arg) then
             return binary:Read(tonumber(arg))
-        elseif #ss.bstruct(arg) > 0 or ss.bstruct(arg).Read then
-            return ss.ReadStructureFromFile(binary, ss.bstruct(arg), ...)
+        elseif definitions[arg] and (#definitions[arg] > 0 or definitions[arg].Read) then
+            return Binary.Read(binary, definitions[arg], ...)
         end
     end
 
@@ -126,3 +159,5 @@ function ss.ReadStructureFromFile(binary, arg, ...)
         .. "    Structure name given: %s\n", tostring(arg)))
     return {}
 end
+
+return Binary

@@ -1,17 +1,20 @@
 
+-- A red-black tree that orders elements like CUtlRBTree of Source.
+-- Equal elements keep the insertion order, as they are inserted to the right.
+
 ---@class ss
 local ss = SplashSWEPs
+
+---@class ss.RBTree
+---@field root ss.RBTreeNode?
+---@field lessFunc fun(a: any, b: any): boolean
+local RBTree = ss.module "splashsweps/client/rbtree"
+RBTree.__index = RBTree
 
 ---Indicates the color of the Red-Black tree. Red is true.
 ---@alias ss.RBTreeColor boolean
 local RED = true
 local BLACK = false
-
----@generic T
----@param a T
----@param b T
----@return boolean
-local function defaultLessFunc(a, b) return a < b end
 
 ---@class ss.RBTreeNode
 ---@field data any
@@ -143,98 +146,96 @@ local function insertRebalance(tree, node)
     end
 end
 
----Creates a new CUtlRBTree-like instance.
----@generic T
----@param lessFunc (fun(a: T, b: T): boolean)?
+---Creates an empty tree.
+---@param lessFunc fun(a: any, b: any): boolean
 ---@return ss.RBTree
-function ss.CreateRBTree(lessFunc)
-    ---@class ss.RBTree
-    ---@field root ss.RBTreeNode?
-    local tree = {
-        root = nil,
-        lessFunc = lessFunc or defaultLessFunc,
-        count = 0,
+function RBTree.new(lessFunc)
+    return setmetatable({ lessFunc = lessFunc }, RBTree)
+end
+
+---Inserts a new element into the tree.
+---@param data any
+function RBTree:Insert(data)
+    local parent = nil
+    local current = self.root
+    local isLeftChild = false
+
+    while current do
+        parent = current
+        if self.lessFunc(data, current.data) then
+            current = current.left
+            isLeftChild = true
+        else
+            current = current.right
+            isLeftChild = false
+        end
+    end
+
+    ---@type ss.RBTreeNode
+    local newNode = {
+        data = data,
+        left = nil,
+        right = nil,
+        parent = parent,
+        color = RED
     }
 
-    ---Inserts a new element into the tree.
-    ---@param data ss.PrecachedData.LightmapInfo
-    function tree:Insert(data)
-        local parent = nil
-        local current = self.root
-        local isLeftChild = false
-
-        while current do
-            parent = current
-            if self.lessFunc(data, current.data) then
-                current = current.left
-                isLeftChild = true
-            else
-                current = current.right
-                isLeftChild = false
-            end
-        end
-
-        ---@type ss.RBTreeNode
-        local newNode = {
-            data = data,
-            left = nil,
-            right = nil,
-            parent = parent,
-            color = RED
-        }
-
-        if not parent then
-            self.root = newNode
-        elseif isLeftChild then
-            parent.left = newNode
-        else
-            parent.right = newNode
-        end
-
-        self.count = self.count + 1
-        insertRebalance(self, newNode)
+    if not parent then
+        self.root = newNode
+    elseif isLeftChild then
+        parent.left = newNode
+    else
+        parent.right = newNode
     end
 
-    ---Returns an iterator for inorder traversal.
-    ---@return fun(): ss.PrecachedData.LightmapInfo?
-    function tree:Pairs()
-        local function firstInorder(node)
-            if not node then return nil end
-            local current = node
-            while current.left do
-                current = current.left ---@type ss.RBTreeNode
-            end
-            return current
-        end
-
-        local function nextInorder(node)
-            if not node then return nil end
-
-            if node.right then
-                return firstInorder(node.right)
-            end
-
-            local current = node
-            local parent = current.parent ---@type ss.RBTreeNode
-            while parent and current == parent.right do
-                current, parent = parent, parent.parent
-            end
-            return parent
-        end
-
-        local currentNode = firstInorder(self.root)
-
-        return function()
-            if not currentNode then
-                return nil
-            end
-
-            local data = currentNode.data
-            currentNode = nextInorder(currentNode)
-            return data
-        end
-    end
-
-    return tree
+    insertRebalance(self, newNode)
 end
+
+---Returns the leftmost node of the subtree.
+---@param node ss.RBTreeNode?
+---@return ss.RBTreeNode?
+local function firstInorder(node)
+    if not node then return nil end
+    local current = node
+    while current.left do
+        current = current.left ---@type ss.RBTreeNode
+    end
+    return current
+end
+
+---Returns the node next to the given one in inorder traversal.
+---@param node ss.RBTreeNode?
+---@return ss.RBTreeNode?
+local function nextInorder(node)
+    if not node then return nil end
+
+    if node.right then
+        return firstInorder(node.right)
+    end
+
+    local current = node
+    local parent = current.parent ---@type ss.RBTreeNode
+    while parent and current == parent.right do
+        current, parent = parent, parent.parent
+    end
+    return parent
+end
+
+---Returns an iterator for inorder traversal.
+---@return fun(): any
+function RBTree:Pairs()
+    local currentNode = firstInorder(self.root)
+
+    return function()
+        if not currentNode then
+            return nil
+        end
+
+        local data = currentNode.data
+        currentNode = nextInorder(currentNode)
+        return data
+    end
+end
+
+return RBTree
 

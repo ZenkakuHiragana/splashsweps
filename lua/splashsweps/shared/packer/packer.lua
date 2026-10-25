@@ -1,7 +1,10 @@
 
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
+local Structures = ss.import "splashsweps/shared/packer/structures"
+
+---@class ss.RectanglePackerModule
+local RectanglePacker = ss.module "splashsweps/shared/packer/packer"
 
 local abs = math.abs
 local assert = assert
@@ -20,7 +23,7 @@ end
 ---for the Orthogonal Stock-Cutting Problem", but having two skylines.
 ---@param rectangles ss.Rectangle[]
 ---@return ss.RectanglePacker
-function ss.MakeRectanglePacker(rectangles)
+function RectanglePacker.new(rectangles)
     ---Baseline (or skyline) definition to manage free space.  
     ---It has origin (x = offset, y = height),
     ---length, and rectangle touching it.
@@ -110,10 +113,10 @@ function ss.MakeRectanglePacker(rectangles)
         results      = {},
         optimized    = {},
         rects        = rectangles,
-        queue        = ss.MakeAVL(),
-        queueRotated = ss.MakeAVL(),
-        xbase        = ss.LinkedList(),
-        ybase        = ss.LinkedList(),
+        queue        = Structures.MakeAVL(),
+        queueRotated = Structures.MakeAVL(),
+        xbase        = Structures.LinkedList(),
+        ybase        = Structures.LinkedList(),
     }
     ---@param self ss.RectanglePacker
     ---@param key "width"|"height"|"framesize"|"maxsize"|string
@@ -321,19 +324,6 @@ function ss.MakeRectanglePacker(rectangles)
                     return x, -1, false, is_y -- Should not happen if logic is correct, but for safety
                 end
             end
-        end
-    end
-
-    function t:printbaseline()
-        for _, x in self.xbase() do
-            local e = x.before and (x.before.value.offset + x.before.value.length - x.value.offset) or 0
-            print(string.format("%f,%f,  ,  ,%f\n%f,%f,  ,  ,%f",
-                x.value.offset, x.value.height, e, x.value.offset + x.value.length, x.value.height, e))
-        end
-        for _, x in self.ybase() do
-            local e = x.before and (x.before.value.offset + x.before.value.length - x.value.offset) or 0
-            print(string.format("%f,  ,%f,  ,%f\n%f,  ,%f,  ,%f",
-                x.value.height, x.value.offset, e, x.value.height, x.value.offset + x.value.length, e))
         end
     end
 
@@ -602,8 +592,8 @@ function ss.MakeRectanglePacker(rectangles)
     function t:replace(is_y)
         local xbackup = self.xbase
         local ybackup = self.ybase
-        self.xbase = ss.LinkedList(self.xbase)
-        self.ybase = ss.LinkedList(self.ybase)
+        self.xbase = Structures.LinkedList(self.xbase)
+        self.ybase = Structures.LinkedList(self.ybase)
 
         local line ---@type ss.LinkedListCell
         local lines = is_y and self.ybase or self.xbase
@@ -685,3 +675,5 @@ function ss.MakeRectanglePacker(rectangles)
     t.__type = "SplashSWEPsRectanglePacker"
     return setmetatable(t, { __index = __index })
 end
+
+return RectanglePacker

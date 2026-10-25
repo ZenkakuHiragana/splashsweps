@@ -2,6 +2,7 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+local VTF = ss.import "splashsweps/shared/vtf/reader"
 local locals = ss.Locals ---@class ss.Locals
 -- Keep this state layout across Lua reloads; preparation replaces contents, not the field names.
 if not locals.InkDetail then
@@ -70,14 +71,14 @@ local InkDetail            = locals.InkDetail
 ---@return number
 local function GetAverageHeight(path)
     if InkDetail.AverageHeights[path] then return InkDetail.AverageHeights[path] end
-    local vtf = ss.ReadVTF(path)
+    local vtf = VTF.Read(path)
     ss.assert(vtf, "Automatic height baseline has invalid texture (" .. path .. ")") ---@cast vtf -?
     local level = #vtf.Images
     local image = vtf.Images[level]
     local alpha = 0
     for y = 0, image.Height - 1 do
         for x = 0, image.Width - 1 do
-            alpha = alpha + ss.ReadPixelFromVTF(vtf, x, y, level).a
+            alpha = alpha + VTF.ReadPixel(vtf, x, y, level).a
         end
     end
     local average = alpha / (255 * image.Width * image.Height)

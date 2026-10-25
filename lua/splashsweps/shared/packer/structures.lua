@@ -2,7 +2,9 @@
 -- Structures used in UV packing process.
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
+
+---@class ss.PackerStructures
+local Structures = ss.module "splashsweps/shared/packer/structures"
 
 local deepcopy = ss.deepcopy
 local floor = math.floor
@@ -32,7 +34,7 @@ local function CellLt(a, b) return a.value <  b.value end
 
 ---@param values any
 ---@return ss.LinkedList
-function ss.LinkedList(values)
+function Structures.LinkedList(values)
     ---@class ss.LinkedList
     ---@field count  integer
     ---@field first  ss.LinkedListCell?
@@ -188,7 +190,7 @@ function ss.LinkedList(values)
 end
 
 ---@return ss.AVLTree
-function ss.MakeAVL()
+function Structures.MakeAVL()
     ---@param key any
     ---@param value any
     ---@param parent ss.AVLNode?
@@ -490,7 +492,7 @@ end
 ---@param y number?
 ---@param tag any
 ---@return ss.Rectangle
-function ss.MakeRectangle(width, height, x, y, tag)
+function Structures.MakeRectangle(width, height, x, y, tag)
     assert(width >= 0 and height >= 0, string.format(
         "Attempt to make a rectangle with invalid size: (%f, %f)", width, height))
     ---@class ss.Rectangle
@@ -550,13 +552,4 @@ function ss.MakeRectangle(width, height, x, y, tag)
     return setmetatable(t, meta)
 end
 
----@param widthrange number[]
----@param aspectrange number[]
----@param tag any
----@return ss.Rectangle
-function ss.RectangleRand(widthrange, aspectrange, tag)
-    local aspect = math.Remap(math.random(), 0, 1, aspectrange[1], aspectrange[2])
-    local width = math.Remap(math.random(), 0, 1, widthrange[1], widthrange[2])
-    local height = width * aspect
-    return ss.MakeRectangle(width, height, tag)
-end
+return Structures

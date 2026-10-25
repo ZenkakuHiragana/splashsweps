@@ -3,6 +3,10 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local RectanglePacker = ss.import "splashsweps/shared/packer/packer"
+local Structures      = ss.import "splashsweps/shared/packer/structures"
+local VTF             = ss.import "splashsweps/shared/vtf/reader"
+
 local MARGIN = 2
 local HALF_MARGIN = MARGIN / 2
 local CHANNEL_INDEX = { R = 0, G = 1, B = 2, A = 3 }
@@ -29,7 +33,7 @@ local FORMATS_WITH_ALPHA = {
 ---@param path string Path to the texture
 ---@return boolean? hasAlpha True if it has alpha channel.
 local function HasAlphaChannel(path)
-    local vtf = ss.ReadVTF(path)
+    local vtf = VTF.Read(path)
     return vtf and FORMATS_WITH_ALPHA[vtf.ImageFormat]
 end
 
@@ -125,7 +129,7 @@ local function ReadInkTypeSources()
         sources.TintNames[i] = tint:GetName()
         if not sources.TintCache[tint:GetName()] then
             sources.TintCache[tint:GetName()] = i
-            sources.TintRects[#sources.TintRects + 1] = ss.MakeRectangle(
+            sources.TintRects[#sources.TintRects + 1] = Structures.MakeRectangle(
                 tint:Width() + MARGIN, tint:Height() + MARGIN, 0, 0, inktype)
         end
 
@@ -152,7 +156,7 @@ local function ReadInkTypeSources()
         sources.BaseKeys[i] = baseKey
         if not sources.BaseCache[baseKey] then
             sources.BaseCache[baseKey] = i
-            sources.BaseRects[#sources.BaseRects + 1] = ss.MakeRectangle(
+            sources.BaseRects[#sources.BaseRects + 1] = Structures.MakeRectangle(
                 math.max(base:Width(),  heightSource and heightSource:Width()  or 0) + MARGIN,
                 math.max(base:Height(), heightSource and heightSource:Height() or 0) + MARGIN,
                 0, 0, inktype)
@@ -160,7 +164,7 @@ local function ReadInkTypeSources()
     end
 
     for i, shape in ipairs(ss.InkShapes) do
-        sources.ShapeRects[i] = ss.MakeRectangle(
+        sources.ShapeRects[i] = Structures.MakeRectangle(
             shape.Grid.Width + MARGIN, shape.Grid.Height + MARGIN, 0, 0, shape)
     end
 
@@ -189,7 +193,7 @@ end
 ---Builds the albedo and height atlas and assigns base UV ranges.
 ---@param sources ss.InkTypeAtlasSources
 local function BuildAlbedoAtlas(sources)
-    local packer = ss.MakeRectanglePacker(sources.BaseRects):packall()
+    local packer = RectanglePacker.new(sources.BaseRects):packall()
     local rt = GetAtlasRenderTarget("splashsweps_albedo", packer.maxsize)
     ss.RenderTarget.StaticTextures.Albedo = rt
     render.PushRenderTarget(rt)
@@ -234,8 +238,8 @@ end
 local function BuildTintAtlas(sources)
     -- Tint images and shape masks are packed separately into color and alpha,
     -- so the atlas takes the larger size of them.
-    local tintPacker  = ss.MakeRectanglePacker(sources.TintRects):packall()
-    local shapePacker = ss.MakeRectanglePacker(sources.ShapeRects):packall()
+    local tintPacker  = RectanglePacker.new(sources.TintRects):packall()
+    local shapePacker = RectanglePacker.new(sources.ShapeRects):packall()
     local rt = GetAtlasRenderTarget("splashsweps_tint", math.max(tintPacker.maxsize, shapePacker.maxsize))
     ss.RenderTarget.StaticTextures.Tint = rt
     render.PushRenderTarget(rt)

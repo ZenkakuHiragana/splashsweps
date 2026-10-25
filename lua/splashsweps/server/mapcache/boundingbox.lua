@@ -1,7 +1,11 @@
 
+-- Bounding rectangles and boxes of vertices.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
+
+---@class ss.BoundingBox
+local BoundingBox = ss.module "splashsweps/server/mapcache/boundingbox"
 
 local abs = math.abs
 local max = math.max
@@ -68,7 +72,7 @@ end
 ---@param angle    Angle    The angle of the face in the world coordinate system. Up() should be the normal.
 ---@return VMatrix origin Represents the origin and angle of the MBR in the world coordinate system.
 ---@return Vector  size   The size of the MBR in Hammer units.
-function ss.FindMBR(vertices, angle)
+function BoundingBox.FindMBR(vertices, angle)
     local center = Vector()
     for _, v in ipairs(vertices) do center:Add(v) end
     center:Div(#vertices)
@@ -133,7 +137,7 @@ end
 ---@param vertices ss.PrecachedData.Vertex[]
 ---@return VMatrix origin Represents the origin and angle of the minimum OBB in the world coordinate system.
 ---@return Vector  size   The size of the MBR in Hammer units.
-function ss.FindMinimumOBB(vertices)
+function BoundingBox.FindMinimumOBB(vertices)
     local mean = Vector()
     for _, v in ipairs(vertices) do mean:Add(v.Translation) end
     mean:Div(#vertices)
@@ -286,3 +290,5 @@ function ss.FindMinimumOBB(vertices)
     localToWorld:Translate(mins)
     return localToWorld, maxs - mins
 end
+
+return BoundingBox

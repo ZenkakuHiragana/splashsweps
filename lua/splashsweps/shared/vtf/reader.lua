@@ -1,6 +1,9 @@
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
+local Binary = ss.import "splashsweps/shared/binary/reader"
+
+---@class ss.VTFReader
+local VTF = ss.module "splashsweps/shared/vtf/reader"
 
 -- Parses VTF files and gives an ability to read pixel data of specified mipmap level.
 -- Volumetric textures (that has more than a single depth),
@@ -213,7 +216,7 @@ local BYTES_PER_PIXEL = {
 ---@field padding2           string?
 ---@field numResources       integer?
 ---@field padding3           string?
-ss.bstruct "VTF.Header" {
+Binary.struct "VTF.Header" {
     "4      signature",
     "ULong  version 2",
     "ULong  headerSize",
@@ -241,7 +244,7 @@ ss.bstruct "VTF.Header" {
 ---@field tag string
 ---@field flags integer
 ---@field offset integer
-ss.bstruct "VTF.ResourceEntry" {
+Binary.struct "VTF.ResourceEntry" {
     "3     tag",
     "Byte  flags",
     "ULong offset",
@@ -251,11 +254,6 @@ ss.bstruct "VTF.ResourceEntry" {
 ---@field Width integer
 ---@field Height integer
 ---@field Buffer string
-ss.struct "VTF.Image" {
-    Width = 1,
-    Height = 1,
-    Buffer = "",
-}
 
 ---Reads a pixel located at x, y for given mipmap level.
 ---@param vtf ss.VTF.ImageStack
@@ -263,7 +261,7 @@ ss.struct "VTF.Image" {
 ---@param y integer
 ---@param mipmapLevel integer?
 ---@return Color
-function ss.ReadPixelFromVTF(vtf, x, y, mipmapLevel)
+function VTF.ReadPixel(vtf, x, y, mipmapLevel)
     local format = vtf.ImageFormat
     local image = vtf.Images[mipmapLevel or 1]
     if not image then return color_transparent end
@@ -359,10 +357,6 @@ end
 ---@class ss.VTF.ImageStack
 ---@field ImageFormat string
 ---@field Images ss.VTF.Image[]
-ss.struct "VTF.ImageStack" {
-    ImageFormat = "IMAGE_FORMAT_NONE",
-    Images = {},
-}
 
 ---Calculates image size in the given format in bytes.
 ---@param width integer
@@ -439,7 +433,7 @@ end
 ---@return integer
 local function getHighResImageOffset73(header, vtf)
     for _ = 1, math.min(header.numResources, 32) do
-        local resource = ss.ReadStructureFromFile(vtf, "VTF.ResourceEntry")
+        local resource = Binary.Read(vtf, "VTF.ResourceEntry")
         if resource.tag == "\x30\x00\x00" then
             return resource.offset
         end
@@ -451,12 +445,12 @@ end
 ---Reads VTF file.
 ---@param path string The path to VTF relative to materials/ folder without extension.
 ---@return ss.VTF.ImageStack?
-function ss.ReadVTF(path)
+function VTF.Read(path)
     if not path:EndsWith ".vtf" then path = path .. ".vtf" end
     local vtf = file.Open(string.format("materials/%s", path), "rb", "GAME")
     if not vtf then return end
 
-    local header = ss.ReadStructureFromFile(vtf, "VTF.Header")
+    local header = Binary.Read(vtf, "VTF.Header")
     local minorVersion = header.version[2]
     if header.signature ~= "VTF\x00" then return end
     if header.version[1] ~= 7 then return end
@@ -478,57 +472,20 @@ function ss.ReadVTF(path)
     local maxHeight = header.height
     local maxMipmapLevel = header.mipmapCount
     local mipmapOffset = 1
-    local imageStack = ss.new "VTF.ImageStack"
-    imageStack.ImageFormat = IMAGE_FORMATS[format]
+    ---@type ss.VTF.ImageStack
+    local imageStack = { ImageFormat = IMAGE_FORMATS[format], Images = {} }
     for mipmapLevel = maxMipmapLevel, 1, -1 do
         local width, height = getMipmapDimensions(maxWidth, maxHeight, mipmapLevel)
         local size = getImageSize(width, height, format)
-        local image = ss.new "VTF.Image"
-        image.Width = width
-        image.Height = height
-        image.Buffer = buffer:sub(mipmapOffset, mipmapOffset + size - 1)
-        imageStack.Images[mipmapLevel] = image
+        imageStack.Images[mipmapLevel] = {
+            Width = width,
+            Height = height,
+            Buffer = buffer:sub(mipmapOffset, mipmapOffset + size - 1),
+        }
         mipmapOffset = mipmapOffset + size
     end
 
     return imageStack
 end
 
----Prints VTF to the console
----@param vtf ss.VTF.ImageStack
----@param channel string?
----@param mipmapLevel integer?
-function ss.PrintVTF(vtf, channel, mipmapLevel)
-    channel = (channel or "rgb"):lower()
-    mipmapLevel = mipmapLevel or 1
-    local s = {} ---@type string[]
-    local CONVERSION
-        = " `.-':_,^=;><+!rc*/z?sLTv)J7(|Fi{C}fI31tlu[neoZ5Yxjya]2ESSwwqqkk"
-        .. "PP66hh99dd44VVppOOGGbbUUAAKKXXHHmm88RRDD##$$BBgg00MMNNWWQQ%%&&@@"
-    local width = vtf.Images[mipmapLevel].Width
-    local height = vtf.Images[mipmapLevel].Height
-    width = math.min(width, 225)
-    -- height = math.min(height, 225)
-    for y = 0, height - 1, 2 do
-        s[#s + 1] = ""
-        for x = 0, width - 1 do
-            local c1 = ss.ReadPixelFromVTF(vtf, x, y, mipmapLevel)
-            local c2 = ss.ReadPixelFromVTF(vtf, x, y + 1, mipmapLevel)
-            local scale = 0
-            if channel:find "r" then scale = scale + (c1.r + c2.r) / 2 end
-            if channel:find "g" then scale = scale + (c1.g + c2.g) / 2 end
-            if channel:find "b" then scale = scale + (c1.b + c2.b) / 2 end
-            if channel:find "a" then scale = scale + (c1.a + c2.a) / 2 end
-            if channel:find "r" and channel:find "g" and channel:find "b" then
-                local g1 = c1:ToVector():Dot(ss.GrayScaleFactor) * 255
-                local g2 = c2:ToVector():Dot(ss.GrayScaleFactor) * 255
-                scale = (g1 + g2) / 2
-            else
-                scale = scale / #channel
-            end
-            local i = math.Clamp(math.Round(scale / 2) + 1, 1, 128)
-            s[#s] = s[#s] .. CONVERSION:sub(i, i)
-        end
-    end
-    for _, si in ipairs(s) do print(si) end
-end
+return VTF

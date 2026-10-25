@@ -1,7 +1,19 @@
 
+-- An image packer that places blocks on a skyline, like CImagePacker of Source.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
+
+---@class ss.SkylinePacker
+---@field Wavefront integer[] Height of the skyline at each x, 1-based.
+---@field MaxWidth integer
+---@field MaxHeight integer
+---@field MaxBlockWidth integer Width of the smallest block that has failed to fit.
+---@field MaxBlockHeight integer Height of the smallest block that has failed to fit.
+---@field MinHeight integer Height the placed blocks need, or -1 before any block is placed.
+---@field SortID integer
+local SkylinePacker = ss.module "splashsweps/client/skylinepacker"
+SkylinePacker.__index = SkylinePacker
 
 ---Finds the highest point on the skyline within a given width.
 ---@param self ss.SkylinePacker
@@ -22,12 +34,11 @@ local function GetMaxY(self, firstX, width)
 end
 
 ---Attempts to add a block to the image.
----@param self ss.SkylinePacker
 ---@param width integer
 ---@param height integer
 ---@return integer? x
 ---@return integer? y
-local function AddBlock(self, width, height)
+function SkylinePacker:AddBlock(width, height)
     -- If we've already determined that a block this big couldn't fit
     -- then blow off checking again...
     if width >= self.MaxBlockWidth and height >= self.MaxBlockHeight then
@@ -85,15 +96,13 @@ local function AddBlock(self, width, height)
         self.Wavefront[x + 1] = outerMinY + height
     end
 
-    self.AreaUsed = self.AreaUsed + width * height
     return returnX, returnY
 end
 
 ---Gets the minimum required dimensions for the packed image.
----@param self ss.SkylinePacker
 ---@return integer width
 ---@return integer height
-local function GetMinimumDimensions(self)
+function SkylinePacker:GetMinimumDimensions()
     ---@param n integer
     ---@return integer
     local function ceilPow2(n)
@@ -119,29 +128,26 @@ local function GetMinimumDimensions(self)
     return width, height
 end
 
----Creates a new image packer.
+---Creates an empty image packer.
 ---@param sortID integer
 ---@param maxWidth integer
 ---@param maxHeight integer
 ---@return ss.SkylinePacker
-function ss.MakeSkylinePacker(sortID, maxWidth, maxHeight)
-    ---@class ss.SkylinePacker
-    local t = {
-        Wavefront = {}, ---@type integer[]
+function SkylinePacker.new(sortID, maxWidth, maxHeight)
+    local wavefront = {} ---@type integer[]
+    for i = 1, maxWidth do
+        wavefront[i] = -1
+    end
+
+    return setmetatable({
+        Wavefront = wavefront,
         MaxWidth = maxWidth,
         MaxHeight = maxHeight,
         MaxBlockWidth = maxWidth + 1,
         MaxBlockHeight = maxHeight + 1,
         MinHeight = -1,
-        AreaUsed = 0,
         SortID = sortID,
-        AddBlock = AddBlock,
-        GetMinimumDimensions = GetMinimumDimensions,
-    }
-
-    for i = 1, t.MaxWidth do
-        t.Wavefront[i] = -1
-    end
-
-    return t
+    }, SkylinePacker)
 end
+
+return SkylinePacker

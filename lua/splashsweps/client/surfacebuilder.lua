@@ -3,6 +3,9 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local RBTree        = ss.import "splashsweps/client/rbtree"
+local SkylinePacker = ss.import "splashsweps/client/skylinepacker"
+
 local CubemapInfoMeta     = getmetatable(ss.new "PrecachedData.CubemapInfo")
 local LightmapInfoMeta    = getmetatable(ss.new "PrecachedData.LightmapInfo")
 local SurfaceMeta         = getmetatable(ss.new "PrecachedData.Surface")
@@ -263,11 +266,11 @@ local function packLightmaps(surfaceInfo, materialInfo)
     local currentMaterialID = nil ---@type integer
     local currentWhiteLightmapMaterialID = nil ---@type integer
     local packers = {
-        ss.MakeSkylinePacker(numSortIDs, MAX_LIGHTMAP_WIDTH, MAX_LIGHTMAP_HEIGHT)
+        SkylinePacker.new(numSortIDs, MAX_LIGHTMAP_WIDTH, MAX_LIGHTMAP_HEIGHT)
     }
 
     -- Loop through sorted faces and pack them
-    local sortableFaces = ss.CreateRBTree(lightmapLess)
+    local sortableFaces = RBTree.new(lightmapLess)
     local arrayIndexToEnumerationID = {} ---@type table<integer, integer>
     for enumerationID, matInfo in pairs(materialInfo) do
         arrayIndexToEnumerationID[matInfo.ArrayIndex] = enumerationID
@@ -278,7 +281,7 @@ local function packLightmaps(surfaceInfo, materialInfo)
         sortableFaces:Insert(t)
     end
 
-    for faceInfo in sortableFaces:Pairs() do
+    for faceInfo in sortableFaces:Pairs() do ---@cast faceInfo ss.PrecachedData.LightmapInfo
         local enumerationID = faceInfo.MaterialIndex
         if faceInfo.HasLightmap then
             local width  = faceInfo.Width + 1
@@ -321,7 +324,7 @@ local function packLightmaps(surfaceInfo, materialInfo)
             if not packedSortID then
                 numSortIDs = numSortIDs + 1
                 lightmapLayout.MaxLightmapIndex = lightmapLayout.MaxLightmapIndex + 1
-                packers[#packers + 1] = ss.MakeSkylinePacker(
+                packers[#packers + 1] = SkylinePacker.new(
                     numSortIDs, MAX_LIGHTMAP_WIDTH, MAX_LIGHTMAP_HEIGHT)
                 x, y = packers[#packers]:AddBlock(width, height)
                 packedSortID = numSortIDs
