@@ -19,6 +19,6 @@ hook.Add("PlayerDisconnected", "SplashSWEPs: PlayerDisconnected", function(ply)
     Players.Remove(ply)
     hook.Run("SplashSWEPs: PlayerDisconnected", ply)
     net.Start "SplashSWEPs: Refresh players table"
-    net.WriteTable(Players.Ready)
+    net.WriteTable(Players.Ready, true)
     net.Broadcast()
 end)

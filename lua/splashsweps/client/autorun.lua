@@ -82,5 +82,5 @@ end)
 
 net.Receive("SplashSWEPs: Clear all ink", function() InkMap.ClearAll() end)
 net.Receive("SplashSWEPs: Refresh players table", function()
-    Players.Replace(net.ReadTable())
+    Players.Replace(net.ReadTable(true))
 end)
