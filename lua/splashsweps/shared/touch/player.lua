@@ -3,20 +3,16 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local Hash             = ss.import "splashsweps/shared/hash"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
+local Players          = ss.import "splashsweps/shared/players"
 local Util             = ss.import "splashsweps/shared/util"
-local locals = ss.Locals ---@class ss.Locals
-if not locals.Touch then
-    locals.Touch = {} ---@class ss.Locals.Touch
-    locals.Touch.NextInkCheckTimePlayer = {}
-end
 
 -- Check if a player is on ink for every this seconds
 local InkCheckInterval = 1 / 20
 
 ---CurTime() based time to perform traces to check player's ink state.
----@type table<Player, number>
-local NextCheckTime = locals.Touch.NextInkCheckTimePlayer
+local NextCheckTime = ss.state("splashsweps/shared/touch/player", {}) ---@type table<Player, number>
 
 local identity = Matrix()
 
@@ -58,9 +54,9 @@ end
 local lastTrace ---@type Structure.TraceResult
 local lastAim = Vector()
 hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
-    if not ss.PlayerIndices[ply] then return end
+    if not Players.Indices[ply] then return end
 
-    local index = ss.PlayerIndices[ply] - 1
+    local index = Players.Indices[ply] - 1
     local timeOffset = index / player.GetCount() * InkCheckInterval
     if not NextCheckTime[ply] then NextCheckTime[ply] = CurTime() end
     if CurTime() < NextCheckTime[ply] + timeOffset then return end
@@ -88,11 +84,11 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     local t = InkCheckInterval + FrameTime() * 2
     debugoverlay.Cross(nearestFrom, 10, t, Color(255, 255, 0), true)
 
-    for surf in ss.CollectSurfaces(queryMins, queryMaxs) do
+    for surf in Hash.CollectSurfaces(queryMins, queryMaxs) do
         local m = surf.WorldToLocalGridMatrix:GetInverseTR()
         DrawSurfaceBounds(surf, identity, t)
         if surf.Triangles then
-            for tri in ss.CollectDisplacementTriangles(surf, queryMins, queryMaxs) do
+            for tri in Hash.CollectDisplacementTriangles(surf, queryMins, queryMaxs) do
             -- for _, tri in ipairs(surf.Triangles) do
                 local d = tri.MBBAngles:Up() * 0.5
                 debugoverlay.BoxAngles(
@@ -134,10 +130,10 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     end
 
     -- Brush models have no displacements, so their surfaces are always flat.
-    for ent, modelIndex, worldToModel in ss.CollectBrushEntities(queryMins, queryMaxs) do
+    for ent, modelIndex, worldToModel in Hash.CollectBrushEntities(queryMins, queryMaxs) do
         local modelToWorld = ent:GetWorldTransformMatrix()
         local localMins, localMaxs = Util.TransformAABB(worldToModel, queryMins, queryMaxs)
-        for surf in ss.CollectBrushModelSurfaces(modelIndex, localMins, localMaxs) do
+        for surf in Hash.CollectBrushModelSurfaces(modelIndex, localMins, localMaxs) do
             DrawSurfaceBounds(surf, modelToWorld, t)
             DrawNearestOnFlatSurface(surf, modelToWorld, worldToModel, nearestFrom, t)
         end

@@ -1,9 +1,12 @@
 
+-- Collects lightmap information of the surfaces for the client to pack lightmaps as the engine does.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
-
 local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
+
+---@class ss.LightmapBuilderModule
+local LightmapBuilder = ss.module "splashsweps/server/mapcache/lightmapbuilder"
 
 local band = bit.band
 local byte = string.byte
@@ -163,7 +166,7 @@ end
 ---@param ishdr boolean
 ---@param surfaceInfo ss.PrecachedData.SurfaceInfo
 ---@param cache ss.PrecachedData
-function ss.BuildLightmapInfo(bsp, ishdr, surfaceInfo, cache)
+function LightmapBuilder.Build(bsp, ishdr, surfaceInfo, cache)
     print("    Generating lightmap info (" .. (ishdr and "HDR" or "LDR") .. ")...")
     local faces = ishdr and bsp.FACES_HDR or bsp.FACES
     if not faces or #faces == 0 then return end
@@ -269,3 +272,5 @@ function ss.BuildLightmapInfo(bsp, ishdr, surfaceInfo, cache)
         surfaceInfo.Lightmaps[i] = t
     end
 end
+
+return LightmapBuilder

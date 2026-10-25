@@ -1,16 +1,19 @@
 
+-- Packs the paintable surfaces into the UV space of the ink map.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
-
 local RectanglePacker = ss.import "splashsweps/shared/packer/packer"
 local Structures      = ss.import "splashsweps/shared/packer/structures"
+
+---@class ss.UVBuilderModule
+local UVBuilder = ss.module "splashsweps/server/mapcache/uvbuilder"
 
 ---Sets up UV coordinates for precached surface data.
 ---@param surfInfo ss.PrecachedData.SurfaceInfo
 ---@param staticPropInfo ss.PrecachedData.StaticProp.UVInfo[][]
 ---@param staticPropRectangles Vector[]
-function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
+function UVBuilder.Build(surfInfo, staticPropInfo, staticPropRectangles)
     print "Calculation UV coordinates..."
     local totalArea = 0
     local surfaces = surfInfo.Surfaces
@@ -91,3 +94,5 @@ function ss.BuildUVCache(surfInfo, staticPropInfo, staticPropRectangles)
         t0 = SysTime()
     end
 end
+
+return UVBuilder

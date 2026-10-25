@@ -3,10 +3,28 @@
 
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
-
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
+local PrecachedData    = ss.import "splashsweps/shared/typing/precachedata"
 local Util             = ss.import "splashsweps/shared/util"
+
+---@class ss.HashModule
+local Hash = ss.module "splashsweps/shared/hash"
+
+---@class ss.HashModule.State
+---@field SurfaceHash table<integer, integer[]> Grid hash --> indices of PaintableSurface.Surfaces in the grid.
+---@field Parameters  ss.PrecachedData.HashParameters
+local state = ss.state("splashsweps/shared/hash", {
+    SurfaceHash = {},
+    Parameters = PrecachedData.HashParameters.new(),
+}) ---@type ss.HashModule.State
+
+---Sets the spatial hash of the world surfaces and the parameters, both read from the map cache.
+---@param surfaceHash table<integer, integer[]>
+---@param parameters  ss.PrecachedData.HashParameters
+function Hash.Setup(surfaceHash, parameters)
+    state.SurfaceHash = surfaceHash
+    state.Parameters = parameters
+end
 
 local ceil = math.ceil
 local clamp = math.Clamp
@@ -21,7 +39,6 @@ local OrderVectors = OrderVectors
 local angle_zero = angle_zero
 local vector_origin = vector_origin
 local vector_tenth = Util.vector_one * 0.1
-local vector_16384 = Util.vector_one * 16384
 local GRID_SIZE = 128
 local MAX_GRID_INDEX = 32768 / GRID_SIZE
 local MAX_GRID_INDEX_SQR = MAX_GRID_INDEX * MAX_GRID_INDEX
@@ -57,7 +74,7 @@ local function hashpairs(mins, maxs)
         for z = z0, z1 do
             for y = y0, y1 do
                 for x = x0, x1 do
-                    -- local gmin = Vector(x, y, z) * GRID_SIZE - vector_16384
+                    -- local gmin = Vector(x, y, z) * GRID_SIZE - Util.vector_one * 16384
                     -- local gmax = gmin + Util.vector_one * GRID_SIZE
                     -- debugoverlay.Box(Vector(), gmin, gmax, FrameTime() * 20, Color(0, 255, 0, 16))
                     yield(indexToHash(x, y, z))
@@ -71,7 +88,7 @@ end
 ---@param surfaces    ss.PrecachedData.Surface[]    The source array.
 ---@param staticProps ss.PrecachedData.StaticProp[] List of static props.
 ---@param hash        table<integer, integer[]>     The output hash table.
-function ss.BuildSurfaceHash(surfaces, staticProps, hash)
+function Hash.BuildSurfaceHash(surfaces, staticProps, hash)
     print("Constructing spatial hash table for paintable surfaces...")
     for i, s in ipairs(surfaces) do
         if s.ModelIndex == 1 then
@@ -111,17 +128,17 @@ local function isSurfaceIntersecting(s, mins, maxs)
 end
 
 ---Generator function to enumerate surfaces of the worldspawn and static props containing given AABB.
----Surfaces of brush entities are enumerated by ss.CollectBrushEntities and ss.CollectBrushModelSurfaces.
+---Surfaces of brush entities are enumerated by Hash.CollectBrushEntities and Hash.CollectBrushModelSurfaces.
 ---@param mins Vector AABB minimum.
 ---@param maxs Vector AABB maximum.
 ---@return fun(): ss.PaintableSurface
-function ss.CollectSurfaces(mins, maxs)
+function Hash.CollectSurfaces(mins, maxs)
     mins = mins - vector_tenth
     maxs = maxs + vector_tenth
     return wrap(function()
         local hasSeenThisSurface = {} ---@type table<integer, true>
         for h in hashpairs(mins, maxs) do
-            for _, i in ipairs(ss.SurfaceHash[h] or {}) do
+            for _, i in ipairs(state.SurfaceHash[h] or {}) do
                 if not hasSeenThisSurface[i] then
                     hasSeenThisSurface[i] = true
                     local s = PaintableSurface.Surfaces[i]
@@ -135,11 +152,11 @@ function ss.CollectSurfaces(mins, maxs)
 end
 
 ---Generator function to enumerate surfaces of a brush model containing given AABB.
----@param modelIndex integer Index of the brush model obtained by ss.CollectBrushEntities.
+---@param modelIndex integer Index of the brush model obtained by Hash.CollectBrushEntities.
 ---@param mins       Vector  AABB minimum in the model's local coordinates.
 ---@param maxs       Vector  AABB maximum in the model's local coordinates.
 ---@return fun(): ss.PaintableSurface
-function ss.CollectBrushModelSurfaces(modelIndex, mins, maxs)
+function Hash.CollectBrushModelSurfaces(modelIndex, mins, maxs)
     mins = mins - vector_tenth
     maxs = maxs + vector_tenth
     return wrap(function()
@@ -155,7 +172,7 @@ end
 ---@param mins Vector AABB minimum in world coordinates.
 ---@param maxs Vector AABB maximum in world coordinates.
 ---@return fun(): Entity, integer, VMatrix # The entity, its model index, and world-to-model transformation.
-function ss.CollectBrushEntities(mins, maxs)
+function Hash.CollectBrushEntities(mins, maxs)
     return wrap(function()
         for _, ent in ipairs(ents.FindInBox(mins, maxs)) do
             local n = tonumber((ent:GetModel() or ""):match "^%*(%d+)$")
@@ -168,16 +185,6 @@ function ss.CollectBrushEntities(mins, maxs)
     end)
 end
 
----Gets AABB of a grid for debug purpose.
----@param pos Vector Query position to retrieve a grid containing there.
----@return Vector mins AABB minimum.
----@return Vector maxs AABB maximum.
-function ss.GetGridBBox(pos)
-    local mins = Vector(posToIndex(pos)) * GRID_SIZE - vector_16384
-    local maxs = mins + Util.vector_one * GRID_SIZE
-    return mins, maxs
-end
-
 ---Converts real number coordinate to rough coordinate using given AABB size and number of division.
 ---@param pos Vector
 ---@param mins Vector The AABB minimum.
@@ -187,8 +194,8 @@ end
 ---@return number z Rough coordinate Z.
 local function posToIndexAABB(pos, mins, maxs)
     local size = maxs - mins
-    local minGridSize = ss.HashParameters.MinGridSizeDisplacement
-    local numDivision = ss.HashParameters.NumDivisionsDisplacement
+    local minGridSize = state.Parameters.MinGridSizeDisplacement
+    local numDivision = state.Parameters.NumDivisionsDisplacement
     local maxIndicesX = clamp(ceil(size.x / minGridSize), 1, numDivision)
     local maxIndicesY = clamp(ceil(size.y / minGridSize), 1, numDivision)
     local maxIndicesZ = clamp(ceil(size.z / minGridSize), 1, numDivision)
@@ -209,8 +216,8 @@ end
 ---@return integer
 local function indexToHashAABB(x, y, z, mins, maxs)
     local size = maxs - mins
-    local minGridSize = ss.HashParameters.MinGridSizeDisplacement
-    local numDivision = ss.HashParameters.NumDivisionsDisplacement
+    local minGridSize = state.Parameters.MinGridSizeDisplacement
+    local numDivision = state.Parameters.NumDivisionsDisplacement
     local maxIndicesX = min(ceil(size.x / minGridSize), numDivision)
     local maxIndicesY = min(ceil(size.y / minGridSize), numDivision)
     return x + y * maxIndicesX + z * maxIndicesX * maxIndicesY
@@ -229,8 +236,8 @@ local function hashpairsAABB(queryMins, queryMaxs, mins, maxs)
         for z = z0, z1 do
             for y = y0, y1 do
                 for x = x0, x1 do
-                    -- local gridSize = (maxs - mins) / ss.HashParameters.NumDivisionsDisplacement
-                    -- OrderVectors(Util.vector_one * ss.HashParameters.MinGridSizeDisplacement, gridSize)
+                    -- local gridSize = (maxs - mins) / state.Parameters.NumDivisionsDisplacement
+                    -- OrderVectors(Util.vector_one * state.Parameters.MinGridSizeDisplacement, gridSize)
                     -- local gmin = Vector(x, y, z) * gridSize + mins
                     -- local gmax = gmin + gridSize
                     -- debugoverlay.Box(Vector(), gmin, gmax, FrameTime() * 20, Color(0, 255, 0, 16))
@@ -243,7 +250,7 @@ end
 
 ---Generates look-up table for spatial partitioning to find triangles of displacement faster.
 ---@param surfaces ss.PrecachedData.Surface[] The source displacement.
-function ss.BuildDisplacementHash(surfaces)
+function Hash.BuildDisplacementHash(surfaces)
     print("Constructing spatial hash table for displacement triangles...")
     for _, surf in ipairs(surfaces) do
         if surf.Triangles then
@@ -284,7 +291,7 @@ end
 ---@param mins Vector AABB minimum.
 ---@param maxs Vector AABB maximum.
 ---@return fun(): ss.DisplacementTriangle triangle An array of vertices.
-function ss.CollectDisplacementTriangles(displacement, mins, maxs)
+function Hash.CollectDisplacementTriangles(displacement, mins, maxs)
     if not displacement.TriangleHash then return wrap(function() end) end
     mins = mins - vector_tenth
     maxs = maxs + vector_tenth
@@ -308,3 +315,5 @@ function ss.CollectDisplacementTriangles(displacement, mins, maxs)
         end
     end)
 end
+
+return Hash

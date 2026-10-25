@@ -1,11 +1,14 @@
 
+-- Builds the paintable surfaces and static props of the map cache from the BSP.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
-
 local BoundingBox   = ss.import "splashsweps/server/mapcache/boundingbox"
 local Util          = ss.import "splashsweps/shared/util"
 local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
+
+---@class ss.SurfaceBuilderModule
+local SurfaceBuilder = ss.module "splashsweps/server/mapcache/surfacebuilder"
 
 local abs = math.abs
 local ceil = math.ceil
@@ -678,7 +681,7 @@ end
 ---@param ishdr boolean
 ---@return ss.PrecachedData.SurfaceInfo surf
 ---@return ss.PrecachedData.Surface[] water
-function ss.BuildSurfaceCache(bsp, ishdr)
+function SurfaceBuilder.BuildSurfaceCache(bsp, ishdr)
     local t0 = SysTime()
     local surfInfo = PrecachedData.SurfaceInfo.new()
     local surf = surfInfo.Surfaces
@@ -790,7 +793,7 @@ end
 ---Extracts surfaces from static props.
 ---@param bsp ss.RawBSPResults
 ---@param cache ss.PrecachedData
-function ss.BuildStaticPropCache(bsp, cache)
+function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
     print "Generating static prop surfaces..."
     local results = {} ---@type ss.PrecachedData.StaticProp[]
     local uvinfo = {} ---@type ss.PrecachedData.StaticProp.UVInfo[][]
@@ -832,3 +835,5 @@ function ss.BuildStaticPropCache(bsp, cache)
     cache.StaticPropMDL = bsp.sprp.name or {}
     print("    Collected info for " .. #results .. " static props.")
 end
+
+return SurfaceBuilder

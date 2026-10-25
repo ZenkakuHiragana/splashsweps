@@ -3,6 +3,7 @@
 
 ---@class ss
 local ss = SplashSWEPs
+local Hash             = ss.import "splashsweps/shared/hash"
 local InkShape         = ss.import "splashsweps/shared/inkshape"
 local InkType          = ss.import "splashsweps/shared/inktype"
 local PaintableGrid    = ss.import "splashsweps/shared/paint/paintablegrid"
@@ -85,7 +86,7 @@ function Paint.EnumeratePositions(surf, mins, maxs, pos, ang)
             local min_triangle = nil ---@type ss.DisplacementTriangle?
             local angleMatrix = Matrix()
             angleMatrix:SetAngles(ang)
-            for t in ss.CollectDisplacementTriangles(surf, mins, maxs) do
+            for t in Hash.CollectDisplacementTriangles(surf, mins, maxs) do
                 local b = PaintableSurface.BarycentricCoordinates(t, pos)
                 if b.x > 0 and b.y > 0 and b.z > 0 then
                     if ang:Up():Dot(t.MBBAngles:Up()) > MAX_COS then
@@ -192,7 +193,7 @@ end
 ---@param inktype  integer The internal index of ink type.
 function Paint.PaintWorld(worldPos, worldAng, scale, shape, inktype)
     local mins, maxs = Paint.GetBoundingBox(worldPos, worldAng, scale)
-    PaintSurfaces(ss.CollectSurfaces(mins, maxs), mins, maxs, worldPos, worldAng, scale, shape, inktype)
+    PaintSurfaces(Hash.CollectSurfaces(mins, maxs), mins, maxs, worldPos, worldAng, scale, shape, inktype)
 end
 
 ---Paints a brush model without networking.
@@ -205,7 +206,7 @@ end
 ---@param inktype    integer The internal index of ink type.
 function Paint.PaintBrushModel(modelIndex, localPos, localAng, scale, shape, inktype)
     local mins, maxs = Paint.GetBoundingBox(localPos, localAng, scale)
-    PaintSurfaces(ss.CollectBrushModelSurfaces(modelIndex, mins, maxs),
+    PaintSurfaces(Hash.CollectBrushModelSurfaces(modelIndex, mins, maxs),
         mins, maxs, localPos, localAng, scale, shape, inktype)
 end
 
@@ -235,7 +236,7 @@ function Paint.Paint(worldPos, worldAng, scale, shape, inktype)
     local mins, maxs = Paint.GetBoundingBox(worldPos, worldAng, scale)
     inkSystemInWorld:SetTranslation(worldPos)
     inkSystemInWorld:SetAngles(worldAng)
-    for _, modelIndex, worldToModel in ss.CollectBrushEntities(mins, maxs) do
+    for _, modelIndex, worldToModel in Hash.CollectBrushEntities(mins, maxs) do
         local inkSystemInModel = worldToModel * inkSystemInWorld
         local localPos = inkSystemInModel:GetTranslation()
         local localAng = inkSystemInModel:GetAngles()

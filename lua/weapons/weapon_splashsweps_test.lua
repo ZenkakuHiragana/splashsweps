@@ -2,6 +2,7 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local Hash          = ss.import "splashsweps/shared/hash"
 local InkShape      = ss.import "splashsweps/shared/inkshape"
 local InkType       = ss.import "splashsweps/shared/inktype"
 local Paint         = ss.import "splashsweps/shared/paint/paint"
@@ -131,13 +132,13 @@ function SWEP:SecondaryAttack()
     self:EmitSound("Weapon_AR2.Empty")
     local tr = Owner:GetEyeTrace()
     local pos = tr.HitPos
-    for surf in ss.CollectSurfaces(pos - Util.vector_one, pos + Util.vector_one) do
+    for surf in Hash.CollectSurfaces(pos - Util.vector_one, pos + Util.vector_one) do
         DrawGrid(surf)
     end
 
-    for ent, modelIndex, worldToModel in ss.CollectBrushEntities(pos - Util.vector_one, pos + Util.vector_one) do
+    for ent, modelIndex, worldToModel in Hash.CollectBrushEntities(pos - Util.vector_one, pos + Util.vector_one) do
         local localPos = worldToModel * pos
-        for surf in ss.CollectBrushModelSurfaces(modelIndex, localPos - Util.vector_one, localPos + Util.vector_one) do
+        for surf in Hash.CollectBrushModelSurfaces(modelIndex, localPos - Util.vector_one, localPos + Util.vector_one) do
             DrawGrid(surf, ent:GetWorldTransformMatrix())
         end
     end
@@ -177,12 +178,12 @@ function SWEP:Think()
     local maxs = tr.HitPos + Util.vector_one
     ang:RotateAroundAxis(ang:Right(), -90)
     if tr.HitWorld then
-        CheckInk(self, ss.CollectSurfaces(mins, maxs), mins, maxs, tr.HitPos, ang, tr.HitPos)
+        CheckInk(self, Hash.CollectSurfaces(mins, maxs), mins, maxs, tr.HitPos, ang, tr.HitPos)
         return
     end
 
     if IsValid(tr.Entity) then
-        for ent, modelIndex, worldToModel in ss.CollectBrushEntities(mins, maxs) do
+        for ent, modelIndex, worldToModel in Hash.CollectBrushEntities(mins, maxs) do
             if ent == tr.Entity then
                 local normalInWorld = Matrix()
                 normalInWorld:SetAngles(ang)
@@ -190,7 +191,7 @@ function SWEP:Think()
                 local localAng = (worldToModel * normalInWorld):GetAngles()
                 local localMins = localPos - Util.vector_one
                 local localMaxs = localPos + Util.vector_one
-                CheckInk(self, ss.CollectBrushModelSurfaces(modelIndex, localMins, localMaxs),
+                CheckInk(self, Hash.CollectBrushModelSurfaces(modelIndex, localMins, localMaxs),
                     localMins, localMaxs, localPos, localAng, tr.HitPos)
                 return
             end

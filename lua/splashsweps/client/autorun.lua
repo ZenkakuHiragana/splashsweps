@@ -42,10 +42,12 @@ include "splashsweps/client/session.lua"
 include "splashsweps/client/staticpropbuilder.lua"
 include "splashsweps/client/surfacebuilder.lua"
 
+local Hash             = ss.import "splashsweps/shared/hash"
 local InkFeature       = ss.import "splashsweps/shared/inkfeature"
 local InkShape         = ss.import "splashsweps/shared/inkshape"
 local InkType          = ss.import "splashsweps/shared/inktype"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
+local Players          = ss.import "splashsweps/shared/players"
 local PrecachedData    = ss.import "splashsweps/shared/typing/precachedata"
 
 local function LoadCache()
@@ -71,10 +73,8 @@ local function LoadCache()
     ---@type ss.PrecachedData.SurfaceInfo
     local surfaces = PrecachedData.SurfaceInfo.restore(util.JSONToTable(util.Decompress(file.Read(surfacePath) or "") or "", true) or {})
 
-    ss.SURFACE_ID_BITS = select(2, math.frexp(#surfaces.Surfaces))
     ss.RenderTarget.HammerUnitsToUV = surfaces.UVScales[#ss.RenderTarget.Resolutions]
-    ss.SurfaceHash = surfaces.SurfaceHash
-    ss.HashParameters = cache.HashParameters
+    Hash.Setup(surfaces.SurfaceHash, cache.HashParameters)
 
     ss.SetupRenderTargets()
     InkFeature.Load()
@@ -97,9 +97,5 @@ end)
 
 net.Receive("SplashSWEPs: Clear all ink", function() ss.ClearAllInk() end)
 net.Receive("SplashSWEPs: Refresh players table", function()
-    local playersReady = net.ReadTable()
-    table.Empty(ss.PlayersReady)
-    table.Empty(ss.PlayerIndices)
-    table.Merge(ss.PlayersReady, playersReady)
-    table.Merge(ss.PlayerIndices, table.Flip(playersReady))
+    Players.Replace(net.ReadTable())
 end)

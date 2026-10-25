@@ -88,7 +88,7 @@ local state = ss.state("splashsweps/shared/paint/paintablesurface", {
 ---Paintable surfaces of the world and static props.
 PaintableSurface.Surfaces = state.Surfaces
 
----Paintable surfaces of brush entities, which are not registered to ss.SurfaceHash
+---Paintable surfaces of brush entities, which are not registered to the spatial hash of shared/hash.lua
 ---because they can move away from where the map compiler put them.
 --- `= { [model index] = { surface, ... }, ... }`
 ---where the model index is 1-based index of the BSP model lump (`*N` model name refers to N + 1),

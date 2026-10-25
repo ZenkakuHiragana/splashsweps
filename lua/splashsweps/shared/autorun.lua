@@ -8,30 +8,6 @@ if not ss.Locals then
     ---Various temporary tables used in limited files.
     ---@class ss.Locals
     ss.Locals = {}
-
-    ---Lookup table equals to table.Flip(ss.PlayersReady).
-    ---@type table<Player, integer>
-    ss.PlayerIndices = {}
-
-    ---List of players ready to network.
-    ---@type Player[]
-    ss.PlayersReady = {}
-
-    ---A hash table to represent grid separation of paintable surfaces
-    --- `= { [hash] = { i1, i2, i3, ... }, ... }`
-    ---where `i` is index of `PaintableSurface.Surfaces`
-    ---@type table<integer, integer[]>
-    ss.SurfaceHash = {}
-
-    ---@class ss.HashParameters
-    ---@field GridSizeSurface integer Grid cell size for spatial hashing surfaces in the world.
-    ---@field MinGridSizeDisplacement integer Minimum grid cell size for spatial hashing triangles in a displacement.
-    ---@field NumDivisionsDisplacement integer Number of divisions to partition AABB containing triangles of a displacement.
-    ss.HashParameters = {
-        GridSizeSurface = 128,
-        MinGridSizeDisplacement = 32,
-        NumDivisionsDisplacement = 8,
-    }
 end
 
 ---Resolution of serverside canvas to maintain collision detection.
@@ -53,5 +29,4 @@ ss.CACHE_VERSION = 6
 ss.sp = game.SinglePlayer()
 
 include "splashsweps/shared/import.lua"
-include "splashsweps/shared/hash.lua"
 include "splashsweps/shared/touch/player.lua"

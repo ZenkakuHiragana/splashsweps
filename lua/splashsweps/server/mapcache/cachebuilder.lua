@@ -1,11 +1,18 @@
 
+-- Builds the map cache files from the BSP.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
+local BSP             = ss.import "splashsweps/server/mapcache/bsploader"
+local Hash            = ss.import "splashsweps/shared/hash"
+local LightmapBuilder = ss.import "splashsweps/server/mapcache/lightmapbuilder"
+local PrecachedData   = ss.import "splashsweps/shared/typing/precachedata"
+local SurfaceBuilder  = ss.import "splashsweps/server/mapcache/surfacebuilder"
+local UVBuilder       = ss.import "splashsweps/server/mapcache/uvbuilder"
+local Util            = ss.import "splashsweps/shared/util"
 
-local BSP           = ss.import "splashsweps/server/mapcache/bsploader"
-local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
-local Util          = ss.import "splashsweps/shared/util"
+---@class ss.CacheBuilderModule
+local CacheBuilder = ss.module "splashsweps/server/mapcache/cachebuilder"
 
 local band = bit.band
 local huge = math.huge
@@ -152,7 +159,7 @@ end
 ---Parses the BSP, collect valid brush surfaces,
 ---and prepare paintable surfaces.
 ---@return ss.PrecachedData?
-function ss.BuildMapCache()
+function CacheBuilder.Build()
     local gcpause = collectgarbage("setpause", 0)
     collectgarbage "collect"
     local bsp = BSP.Load()
@@ -163,7 +170,7 @@ function ss.BuildMapCache()
     cache.MapCRC        = tonumber(mapCRC) or 0
     cache.MinimapBounds = BuildMinimapBounds(bsp)
     cache.NumModels     = #bsp.MODELS
-    ss.BuildStaticPropCache(bsp, cache)
+    SurfaceBuilder.BuildStaticPropCache(bsp, cache)
     findLightEnvironment(bsp, cache)
 
     local staticPropRectangles = {} ---@type Vector[]
@@ -175,23 +182,23 @@ function ss.BuildMapCache()
 
     do
         collectgarbage "collect"
-        local hdr, whdr = ss.BuildSurfaceCache(bsp, true)
+        local hdr, whdr = SurfaceBuilder.BuildSurfaceCache(bsp, true)
         cache.SurfacesWaterHDR = whdr
-        ss.BuildUVCache(hdr, cache.StaticPropHDR, staticPropRectangles)
-        ss.BuildDisplacementHash(hdr.Surfaces)
-        ss.BuildLightmapInfo(bsp, true, hdr, cache)
-        ss.BuildSurfaceHash(hdr.Surfaces, cache.StaticProps, hdr.SurfaceHash)
+        UVBuilder.Build(hdr, cache.StaticPropHDR, staticPropRectangles)
+        Hash.BuildDisplacementHash(hdr.Surfaces)
+        LightmapBuilder.Build(bsp, true, hdr, cache)
+        Hash.BuildSurfaceHash(hdr.Surfaces, cache.StaticProps, hdr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_hdr.json", game.GetMap()), util.Compress(util.TableToJSON(hdr)))
     end
 
     do
         collectgarbage "collect"
-        local ldr, wldr = ss.BuildSurfaceCache(bsp, false)
+        local ldr, wldr = SurfaceBuilder.BuildSurfaceCache(bsp, false)
         cache.SurfacesWaterLDR = wldr
-        ss.BuildUVCache(ldr, cache.StaticPropLDR, staticPropRectangles)
-        ss.BuildDisplacementHash(ldr.Surfaces)
-        ss.BuildLightmapInfo(bsp, false, ldr, cache)
-        ss.BuildSurfaceHash(ldr.Surfaces, cache.StaticProps, ldr.SurfaceHash)
+        UVBuilder.Build(ldr, cache.StaticPropLDR, staticPropRectangles)
+        Hash.BuildDisplacementHash(ldr.Surfaces)
+        LightmapBuilder.Build(bsp, false, ldr, cache)
+        Hash.BuildSurfaceHash(ldr.Surfaces, cache.StaticProps, ldr.SurfaceHash)
         file.Write(string.format("splashsweps/%s_ldr.json", game.GetMap()), util.Compress(util.TableToJSON(ldr)))
     end
 
@@ -199,3 +206,5 @@ function ss.BuildMapCache()
     collectgarbage("setpause", gcpause)
     return cache
 end
+
+return CacheBuilder

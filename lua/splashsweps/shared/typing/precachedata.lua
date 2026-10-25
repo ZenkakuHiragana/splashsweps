@@ -329,7 +329,7 @@ PrecachedData.CubemapInfo = record {
 ---@class ss.PrecachedData.SurfaceInfo
 ---@field Lightmaps   ss.PrecachedData.LightmapInfo[] Array made from LUMP_FACES used to pack lightmaps.
 ---@field Surfaces    ss.PrecachedData.Surface[] Array of paintable surfaces.
----@field SurfaceHash table<integer, integer[]> = `ss.SurfaceHash`
+---@field SurfaceHash table<integer, integer[]> Spatial hash given to Hash.Setup (shared/hash.lua).
 ---@field UVScales    number[]  Render target size index -> Hammer units to UV multiplier
 ---@field Cubemaps    ss.PrecachedData.CubemapInfo[] Cubemap samples and paintable face bounds using them.
 PrecachedData.SurfaceInfo = record {
@@ -363,7 +363,7 @@ PrecachedData.HashParameters = record {
 ---@field MinimapBounds    ss.MinimapAreaBounds[]
 ---@field NumModels        integer
 ---@field DirectionalLight ss.PrecachedData.DirectionalLight
----@field HashParameters   ss.HashParameters
+---@field HashParameters   ss.PrecachedData.HashParameters
 ---@field StaticProps      ss.PrecachedData.StaticProp[]
 ---@field StaticPropMDL    string[] List of paths to model of static props.
 ---@field StaticPropHDR    ss.PrecachedData.StaticProp.UVInfo[][]
