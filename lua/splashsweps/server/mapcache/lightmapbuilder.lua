@@ -3,6 +3,8 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
+
 local band = bit.band
 local byte = string.byte
 local Clamp = math.Clamp
@@ -200,7 +202,7 @@ function ss.BuildLightmapInfo(bsp, ishdr, surfaceInfo, cache)
         local nolight     = band(texInfo.flags, SURF_NOLIGHT) > 0 or
             ((width == 0 or height == 0) and lightOffset <= 0)
         local hasLightmap = not nolight
-        local t = ss.new "PrecachedData.LightmapInfo"
+        local t = PrecachedData.LightmapInfo.new()
         t.MaterialIndex = materialID
         if hasLightmap then
             if ((lightStyles[1] ~= 0 and lightStyles[1] ~= 255) or lightStyles[2] ~= 255) then

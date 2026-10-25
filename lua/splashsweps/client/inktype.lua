@@ -3,8 +3,11 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local InkShape        = ss.import "splashsweps/shared/inkshape"
+local InkType         = ss.import "splashsweps/shared/inktype"
 local RectanglePacker = ss.import "splashsweps/shared/packer/packer"
 local Structures      = ss.import "splashsweps/shared/packer/structures"
+local Util            = ss.import "splashsweps/shared/util"
 local VTF             = ss.import "splashsweps/shared/vtf/reader"
 
 local MARGIN = 2
@@ -105,7 +108,7 @@ local function ReadInkTypeSources()
     local black = cp:GetTexture "$basetexture"
     cp:SetTexture("$basetexture", "color/white")
     local white = cp:GetTexture "$basetexture"
-    for i, inktype in ipairs(ss.InkTypes) do
+    for i, inktype in ipairs(InkType.Types) do
         local mat = Material(inktype.Identifier)
 
         cp:SetTexture("$basetexture", mat:GetString "$basetexture" or "???")
@@ -122,8 +125,8 @@ local function ReadInkTypeSources()
         local tint = cp:GetTexture "$basetexture"
         if not tint then
             local alpha = mat:GetFloat "$alpha" or 1
-            local tintcolor = mat:GetVector "$tintcolor" or ss.vector_one
-            local translucent = alpha < 1 or not tintcolor:IsEqualTol(ss.vector_one, ss.eps)
+            local tintcolor = mat:GetVector "$tintcolor" or Util.vector_one
+            local translucent = alpha < 1 or not tintcolor:IsEqualTol(Util.vector_one, Util.eps)
             tint = translucent and white or black
         end
         sources.TintNames[i] = tint:GetName()
@@ -163,7 +166,7 @@ local function ReadInkTypeSources()
         end
     end
 
-    for i, shape in ipairs(ss.InkShapes) do
+    for i, shape in ipairs(InkShape.Shapes) do
         sources.ShapeRects[i] = Structures.MakeRectangle(
             shape.Grid.Width + MARGIN, shape.Grid.Height + MARGIN, 0, 0, shape)
     end
@@ -227,9 +230,9 @@ local function BuildAlbedoAtlas(sources)
     cam.End2D()
     render.PopRenderTarget()
 
-    for _, inktype in ipairs(ss.InkTypes) do
+    for _, inktype in ipairs(InkType.Types) do
         inktype.BaseUV = inktype.BaseUV
-            or ss.InkTypes[sources.BaseCache[sources.BaseKeys[inktype.Index]]].BaseUV
+            or InkType.Types[sources.BaseCache[sources.BaseKeys[inktype.Index]]].BaseUV
     end
 end
 
@@ -273,9 +276,9 @@ local function BuildTintAtlas(sources)
     cam.End2D()
     render.PopRenderTarget()
 
-    for _, inktype in ipairs(ss.InkTypes) do
+    for _, inktype in ipairs(InkType.Types) do
         inktype.TintUV = inktype.TintUV
-            or ss.InkTypes[sources.TintCache[sources.TintNames[inktype.Index]]].TintUV
+            or InkType.Types[sources.TintCache[sources.TintNames[inktype.Index]]].TintUV
     end
 end
 

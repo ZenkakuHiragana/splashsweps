@@ -4,6 +4,13 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+
+local InkShape         = ss.import "splashsweps/shared/inkshape"
+local InkType          = ss.import "splashsweps/shared/inktype"
+local Paint            = ss.import "splashsweps/shared/paint/paint"
+local PaintableGrid    = ss.import "splashsweps/shared/paint/paintablegrid"
+local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
+local Util             = ss.import "splashsweps/shared/util"
 local locals = ss.Locals ---@class ss.Locals
 if not locals.Renderer then
     locals.Renderer = {} ---@class ss.Locals.Renderer
@@ -130,7 +137,7 @@ local RefreshInkMaterial = {
     ---@param src IMaterial
     ---@param value Vector
     ["$color"] = function(mat, src, value)
-        local color = value * (src:GetVector "$color2" or ss.vector_one)
+        local color = value * (src:GetVector "$color2" or Util.vector_one)
         mat:SetFloat("$c3_x", color.x)
         mat:SetFloat("$c3_y", color.y)
         mat:SetFloat("$c3_z", color.z)
@@ -139,7 +146,7 @@ local RefreshInkMaterial = {
     ---@param src IMaterial
     ---@param value Vector
     ["$color2"] = function(mat, src, value)
-        local color = value * (src:GetVector "$color" or ss.vector_one)
+        local color = value * (src:GetVector "$color" or Util.vector_one)
         mat:SetFloat("$c3_x", color.x)
         mat:SetFloat("$c3_y", color.y)
         mat:SetFloat("$c3_z", color.z)
@@ -377,7 +384,7 @@ hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
 
     local sunInfo = util.GetSunInfo()
     local sunDir = sunInfo and sunInfo.direction or Vector(0, 0.3, 0.954)
-    if not ss.Locals.Renderer.LastSunDirection:IsEqualTol(sunDir, ss.eps) then
+    if not ss.Locals.Renderer.LastSunDirection:IsEqualTol(sunDir, Util.eps) then
         ss.Locals.Renderer.LastSunDirection = sunDir
         InkWaterMaterial:SetFloat("$c0_x", sunDir.x)
         InkWaterMaterial:SetFloat("$c0_y", sunDir.y)
@@ -486,8 +493,8 @@ end)
 ---@return integer shapeIndex
 ---@return integer inktype
 local function ReadPaint()
-    local inktype    = net_ReadUInt(ss.MAX_INKTYPE_BITS) + 1 -- Ink type
-    local shapeIndex = net_ReadUInt(ss.MAX_INKSHAPE_BITS) + 1 -- Ink shape
+    local inktype    = net_ReadUInt(InkType.GetNumBits()) + 1 -- Ink type
+    local shapeIndex = net_ReadUInt(InkShape.GetNumBits()) + 1 -- Ink shape
     local pitch      = net_ReadInt(8) -- Pitch
     local yaw        = net_ReadInt(8) -- Yaw
     local roll       = net_ReadInt(8) -- Roll
@@ -507,12 +514,12 @@ local function ReadPaint()
 end
 
 net.Receive("SplashSWEPs: Paint", function()
-    ss.PaintWorld(ReadPaint())
+    Paint.PaintWorld(ReadPaint())
 end)
 
 net.Receive("SplashSWEPs: Paint brush model", function()
-    local modelIndex = net_ReadUInt(ss.MAX_MODEL_INDEX_BITS) + 1 -- Model index
-    ss.PaintBrushModel(modelIndex, ReadPaint())
+    local modelIndex = net_ReadUInt(PaintableSurface.GetModelIndexBits()) + 1 -- Model index
+    Paint.PaintBrushModel(modelIndex, ReadPaint())
 end)
 
 ---Queues a paint onto a surface to draw it into the ink map.
@@ -523,8 +530,8 @@ end)
 ---@param shape  integer The internal index of shape to paint.
 ---@param typeid integer The internal index of ink type.
 function ss.PushPaintRenderTargetQueue(surf, pos, ang, scale, shape, typeid)
-    local inkshape = ss.InkShapes[shape]
-    local inktype = ss.InkTypes[typeid]
+    local inkshape = InkShape.Shapes[shape]
+    local inktype = InkType.Types[typeid]
     if not (inkshape and inktype) then return end
     Queue[#Queue + 1] = {
         pos    = pos,
@@ -548,7 +555,7 @@ end
 
 ---Clears all painted ink in the map.
 function ss.ClearAllInk()
-    for _, s in ipairs(ss.SurfaceArray) do ss.ClearGrid(s) end
+    for _, s in ipairs(PaintableSurface.Surfaces) do PaintableGrid.Clear(s) end
     local rt = ss.RenderTarget.StaticTextures.InkMap
     local w, h = rt:Width() / 2, rt:Height() / 2
     render.PushRenderTarget(rt)

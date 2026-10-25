@@ -3,9 +3,7 @@
 local ss = SplashSWEPs
 if not ss then return end
 
-local CubemapInfoMeta  = getmetatable(ss.new "PrecachedData.CubemapInfo")
-local StaticPropMeta   = getmetatable(ss.new "PrecachedData.StaticProp")
-local StaticPropUVMeta = getmetatable(ss.new "PrecachedData.StaticProp.UVInfo")
+local Util = ss.import "splashsweps/shared/util"
 
 -- MaterialVarFlags_t in imaterial.h of Source
 local MATERIAL_VAR_SELFILLUM = 64
@@ -92,8 +90,7 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo, cubemaps)
     -- xyzTzxy * Vector(X, Y, Z) = (Y, Z, X)
     local xyzTzxy = xyzTyzx:GetTransposed()
     for i, prop in ipairs(staticPropInfo or {}) do
-        setmetatable(prop, StaticPropMeta)
-        local uv = setmetatable(uvInfo[i][#ss.RenderTarget.Resolutions], StaticPropUVMeta)
+        local uv = uvInfo[i][#ss.RenderTarget.Resolutions]
         local modelName = modelNames[prop.ModelIndex]
         if modelName then
             ---@class ss.PaintableCSEnt : CSEnt
@@ -135,7 +132,6 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo, cubemaps)
 
                 -- The cache has the cubemap names without ".hdr"
                 local cubemap = cubemaps[prop.CubemapIndex]
-                if cubemap then setmetatable(cubemap, CubemapInfoMeta) end
                 local nearestEnvmap = cubemap and cubemap.Envmap .. (render.GetHDREnabled() and ".hdr" or "") or ss.DEFAULT_ENVMAP
                 local params = table.Merge(matKeyValues, {
                     ["$c1_y"] = uv.Offset.z > 0 and uv.Width or 0,
@@ -152,8 +148,8 @@ function ss.SetupStaticProps(staticPropInfo, modelNames, uvInfo, cubemaps)
 
                     local baseTextureTransform = mdlmat:GetMatrix "$basetexturetransform" or identity
                     local bumpTransform = mdlmat:GetMatrix "$bumptransform" or identity
-                    local color = (mdlmat:GetVector "$color" or ss.vector_one)
-                                * (mdlmat:GetVector "$color2" or ss.vector_one)
+                    local color = (mdlmat:GetVector "$color" or Util.vector_one)
+                                * (mdlmat:GetVector "$color2" or Util.vector_one)
                     params["$texture3"] = mdlmat:GetString "$basetexture" or "white"
                     params["$texture4"] = mdlmat:GetString "$bumpmap" or "null-bumpmap"
                     -- $envmap        $texture7

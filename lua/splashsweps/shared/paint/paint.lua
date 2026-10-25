@@ -1,11 +1,19 @@
 
+-- Painting ink onto surfaces and networking it.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
+local InkShape         = ss.import "splashsweps/shared/inkshape"
+local InkType          = ss.import "splashsweps/shared/inktype"
+local PaintableGrid    = ss.import "splashsweps/shared/paint/paintablegrid"
+local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
+local Util             = ss.import "splashsweps/shared/util"
+
+---@class ss.PaintModule
+local Paint = ss.module "splashsweps/shared/paint/paint"
 
 local wrap = coroutine.wrap
 local yield = coroutine.yield
-local Clamp = math.Clamp
 local max = math.max
 local min = math.min
 local Round = math.Round
@@ -34,18 +42,18 @@ local MAX_COS_PROP = math.cos(math.rad(60))
 ---@param scale Vector Scale along the angles.
 ---@return Vector mins The minimum bounding box.
 ---@return Vector maxs The maximum bounding box.
-function ss.GetPaintBoundingBox(pos, angle, scale)
+function Paint.GetBoundingBox(pos, angle, scale)
     local axis_x = angle:Forward()
     local axis_y = -angle:Right()
     local axis_z = angle:Up()
-    local mins = ss.vector_one * math.huge
-    local maxs = -ss.vector_one * math.huge
+    local mins = Util.vector_one * math.huge
+    local maxs = -Util.vector_one * math.huge
     local scale_z = max(scale.z, min(scale.x, scale.y) * 0.5)
     for _, dx in ipairs { axis_x * scale.x, -axis_x * scale.x } do
         for _, dy in ipairs { axis_y * scale.y, -axis_y * scale.y } do
             for _, dz in ipairs { axis_z * scale_z, -axis_z * scale_z } do
-                mins = ss.MinVector(mins, dx + dy + dz)
-                maxs = ss.MaxVector(maxs, dx + dy + dz)
+                mins = Util.MinVector(mins, dx + dy + dz)
+                maxs = Util.MaxVector(maxs, dx + dy + dz)
             end
         end
     end
@@ -69,7 +77,7 @@ end
 ---@param pos  Vector Query point to be projected onto the surface.
 ---@param ang  Angle  Query angle to be localized to the surface.
 ---@return fun(): Vector, Angle generator
-function ss.EnumeratePaintPositions(surf, mins, maxs, pos, ang)
+function Paint.EnumeratePositions(surf, mins, maxs, pos, ang)
     return wrap(function()
         if surf.Triangles then
             local min_score = -math.huge
@@ -78,7 +86,7 @@ function ss.EnumeratePaintPositions(surf, mins, maxs, pos, ang)
             local angleMatrix = Matrix()
             angleMatrix:SetAngles(ang)
             for t in ss.CollectDisplacementTriangles(surf, mins, maxs) do
-                local b = ss.BarycentricCoordinates(t, pos)
+                local b = PaintableSurface.BarycentricCoordinates(t, pos)
                 if b.x > 0 and b.y > 0 and b.z > 0 then
                     if ang:Up():Dot(t.MBBAngles:Up()) > MAX_COS then
                         local localPos = t[4] * b.x + t[5] * b.y + t[6] * b.z
@@ -140,8 +148,8 @@ end
 
 ---Writes the common part of paint messages and sends it to the players except the predicting one.
 local function WritePaintAndSend(inktype, shape, x, y, z, pitch, yaw, roll, sx, sy, sz)
-    net_WriteUInt(inktype - 1, ss.MAX_INKTYPE_BITS) -- Ink type
-    net_WriteUInt(shape - 1, ss.MAX_INKSHAPE_BITS) -- Ink shape
+    net_WriteUInt(inktype - 1, InkType.GetNumBits()) -- Ink type
+    net_WriteUInt(shape - 1, InkShape.GetNumBits()) -- Ink shape
     net_WriteInt(pitch, 8) -- Pitch
     net_WriteInt(yaw,   8) -- Yaw
     net_WriteInt(roll,  8) -- Roll
@@ -166,8 +174,8 @@ end
 ---@param inktype  integer The internal index of ink type.
 local function PaintSurfaces(surfaces, mins, maxs, pos, ang, scale, shape, inktype)
     for surf in surfaces do
-        for p, a in ss.EnumeratePaintPositions(surf, mins, maxs, pos, ang) do
-            ss.WriteGrid(surf, p, a, scale, inktype, shape)
+        for p, a in Paint.EnumeratePositions(surf, mins, maxs, pos, ang) do
+            PaintableGrid.Write(surf, p, a, scale, inktype, shape)
             if CLIENT then
                 ss.PushPaintRenderTargetQueue(surf, p, a, scale, shape, inktype)
             end
@@ -176,27 +184,27 @@ local function PaintSurfaces(surfaces, mins, maxs, pos, ang, scale, shape, inkty
 end
 
 ---Paints the worldspawn and static props without networking.
----The arguments must be already quantized by ss.Paint.
+---The arguments must be already quantized by Paint.Paint.
 ---@param worldPos Vector  The origin.
 ---@param worldAng Angle   The normal and rotation.
 ---@param scale    Vector  Scale along the angles.
 ---@param shape    integer The internal index of shape to paint.
 ---@param inktype  integer The internal index of ink type.
-function ss.PaintWorld(worldPos, worldAng, scale, shape, inktype)
-    local mins, maxs = ss.GetPaintBoundingBox(worldPos, worldAng, scale)
+function Paint.PaintWorld(worldPos, worldAng, scale, shape, inktype)
+    local mins, maxs = Paint.GetBoundingBox(worldPos, worldAng, scale)
     PaintSurfaces(ss.CollectSurfaces(mins, maxs), mins, maxs, worldPos, worldAng, scale, shape, inktype)
 end
 
 ---Paints a brush model without networking.
----The arguments must be already quantized by ss.Paint.
+---The arguments must be already quantized by Paint.Paint.
 ---@param modelIndex integer The index of the brush model.
 ---@param localPos   Vector  The origin in the model's local coordinates.
 ---@param localAng   Angle   The normal and rotation in the model's local coordinates.
 ---@param scale      Vector  Scale along the angles.
 ---@param shape      integer The internal index of shape to paint.
 ---@param inktype    integer The internal index of ink type.
-function ss.PaintBrushModel(modelIndex, localPos, localAng, scale, shape, inktype)
-    local mins, maxs = ss.GetPaintBoundingBox(localPos, localAng, scale)
+function Paint.PaintBrushModel(modelIndex, localPos, localAng, scale, shape, inktype)
+    local mins, maxs = Paint.GetBoundingBox(localPos, localAng, scale)
     PaintSurfaces(ss.CollectBrushModelSurfaces(modelIndex, mins, maxs),
         mins, maxs, localPos, localAng, scale, shape, inktype)
 end
@@ -209,14 +217,14 @@ end
 ---@param scale    Vector  Scale along the angles which is limited to 510 Hammer units because of network optimization.
 ---@param shape    integer The internal index of shape to paint.
 ---@param inktype  integer The internal index of ink type.
-function ss.Paint(worldPos, worldAng, scale, shape, inktype)
+function Paint.Paint(worldPos, worldAng, scale, shape, inktype)
     -- Parameter limit to reduce network traffic
     local sx = Round(min(scale.x, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
     local sy = Round(min(scale.y, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
     local sz = Round(min(scale.z, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
     local x, y, z, pitch, yaw, roll = QuantizePose(worldPos, worldAng)
     scale:SetUnpacked(sx * 2, sy * 2, sz * 2)
-    ss.PaintWorld(worldPos, worldAng, scale, shape, inktype)
+    Paint.PaintWorld(worldPos, worldAng, scale, shape, inktype)
     if SERVER then
         net_Start "SplashSWEPs: Paint"
         WritePaintAndSend(inktype, shape, x, y, z, pitch, yaw, roll, sx, sy, sz)
@@ -224,7 +232,7 @@ function ss.Paint(worldPos, worldAng, scale, shape, inktype)
 
     -- Brush entities can move, so the ink is localized to their models and networked separately.
     -- The receiving clients do not search for the entities; only the predicting client does.
-    local mins, maxs = ss.GetPaintBoundingBox(worldPos, worldAng, scale)
+    local mins, maxs = Paint.GetBoundingBox(worldPos, worldAng, scale)
     inkSystemInWorld:SetTranslation(worldPos)
     inkSystemInWorld:SetAngles(worldAng)
     for _, modelIndex, worldToModel in ss.CollectBrushEntities(mins, maxs) do
@@ -234,10 +242,12 @@ function ss.Paint(worldPos, worldAng, scale, shape, inktype)
         local lx, ly, lz, lpitch, lyaw, lroll = QuantizePose(localPos, localAng)
         if SERVER then
             net_Start "SplashSWEPs: Paint brush model"
-            net_WriteUInt(modelIndex - 1, ss.MAX_MODEL_INDEX_BITS) -- Model index
+            net_WriteUInt(modelIndex - 1, PaintableSurface.GetModelIndexBits()) -- Model index
             WritePaintAndSend(inktype, shape, lx, ly, lz, lpitch, lyaw, lroll, sx, sy, sz)
         end
 
-        ss.PaintBrushModel(modelIndex, localPos, localAng, scale, shape, inktype)
+        Paint.PaintBrushModel(modelIndex, localPos, localAng, scale, shape, inktype)
     end
 end
+
+return Paint

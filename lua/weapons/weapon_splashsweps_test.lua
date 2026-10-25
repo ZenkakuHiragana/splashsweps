@@ -2,6 +2,12 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local InkShape      = ss.import "splashsweps/shared/inkshape"
+local InkType       = ss.import "splashsweps/shared/inktype"
+local Paint         = ss.import "splashsweps/shared/paint/paint"
+local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
+local Util          = ss.import "splashsweps/shared/util"
+
 ---@class SplatoonWeaponBase : Structure.SWEP, Structure.ENT, Weapon
 ---@field ViewModel0    string?
 ---@field ViewModel1    string?
@@ -96,10 +102,10 @@ function SWEP:PrimaryAttack()
     local normal = tr.HitNormal
     local right = normal:Cross(tr.StartPos - pos):GetNormalized()
     local ang = right:Cross(normal):AngleEx(normal)
-    local id = ss.FindInkTypeID(self.InkTypes[self.InkTypeIndex])
+    local id = InkType.FindIndex(self.InkTypes[self.InkTypeIndex])
     debugoverlay.Axis(pos, ang, 20, 5, false)
-    ss.Paint(pos, ang, Vector(radius, radius, 100),
-        ss.SelectRandomShape("builtin_drop").Index, id or -1)
+    Paint.Paint(pos, ang, Vector(radius, radius, 100),
+        InkShape.SelectRandom("builtin_drop").Index, id or -1)
     self:SetNextPrimaryFire(CurTime() + self.Primary.Delay)
 end
 
@@ -125,13 +131,13 @@ function SWEP:SecondaryAttack()
     self:EmitSound("Weapon_AR2.Empty")
     local tr = Owner:GetEyeTrace()
     local pos = tr.HitPos
-    for surf in ss.CollectSurfaces(pos - ss.vector_one, pos + ss.vector_one) do
+    for surf in ss.CollectSurfaces(pos - Util.vector_one, pos + Util.vector_one) do
         DrawGrid(surf)
     end
 
-    for ent, modelIndex, worldToModel in ss.CollectBrushEntities(pos - ss.vector_one, pos + ss.vector_one) do
+    for ent, modelIndex, worldToModel in ss.CollectBrushEntities(pos - Util.vector_one, pos + Util.vector_one) do
         local localPos = worldToModel * pos
-        for surf in ss.CollectBrushModelSurfaces(modelIndex, localPos - ss.vector_one, localPos + ss.vector_one) do
+        for surf in ss.CollectBrushModelSurfaces(modelIndex, localPos - Util.vector_one, localPos + Util.vector_one) do
             DrawGrid(surf, ent:GetWorldTransformMatrix())
         end
     end
@@ -147,10 +153,10 @@ end
 ---@param worldPos Vector Position to draw debug overlay in world coordinates.
 local function CheckInk(self, surfaces, mins, maxs, pos, ang, worldPos)
     for surf in surfaces do
-        for p in ss.EnumeratePaintPositions(surf, mins, maxs, pos, ang) do
-            local color = ss.ReadGrid(surf, p)
+        for p in Paint.EnumeratePositions(surf, mins, maxs, pos, ang) do
+            local color = PaintableGrid.Read(surf, p)
             debugoverlay.Box(
-                worldPos, -ss.vector_one, ss.vector_one + vector_up * 72, FrameTime() * 2,
+                worldPos, -Util.vector_one, Util.vector_one + vector_up * 72, FrameTime() * 2,
                 color and Color(0, 255, 128, 16) or Color(255, 255, 255, 16))
             if color then
                 self.LoopSound:Play()
@@ -167,8 +173,8 @@ function SWEP:Think()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
     local tr = util.QuickTrace(Owner:GetPos(), -vector_up * 16, Owner)
     local ang = tr.HitNormal:Angle()
-    local mins = tr.HitPos - ss.vector_one
-    local maxs = tr.HitPos + ss.vector_one
+    local mins = tr.HitPos - Util.vector_one
+    local maxs = tr.HitPos + Util.vector_one
     ang:RotateAroundAxis(ang:Right(), -90)
     if tr.HitWorld then
         CheckInk(self, ss.CollectSurfaces(mins, maxs), mins, maxs, tr.HitPos, ang, tr.HitPos)
@@ -182,8 +188,8 @@ function SWEP:Think()
                 normalInWorld:SetAngles(ang)
                 local localPos = worldToModel * tr.HitPos
                 local localAng = (worldToModel * normalInWorld):GetAngles()
-                local localMins = localPos - ss.vector_one
-                local localMaxs = localPos + ss.vector_one
+                local localMins = localPos - Util.vector_one
+                local localMaxs = localPos + Util.vector_one
                 CheckInk(self, ss.CollectBrushModelSurfaces(modelIndex, localMins, localMaxs),
                     localMins, localMaxs, localPos, localAng, tr.HitPos)
                 return

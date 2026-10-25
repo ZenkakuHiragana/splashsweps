@@ -3,6 +3,7 @@
 
 ---@class ss
 local ss = SplashSWEPs
+local Util = ss.import "splashsweps/shared/util"
 
 ---@class ss.BoundingBox
 local BoundingBox = ss.module "splashsweps/server/mapcache/boundingbox"
@@ -37,7 +38,7 @@ local function GetConvex(source)
             local pq = q - p
             local pr = vertices2D[i] - p
             local cross = pq:Cross(pr)
-            if cross.z > 0 or pq:LengthSqr() < ss.eps or pr:LengthSqr() < ss.eps then
+            if cross.z > 0 or pq:LengthSqr() < Util.eps or pr:LengthSqr() < Util.eps then
                 convex[#convex] = nil
             end
         end
@@ -54,7 +55,7 @@ local function GetConvex(source)
             local pq = q - p
             local pr = vertices2D[i] - p
             local cross = pq:Cross(pr)
-            if cross.z > 0 or pq:LengthSqr() < ss.eps or pr:LengthSqr() < ss.eps then
+            if cross.z > 0 or pq:LengthSqr() < Util.eps or pr:LengthSqr() < Util.eps then
                 convex[#convex] = nil
             end
         end
@@ -91,7 +92,7 @@ function BoundingBox.FindMBR(vertices, angle)
         vertices2D[i] = WorldToLocal(v, angle_zero, center, angle)
     end
 
-    local mbrMins = ss.vector_one * math.huge
+    local mbrMins = Util.vector_one * math.huge
     local minArea = math.huge
     local mbrSize = Vector()
     local mbrRotation = Matrix()
@@ -106,12 +107,12 @@ function BoundingBox.FindMBR(vertices, angle)
             rotation:SetRight(Vector(dir.y, -dir.x))
             rotation:SetUp(vector_up)
 
-            local maxs = ss.vector_one * -math.huge
-            local mins = ss.vector_one * math.huge
+            local maxs = Util.vector_one * -math.huge
+            local mins = Util.vector_one * math.huge
             local rotationInv = rotation:GetInverseTR()
             for _, v in ipairs(convex) do
-                maxs:Set(ss.MaxVector(maxs, rotationInv * v))
-                mins:Set(ss.MinVector(mins, rotationInv * v))
+                maxs:Set(Util.MaxVector(maxs, rotationInv * v))
+                mins:Set(Util.MinVector(mins, rotationInv * v))
             end
 
             local size = maxs - mins
@@ -165,7 +166,7 @@ function BoundingBox.FindMinimumOBB(vertices)
     for _ = 1, 20 do
         local covarianceSqr = covariance * covariance
         local maxCovarianceSqr = max(covarianceSqr:Unpack())
-        if maxCovarianceSqr < ss.eps then break end
+        if maxCovarianceSqr < Util.eps then break end
         if maxCovarianceSqr == covarianceSqr.x then
             --             [ c  -s  0 ][ xx xy xz ][  c  s  0 ]
             -- S' = RᵀSR = [ s   c  0 ][ xy yy yz ][ -s  c  0 ]
@@ -279,12 +280,12 @@ function BoundingBox.FindMinimumOBB(vertices)
     localToWorld:SetTranslation(mean)
 
     local worldToLocal = localToWorld:GetInverseTR()
-    local mins = ss.vector_one * math.huge
-    local maxs = ss.vector_one * -math.huge
+    local mins = Util.vector_one * math.huge
+    local maxs = Util.vector_one * -math.huge
     for _, v in ipairs(vertices) do
         local pos = worldToLocal * v.Translation
-        mins:Set(ss.MinVector(mins, pos))
-        maxs:Set(ss.MaxVector(maxs, pos))
+        mins:Set(Util.MinVector(mins, pos))
+        maxs:Set(Util.MaxVector(maxs, pos))
     end
 
     localToWorld:Translate(mins)

@@ -5,6 +5,9 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
+local Util             = ss.import "splashsweps/shared/util"
+
 local ceil = math.ceil
 local clamp = math.Clamp
 local floor = math.floor
@@ -17,9 +20,8 @@ local IsOBBIntersectingOBB = util.IsOBBIntersectingOBB
 local OrderVectors = OrderVectors
 local angle_zero = angle_zero
 local vector_origin = vector_origin
-local vector_one = ss.vector_one
-local vector_tenth = vector_one * 0.1
-local vector_16384 = vector_one * 16384
+local vector_tenth = Util.vector_one * 0.1
+local vector_16384 = Util.vector_one * 16384
 local GRID_SIZE = 128
 local MAX_GRID_INDEX = 32768 / GRID_SIZE
 local MAX_GRID_INDEX_SQR = MAX_GRID_INDEX * MAX_GRID_INDEX
@@ -56,7 +58,7 @@ local function hashpairs(mins, maxs)
             for y = y0, y1 do
                 for x = x0, x1 do
                     -- local gmin = Vector(x, y, z) * GRID_SIZE - vector_16384
-                    -- local gmax = gmin + vector_one * GRID_SIZE
+                    -- local gmax = gmin + Util.vector_one * GRID_SIZE
                     -- debugoverlay.Box(Vector(), gmin, gmax, FrameTime() * 20, Color(0, 255, 0, 16))
                     yield(indexToHash(x, y, z))
                 end
@@ -85,9 +87,9 @@ function ss.BuildSurfaceHash(surfaces, staticProps, hash)
         -- World AABB of the rotated OBB, plus the margin as the other surfaces have
         localToWorld:SetAngles(s.Angles)
         localToWorld:SetTranslation(s.Position)
-        local mins, maxs = ss.TransformAABB(localToWorld, s.BoundsMin, s.BoundsMax)
-        mins:Sub(vector_one * ss.MARGIN_HAMMER_UNITS)
-        maxs:Add(vector_one * ss.MARGIN_HAMMER_UNITS)
+        local mins, maxs = Util.TransformAABB(localToWorld, s.BoundsMin, s.BoundsMax)
+        mins:Sub(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
+        maxs:Add(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
         for h in hashpairs(mins, maxs) do
             hash[h] = hash[h] or {}
             for j = 1, 6 do
@@ -105,7 +107,7 @@ end
 local function isSurfaceIntersecting(s, mins, maxs)
     return IsOBBIntersectingOBB(
         s.MBBOrigin, s.MBBAngles, vector_origin, s.MBBSize,
-        vector_origin, angle_zero, mins, maxs, ss.eps)
+        vector_origin, angle_zero, mins, maxs, Util.eps)
 end
 
 ---Generator function to enumerate surfaces of the worldspawn and static props containing given AABB.
@@ -122,7 +124,7 @@ function ss.CollectSurfaces(mins, maxs)
             for _, i in ipairs(ss.SurfaceHash[h] or {}) do
                 if not hasSeenThisSurface[i] then
                     hasSeenThisSurface[i] = true
-                    local s = ss.SurfaceArray[i]
+                    local s = PaintableSurface.Surfaces[i]
                     if isSurfaceIntersecting(s, mins, maxs) then
                         yield(s)
                     end
@@ -141,7 +143,7 @@ function ss.CollectBrushModelSurfaces(modelIndex, mins, maxs)
     mins = mins - vector_tenth
     maxs = maxs + vector_tenth
     return wrap(function()
-        for _, s in ipairs(ss.BrushModelSurfaces[modelIndex] or {}) do
+        for _, s in ipairs(PaintableSurface.BrushModelSurfaces[modelIndex] or {}) do
             if isSurfaceIntersecting(s, mins, maxs) then
                 yield(s)
             end
@@ -157,7 +159,7 @@ function ss.CollectBrushEntities(mins, maxs)
     return wrap(function()
         for _, ent in ipairs(ents.FindInBox(mins, maxs)) do
             local n = tonumber((ent:GetModel() or ""):match "^%*(%d+)$")
-            if n and ss.BrushModelSurfaces[n + 1] then
+            if n and PaintableSurface.BrushModelSurfaces[n + 1] then
                 local worldToModel = ent:GetWorldTransformMatrix()
                 worldToModel:InvertTR()
                 yield(ent, n + 1, worldToModel)
@@ -172,7 +174,7 @@ end
 ---@return Vector maxs AABB maximum.
 function ss.GetGridBBox(pos)
     local mins = Vector(posToIndex(pos)) * GRID_SIZE - vector_16384
-    local maxs = mins + vector_one * GRID_SIZE
+    local maxs = mins + Util.vector_one * GRID_SIZE
     return mins, maxs
 end
 
@@ -191,7 +193,7 @@ local function posToIndexAABB(pos, mins, maxs)
     local maxIndicesY = clamp(ceil(size.y / minGridSize), 1, numDivision)
     local maxIndicesZ = clamp(ceil(size.z / minGridSize), 1, numDivision)
     local gridSize = size / numDivision
-    OrderVectors(vector_one * minGridSize, gridSize)
+    OrderVectors(Util.vector_one * minGridSize, gridSize)
     local indices = (pos - mins) / gridSize
     return clamp(floor(indices.x), 0, maxIndicesX - 1),
            clamp(floor(indices.y), 0, maxIndicesY - 1),
@@ -228,7 +230,7 @@ local function hashpairsAABB(queryMins, queryMaxs, mins, maxs)
             for y = y0, y1 do
                 for x = x0, x1 do
                     -- local gridSize = (maxs - mins) / ss.HashParameters.NumDivisionsDisplacement
-                    -- OrderVectors(vector_one * ss.HashParameters.MinGridSizeDisplacement, gridSize)
+                    -- OrderVectors(Util.vector_one * ss.HashParameters.MinGridSizeDisplacement, gridSize)
                     -- local gmin = Vector(x, y, z) * gridSize + mins
                     -- local gmax = gmin + gridSize
                     -- debugoverlay.Box(Vector(), gmin, gmax, FrameTime() * 20, Color(0, 255, 0, 16))
@@ -298,7 +300,7 @@ function ss.CollectDisplacementTriangles(displacement, mins, maxs)
                     --     FrameTime() * 5, Color(255, 255, 255, 8))
                     if IsOBBIntersectingOBB(
                         t.MBBOrigin, t.MBBAngles, vector_origin, t.MBBSize,
-                        vector_origin, angle_zero, mins, maxs, ss.eps) then
+                        vector_origin, angle_zero, mins, maxs, Util.eps) then
                         yield(t)
                     end
                 end

@@ -1,56 +1,39 @@
 
+-- Shapes of painted ink, defined by vmt files under materials/splashsweps/paints.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
-local VTF = ss.import "splashsweps/shared/vtf/reader"
-local locals = ss.Locals ---@class ss.Locals
-if not locals.InkShapeLists then
-    locals.InkShapeLists = {}
-end
+local VTF  = ss.import "splashsweps/shared/vtf/reader"
+local Util = ss.import "splashsweps/shared/util"
 
----Map of ink shape category --> list of indices to actual definition
----@type table<string, integer[]>
-local InkShapeLists = locals.InkShapeLists
+---@class ss.InkShapeModule
+local InkShape = ss.module "splashsweps/shared/inkshape"
 
 ---Mask array used to draw on PaintableSurface grid.
----Access the mask value using `InkShape.Grid[y * InkShape.Width + x]`: boolean.
+---Access the mask value using `shape.Grid[y * shape.Grid.Width + x + 1]`: boolean.
 ---@class ss.InkShape.Grid
----@field [integer]     boolean   True for filled pixel, index = y * Width + x
+---@field [integer]     boolean   True for filled pixel, index = y * Width + x + 1
 ---@field Width         integer   The width of the grid.
 ---@field Height        integer   The height of the grid.
----@field IntegralImage integer[] Integral image for faster filtering, index = y * Width + x
----@overload fun(width?: integer, height?: integer): ss.InkShape.Grid
-ss.struct "InkShape.Grid" {
-    Width = 0,
-    Height = 0,
-    IntegralImage = {},
-}
-
----Constructor for InkShape.Grid.
----@param this   ss.InkShape.Grid
----@param width  integer
----@param height integer
-ss.ctor "InkShape.Grid" (function (this, width, height)
-    this.Width = width
-    this.Height = height
-end)
+---@field IntegralImage integer[] Integral image for faster filtering, index = y * Width + x + 1
 
 ---Defines the shape of painted ink.
 ---@class ss.InkShape
 ---@field Index       integer          The internal index used in networking.
----@field Identifier  string           The identifier of this ink shape as the key of ss.InkShapes.
+---@field Identifier  string           The path of the vmt file under materials/splashsweps/paints.
 ---@field Grid        ss.InkShape.Grid Mask for drawing on PaintableSurface grid.
 ---@field MaskTexture string?          Only used clientside; mask texture to create drawing materials.
 ---@field UV          number[]?        Atlas range (minU, minV, maxU, maxV); negative minU encodes transposition.
 ---@field Channel     "R"|"G"|"B"|"A"? Determines which channel of MaskTexture to use.
-ss.struct "InkShape" {
-    Index = 0,
-    Identifier = "",
-    MaskTexture = nil,
-    Grid = ss.new "InkShape.Grid",
-    UV = nil,
-    Channel = nil,
-}
+
+---@class ss.InkShapeModule.State
+---@field Shapes  ss.InkShape[]            Defined ink shapes indexed by their internal index.
+---@field Lists   table<string, integer[]> Ink shape category --> list of indices to Shapes.
+---@field NumBits integer                  Required bits to transfer an ink shape index as an unsigned integer.
+local state = ss.state("splashsweps/shared/inkshape", { Shapes = {}, Lists = {} }) ---@type ss.InkShapeModule.State
+
+---Defined ink shapes indexed by their internal index.
+InkShape.Shapes = state.Shapes
 
 ---Shape masks are signed distance fields where this value (0.5 in 0-255) is the edge.
 ---drawink_ps30.hlsl clips the paint by the same value.
@@ -66,15 +49,19 @@ local function ReadPixelsFromVTF(vmt)
     if not path:EndsWith ".vtf" then path = path .. ".vtf" end
     if not file.Exists("materials/" .. path, "GAME") then return end
     local vtf = VTF.Read(path)
-    ss.assert(vtf, "Shape mask has invalid texture (" .. path .. ")") ---@cast vtf -?
+    Util.assert(vtf, "Shape mask has invalid texture (" .. path .. ")") ---@cast vtf -?
 
     local width = vtf.Images[1].Width
     local height = vtf.Images[1].Height
-    local shape = ss.new "InkShape"
     local VALID_CHANNELS = { R = "R", G = "G", B = "B", A = "A" }
-    shape.Grid = ss.new "InkShape.Grid" (width, height)
-    shape.MaskTexture = path
-    shape.Channel = VALID_CHANNELS[vmt:GetString "$channel" or "R"] or "R"
+    ---@type ss.InkShape
+    local shape = {
+        Index = 0,
+        Identifier = "",
+        Grid = { Width = width, Height = height, IntegralImage = {} },
+        MaskTexture = path,
+        Channel = VALID_CHANNELS[vmt:GetString "$channel" or "R"] or "R",
+    }
 
     local grid = shape.Grid
     for y = 0, height - 1 do
@@ -92,9 +79,9 @@ local function ReadPixelsFromVTF(vmt)
 end
 
 ---Reads all vmt files and defines all ink shapes used in this addon.
-function ss.LoadInkShapes()
+function InkShape.Load()
     local shapeCount = 0
-    for f in ss.IterateFilesRecursive("materials/splashsweps/paints", "GAME", "*.vmt") do
+    for f in Util.IterateFilesRecursive("materials/splashsweps/paints", "GAME", "*.vmt") do
         local vmt = Material(f:gsub("^materials/", ""), nil)
         if not vmt:IsError() then
             local param = vmt:GetString "$splashsweps_tag" or ""
@@ -104,26 +91,30 @@ function ss.LoadInkShapes()
                 shapeCount = shapeCount + 1
                 shape.Index = shapeCount
                 shape.Identifier = f:gsub("^materials/splashsweps/paints/", "")
-                InkShapeLists[tag] = table.ForceInsert(InkShapeLists[tag], shape.Index)
-                ss.InkShapes[shape.Index] = shape
+                state.Lists[tag] = table.ForceInsert(state.Lists[tag], shape.Index)
+                state.Shapes[shape.Index] = shape
             end
         end
     end
 
-    ---Total number of defined ink shapes.
-    ss.NumInkShapes = shapeCount
+    state.NumBits = math.max(select(2, math.frexp(shapeCount - 1)), 1)
+end
 
-    ---Required bits to transfer ink shape type as an unsigned integer.
-    ss.MAX_INKSHAPE_BITS = math.max(select(2, math.frexp(shapeCount - 1)), 1)
+---Returns the required bits to transfer an ink shape index as an unsigned integer.
+---@return integer
+function InkShape.GetNumBits()
+    return state.NumBits
 end
 
 ---Picks up random ink shape within the category of "tag" using given random seed.
 ---@param tag string tag to search for.
 ---@param seed? number optional random seed such as `CurTime()`.
 ---@return ss.InkShape # Randomly chosen ink shape.
-function ss.SelectRandomShape(tag, seed)
-    local indices = InkShapeLists[tag]
+function InkShape.SelectRandom(tag, seed)
+    local indices = state.Lists[tag]
     local name = "SplashSWEPs: Select random shape"
     local i = math.min(math.floor(util.SharedRandom(name, 1, #indices + 1, seed)), #indices)
-    return ss.InkShapes[indices[i]]
+    return state.Shapes[indices[i]]
 end
+
+return InkShape

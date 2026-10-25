@@ -2,7 +2,9 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
-local VTF = ss.import "splashsweps/shared/vtf/reader"
+local InkType = ss.import "splashsweps/shared/inktype"
+local Util    = ss.import "splashsweps/shared/util"
+local VTF     = ss.import "splashsweps/shared/vtf/reader"
 local locals = ss.Locals ---@class ss.Locals
 -- Keep this state layout across Lua reloads; preparation replaces contents, not the field names.
 if not locals.InkDetail then
@@ -72,7 +74,7 @@ local InkDetail            = locals.InkDetail
 local function GetAverageHeight(path)
     if InkDetail.AverageHeights[path] then return InkDetail.AverageHeights[path] end
     local vtf = VTF.Read(path)
-    ss.assert(vtf, "Automatic height baseline has invalid texture (" .. path .. ")") ---@cast vtf -?
+    Util.assert(vtf, "Automatic height baseline has invalid texture (" .. path .. ")") ---@cast vtf -?
     local level = #vtf.Images
     local image = vtf.Images[level]
     local alpha = 0
@@ -105,8 +107,8 @@ local function EncodeInkTypeRows(mat, detailSlot, baseTextureName)
     local detailheightinvert     = math.Clamp(mat:GetInt "$detailheightinvert" or 0, 0, 1)
     local heightLimitHU          = math.Clamp(mat:GetFloat "$detailheightmax" or 24, 0, 24)
     local heightLimitSqrtCode5   = math.Clamp(math.Round(math.sqrt(heightLimitHU / 24) * 32) - 1, 0, 31)
-    local color                  = mat:GetVector "$color"     or ss.vector_one
-    local tintcolor              = mat:GetVector "$tintcolor" or ss.vector_one
+    local color                  = mat:GetVector "$color"     or Util.vector_one
+    local tintcolor              = mat:GetVector "$tintcolor" or Util.vector_one
     local alpha                  = mat:GetFloat "$alpha" or 1
     local maxheight              = mat:GetFloat "$maxheight" or 1
     local normalBlendThicknessHU = mat:GetFloat "$bumpblendheight" or maxheight * 24
@@ -217,7 +219,7 @@ local function WriteDetailCells(textures, drawRequests)
             -- An error in the drawing function must not leave the render target pushed.
             local drawn = ProtectedCall(proxy.Draw, proxy.State, DrawCellMesh)
         cam.PopModelMatrix()
-        if drawn then InkDetail.LastStates[name] = ss.deepcopy(proxy.State) end
+        if drawn then InkDetail.LastStates[name] = Util.deepcopy(proxy.State) end
     end
     render.OverrideAlphaWriteEnable(false)
     render.OverrideBlend(false)
@@ -473,7 +475,7 @@ end
 ---@return number[][][]? rowsByType Data rows of each ink type, nil if there is no ink type
 function ss.PrepareInkDetailsRT(baseTextureNames)
     hook.Remove("PreRender", "SplashSWEPs: Update ink materials")
-    if #ss.InkTypes == 0 then return end
+    if #InkType.Types == 0 then return end
 
     local cellSizeSources  = {} ---@type ITexture[] Size source of every cell, including generated cells
     local cellImages       = {} ---@type table<integer, ITexture>
@@ -484,7 +486,7 @@ function ss.PrepareInkDetailsRT(baseTextureNames)
     local generatedCells   = {} ---@type table<string, integer>
     local proxiedMaterials = {} ---@type ss.ProxiedInkMaterial[]
     local rowsByType       = {} ---@type number[][][]
-    for i, inktype in ipairs(ss.InkTypes) do
+    for i, inktype in ipairs(InkType.Types) do
         local mat = Material(inktype.Identifier)
         local hasProxies, frameVariable, hasCellDrawProxy = ReadDetailProxyInfo(mat)
         copyMaterial:SetTexture("$basetexture", mat:GetString "$detail" or "???")
@@ -609,7 +611,7 @@ end
 function ss.WriteInkTypesRT(imageCells, inkTypes)
     local rowsByType = {} ---@type table<integer, number[][]>
     for _, i in ipairs(inkTypes) do
-        rowsByType[i] = EncodeInkTypeRows(Material(ss.InkTypes[i].Identifier), InkDetail.Slots[i], InkDetail.BaseTextureNames[i])
+        rowsByType[i] = EncodeInkTypeRows(Material(InkType.Types[i].Identifier), InkDetail.Slots[i], InkDetail.BaseTextureNames[i])
     end
     WriteAtlas(imageCells, rowsByType)
 end

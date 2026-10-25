@@ -33,7 +33,7 @@ local Import = locals.Import
 ---
 ---Do not copy fields of an imported module into locals when the file is loaded.
 ---Hot reload updates the module table in place, and copied locals would keep the old values.
----@param name string Module name such as "splashsweps/shared/struct".
+---@param name string Module name such as "splashsweps/shared/util".
 ---@return table
 function ss.import(name)
     local exports = Import.Exports[name]

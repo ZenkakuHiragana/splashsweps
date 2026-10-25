@@ -9,18 +9,6 @@ if not ss.Locals then
     ---@class ss.Locals
     ss.Locals = {}
 
-    ---A set of event handlers with interactions to painted ink.
-    ---@type table<string, ss.IInkFeature>
-    ss.InkFeatures = {}
-
-    ---Internal shape index --> ss.InkShape object
-    ---@type ss.InkShape[]
-    ss.InkShapes = {}
-
-    ---Definition of ink type (color and functionality)
-    ---@type ss.InkType[]
-    ss.InkTypes = {}
-
     ---Lookup table equals to table.Flip(ss.PlayersReady).
     ---@type table<Player, integer>
     ss.PlayerIndices = {}
@@ -29,23 +17,11 @@ if not ss.Locals then
     ---@type Player[]
     ss.PlayersReady = {}
 
-    ---Array of paintable surfaces.
-    ---@type ss.PaintableSurface[]
-    ss.SurfaceArray = {}
-
     ---A hash table to represent grid separation of paintable surfaces
     --- `= { [hash] = { i1, i2, i3, ... }, ... }`
-    ---where `i` is index of `ss.SurfaceArray`
+    ---where `i` is index of `PaintableSurface.Surfaces`
     ---@type table<integer, integer[]>
     ss.SurfaceHash = {}
-
-    ---Paintable surfaces of brush entities, which are not registered to ss.SurfaceHash
-    ---because they can move away from where the map compiler put them.
-    --- `= { [model index] = { surface, ... }, ... }`
-    ---where the model index is 1-based index of the BSP model lump (`*N` model name refers to N + 1),
-    ---and the surfaces are in the model's local coordinate system.
-    ---@type table<integer, ss.PaintableSurface[]>
-    ss.BrushModelSurfaces = {}
 
     ---@class ss.HashParameters
     ---@field GridSizeSurface integer Grid cell size for spatial hashing surfaces in the world.
@@ -77,14 +53,5 @@ ss.CACHE_VERSION = 6
 ss.sp = game.SinglePlayer()
 
 include "splashsweps/shared/import.lua"
-include "splashsweps/shared/util.lua"
 include "splashsweps/shared/hash.lua"
-include "splashsweps/shared/struct.lua"
-include "splashsweps/shared/inkfeature.lua"
-include "splashsweps/shared/inkshape.lua"
-include "splashsweps/shared/inktype.lua"
-include "splashsweps/shared/paint/paint.lua"
-include "splashsweps/shared/paint/paintablegrid.lua"
-include "splashsweps/shared/paint/paintablesurface.lua"
 include "splashsweps/shared/touch/player.lua"
-include "splashsweps/shared/typing/precachedata.lua"

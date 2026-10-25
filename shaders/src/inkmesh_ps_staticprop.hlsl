@@ -57,7 +57,7 @@ static const float2 g_PackedOrigin       = c2.xy; // Origin of the packed rectan
 static const float3 g_BoxSize            = c18.xyz;
 static const float  g_FaceMargin         = c18.w; // Margin of each face cell per side in Hammer units
 
-// Inset of the clip range of each face in ink map UV, as ss.SetupSurfacesStaticProp and inkmesh_vs30.hlsl do
+// Inset of the clip range of each face in ink map UV, as PaintableSurface.SetupStaticProps and inkmesh_vs30.hlsl do
 static const float RT_BILINEAR_GUARD_PIXELS = c0.x; // ss.RT_BILINEAR_GUARD_PIXELS
 static const float g_ClipGuard = 0.5 * RT_BILINEAR_GUARD_PIXELS * g_RTSize.x;
 
@@ -173,7 +173,7 @@ void MapToInkMap(const float3 worldPos, const float3 worldNormal, inout PsVertex
     float3 gradU     = isRotated ? -faceGradV : faceGradU;
     float3 gradV     = isRotated ?  faceGradU : faceGradV;
 
-    // U and V in the cache are V and U in the ink map, as ss.SetupSurfaces and inkmesh_vs30.hlsl do
+    // U and V in the cache are V and U in the ink map, as PaintableSurface.Setup and inkmesh_vs30.hlsl do
     float uvPerHU  = rcp(g_InkMapHUPerUV);
     v.inkUV        = float3((g_PackedOrigin + packedUV).yx * uvPerHU, 0.0);
     v.minUV        = (g_PackedOrigin + packedMin).yx * uvPerHU + g_ClipGuard;

@@ -3,13 +3,14 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local BSP           = ss.import "splashsweps/server/mapcache/bsploader"
+local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
+local Util          = ss.import "splashsweps/shared/util"
+
 local band = bit.band
 local huge = math.huge
 local huge_negative = -huge
 local ipairs = ipairs
-local vector_one = ss.vector_one
-local MaxVector = ss.MaxVector
-local MinVector = ss.MinVector
 
 ---Finds light_environment entity in the ENTITIES lump and fetches directional light info.
 ---@param bsp ss.RawBSPResults
@@ -59,13 +60,13 @@ local function BuildMinimapBounds(bsp)
         if area > 0 then
             if not bounds[area] then
                 bounds[area] = {
-                    maxs = vector_one * huge_negative,
-                    mins = vector_one * huge,
+                    maxs = Util.vector_one * huge_negative,
+                    mins = Util.vector_one * huge,
                 }
             end
 
-            bounds[area].mins = MinVector(bounds[area].mins, leaf.mins)
-            bounds[area].maxs = MaxVector(bounds[area].maxs, leaf.maxs)
+            bounds[area].mins = Util.MinVector(bounds[area].mins, leaf.mins)
+            bounds[area].maxs = Util.MaxVector(bounds[area].maxs, leaf.maxs)
         end
     end
 
@@ -154,9 +155,9 @@ end
 function ss.BuildMapCache()
     local gcpause = collectgarbage("setpause", 0)
     collectgarbage "collect"
-    local bsp = ss.LoadBSP()
+    local bsp = BSP.Load()
     if not bsp then return end
-    local cache = ss.new "PrecachedData"
+    local cache = PrecachedData.new()
     local mapCRC = util.CRC(file.Read("maps/" .. game.GetMap() .. ".bsp", "GAME") or "")
     cache.CacheVersion  = ss.CACHE_VERSION
     cache.MapCRC        = tonumber(mapCRC) or 0

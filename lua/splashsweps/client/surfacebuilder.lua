@@ -5,12 +5,9 @@ if not ss then return end
 
 local RBTree        = ss.import "splashsweps/client/rbtree"
 local SkylinePacker = ss.import "splashsweps/client/skylinepacker"
+local Util          = ss.import "splashsweps/shared/util"
+local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
 
-local CubemapInfoMeta     = getmetatable(ss.new "PrecachedData.CubemapInfo")
-local LightmapInfoMeta    = getmetatable(ss.new "PrecachedData.LightmapInfo")
-local SurfaceMeta         = getmetatable(ss.new "PrecachedData.Surface")
-local UVInfoMeta          = getmetatable(ss.new "PrecachedData.UVInfo")
-local VertexMeta          = getmetatable(ss.new "PrecachedData.Vertex")
 local MAX_TRIANGLES       = math.floor(32768 / 3) -- mesh library limitation
 local MAX_LIGHTMAP_WIDTH  = 512
 local MAX_LIGHTMAP_HEIGHT = 256
@@ -53,25 +50,6 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---@field DetailTint           Vector?   Value of $detailtint.
 ---@field Color                Vector?   Value of $color.
 ---@field Cubemap              ss.PrecachedData.CubemapInfo? Resolved $envmap plus cubemap sample correction data.
-ss.struct "SurfaceBuilder.MaterialInfo" {
-    Material             = Material "color",
-    ArrayIndex           = 0,
-    NeedsBumpedLightmaps = false,
-    HasBaseTexture2      = false,
-    HasBaseTexture3      = false,
-    BaseTexture          = nil,
-    Bumpmap              = nil,
-    Detail               = nil,
-    BumpTextureTransform = nil,
-    BaseTextureTransform = nil,
-    BlendMaskTransform   = nil,
-    DetailBlendFactor    = nil,
-    DetailBlendMode      = nil,
-    DetailScale          = nil,
-    DetailTint           = nil,
-    Color                = nil,
-    Cubemap              = nil,
-}
 
 ---Stores packed lightmap information for each SortID.
 ---@class ss.SurfaceBuilder.LightmapGroup
@@ -81,14 +59,6 @@ ss.struct "SurfaceBuilder.MaterialInfo" {
 ---@field LightmapWidths integer[] Original lightmap width per face, before bumped-lightmap expansion.
 ---@field Material       ss.SurfaceBuilder.MaterialInfo The material bound to this surface.
 ---@field TriangleCount  integer   Total number of triangles of this SortID.
-ss.struct "SurfaceBuilder.LightmapGroup" {
-    FaceIndices = {},
-    FaceLightmaps = {},
-    LightmapPage = 0,
-    LightmapWidths = {},
-    Material = nil, ---@type ss.SurfaceBuilder.MaterialInfo
-    TriangleCount = 0,
-}
 
 ---Packed lightmap atlas description consumed by mesh grouping and render materials.
 ---@class ss.SurfaceBuilder.LightmapLayout
@@ -96,23 +66,12 @@ ss.struct "SurfaceBuilder.LightmapGroup" {
 ---@field MaxLightmapIndex   integer Last allocated lightmap page index.
 ---@field LastLightmapWidth  integer Minimum actual width required for the last lightmap page.
 ---@field LastLightmapHeight integer Minimum actual height required for the last lightmap page.
-ss.struct "SurfaceBuilder.LightmapLayout" {
-    Groups = {},
-    MaxLightmapIndex = 0,
-    LastLightmapWidth = 0,
-    LastLightmapHeight = 0,
-}
 
 ---Faces that share one model and one lightmap/material SortID before IMesh splitting.
 ---@class ss.SurfaceBuilder.MeshGroup
 ---@field FaceIndices   integer[] BSP face indices included in this group.
 ---@field SortID        integer   LightmapGroup key used to find material and lightmap texture.
 ---@field TriangleCount integer   Total triangle count before splitting by MAX_TRIANGLES.
-ss.struct "SurfaceBuilder.MeshGroup" {
-    FaceIndices = {},
-    SortID = 0,
-    TriangleCount = 0,
-}
 
 ---Sorts faces for lightmap packing, mimicking the engine's LightmapLess function.
 ---@param a ss.PrecachedData.LightmapInfo
@@ -157,7 +116,6 @@ end
 local function buildCubemapLookup(cubemaps)
     local lookup = {} ---@type table<string, ss.PrecachedData.CubemapInfo>
     for _, cubemap in ipairs(cubemaps or {}) do
-        setmetatable(cubemap, CubemapInfoMeta)
         local name = normalizeEnvmapName(cubemap.Envmap)
         if name then lookup[name] = cubemap end
     end
@@ -172,7 +130,7 @@ local function resolveMaterialCubemap(envmap, cubemapLookup)
     if not name then return end ---@cast envmap -?
 
     local cached = cubemapLookup[name]
-    local cubemap = ss.new "PrecachedData.CubemapInfo"
+    local cubemap = PrecachedData.CubemapInfo.new()
     cubemap.Envmap = envmap
     if cached then
         cubemap.Origin:Set(cached.Origin)
@@ -236,10 +194,10 @@ local function enumerateMaterials(materialsInMap, cubemapLookup)
                     DetailBlendFactor    = mat:GetFloat  "$detailblendfactor",
                     DetailBlendMode      = mat:GetInt    "$detailblendmode",
                     DetailScale          = mat:GetVector "$detailscale",
-                    DetailTint           = baseTexture2 and ss.vector_one or mat:GetVector "$detailtint",
+                    DetailTint           = baseTexture2 and Util.vector_one or mat:GetVector "$detailtint",
                     Cubemap              = resolveMaterialCubemap(envmap, cubemapLookup),
-                    Color = (mat:GetVector "$color" or ss.vector_one)
-                          * (mat:GetVector "$color2" or ss.vector_one),
+                    Color = (mat:GetVector "$color" or Util.vector_one)
+                          * (mat:GetVector "$color2" or Util.vector_one),
                 }
             end
         end
@@ -276,7 +234,6 @@ local function packLightmaps(surfaceInfo, materialInfo)
         arrayIndexToEnumerationID[matInfo.ArrayIndex] = enumerationID
     end
     for _, t in ipairs(surfaceInfo.Lightmaps) do
-        setmetatable(t, LightmapInfoMeta)
         t.MaterialIndex = arrayIndexToEnumerationID[t.MaterialIndex]
         sortableFaces:Insert(t)
     end
@@ -390,10 +347,9 @@ local function buildMeshGroups(surfaceInfo, lightmapLayout)
     for sortID, lightmapGroup in ipairs(lightmapLayout.Groups) do
         local pageWidth, pageHeight = getLightmapPageSize(lightmapLayout, lightmapGroup)
         for i, faceIndex in ipairs(lightmapGroup.FaceIndices) do
-            local surf = setmetatable(surfaceInfo.Surfaces[faceIndex], SurfaceMeta)
+            local surf = surfaceInfo.Surfaces[faceIndex]
             local lightmapCoordinates = lightmapGroup.FaceLightmaps[i]
             for _, v in ipairs(surf.Vertices) do
-                setmetatable(v, VertexMeta)
                 v.LightmapUV.x = (v.LightmapUV.x + lightmapCoordinates.x) / pageWidth
                 v.LightmapUV.y = (v.LightmapUV.y + lightmapCoordinates.y) / pageHeight
             end
@@ -618,7 +574,7 @@ local function buildMeshVertexBatches(surfaceInfo, meshGroups, bumpmapOffsetsByF
     local bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
     local scale         = surfaceInfo.UVScales[rtIndex]
     local worldToUV     = Matrix()
-    worldToUV:SetScale(ss.vector_one * scale)
+    worldToUV:SetScale(Util.vector_one * scale)
     local vertexBatches = {} ---@type ss.SurfaceBuilder.MeshVertexBatch[]
     for _, meshGroup in ipairs(meshGroups) do
         local currentVertices = nil ---@type ss.SurfaceBuilder.MeshVertex[]?
@@ -638,7 +594,7 @@ local function buildMeshVertexBatches(surfaceInfo, meshGroups, bumpmapOffsetsByF
 
         for _, faceIndex in ipairs(meshGroup.FaceIndices) do
             local surf = surfaceInfo.Surfaces[faceIndex]
-            local uvInfo = setmetatable(surf.UVInfo[rtIndex], UVInfoMeta)
+            local uvInfo = surf.UVInfo[rtIndex]
             worldToUV:SetAngles(uvInfo.Angle)
             for _, v in ipairs(surf.Vertices) do
                 ContinueVertexBatch()

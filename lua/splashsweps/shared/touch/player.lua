@@ -2,6 +2,9 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
+
+local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
+local Util             = ss.import "splashsweps/shared/util"
 local locals = ss.Locals ---@class ss.Locals
 if not locals.Touch then
     locals.Touch = {} ---@class ss.Locals.Touch
@@ -79,8 +82,8 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     -- local nearestFrom = origin + tr.HitNormal * 200
     local queryMins = origin + ply:OBBMins()
     local queryMaxs = origin + ply:OBBMaxs()
-    -- queryMins = origin - ss.vector_one * 500
-    -- queryMaxs = origin + ss.vector_one * 500
+    -- queryMins = origin - Util.vector_one * 500
+    -- queryMaxs = origin + Util.vector_one * 500
 
     local t = InkCheckInterval + FrameTime() * 2
     debugoverlay.Cross(nearestFrom, 10, t, Color(255, 255, 0), true)
@@ -108,7 +111,7 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
                 debugoverlay.Line(tri[2] + d, tri[5] + d, t, Color(128, 128, 0), true)
                 debugoverlay.Line(tri[3] + d, tri[6] + d, t, Color(128, 128, 0), true)
 
-                local b = ss.BarycentricCoordinates(tri, nearestFrom)
+                local b = PaintableSurface.BarycentricCoordinates(tri, nearestFrom)
                 if b.x > 0 and b.y > 0 and b.z > 0 then
                     local nearest = tri[1] * b.x + tri[2] * b.y + tri[3] * b.z
                     debugoverlay.Line(nearestFrom, LerpVector(20 / nearest:Distance(nearestFrom), nearest, nearestFrom), t, Color(255, 255, 0), true)
@@ -133,7 +136,7 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     -- Brush models have no displacements, so their surfaces are always flat.
     for ent, modelIndex, worldToModel in ss.CollectBrushEntities(queryMins, queryMaxs) do
         local modelToWorld = ent:GetWorldTransformMatrix()
-        local localMins, localMaxs = ss.TransformAABB(worldToModel, queryMins, queryMaxs)
+        local localMins, localMaxs = Util.TransformAABB(worldToModel, queryMins, queryMaxs)
         for surf in ss.CollectBrushModelSurfaces(modelIndex, localMins, localMaxs) do
             DrawSurfaceBounds(surf, modelToWorld, t)
             DrawNearestOnFlatSurface(surf, modelToWorld, worldToModel, nearestFrom, t)

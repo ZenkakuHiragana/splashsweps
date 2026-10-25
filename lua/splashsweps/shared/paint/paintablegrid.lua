@@ -1,7 +1,13 @@
 
+-- The serverside canvas of paintable surfaces, which also tells clients what ink is where.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
+local InkShape = ss.import "splashsweps/shared/inkshape"
+local InkType  = ss.import "splashsweps/shared/inktype"
+
+---@class ss.PaintableGridModule
+local PaintableGrid = ss.module "splashsweps/shared/paint/paintablegrid"
 
 local Matrix = Matrix
 local ceil  = math.ceil
@@ -14,10 +20,14 @@ local max   = math.max
 ---@field [integer] integer Contains internal index of ink type for each pixel. To access specific pixel, use `index = y * Width + x`.
 ---@field Width     integer The total columns of the grid.
 ---@field Height    integer The total rows of the grid.
-ss.struct "PaintableGrid" {
-    Width = 0,
-    Height = 0,
-}
+
+---Creates an empty grid.
+---@param width  integer
+---@param height integer
+---@return ss.PaintableGrid
+function PaintableGrid.new(width, height)
+    return { Width = width, Height = height }
+end
 
 ---Calculates minimum bounding box from inclined rectangle.
 ---
@@ -76,7 +86,7 @@ end
 ---@param inktype integer The internal index of ink type.
 ---@param shape   integer The internal index of shape.
 ---@return integer # Number of painted cells.
-function ss.WriteGrid(self, pos, ang, radius, inktype, shape)
+function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
     -- Caches
     local inkGridCellSize = ss.InkGridCellSize
     local surfaceGrid = self.Grid
@@ -140,7 +150,7 @@ function ss.WriteGrid(self, pos, ang, radius, inktype, shape)
     local indexMaxY = min( ceil(y_max / inkGridCellSize), surfaceGridHeight - 1)
 
     -- Caches
-    local shapeGrid              = ss.InkShapes[shape].Grid
+    local shapeGrid              = InkShape.Shapes[shape].Grid
     local shapeGridWidth         = shapeGrid.Width
     local shapeGridHeight        = shapeGrid.Height
     local oneOverShapeCellWidth  = shapeGridWidth  / (radius.x * 2)
@@ -270,20 +280,22 @@ end
 ---@param self ss.PaintableSurface
 ---@param query Vector Preprocessed query point in world coordinates.
 ---@return ss.InkType? # The ink type painted at corresponding pixel.  nil if no ink was there.
-function ss.ReadGrid(self, query)
+function PaintableGrid.Read(self, query)
     local query2d = self.WorldToLocalGridMatrix * query
     local x = floor(query2d.x / ss.InkGridCellSize)
     local y = floor(query2d.y / ss.InkGridCellSize)
     local pixel = self.Grid[y * self.Grid.Width + x + 1]
     if pixel and 0 <= x and x < self.Grid.Width and 0 <= y and y < self.Grid.Height then
-        return ss.InkTypes[pixel]
+        return InkType.Types[pixel]
     end
 end
 
 ---Clears all painted data in the grid.
 ---@param self ss.PaintableSurface
-function ss.ClearGrid(self)
+function PaintableGrid.Clear(self)
     for i = 1, self.Grid.Width * self.Grid.Height do
         self.Grid[i] = -1
     end
 end
+
+return PaintableGrid

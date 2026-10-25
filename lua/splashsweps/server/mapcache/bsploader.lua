@@ -1,9 +1,12 @@
 
+-- Reads the BSP file of the current map.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
-
 local Binary = ss.import "splashsweps/shared/binary/reader"
+
+---@class ss.BSPLoader
+local BSP = ss.module "splashsweps/server/mapcache/bsploader"
 
 ---Lump names. most of these are unused in this addon.
 ---@type table<integer, string>
@@ -779,37 +782,6 @@ Binary.struct "BSP.GAME_LUMP.sprp" { -- Static Props
 ---@field TexDataStringTableToIndex integer[]
 ---@field DispMultiBlendStart       table<integer, integer> DISPINFO index --> index of its first DISP_MULTIBLEND record
 ---@field [string]                  BSP.DefinedStructures
-ss.struct "RawBSPResults" {
-    header = {
-        identifier = 0,
-        version = 0,
-        lumps = {},
-        mapRevision = 0,
-    },
-    ENTITIES = {},
-    PLANES = {},
-    VERTEXES = {},
-    EDGES = {},
-    SURFEDGES = {},
-    FACES = {},
-    FACES_HDR = {},
-    LEAFS = {},
-    CUBEMAPS = {},
-    TEXINFO = {},
-    TEXDATA = {},
-    TEXDATA_STRING_TABLE = {},
-    TEXDATA_STRING_DATA = {},
-    MODELS = {},
-    DISPINFO = {},
-    DISP_VERTS = {},
-    DISP_TRIS = {},
-    DISP_MULTIBLEND = {},
-    LIGHTING = "",
-    LIGHTING_HDR = "",
-    GAME_LUMP = { lumpCount = 0 },
-    TexDataStringTableToIndex = {},
-    DispMultiBlendStart = {},
-}
 
 local GameLumpToRead = { sprp = "BSP.GAME_LUMP.sprp" }
 local LUMP_INV = table.Flip(LUMP)
@@ -929,16 +901,40 @@ end
 
 ---Parses the BSP structure of current map.
 ---@return ss.RawBSPResults?
-function ss.LoadBSP()
+function BSP.Load()
     local t0 = SysTime()
     local bsp = file.Open(string.format("maps/%s.bsp", game.GetMap()), "rb", "GAME")
     if not bsp then return end
 
     print "Loading BSP file..."
 
-    local t = ss.new "RawBSPResults"
-    t.header = Binary.Read(bsp, "BSP.Header")
-    t.TexDataStringTableToIndex = {}
+    ---@type ss.RawBSPResults
+    local t = {
+        header = Binary.Read(bsp, "BSP.Header"),
+        ENTITIES = {},
+        PLANES = {},
+        VERTEXES = {},
+        EDGES = {},
+        SURFEDGES = {},
+        FACES = {},
+        FACES_HDR = {},
+        LEAFS = {},
+        CUBEMAPS = {},
+        TEXINFO = {},
+        TEXDATA = {},
+        TEXDATA_STRING_TABLE = {},
+        TEXDATA_STRING_DATA = {},
+        MODELS = {},
+        DISPINFO = {},
+        DISP_VERTS = {},
+        DISP_TRIS = {},
+        DISP_MULTIBLEND = {},
+        LIGHTING = "",
+        LIGHTING_HDR = "",
+        GAME_LUMP = { lumpCount = 0 },
+        TexDataStringTableToIndex = {},
+        DispMultiBlendStart = {},
+    }
     print("    BSP file version: " .. t.header.version)
     for i = 1, #LUMP do
         local name = LUMP[i]
@@ -988,3 +984,5 @@ function ss.LoadBSP()
 
     return t
 end
+
+return BSP

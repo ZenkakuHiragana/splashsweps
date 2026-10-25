@@ -2,11 +2,11 @@
 -- Structures used in UV packing process.
 ---@class ss
 local ss = SplashSWEPs
+local Util = ss.import "splashsweps/shared/util"
 
 ---@class ss.PackerStructures
 local Structures = ss.module "splashsweps/shared/packer/structures"
 
-local deepcopy = ss.deepcopy
 local floor = math.floor
 local ipairs = ipairs
 local isnumber = isnumber
@@ -174,9 +174,9 @@ function Structures.LinkedList(values)
         t:append(values)
     elseif istable(values) then
         if values.__type == "SplashSWEPsLinkedList" then ---@cast values ss.LinkedList
-            for _, v in values() do t:append(deepcopy(v.value)) end
+            for _, v in values() do t:append(Util.deepcopy(v.value)) end
         else ---@cast values table[]
-            for _, v in ipairs(values) do t:append(deepcopy(v)) end
+            for _, v in ipairs(values) do t:append(Util.deepcopy(v)) end
         end
     end
 

@@ -1,18 +1,19 @@
 
+-- Paintable surfaces of the map: brush faces, displacements, and the faces of static prop bounding boxes.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
+local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
+local Util          = ss.import "splashsweps/shared/util"
+
+---@class ss.PaintableSurfaceModule
+local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 
 ---Classes containing the oriented minimum bounding box.
 ---@class ss.IHasMBB
 ---@field MBBAngles Angle  The angle of minimum (oriented) bounding box.
 ---@field MBBOrigin Vector The origin of minimum (oriented) bounding box.
 ---@field MBBSize   Vector The size of minimum (oriented) bounding box in their local coordinates.
-ss.struct "IHasMBB" {
-    MBBAngles = Angle(),
-    MBBOrigin = Vector(),
-    MBBSize   = Vector(),
-}
 
 ---This class holds information around serverside paintings and conversion to UV coordinates.
 ---```text
@@ -59,24 +60,7 @@ ss.struct "IHasMBB" {
 ---@field OffsetV                number  The v-coordinate of left-top corner of this surface in UV space.
 ---@field UVWidth                number  The width of this surface in UV space.
 ---@field UVHeight               number  The height of this surface in UV space.
----@field Index                  integer The index of this surface in ss.SurfaceArray used for debug purpose.
-ss.struct "PaintableSurface" "IHasMBB" {
-    Index = 0,
-    AABBMax = Vector(),
-    AABBMin = Vector(),
-    Normal = Vector(),
-    Grid = ss.new "PaintableGrid",
-    StaticPropUnwrapIndex = nil,
-    TriangleHash = nil,
-    Triangles = nil,
-    WorldToLocalGridMatrix = Matrix(),
-    WorldToUVRow1 = nil,
-    WorldToUVRow2 = nil,
-    OffsetU = 0,
-    OffsetV = 0,
-    UVWidth = 0,
-    UVHeight = 0,
-}
+---@field Index                  integer The index of this surface in PaintableSurface.Surfaces used for debug purpose.
 
 ---Vertices and some other info of a triangle in a displacement.
 ---@class ss.DisplacementTriangle : ss.IHasMBB
@@ -91,25 +75,60 @@ ss.struct "PaintableSurface" "IHasMBB" {
 ---@field BarycentricAdd1 number Parameter to calculate barycentric coordinates v.
 ---@field BarycentricAdd2 number Parameter to calculate barycentric coordinates w.
 ---@field WorldToLocalRotation VMatrix Rotation matrix to convert world coordinates into local coordinates.
-ss.struct "DisplacementTriangle" "IHasMBB" {
-    [1] = Vector(),
-    [2] = Vector(),
-    [3] = Vector(),
-    [4] = Vector(),
-    [5] = Vector(),
-    [6] = Vector(),
-    BarycentricDot1 = Vector(),
-    BarycentricDot2 = Vector(),
-    BarycentricAdd1 = 0,
-    BarycentricAdd2 = 0,
-    WorldToLocalRotation = Matrix(),
-}
+
+---@class ss.PaintableSurfaceModule.State
+---@field Surfaces           ss.PaintableSurface[]              Paintable surfaces of the world and static props.
+---@field BrushModelSurfaces table<integer, ss.PaintableSurface[]> Brush model index --> its paintable surfaces.
+---@field ModelIndexBits     integer                            Required bits to transfer a brush model index as an unsigned integer.
+local state = ss.state("splashsweps/shared/paint/paintablesurface", {
+    Surfaces = {},
+    BrushModelSurfaces = {},
+}) ---@type ss.PaintableSurfaceModule.State
+
+---Paintable surfaces of the world and static props.
+PaintableSurface.Surfaces = state.Surfaces
+
+---Paintable surfaces of brush entities, which are not registered to ss.SurfaceHash
+---because they can move away from where the map compiler put them.
+--- `= { [model index] = { surface, ... }, ... }`
+---where the model index is 1-based index of the BSP model lump (`*N` model name refers to N + 1),
+---and the surfaces are in the model's local coordinate system.
+PaintableSurface.BrushModelSurfaces = state.BrushModelSurfaces
+
+---Returns the required bits to transfer a brush model index as an unsigned integer.
+---@return integer
+function PaintableSurface.GetModelIndexBits()
+    return state.ModelIndexBits
+end
+
+---Creates a paintable surface with an empty grid.
+---@param index      integer
+---@param gridWidth  integer
+---@param gridHeight integer
+---@return ss.PaintableSurface
+local function newSurface(index, gridWidth, gridHeight)
+    return {
+        Index = index,
+        AABBMax = Vector(),
+        AABBMin = Vector(),
+        Normal = Vector(),
+        Grid = PaintableGrid.new(gridWidth, gridHeight),
+        WorldToLocalGridMatrix = Matrix(),
+        OffsetU = 0,
+        OffsetV = 0,
+        UVWidth = 0,
+        UVHeight = 0,
+        MBBAngles = Angle(),
+        MBBOrigin = Vector(),
+        MBBSize = Vector(),
+    }
+end
 
 ---Returns barycentric coordinates (1 - u - v, u, v) from given triangle.
 ---@param triangle ss.DisplacementTriangle
 ---@param query Vector
 ---@return Vector barycentric The coordinates which may be outside of the triangle.
-function ss.BarycentricCoordinates(triangle, query)
+function PaintableSurface.BarycentricCoordinates(triangle, query)
     local u = query:Dot(triangle.BarycentricDot1) + triangle.BarycentricAdd1
     local v = query:Dot(triangle.BarycentricDot2) + triangle.BarycentricAdd2
     return Vector(1 - u - v, u, v)
@@ -118,56 +137,48 @@ end
 ---Reads a surface list from a file and stores them for later use.
 ---@param surfaces  ss.PrecachedData.Surface[]?
 ---@param numModels integer Number of entries in the BSP model lump.
-function ss.SetupSurfaces(surfaces, numModels)
+function PaintableSurface.Setup(surfaces, numModels)
     if not surfaces then return end
-    ss.MAX_MODEL_INDEX_BITS = math.max(select(2, math.frexp(numModels - 1)), 1)
-    table.Empty(ss.BrushModelSurfaces)
-    local SurfaceMeta = getmetatable(ss.new "PrecachedData.Surface")
-    local MatrixMeta = getmetatable(ss.new "PrecachedData.MatrixTransform")
-    local TriangleMeta = getmetatable(ss.new "PrecachedData.DisplacementTriangle")
-    local VertexMeta = getmetatable(ss.new "PrecachedData.Vertex")
-    local UVInfoMeta = getmetatable(ss.new "PrecachedData.UVInfo")
+    state.ModelIndexBits = math.max(select(2, math.frexp(numModels - 1)), 1)
+    table.Empty(state.BrushModelSurfaces)
     local tempMatrix = Matrix()
     for i, surf in ipairs(surfaces) do
-        setmetatable(surf, SurfaceMeta)
-        setmetatable(surf.TransformPaintGrid, MatrixMeta)
-        local ps = ss.new "PaintableSurface"
-        ps.Index = i
+        local ps = newSurface(i, surf.PaintGridWidth, surf.PaintGridHeight)
         ps.AABBMax = surf.AABBMax
         ps.AABBMin = surf.AABBMin
         ps.WorldToLocalGridMatrix:SetAngles(surf.TransformPaintGrid.Angle)
         ps.WorldToLocalGridMatrix:SetTranslation(surf.TransformPaintGrid.Translation)
         ps.Normal = surf.MBBAngles:Up()
-        ps.Grid.Width = surf.PaintGridWidth
-        ps.Grid.Height = surf.PaintGridHeight
         ps.MBBAngles = surf.MBBAngles
         ps.MBBOrigin = surf.MBBOrigin
         ps.MBBSize = surf.MBBSize
         ps.TriangleHash = surf.TriangleHash
         ps.Triangles = surf.Triangles and {}
-        for _, v in ipairs(surf.Vertices) do setmetatable(v, VertexMeta) end
         for j, t in ipairs(surf.Triangles or {}) do
-            setmetatable(t, TriangleMeta)
-            ps.Triangles[j] = ss.new "DisplacementTriangle"
-            ps.Triangles[j][1] = surf.Vertices[t.Index].Translation
-            ps.Triangles[j][2] = surf.Vertices[t.Index + 1].Translation
-            ps.Triangles[j][3] = surf.Vertices[t.Index + 2].Translation
-            ps.Triangles[j][4] = surf.Vertices[t.Index].DispPaintOrigin
-            ps.Triangles[j][5] = surf.Vertices[t.Index + 1].DispPaintOrigin
-            ps.Triangles[j][6] = surf.Vertices[t.Index + 2].DispPaintOrigin
-            ps.Triangles[j].BarycentricDot1 = t.BarycentricDot1
-            ps.Triangles[j].BarycentricDot2 = t.BarycentricDot2
-            ps.Triangles[j].BarycentricAdd1 = -ps.Triangles[j][1]:Dot(ps.Triangles[j].BarycentricDot1)
-            ps.Triangles[j].BarycentricAdd2 = -ps.Triangles[j][1]:Dot(ps.Triangles[j].BarycentricDot2)
-            ps.Triangles[j].MBBAngles       = t.MBBAngles
-            ps.Triangles[j].MBBOrigin       = t.MBBOrigin
-            ps.Triangles[j].MBBSize         = t.MBBSize
-            ps.Triangles[j].WorldToLocalRotation:SetAngles(t.WorldToLocalGridRotation)
+            local v1, v2, v3 = surf.Vertices[t.Index], surf.Vertices[t.Index + 1], surf.Vertices[t.Index + 2]
+            local worldToLocal = Matrix()
+            worldToLocal:SetAngles(t.WorldToLocalGridRotation)
+            ps.Triangles[j] = {
+                v1.Translation,
+                v2.Translation,
+                v3.Translation,
+                v1.DispPaintOrigin,
+                v2.DispPaintOrigin,
+                v3.DispPaintOrigin,
+                BarycentricDot1      = t.BarycentricDot1,
+                BarycentricDot2      = t.BarycentricDot2,
+                BarycentricAdd1      = -v1.Translation:Dot(t.BarycentricDot1),
+                BarycentricAdd2      = -v1.Translation:Dot(t.BarycentricDot2),
+                MBBAngles            = t.MBBAngles,
+                MBBOrigin            = t.MBBOrigin,
+                MBBSize              = t.MBBSize,
+                WorldToLocalRotation = worldToLocal,
+            }
         end
         if CLIENT then
             local rtIndex = #ss.RenderTarget.Resolutions
             local rtSize = ss.RenderTarget.Resolutions[rtIndex]
-            local uvInfo = setmetatable(surf.UVInfo[rtIndex], UVInfoMeta)
+            local uvInfo = surf.UVInfo[rtIndex]
             tempMatrix:SetAngles(uvInfo.Angle)
             tempMatrix:SetTranslation(uvInfo.Translation)
             ps.WorldToUVRow1 = {
@@ -188,10 +199,10 @@ function ss.SetupSurfaces(surfaces, numModels)
             ps.UVWidth  = uvInfo.Width  - 2 * bilinearGuard
             ps.UVHeight = uvInfo.Height - 2 * bilinearGuard
         end
-        ss.SurfaceArray[i] = ps
+        state.Surfaces[i] = ps
         if surf.ModelIndex > 1 then
-            ss.BrushModelSurfaces[surf.ModelIndex]
-            = table.ForceInsert(ss.BrushModelSurfaces[surf.ModelIndex], ps)
+            state.BrushModelSurfaces[surf.ModelIndex]
+            = table.ForceInsert(state.BrushModelSurfaces[surf.ModelIndex], ps)
         end
     end
 end
@@ -297,10 +308,8 @@ end
 ---- `sz` is the smallest: (X, Y, Z) -> (Z, X, Y)
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
 ---@param uvInfo ss.PrecachedData.StaticProp.UVInfo[][]
-function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
-    local StaticPropMeta = getmetatable(ss.new "PrecachedData.StaticProp")
-    local StaticPropUVMeta = getmetatable(ss.new "PrecachedData.StaticProp.UVInfo")
-    local numSurfaces = #ss.SurfaceArray
+function PaintableSurface.SetupStaticProps(staticPropInfo, uvInfo)
+    local numSurfaces = #state.Surfaces
     local vec = Vector
     local localNormals = {
         vec( 1, 0, 0), vec(0,  1, 0), vec(0, 0,  1),
@@ -332,13 +341,12 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
         vec(1, 0, 0), vec(0, 0, 0), vec(1, 0, 1),
     }
     local marginPerSide = ss.MARGIN_HAMMER_UNITS
-    local bothSidesMargin = ss.vector_one * 2 * marginPerSide
+    local bothSidesMargin = Util.vector_one * 2 * marginPerSide
     local worldTmodel = Matrix()
     local absoluteuvRlocaluv = Matrix()
     local modelUVOriginInAbsoluteUV = Vector()
     local worldToUV = Matrix()
     for i, prop in ipairs(staticPropInfo or {}) do
-        setmetatable(prop, StaticPropMeta)
         local boundingBoxSize = prop.BoundsMax - prop.BoundsMin
         worldTmodel:SetAngles(prop.Angles)
         worldTmodel:SetTranslation(prop.Position)
@@ -352,14 +360,14 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
         end
 
         local modelTworld = worldTmodel:GetInverseTR()
-        local aabbMin, aabbMax = ss.TransformAABB(worldTmodel, vector_origin, boundingBoxSize)
+        local aabbMin, aabbMax = Util.TransformAABB(worldTmodel, vector_origin, boundingBoxSize)
         local uvScale ---@type number
         local bilinearGuard ---@type number
         local isRotated ---@type boolean
         if CLIENT then
             local rtIndex = #ss.RenderTarget.Resolutions
             local rtSize = ss.RenderTarget.Resolutions[rtIndex]
-            local uv = setmetatable(uvInfo[i][rtIndex], StaticPropUVMeta)
+            local uv = uvInfo[i][rtIndex]
             uvScale = ss.RenderTarget.HammerUnitsToUV
             bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
             isRotated = uv.Offset.z > 0
@@ -395,8 +403,9 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
             local faceSizeInModelSystem = Vector(
                 math.abs(boundingBoxSize:Dot(faceForwardInModelSystem)),
                 math.abs(boundingBoxSize:Dot(faceAngleInModelSystem:Right())))
-            local ps = ss.new "PaintableSurface"
-            ps.Index = index
+            local ps = newSurface(index,
+                math.ceil(faceSizeInModelSystem.x / ss.InkGridCellSize),
+                math.ceil(faceSizeInModelSystem.y / ss.InkGridCellSize))
             ps.AABBMax = aabbMax
             ps.AABBMin = aabbMin
             ps.WorldToLocalGridMatrix:SetAngles(faceAngleInModelSystem)
@@ -405,8 +414,6 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
             ps.WorldToLocalGridMatrix:Mul(modelTworld)                        -- faceTworld
             ps.Normal = Vector(faceNormalInModelSystem)
             ps.Normal:Rotate(worldTmodel:GetAngles())
-            ps.Grid.Width  = math.ceil(faceSizeInModelSystem.x / ss.InkGridCellSize)
-            ps.Grid.Height = math.ceil(faceSizeInModelSystem.y / ss.InkGridCellSize)
             ps.StaticPropUnwrapIndex = prop.UnwrapIndex
             ps.MBBAngles = worldTmodel:GetAngles()
             ps.MBBOrigin = worldTmodel:GetTranslation()
@@ -474,7 +481,9 @@ function ss.SetupSurfacesStaticProp(staticPropInfo, uvInfo)
                 ps.UVWidth  = (faceSizeInAbsoluteUV.x + 2 * marginPerSide) * uvScale - 2 * bilinearGuard
                 ps.UVHeight = (faceSizeInAbsoluteUV.y + 2 * marginPerSide) * uvScale - 2 * bilinearGuard
             end
-            ss.SurfaceArray[index] = ps
+            state.Surfaces[index] = ps
         end
     end
 end
+
+return PaintableSurface

@@ -1,16 +1,17 @@
 
+-- Small utilities used everywhere.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
+
+---@class ss.Util
+local Util = ss.module "splashsweps/shared/util"
 
 ---Utility constant number which represents really close to zero.
-ss.eps = 1e-16
+Util.eps = 1e-16
 
 ---Utility constant vector where all the elements are 1.0.
-ss.vector_one = Vector(1, 1, 1)
-
----Perform dot product to make any color monotone
-ss.GrayScaleFactor = Vector(0.2126, 0.7152, 0.0722)
+Util.vector_one = Vector(1, 1, 1)
 
 ---Assert but this states that the error was thrown by this addon.
 ---@generic T
@@ -19,7 +20,7 @@ ss.GrayScaleFactor = Vector(0.2126, 0.7152, 0.0722)
 ---@param ... any
 ---@return T
 ---@return any ...
-function ss.assert(v, message, ...)
+function Util.assert(v, message, ...)
     return assert(v, "[SplashSWEPs] " .. (message or "Assertion failed!"), ...)
 end
 
@@ -28,7 +29,7 @@ end
 ---@param path     string Same as the second argument of file.Find.
 ---@param pattern? string Optional wildcard pattern.
 ---@return fun(): string
-function ss.IterateFilesRecursive(root, path, pattern)
+function Util.IterateFilesRecursive(root, path, pattern)
     pattern = pattern and pattern:gsub("%*", ".*")
     return coroutine.wrap(function()
         ---The iterator.
@@ -55,7 +56,7 @@ end
 ---@param a Vector Vector to compare
 ---@param b Vector Vector to compare
 ---@return Vector # Vector containing smaller components
-function ss.MinVector(a, b)
+function Util.MinVector(a, b)
     return Vector(math.min(a.x, b.x), math.min(a.y, b.y), math.min(a.z, b.z))
 end
 
@@ -63,7 +64,7 @@ end
 ---@param a Vector Vector to compare
 ---@param b Vector Vector to compare
 ---@return Vector # Vector containing larger components
-function ss.MaxVector(a, b)
+function Util.MaxVector(a, b)
     return Vector(math.max(a.x, b.x), math.max(a.y, b.y), math.max(a.z, b.z))
 end
 
@@ -73,7 +74,7 @@ end
 ---@param maxs Vector  AABB maximum.
 ---@return Vector mins AABB minimum in the target coordinate system.
 ---@return Vector maxs AABB maximum in the target coordinate system.
-function ss.TransformAABB(m, mins, maxs)
+function Util.TransformAABB(m, mins, maxs)
     local center = m * ((mins + maxs) / 2)
     local halfExtent = (maxs - mins) / 2
     local function extent(i)
@@ -85,3 +86,39 @@ function ss.TransformAABB(m, mins, maxs)
     local transformedHalfExtent = Vector(extent(1), extent(2), extent(3))
     return center - transformedHalfExtent, center + transformedHalfExtent
 end
+
+---Performs a deep copy for given table.
+---Metatable will not be deep-copied.
+---@generic T: table<any, any>
+---@param t T|table<any, any>?
+---@param lookup table<any, any>?
+---@return T?
+function Util.deepcopy(t, lookup)
+    if t == nil then return nil end
+
+    ---@type table<any, any>
+    local copy = setmetatable({}, getmetatable(t))
+    for k, v in pairs(t) do
+        if istable(v) then
+            lookup = lookup or {}
+            lookup[t] = copy
+            if lookup[v] then
+                copy[k] = lookup[v]
+            else
+                copy[k] = Util.deepcopy(v, lookup)
+            end
+        elseif isvector(v) then
+            copy[k] = Vector(v)
+        elseif isangle(v) then
+            copy[k] = Angle(v)
+        elseif ismatrix(v) then
+            copy[k] = Matrix(v)
+        else
+            copy[k] = v
+        end
+    end
+
+    return copy
+end
+
+return Util

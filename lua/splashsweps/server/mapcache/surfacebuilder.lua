@@ -3,7 +3,9 @@
 local ss = SplashSWEPs
 if not ss then return end
 
-local BoundingBox = ss.import "splashsweps/server/mapcache/boundingbox"
+local BoundingBox   = ss.import "splashsweps/server/mapcache/boundingbox"
+local Util          = ss.import "splashsweps/shared/util"
+local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
 
 local abs = math.abs
 local ceil = math.ceil
@@ -89,11 +91,11 @@ local function BuildCubemapEntries(bsp)
     local mapName = game.GetMap():lower()
     for _, sample in ipairs(bsp.CUBEMAPS or {}) do
         local origin = Vector(round(sample.origin.x), round(sample.origin.y), round(sample.origin.z))
-        local cubemap = ss.new "PrecachedData.CubemapInfo"
+        local cubemap = PrecachedData.CubemapInfo.new()
         cubemap.Envmap = string.format("maps/%s/c%d_%d_%d", mapName, origin.x, origin.y, origin.z)
         cubemap.Origin:Set(origin)
-        cubemap.BoxMin:Set(ss.vector_one * math.huge)
-        cubemap.BoxMax:Set(ss.vector_one * -math.huge)
+        cubemap.BoxMin:Set(Util.vector_one * math.huge)
+        cubemap.BoxMax:Set(Util.vector_one * -math.huge)
         cubemaps[#cubemaps + 1] = cubemap
         cubemapsByOrigin[CubemapOriginKey(origin)] = cubemap
     end
@@ -105,8 +107,8 @@ end
 ---@param surf ss.PrecachedData.Surface
 local function AccumulateCubemapBox(cubemap, surf)
     if not cubemap then return end
-    cubemap.BoxMin:Set(ss.MinVector(cubemap.BoxMin, surf.AABBMin))
-    cubemap.BoxMax:Set(ss.MaxVector(cubemap.BoxMax, surf.AABBMax))
+    cubemap.BoxMin:Set(Util.MinVector(cubemap.BoxMin, surf.AABBMin))
+    cubemap.BoxMax:Set(Util.MaxVector(cubemap.BoxMax, surf.AABBMax))
     cubemap.FaceCount = cubemap.FaceCount + 1
     cubemap.Blend = 1
 end
@@ -133,7 +135,7 @@ local function SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
     surf.PaintGridWidth  = ceil(mbrSize.x / ss.InkGridCellSize)
     surf.PaintGridHeight = ceil(mbrSize.y / ss.InkGridCellSize)
     for i = 1, #ss.RenderTarget.Resolutions do
-        surf.UVInfo[i] = ss.new "PrecachedData.UVInfo"
+        surf.UVInfo[i] = PrecachedData.UVInfo.new()
         surf.UVInfo[i].Angle:Set(mbrMatrix:GetAngles())
         surf.UVInfo[i].Translation:Set(mbrMatrix:GetTranslation())
         surf.UVInfo[i].Width  = mbrSize.x
@@ -191,7 +193,7 @@ local function CalculateTriangleComponents(surf)
         local denominator = d1212 * d1313 - d1213 * d1213
         local barycentricDot1 = (d1313 * t1t2 - d1213 * t1t3) / denominator
         local barycentricDot2 = (d1212 * t1t3 - d1213 * t1t2) / denominator
-        local t = ss.new "PrecachedData.DisplacementTriangle"
+        local t = PrecachedData.DisplacementTriangle.new()
         t.Index = i
         t.BarycentricDot1 = barycentricDot1
         t.BarycentricDot2 = barycentricDot2
@@ -272,7 +274,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
         local e12 = e1:Dot(e2)
         local e22 = e2:Dot(e2)
         local det = e11 * e22 - e12 * e12
-        if math.abs(det) <= ss.eps then
+        if math.abs(det) <= Util.eps then
             return Vector(), Vector()
         end
 
@@ -292,7 +294,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
     end
 
     -- Collect displacement info
-    local surf            = ss.new "PrecachedData.Surface"
+    local surf            = PrecachedData.Surface.new()
     local rawDispInfo     = bsp.DISPINFO
     local rawDispVerts    = bsp.DISP_VERTS
     local rawMultiBlend   = bsp.DISP_MULTIBLEND
@@ -432,14 +434,14 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
             end
 
             -- Set bounding box
-            surf.AABBMax:Set(ss.MaxVector(surf.AABBMax, deformed[i]))
-            surf.AABBMin:Set(ss.MinVector(surf.AABBMin, deformed[i]))
+            surf.AABBMax:Set(Util.MaxVector(surf.AABBMax, deformed[i]))
+            surf.AABBMin:Set(Util.MinVector(surf.AABBMin, deformed[i]))
         end
     end
 
     -- Add margin to construct overlapped hash table entries
-    surf.AABBMax:Add(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
-    surf.AABBMin:Sub(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
+    surf.AABBMax:Add(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
+    surf.AABBMin:Sub(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
 
     local tangents     = {} ---@type Vector[]
     local binormals    = {} ---@type Vector[]
@@ -471,7 +473,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
         -- All triangles share the engine's winding (BuildTriTLtoBR/BLtoTR in builddisp.cpp),
         -- so this order gives the front side however the surface is folded.
         local triNormal = (deformed[i3] - deformed[i1]):Cross(deformed[i2] - deformed[i1])
-        if triNormal:LengthSqr() > ss.eps then
+        if triNormal:LengthSqr() > Util.eps then
             triNormal:Normalize()
             normals[i1]:Add(triNormal)
             normals[i2]:Add(triNormal)
@@ -503,14 +505,14 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
         end
 
         tangents[i] = normals[i]:Cross(textureVecT)
-        if tangents[i]:LengthSqr() <= ss.eps then
+        if tangents[i]:LengthSqr() <= Util.eps then
             tangents[i] = Vector(textureVecS)
         else
             tangents[i]:Normalize()
         end
 
         binormals[i] = tangents[i]:Cross(normals[i])
-        if binormals[i]:LengthSqr() <= ss.eps then
+        if binormals[i]:LengthSqr() <= Util.eps then
             binormals[i] = Vector(textureVecT)
         else
             binormals[i]:Normalize()
@@ -522,7 +524,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
     end
 
     for i, t in ipairs(triangles) do
-        surf.Vertices[i] = ss.new "PrecachedData.Vertex"
+        surf.Vertices[i] = PrecachedData.Vertex.new()
         surf.Vertices[i].Translation:Set(deformed[t])
         surf.Vertices[i].Normal:Set(normals[t])
         surf.Vertices[i].Tangent:Set(tangents[t])
@@ -613,7 +615,7 @@ local function BuildFromBrushFace(bsp, rawFace)
         CalculateTriangleComponents(surf)
         return surf, tobool(isWater)
     else
-        local surf = ss.new "PrecachedData.Surface"
+        local surf = PrecachedData.Surface.new()
         local mbrMatrix, mbrSize = BoundingBox.FindMBR(filteredVertices, angle)
         local bumpmapU = {} ---@type number[]
         local bumpmapV = {} ---@type number[]
@@ -621,8 +623,8 @@ local function BuildFromBrushFace(bsp, rawFace)
         local lightmapV = {} ---@type number[]
         local triangles = {} ---@type integer[]
         for i, v in ipairs(filteredVertices) do
-            surf.AABBMax:Set(ss.MaxVector(surf.AABBMax, v))
-            surf.AABBMin:Set(ss.MinVector(surf.AABBMin, v))
+            surf.AABBMax:Set(Util.MaxVector(surf.AABBMax, v))
+            surf.AABBMin:Set(Util.MinVector(surf.AABBMin, v))
             bumpmapU[i] = v:Dot(texInfo.textureVecS) + texInfo.textureOffsetS
             bumpmapV[i] = v:Dot(texInfo.textureVecT) + texInfo.textureOffsetT
             lightmapU[i] = v:Dot(texInfo.lightmapVecS)
@@ -636,8 +638,8 @@ local function BuildFromBrushFace(bsp, rawFace)
         end
 
         -- Add margin to construct overlapped hash table entries
-        surf.AABBMax:Add(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
-        surf.AABBMin:Sub(ss.vector_one * ss.MARGIN_HAMMER_UNITS)
+        surf.AABBMax:Add(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
+        surf.AABBMin:Sub(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
 
         -- Construct triangles
         for i = 2, #filteredVertices - 1 do
@@ -647,7 +649,7 @@ local function BuildFromBrushFace(bsp, rawFace)
         end
 
         for i, t in ipairs(triangles) do
-            surf.Vertices[i] = ss.new "PrecachedData.Vertex"
+            surf.Vertices[i] = PrecachedData.Vertex.new()
             surf.Vertices[i].Translation:Set(filteredVertices[t])
             surf.Vertices[i].Normal:Set(normal)
             surf.Vertices[i].Tangent:Set(texInfo.textureVecS)
@@ -678,7 +680,7 @@ end
 ---@return ss.PrecachedData.Surface[] water
 function ss.BuildSurfaceCache(bsp, ishdr)
     local t0 = SysTime()
-    local surfInfo = ss.new "PrecachedData.SurfaceInfo"
+    local surfInfo = PrecachedData.SurfaceInfo.new()
     local surf = surfInfo.Surfaces
     local water = {} ---@type ss.PrecachedData.Surface[]
     local lump = ishdr and bsp.FACES_HDR or bsp.FACES or {}
@@ -818,7 +820,7 @@ function ss.BuildStaticPropCache(bsp, cache)
                 }
                 uvinfo[#uvinfo + 1] = {}
                 for i = 1, #ss.RenderTarget.Resolutions do
-                    uvinfo[#uvinfo][i] = ss.new "PrecachedData.StaticProp.UVInfo"
+                    uvinfo[#uvinfo][i] = PrecachedData.StaticPropUVInfo.new()
                 end
             end
         end
@@ -826,7 +828,7 @@ function ss.BuildStaticPropCache(bsp, cache)
 
     cache.StaticProps = results
     cache.StaticPropHDR = uvinfo
-    cache.StaticPropLDR = ss.deepcopy(uvinfo) or {}
+    cache.StaticPropLDR = Util.deepcopy(uvinfo) or {}
     cache.StaticPropMDL = bsp.sprp.name or {}
     print("    Collected info for " .. #results .. " static props.")
 end

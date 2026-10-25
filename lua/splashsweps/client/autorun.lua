@@ -42,15 +42,20 @@ include "splashsweps/client/session.lua"
 include "splashsweps/client/staticpropbuilder.lua"
 include "splashsweps/client/surfacebuilder.lua"
 
+local InkFeature       = ss.import "splashsweps/shared/inkfeature"
+local InkShape         = ss.import "splashsweps/shared/inkshape"
+local InkType          = ss.import "splashsweps/shared/inktype"
+local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
+local PrecachedData    = ss.import "splashsweps/shared/typing/precachedata"
+
 local function LoadCache()
     local cachePath = string.format("splashsweps/%s.json", game.GetMap())
     local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
     local hdrPath = string.format("splashsweps/%s_hdr.json", game.GetMap())
     local ldrExists = file.Exists(ldrPath, "DATA")
     local hdrExists = file.Exists(hdrPath, "DATA")
-    local cache = util.JSONToTable(util.Decompress(file.Read(cachePath) or "") or "", true) ---@type ss.PrecachedData?
+    local cache = PrecachedData.restore(util.JSONToTable(util.Decompress(file.Read(cachePath) or "") or "", true))
     if not cache then return end
-    setmetatable(cache, getmetatable(ss.new "PrecachedData"))
 
     local ishdr = false
     if render.GetHDREnabled() then
@@ -64,22 +69,21 @@ local function LoadCache()
     local waterSurfaces = ishdr and cache.SurfacesWaterHDR or cache.SurfacesWaterLDR
 
     ---@type ss.PrecachedData.SurfaceInfo
-    local surfaces = util.JSONToTable(util.Decompress(file.Read(surfacePath) or "") or "", true) or {}
-    setmetatable(surfaces, getmetatable(ss.new "PrecachedData.SurfaceInfo"))
+    local surfaces = PrecachedData.SurfaceInfo.restore(util.JSONToTable(util.Decompress(file.Read(surfacePath) or "") or "", true) or {})
 
     ss.SURFACE_ID_BITS = select(2, math.frexp(#surfaces.Surfaces))
     ss.RenderTarget.HammerUnitsToUV = surfaces.UVScales[#ss.RenderTarget.Resolutions]
     ss.SurfaceHash = surfaces.SurfaceHash
-    ss.HashParameters = setmetatable(cache.HashParameters, getmetatable(ss.new "PrecachedData.HashParameters"))
+    ss.HashParameters = cache.HashParameters
 
     ss.SetupRenderTargets()
-    ss.LoadInkFeatures()
-    ss.LoadInkShapes()
-    ss.LoadInkTypes()
+    InkFeature.Load()
+    InkShape.Load()
+    InkType.Load()
     ss.LoadInkTypesRT()
     ss.SetupModels(surfaces, cache.NumModels, cache.MaterialNames)
-    ss.SetupSurfaces(surfaces.Surfaces, cache.NumModels)
-    ss.SetupSurfacesStaticProp(cache.StaticProps, staticPropUV)
+    PaintableSurface.Setup(surfaces.Surfaces, cache.NumModels)
+    PaintableSurface.SetupStaticProps(cache.StaticProps, staticPropUV)
     ss.SetupStaticProps(cache.StaticProps, cache.StaticPropMDL, staticPropUV, surfaces.Cubemaps)
     ss.ClearAllInk()
 end
