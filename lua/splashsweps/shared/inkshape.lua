@@ -23,7 +23,6 @@ local InkShape = ss.module "splashsweps/shared/inkshape"
 ---@field Identifier  string           The path of the vmt file under materials/splashsweps/paints.
 ---@field Grid        ss.InkShape.Grid Mask for drawing on PaintableSurface grid.
 ---@field MaskTexture string?          Only used clientside; mask texture to create drawing materials.
----@field UV          number[]?        Atlas range (minU, minV, maxU, maxV); negative minU encodes transposition.
 ---@field Channel     "R"|"G"|"B"|"A"? Determines which channel of MaskTexture to use.
 
 ---@class ss.InkShapeModule.State
@@ -36,7 +35,7 @@ local state = ss.state("splashsweps/shared/inkshape", { Shapes = {}, Lists = {} 
 InkShape.Shapes = state.Shapes
 
 ---Shape masks are signed distance fields where this value (0.5 in 0-255) is the edge.
----drawink_ps30.hlsl clips the paint by the same value.
+---The paint shader clips the paint by the same value.
 local SHAPE_MASK_EDGE = 127.5
 
 ---Read pixels from givem texture and stores them to the mask.

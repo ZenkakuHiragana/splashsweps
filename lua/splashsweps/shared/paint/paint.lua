@@ -9,6 +9,7 @@ local InkType          = ss.import "splashsweps/shared/inktype"
 local PaintableGrid    = ss.import "splashsweps/shared/paint/paintablegrid"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
 local Util             = ss.import "splashsweps/shared/util"
+local InkMap           = CLIENT and ss.import "splashsweps/client/render/inkmap" or nil
 
 ---@class ss.PaintModule
 local Paint = ss.module "splashsweps/shared/paint/paint"
@@ -177,8 +178,8 @@ local function PaintSurfaces(surfaces, mins, maxs, pos, ang, scale, shape, inkty
     for surf in surfaces do
         for p, a in Paint.EnumeratePositions(surf, mins, maxs, pos, ang) do
             PaintableGrid.Write(surf, p, a, scale, inktype, shape)
-            if CLIENT then
-                ss.PushPaintRenderTargetQueue(surf, p, a, scale, shape, inktype)
+            if InkMap then
+                InkMap.Push(surf, p, a, scale, shape, inktype)
             end
         end
     end
@@ -248,6 +249,54 @@ function Paint.Paint(worldPos, worldAng, scale, shape, inktype)
         end
 
         Paint.PaintBrushModel(modelIndex, localPos, localAng, scale, shape, inktype)
+    end
+end
+
+if SERVER then
+    ---Clears all painted ink in the map, and tells the clients to clear theirs.
+    function Paint.ClearAll()
+        for _, s in ipairs(PaintableSurface.Surfaces) do PaintableGrid.Clear(s) end
+        net.Start "SplashSWEPs: Clear all ink"
+        ---@diagnostic disable-next-line undefined-field
+        net.Broadcast()
+    end
+end
+
+if CLIENT then
+    local net_ReadInt = net.ReadInt
+    local net_ReadUInt = net.ReadUInt
+
+    ---Reads the common part of paint messages written by WritePaintAndSend.
+    ---@return Vector  pos
+    ---@return Angle   angle
+    ---@return Vector  scale
+    ---@return integer shapeIndex
+    ---@return integer inktype
+    function Paint.Read()
+        local inktype    = net_ReadUInt(InkType.GetNumBits()) + 1 -- Ink type
+        local shapeIndex = net_ReadUInt(InkShape.GetNumBits()) + 1 -- Ink shape
+        local pitch      = net_ReadInt(8) -- Pitch
+        local yaw        = net_ReadInt(8) -- Yaw
+        local roll       = net_ReadInt(8) -- Roll
+        local x          = net_ReadInt(15) * 2 -- X
+        local y          = net_ReadInt(15) * 2 -- Y
+        local z          = net_ReadInt(15) * 2 -- Z
+        local sx         = net_ReadUInt(ss.MAX_INK_RADIUS_BITS) * 2 -- Scale X
+        local sy         = net_ReadUInt(ss.MAX_INK_RADIUS_BITS) * 2 -- Scale Y
+        local sz         = net_ReadUInt(ss.MAX_INK_RADIUS_BITS) * 2 -- Scale Z
+        local scale      = Vector(sx, sy, sz)
+        local pos        = Vector(x, y, z)
+        local angle      = Angle(
+            Remap(pitch, -128, 127, -180, 180),
+            Remap(yaw,   -128, 127, -180, 180),
+            Remap(roll,  -128, 127, -180, 180))
+        return pos, angle, scale, shapeIndex, inktype
+    end
+
+    ---Reads the model index of brush model paint messages, written before the common part.
+    ---@return integer modelIndex
+    function Paint.ReadModelIndex()
+        return net_ReadUInt(PaintableSurface.GetModelIndexBits()) + 1 -- Model index
     end
 end
 

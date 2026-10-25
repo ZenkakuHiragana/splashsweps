@@ -14,6 +14,11 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local InkAtlases    = ss.import "splashsweps/client/ink/atlases"
+local InkMap        = ss.import "splashsweps/client/render/inkmap"
+local RenderTargets = ss.import "splashsweps/client/render/rendertargets"
+local WorldMesh     = ss.import "splashsweps/client/render/worldmesh"
+
 local enabled = false
 local showSkinned = true
 local probeMaterial = Material("splashsweps/shaders/debug_probe")
@@ -209,7 +214,7 @@ concommand.Add("ss_debug_shader_screen", function(_, _, args)
     if screenDebugEnabled then
         hook.Add("PostDrawOpaqueRenderables", hookScreen, DrawScreenDebug)
         hook.Add("HUDPaint", hookScreen, function()
-            render.DrawTextureToScreenRect(ss.RenderTarget.FrameTextures.SceneAndFlashlight, 16, 16, 512, 1024 * ScrH() / ScrW())
+            render.DrawTextureToScreenRect(RenderTargets.Frame.SceneAndFlashlight, 16, 16, 512, 1024 * ScrH() / ScrW())
         end)
     else
         hook.Remove("PostDrawOpaqueRenderables", hookScreen)
@@ -226,7 +231,7 @@ end)
 concommand.Add("ss_reload_shader", function(_, _, _)
     local latestShaderNames = {} ---@type table<string, string|false> Shader file name without number -> result
 
-    ---Finds the latest build of the shader a material refers to, numbered by build.ps1 or not.
+    ---Finds the latest build of the shader a material refers to, numbered by the shader build script or not.
     ---Shaders are shared between materials, and inkmesh materials use the pixel shader for their underlay.
     ---Each shader is searched once, as hundreds of materials share a few shaders.
     ---@param shaderName string? Value of $vertexshader or $pixshader, e.g. "splashsweps/3_inkmesh_ps30"
@@ -245,7 +250,7 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     for _, name in ipairs { "inkmesh", "inkssr_compose", "inkssr" } do
         materials[#materials + 1] = Material("splashsweps/shaders/" .. name)
     end
-    for _, batch in ipairs(ss.RenderBatches) do
+    for _, batch in ipairs(WorldMesh.Batches) do
         for _, model in ipairs(batch) do
             materials[#materials + 1] = model.Material
         end
@@ -270,12 +275,12 @@ concommand.Add("ss_reload_shader", function(_, _, _)
         update[1]:Recompute()
     end
 
-    ss.ClearAllInk()
-    ss.LoadInkTypesRT()
+    InkMap.ClearAll()
+    InkAtlases.Load()
 end)
 
 -- Rebuild RTs from the loaded definitions; VMT enumeration and updater loading live in LoadInkTypes.
-concommand.Add("ss_reload_inktype", function() ss.LoadInkTypesRT() end)
+concommand.Add("ss_reload_inktype", function() InkAtlases.Load() end)
 concommand.Add("ss_debug_mesh_probe_skin", function()
     showSkinned = not showSkinned
     print(string.format("[SplashSWEPs] Skinned probe mesh: %s", showSkinned and "ON" or "OFF"))

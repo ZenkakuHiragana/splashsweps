@@ -3,12 +3,8 @@
 
 // Ink part of the ink mesh pixel shaders for SplashSWEPs, shared by the geometry kinds.
 //
-//   inkmesh_ps30.hlsl, inkmesh_wvt_ps30.hlsl, inkmesh_4wayblend_ps30.hlsl (UNDERLAY_KIND),
-//   staticprop_ps30.hlsl (INKMESH_STATIC_PROP)
-//   `-- inkmesh_ps_main.hlsl              main()
-//       `-- inkmesh_ps_world.hlsl         or inkmesh_ps_staticprop.hlsl with INKMESH_STATIC_PROP
-//           `-- inkmesh_ps_ink.hlsl       this file
-//               `-- inkmesh_common.hlsl
+// Each entry shader selects the kind of the world underlay by UNDERLAY_KIND, or static props by INKMESH_STATIC_PROP,
+// and includes main(), which includes the part of the geometry kind, which includes this ink part.
 #include "inkmesh_common.hlsl"
 
 // Build configurations

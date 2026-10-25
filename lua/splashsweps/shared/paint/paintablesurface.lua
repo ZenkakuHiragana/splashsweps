@@ -4,6 +4,7 @@
 ---@class ss
 local ss = SplashSWEPs
 local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
+local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
 local Util          = ss.import "splashsweps/shared/util"
 
 ---@class ss.PaintableSurfaceModule
@@ -88,7 +89,7 @@ local state = ss.state("splashsweps/shared/paint/paintablesurface", {
 ---Paintable surfaces of the world and static props.
 PaintableSurface.Surfaces = state.Surfaces
 
----Paintable surfaces of brush entities, which are not registered to the spatial hash of shared/hash.lua
+---Paintable surfaces of brush entities, which are not registered to the spatial hash of the world
 ---because they can move away from where the map compiler put them.
 --- `= { [model index] = { surface, ... }, ... }`
 ---where the model index is 1-based index of the BSP model lump (`*N` model name refers to N + 1),
@@ -176,8 +177,8 @@ function PaintableSurface.Setup(surfaces, numModels)
             }
         end
         if CLIENT then
-            local rtIndex = #ss.RenderTarget.Resolutions
-            local rtSize = ss.RenderTarget.Resolutions[rtIndex]
+            local rtIndex = #PrecachedData.InkMapResolutions
+            local rtSize = PrecachedData.InkMapResolutions[rtIndex]
             local uvInfo = surf.UVInfo[rtIndex]
             tempMatrix:SetAngles(uvInfo.Angle)
             tempMatrix:SetTranslation(uvInfo.Translation)
@@ -308,7 +309,8 @@ end
 ---- `sz` is the smallest: (X, Y, Z) -> (Z, X, Y)
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
 ---@param uvInfo ss.PrecachedData.StaticProp.UVInfo[][]
-function PaintableSurface.SetupStaticProps(staticPropInfo, uvInfo)
+---@param hammerUnitsToUV number? Clientside conversion multiplier from hammer units to UV coordinates of the ink map.
+function PaintableSurface.SetupStaticProps(staticPropInfo, uvInfo, hammerUnitsToUV)
     local numSurfaces = #state.Surfaces
     local vec = Vector
     local localNormals = {
@@ -365,10 +367,10 @@ function PaintableSurface.SetupStaticProps(staticPropInfo, uvInfo)
         local bilinearGuard ---@type number
         local isRotated ---@type boolean
         if CLIENT then
-            local rtIndex = #ss.RenderTarget.Resolutions
-            local rtSize = ss.RenderTarget.Resolutions[rtIndex]
+            local rtIndex = #PrecachedData.InkMapResolutions
+            local rtSize = PrecachedData.InkMapResolutions[rtIndex]
             local uv = uvInfo[i][rtIndex]
-            uvScale = ss.RenderTarget.HammerUnitsToUV
+            uvScale = hammerUnitsToUV
             bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
             isRotated = uv.Offset.z > 0
             if isRotated then

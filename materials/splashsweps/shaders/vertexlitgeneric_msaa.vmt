@@ -1,6 +1,6 @@
 "VertexLitGeneric"
 {
-    // vertexlitgeneric.vmt for MSAA. See DrawStaticPropsFlashlight in inkrenderer.lua.
+    // Flashlight light on the static props with MSAA. See StaticPropRenderer.DrawFlashlight.
     "$basetexture" "white"
     "$bumpmap"     "null-bumpmap"
     "$phong"       "0"

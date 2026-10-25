@@ -1,54 +1,29 @@
 
 if not SplashSWEPs then
-    ---@class ss.MeshData
-    ---@field EnvmapSource IMaterial? For some reason $envmap is not set at InitPostEntity so use this to fetch later.
-    ---@field Material IMaterial The material to draw this mesh.
-    ---@field Mesh IMesh The IMesh object to render this part of surfaces.
-
-    ---@class ss.RenderBatch
-    ---@field BrushEntity Entity? The brush entity tied to this mesh, if any.
-    ---@field FlashlightMeshes IMesh[] Positions and normals of all the surfaces in this model, for the flashlight pass.
-    ---@field [integer] ss.MeshData List of meshes to render this model.
-
     ---@class ss
-    SplashSWEPs = {
-        ---List of IMeshes to render the painted ink.
-        ---@type ss.RenderBatch[]
-        RenderBatches = {},
-
-        ---Ink material of the world ink meshes --> bound geometry material.
-        ---@type table<IMaterial, IMaterial>
-        InkMeshMaterials = {},
-
-        ---Ink material of the static props --> bound model material.
-        ---@type table<IMaterial, IMaterial>
-        StaticPropInkMaterials = {},
-    }
+    SplashSWEPs = {}
 end
 
 ---@class ss
 local ss = SplashSWEPs
 
----Envmap the engine falls back to when a material has no cubemap to use.
-ss.DEFAULT_ENVMAP = "editor/cubemap" .. (render.GetHDREnabled() and ".hdr" or "")
-
 include "splashsweps/shared/autorun.lua"
 include "splashsweps/client/debug_mesh.lua"
-include "splashsweps/client/inkdetail.lua"
-include "splashsweps/client/inkrenderer.lua"
-include "splashsweps/client/inktype.lua"
-include "splashsweps/client/rtbuilder.lua"
-include "splashsweps/client/session.lua"
-include "splashsweps/client/staticpropbuilder.lua"
-include "splashsweps/client/surfacebuilder.lua"
+include "splashsweps/client/render/inkpass.lua"
 
-local Hash             = ss.import "splashsweps/shared/hash"
-local InkFeature       = ss.import "splashsweps/shared/inkfeature"
-local InkShape         = ss.import "splashsweps/shared/inkshape"
-local InkType          = ss.import "splashsweps/shared/inktype"
-local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
-local Players          = ss.import "splashsweps/shared/players"
-local PrecachedData    = ss.import "splashsweps/shared/typing/precachedata"
+local Hash              = ss.import "splashsweps/shared/hash"
+local InkAtlases        = ss.import "splashsweps/client/ink/atlases"
+local InkFeature        = ss.import "splashsweps/shared/inkfeature"
+local InkMap            = ss.import "splashsweps/client/render/inkmap"
+local InkShape          = ss.import "splashsweps/shared/inkshape"
+local InkType           = ss.import "splashsweps/shared/inktype"
+local PaintableSurface  = ss.import "splashsweps/shared/paint/paintablesurface"
+local Players           = ss.import "splashsweps/shared/players"
+local PrecachedData     = ss.import "splashsweps/shared/typing/precachedata"
+local RenderTargets     = ss.import "splashsweps/client/render/rendertargets"
+local StaticPropBuilder = ss.import "splashsweps/client/mapload/staticpropbuilder"
+local Paint             = ss.import "splashsweps/shared/paint/paint"
+local WorldMesh         = ss.import "splashsweps/client/render/worldmesh"
 
 local function LoadCache()
     local cachePath = string.format("splashsweps/%s.json", game.GetMap())
@@ -73,19 +48,18 @@ local function LoadCache()
     ---@type ss.PrecachedData.SurfaceInfo
     local surfaces = PrecachedData.SurfaceInfo.restore(util.JSONToTable(util.Decompress(file.Read(surfacePath) or "") or "", true) or {})
 
-    ss.RenderTarget.HammerUnitsToUV = surfaces.UVScales[#ss.RenderTarget.Resolutions]
     Hash.Setup(surfaces.SurfaceHash, cache.HashParameters)
-
-    ss.SetupRenderTargets()
+    RenderTargets.Setup(surfaces.UVScales[#PrecachedData.InkMapResolutions])
     InkFeature.Load()
     InkShape.Load()
     InkType.Load()
-    ss.LoadInkTypesRT()
-    ss.SetupModels(surfaces, cache.NumModels, cache.MaterialNames)
+    InkAtlases.Load()
+    InkMap.Setup()
+    WorldMesh.Setup(surfaces, cache.NumModels, cache.MaterialNames)
     PaintableSurface.Setup(surfaces.Surfaces, cache.NumModels)
-    PaintableSurface.SetupStaticProps(cache.StaticProps, staticPropUV)
-    ss.SetupStaticProps(cache.StaticProps, cache.StaticPropMDL, staticPropUV, surfaces.Cubemaps)
-    ss.ClearAllInk()
+    PaintableSurface.SetupStaticProps(cache.StaticProps, staticPropUV, RenderTargets.GetHammerUnitsToUV())
+    StaticPropBuilder.Setup(cache.StaticProps, cache.StaticPropMDL, staticPropUV, surfaces.Cubemaps)
+    InkMap.ClearAll()
 end
 
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
@@ -95,7 +69,16 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     net.SendToServer()
 end)
 
-net.Receive("SplashSWEPs: Clear all ink", function() ss.ClearAllInk() end)
+net.Receive("SplashSWEPs: Paint", function()
+    Paint.PaintWorld(Paint.Read())
+end)
+
+net.Receive("SplashSWEPs: Paint brush model", function()
+    local modelIndex = Paint.ReadModelIndex()
+    Paint.PaintBrushModel(modelIndex, Paint.Read())
+end)
+
+net.Receive("SplashSWEPs: Clear all ink", function() InkMap.ClearAll() end)
 net.Receive("SplashSWEPs: Refresh players table", function()
     Players.Replace(net.ReadTable())
 end)

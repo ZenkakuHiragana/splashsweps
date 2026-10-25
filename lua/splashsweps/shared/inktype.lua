@@ -13,9 +13,6 @@ local InkType = ss.module "splashsweps/shared/inktype"
 ---@field Index           integer   Internal index number used by networking.
 ---@field Identifier      string    The name of the material defining this type of ink.
 ---@field Features        string[]  List of features this type of ink will have.
----@field BaseUV          number[]? Atlas range (minU, minV, maxU, maxV) of $basetexture; negative minU encodes transposition
----@field TintUV          number[]? Atlas range (minU, minV, maxU, maxV) of $tinttexture; negative minU encodes transposition
----@field DetailBlendMode integer   $detailblendmode written to the ink map, 0 if the detail is disabled.
 
 ---@class ss.InkTypeModule.State
 ---@field Types             ss.InkType[]           Defined ink types indexed by their internal index.
@@ -43,13 +40,6 @@ end
 
 ---Reads all JSON files and defines all ink types used in this addon.
 function InkType.Load()
-    -- Load custom ink detail updaters recursively. splashsweps_includes.lua sends them to clients.
-    if CLIENT then
-        for lua in Util.IterateFilesRecursive("splashsweps/client/inktypes", "LUA") do
-            include(lua)
-        end
-    end
-
     local inktypeCount = 0
     for f in Util.IterateFilesRecursive("materials/splashsweps/inktypes", "GAME", "*.vmt") do
         local mat = Material(f:sub(11))
@@ -60,7 +50,6 @@ function InkType.Load()
                 Index = inktypeCount,
                 Identifier = name,
                 Features = (mat:GetString "$features" or ""):Split "%s+",
-                DetailBlendMode = 0,
             }
             state.IdentifierToIndex[name] = inktypeCount
         end

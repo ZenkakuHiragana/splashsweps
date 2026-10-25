@@ -1,4 +1,4 @@
-// Shading of the ink mesh pixel shaders for SplashSWEPs, shared by the geometry kinds; see inkmesh_ps_ink.hlsl
+// Shading of the ink mesh pixel shaders for SplashSWEPs, shared by the geometry kinds
 
 // Geometry part selected by the entry shader
 #ifdef INKMESH_STATIC_PROP

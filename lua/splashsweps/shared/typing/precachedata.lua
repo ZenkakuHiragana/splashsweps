@@ -25,6 +25,10 @@ local Util = ss.import "splashsweps/shared/util"
 ---@field HashParameters       { new: (fun(): ss.PrecachedData.HashParameters), restore: (fun(t: table?): ss.PrecachedData.HashParameters?) }
 local PrecachedData = ss.module "splashsweps/shared/typing/precachedata"
 
+---Resolutions of the ink map, which the UV arrays of the cache are indexed by.
+---The client uses the last one.
+PrecachedData.InkMapResolutions = { 4096, 8192, 16384 }
+
 ---A field of a record: `{ name, default, of = type of the elements if the field is an array }`.
 ---The default is used as follows so that instances do not share mutable values:
 ---a record is created by its new(), a function is called, a table is deep-copied, and others are used as is.
@@ -220,7 +224,7 @@ PrecachedData.UVInfo = record {
 ---@field Position     Vector  The origin.
 ---@field Scale        number  The model scale of this prop.
 ---@field Skin         integer The skin of this prop.
----@field UnwrapIndex  integer Describes how the bounding box is unwrapped in UV space.  See GetStaticPropUVSize in cachebuilder.lua.
+---@field UnwrapIndex  integer Describes how the bounding box is unwrapped in UV space.  See GetStaticPropUVSize.
 ---@field CubemapIndex integer Index to ss.PrecachedData.SurfaceInfo.Cubemaps of the cubemap the engine uses, or 0 if none.
 PrecachedData.StaticProp = record {
     { "Angles",       Angle },
@@ -329,7 +333,7 @@ PrecachedData.CubemapInfo = record {
 ---@class ss.PrecachedData.SurfaceInfo
 ---@field Lightmaps   ss.PrecachedData.LightmapInfo[] Array made from LUMP_FACES used to pack lightmaps.
 ---@field Surfaces    ss.PrecachedData.Surface[] Array of paintable surfaces.
----@field SurfaceHash table<integer, integer[]> Spatial hash given to Hash.Setup (shared/hash.lua).
+---@field SurfaceHash table<integer, integer[]> Spatial hash given to Hash.Setup.
 ---@field UVScales    number[]  Render target size index -> Hammer units to UV multiplier
 ---@field Cubemaps    ss.PrecachedData.CubemapInfo[] Cubemap samples and paintable face bounds using them.
 PrecachedData.SurfaceInfo = record {

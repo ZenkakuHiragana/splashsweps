@@ -8,7 +8,7 @@ local ss = SplashSWEPs
 ---@class ss.RBTree
 ---@field root ss.RBTreeNode?
 ---@field lessFunc fun(a: any, b: any): boolean
-local RBTree = ss.module "splashsweps/client/rbtree"
+local RBTree = ss.module "splashsweps/client/mapload/rbtree"
 RBTree.__index = RBTree
 
 ---Indicates the color of the Red-Black tree. Red is true.

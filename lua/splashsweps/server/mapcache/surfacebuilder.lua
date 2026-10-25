@@ -137,7 +137,7 @@ local function SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
     surf.TransformPaintGrid.Angle:Set(paintGridMatrix:GetAngles())
     surf.PaintGridWidth  = ceil(mbrSize.x / ss.InkGridCellSize)
     surf.PaintGridHeight = ceil(mbrSize.y / ss.InkGridCellSize)
-    for i = 1, #ss.RenderTarget.Resolutions do
+    for i = 1, #PrecachedData.InkMapResolutions do
         surf.UVInfo[i] = PrecachedData.UVInfo.new()
         surf.UVInfo[i].Angle:Set(mbrMatrix:GetAngles())
         surf.UVInfo[i].Translation:Set(mbrMatrix:GetTranslation())
@@ -822,7 +822,7 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
                     CubemapIndex = FindStaticPropCubemap(bsp, prop, illumpositions[name]),
                 }
                 uvinfo[#uvinfo + 1] = {}
-                for i = 1, #ss.RenderTarget.Resolutions do
+                for i = 1, #PrecachedData.InkMapResolutions do
                     uvinfo[#uvinfo][i] = PrecachedData.StaticPropUVInfo.new()
                 end
             end

@@ -1,12 +1,15 @@
+
+-- Tells whether this is the first map loaded in this process of the game.
+
 ---@class ss
 local ss = SplashSWEPs
-local locals = ss.Locals ---@class ss.Locals
-if not locals.Session then
-    ---@class ss.Locals.Session
-    ---@field IsFirstRunInSession boolean? Cached across hot reloads; nil until material enumeration.
-    locals.Session = {}
-end
-local session = locals.Session
+
+---@class ss.SessionModule
+local Session = ss.module "splashsweps/client/session"
+
+---@class ss.SessionModule.State
+---@field IsFirstRun boolean? Cached across hot reloads; nil until material enumeration.
+local state = ss.state("splashsweps/client/session", {}) ---@type ss.SessionModule.State
 
 -- The path to the file where we store the calculated application start time.
 local START_TIME_FILE_PATH = "splashsweps/session-start-time.txt"
@@ -31,23 +34,25 @@ local function checkSessionState()
         -- If there was no stored start time, or if the newly calculated start time
         -- differs significantly from the stored one, it proves that this is a new
         -- gmod.exe session. This is the definitive "First Run".
-        session.IsFirstRunInSession = true
+        state.IsFirstRun = true
 
         -- Write the new, authoritative start time to the file for this session.
         file.Write(START_TIME_FILE_PATH, tostring(currentStartTime))
     else
         -- The calculated start time is consistent with the stored one. We are in
         -- the same gmod.exe session. This is not the first run.
-        session.IsFirstRunInSession = false
+        state.IsFirstRun = false
     end
 end
 
 ---Returns whether this is the first map with material enumeration in this process.
 ---Check lazily so a missing map cache cannot mark old material names as current.
 ---@return boolean
-function ss.IsFirstRunInSession()
-    if session.IsFirstRunInSession == nil then
+function Session.IsFirstRun()
+    if state.IsFirstRun == nil then
         checkSessionState()
     end
-    return session.IsFirstRunInSession
+    return state.IsFirstRun
 end
+
+return Session

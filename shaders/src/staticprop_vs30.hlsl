@@ -14,7 +14,7 @@ struct VS_INPUT {
     float4 tangentT    : BINORMAL0;
 };
 
-// See inkmesh_ps_staticprop.hlsl for PS_INPUT
+// Matches PS_INPUT of the static prop ink pixel shader
 struct VS_OUTPUT {
     float4 pos               : POSITION;
     float4 worldPos_ClipW    : TEXCOORD0;

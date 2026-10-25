@@ -1,12 +1,12 @@
-// Ink Mesh Pixel Shader for SplashSWEPs, world geometry part; see inkmesh_ps_ink.hlsl
+// Ink Mesh Pixel Shader for SplashSWEPs, world geometry part
 // Based on LightmappedGeneric pixel shader with bumped lightmaps
 
 #include "inkmesh_ps_ink.hlsl"
 
 // Kind of the underlay material, built as separate shaders so that the temp registers are allocated per kind.
-//   inkmesh_ps30.hlsl           .. UNDERLAY_SINGLE: no $basetexture2, and the simplified pass
-//   inkmesh_wvt_ps30.hlsl       .. UNDERLAY_WVT: WorldVertexTransition, has $basetexture2
-//   inkmesh_4wayblend_ps30.hlsl .. UNDERLAY_4WAYBLEND: Lightmapped_4WayBlend, has $basetexture3
+//   UNDERLAY_SINGLE    .. no $basetexture2, and the simplified pass
+//   UNDERLAY_WVT       .. WorldVertexTransition, has $basetexture2
+//   UNDERLAY_4WAYBLEND .. Lightmapped_4WayBlend, has $basetexture3
 #define UNDERLAY_SINGLE    0
 #define UNDERLAY_WVT       1
 #define UNDERLAY_4WAYBLEND 2
@@ -59,7 +59,7 @@ static const float3x3 BumpBasis = {
 };
 
 #if HAS_UNDERLAY_ATLAS
-sampler UnderlayAtlas  : register(s5); // Built by ss.BuildUnderlayTexturePack
+sampler UnderlayAtlas  : register(s5); // Built by Underlay.Build
 #else
 sampler UnderlayDetail : register(s5); // $detail
 #endif
@@ -81,7 +81,7 @@ static const bool g_HasBumpedLightmap = fmod(floor(g_MaterialFlags / 1),  2.0) >
 static const bool g_Simplified        = UNDERLAY_KIND == UNDERLAY_SINGLE && fmod(floor(g_MaterialFlags / 16), 2.0) > 0.5;
 
 #if HAS_UNDERLAY_ATLAS
-// Cells of the underlay atlas built by ss.BuildUnderlayTexturePack.
+// Cells of the underlay atlas built by Underlay.Build.
 // Lightmapped_4WayBlend has the third column.
 //   row 0: $detail,               $basetexture2,         $basetexture3
 //   row 1: $blendmodulatetexture, $bumpmap2 or $bumpmap, $basetexture4

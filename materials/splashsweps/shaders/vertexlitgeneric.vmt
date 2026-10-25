@@ -1,6 +1,6 @@
 "VertexLitGeneric"
 {
-    // Flashlight light on the static props. See DrawStaticPropsFlashlight in inkrenderer.lua.
+    // Flashlight light on the static props. See StaticPropRenderer.DrawFlashlight.
     // $alphatest: draws only where the depth equals. $nocull: the ink of $nocull materials has back faces.
     "$basetexture" "white"
     "$bumpmap"     "null-bumpmap"

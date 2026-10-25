@@ -1,10 +1,10 @@
-// Ink Mesh Pixel Shader for SplashSWEPs, static prop part; see inkmesh_ps_ink.hlsl
+// Ink Mesh Pixel Shader for SplashSWEPs, static prop part
 // Draws the ink on the model of a static prop, which reads the ink map by the box projection of its bounding box.
 // The previous VertexLitGeneric draw of the same prop leaves its lighting in the constants.
 
 #include "inkmesh_ps_ink.hlsl"
 
-// See staticprop_vs30.hlsl for VS_OUTPUT
+// Matches VS_OUTPUT of the static prop vertex shader
 struct PS_INPUT {
     float4 screenPos         : VPOS;
     float  face              : VFACE; // Negative on the back faces, drawn for $nocull materials
@@ -47,17 +47,17 @@ struct PsVertexInfo {
 static const bool g_Simplified = false;
 
 // Light the flashlights cast on the static props, drawn with the depth buffer of the frame.
-// See DrawStaticPropsFlashlight in inkrenderer.lua.
+// See StaticPropRenderer.DrawFlashlight.
 sampler StaticPropFlashlight : register(s5);
 
-// Written by ss.SetupStaticProps. c0.yzw, c2.zw, and c11..c14.w are unused.
+// Written by StaticPropBuilder.Setup. c0.yzw, c2.zw, and c11..c14.w are unused.
 static const float  g_PackedRotatedWidth = c1.y;  // Width of the packed rectangle in Hammer units if rotated, 0 otherwise
 static const float  g_AlphaTestReference = c1.w;  // $basetexture alpha below this has no ink, 0 to draw everywhere
 static const float2 g_PackedOrigin       = c2.xy; // Origin of the packed rectangle in Hammer units
 static const float3 g_BoxSize            = c18.xyz;
 static const float  g_FaceMargin         = c18.w; // Margin of each face cell per side in Hammer units
 
-// Inset of the clip range of each face in ink map UV, as PaintableSurface.SetupStaticProps and inkmesh_vs30.hlsl do
+// Inset of the clip range of each face in ink map UV, as PaintableSurface.SetupStaticProps and the world ink mesh vertex shader do
 static const float RT_BILINEAR_GUARD_PIXELS = c0.x; // ss.RT_BILINEAR_GUARD_PIXELS
 static const float g_ClipGuard = 0.5 * RT_BILINEAR_GUARD_PIXELS * g_RTSize.x;
 
@@ -173,7 +173,7 @@ void MapToInkMap(const float3 worldPos, const float3 worldNormal, inout PsVertex
     float3 gradU     = isRotated ? -faceGradV : faceGradU;
     float3 gradV     = isRotated ?  faceGradU : faceGradV;
 
-    // U and V in the cache are V and U in the ink map, as PaintableSurface.Setup and inkmesh_vs30.hlsl do
+    // U and V in the cache are V and U in the ink map, as PaintableSurface.Setup and the world ink mesh vertex shader do
     float uvPerHU  = rcp(g_InkMapHUPerUV);
     v.inkUV        = float3((g_PackedOrigin + packedUV).yx * uvPerHU, 0.0);
     v.minUV        = (g_PackedOrigin + packedMin).yx * uvPerHU + g_ClipGuard;

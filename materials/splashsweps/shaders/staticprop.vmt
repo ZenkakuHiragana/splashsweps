@@ -1,6 +1,6 @@
 "Screenspace_General_8Tex"
 {
-    // Template of the ink materials of static props. See ss.SetupStaticProps.
+    // Template of the ink materials of static props. See StaticPropBuilder.Setup.
     "$pixshader"    "splashsweps/staticprop_ps30"
     "$vertexshader" "splashsweps/staticprop_vs30"
     "$linearread_basetexture" "1"

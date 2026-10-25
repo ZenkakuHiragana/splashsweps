@@ -12,7 +12,7 @@ local ss = SplashSWEPs
 ---@field MaxBlockHeight integer Height of the smallest block that has failed to fit.
 ---@field MinHeight integer Height the placed blocks need, or -1 before any block is placed.
 ---@field SortID integer
-local SkylinePacker = ss.module "splashsweps/client/skylinepacker"
+local SkylinePacker = ss.module "splashsweps/client/mapload/skylinepacker"
 SkylinePacker.__index = SkylinePacker
 
 ---Finds the highest point on the skyline within a given width.

@@ -3,6 +3,7 @@
 
 ---@class ss
 local ss = SplashSWEPs
+local PrecachedData   = ss.import "splashsweps/shared/typing/precachedata"
 local RectanglePacker = ss.import "splashsweps/shared/packer/packer"
 local Structures      = ss.import "splashsweps/shared/packer/structures"
 
@@ -28,7 +29,7 @@ function UVBuilder.Build(surfInfo, staticPropInfo, staticPropRectangles)
 
     local t0 = SysTime()
     local workMatrix = Matrix() -- Work area to invert matrix.
-    for rtIndex, rtSize in ipairs(ss.RenderTarget.Resolutions) do
+    for rtIndex, rtSize in ipairs(PrecachedData.InkMapResolutions) do
         local rects = {} ---@type ss.Rectangle[]
         local marginPerSide = ss.MARGIN_HAMMER_UNITS
         local margin = marginPerSide * 2

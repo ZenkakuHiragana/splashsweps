@@ -30,14 +30,15 @@
 
 ## Code conventions that matter here
 
-- A module file starts with `local M = ss.module "<its import path>"` and ends with `return M`. Keep state that must survive hot reload in `ss.state("<its import path>", { ... })`, not `ss.Locals`. A class-like module is its own metatable (`M.__index = M`, constructor `M.new`, methods `function M:Method()`), as in `client/rbtree.lua`. Do not copy fields of an imported module into locals when the file is loaded; hot reload replaces them in the module table.
+- A module file starts with `local M = ss.module "<its import path>"` and ends with `return M`. Keep state that must survive hot reload in `ss.state("<its import path>", { ... })`, not `ss.Locals`. A class-like module is its own metatable (`M.__index = M`, constructor `M.new`, methods `function M:Method()`), as in `client/mapload/rbtree.lua`. Do not copy fields of an imported module into locals when the file is loaded; hot reload replaces them in the module table.
 - Map cache records are defined in `lua/splashsweps/shared/typing/precachedata.lua`: each lists its fields with defaults in JSON array order, created by `PrecachedData.<Record>.new()`. JSON decoded from the cache files gets its metatables only from `PrecachedData.restore` and `PrecachedData.SurfaceInfo.restore`; do not call `setmetatable` on cache data elsewhere.
 - A type is declared with LuaLS `---@class ss.<Name>` and belongs to the file that creates it. A type without methods is a table literal built in that file (exported as `M.new` only when another file creates it, like `PaintableGrid.new`). Only a type with methods becomes a class-like module. A module that owns state exposes its tables as module fields (e.g. `InkType.Types`) and scalars through getters (e.g. `InkType.GetNumBits()`).
 - LuaLS annotations are pervasive in `lua/splashsweps/**`. Mirror `---@class` and `---@type` usage, especially for structured tables and empty table initializers, to keep realm-specific diagnostics useful.
-- Do not define `SplashSWEPs` namespace state from shared realm files. Realm-specific state belongs to that realm's autorun bootstrap or a file-local `ss.Locals` table.
-- Prefer designs where one file owns one responsibility. If state is file-local, define `ss.Locals.<short role>` at the top of that file, mirror existing annotations, alias the local table, and keep fields under that table.
-- If `SplashSWEPs` state must be shared across files in a realm, define it in the `SplashSWEPs` bootstrap block in that realm's `autorun.lua`.
-- `autorun.lua` and `ss.Locals` table guards are the hot-reload boundary. Do not add per-field `or {}` reinitialization guards for namespace state.
+- The `SplashSWEPs` table holds the module loader and the shared constants assigned in `shared/autorun.lua`. Do not add other state or functions to it.
+- Other addons extend ink types with modules, not with registration functions: the `InkDetailUpdate` proxy of an ink type VMT names its updater module by the `updater` key, and the module implements `ss.IInkDetailUpdater`.
+- Prefer designs where one file owns one responsibility. State belongs to the module that writes it, in its `ss.state`; other files read it through that module's fields or getters.
+- Files that only register hooks, net receivers, or console commands, such as `client/render/inkpass.lua` and `shared/touch/player.lua`, are included from `autorun.lua` instead of being modules.
+- `ss.state` and the bootstrap blocks of `autorun.lua` are the hot-reload boundary. Do not add per-field `or {}` reinitialization guards.
 
 ## Verification and tooling
 

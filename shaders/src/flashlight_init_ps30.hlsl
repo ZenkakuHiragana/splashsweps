@@ -15,7 +15,7 @@ PS_OUTPUT main(float2 uv : TEXCOORD0) {
     uv += s0Size * 0.5;
     float viewDepthHU = tex2D(DepthBuffer, uv).r * DEPTHWRITE_TO_HU;
 
-    // Pushes the depth back by the tolerance inkmesh_ps_main.hlsl uses to compare with the scene depth,
+    // Pushes the depth back by the tolerance the ink mesh pixel shaders use to compare with the scene depth,
     // as the ink meshes lie on the scene geometry.
     viewDepthHU += max(2.0, viewDepthHU * 0.015);
 

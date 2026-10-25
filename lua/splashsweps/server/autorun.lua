@@ -1,18 +1,7 @@
 
 if not SplashSWEPs then
     ---@class ss
-    SplashSWEPs = {
-        ---Various debug data goes here
-        Debug = {},
-        ---Contains information around render targets clientside.
-        RenderTarget = {
-            Resolutions = {
-                4096,
-                8192,
-                16384,
-            },
-        },
-    }
+    SplashSWEPs = {}
 end
 
 include "splashsweps/shared/autorun.lua"
@@ -26,7 +15,6 @@ local Hash             = ss.import "splashsweps/shared/hash"
 local InkFeature       = ss.import "splashsweps/shared/inkfeature"
 local InkShape         = ss.import "splashsweps/shared/inkshape"
 local InkType          = ss.import "splashsweps/shared/inktype"
-local PaintableGrid    = ss.import "splashsweps/shared/paint/paintablegrid"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
 local PrecachedData    = ss.import "splashsweps/shared/typing/precachedata"
 
@@ -60,10 +48,3 @@ end)
 util.AddNetworkString "SplashSWEPs: Clear all ink"
 util.AddNetworkString "SplashSWEPs: Paint"
 util.AddNetworkString "SplashSWEPs: Paint brush model"
-
----Clears all painted ink in the map.
-function ss.ClearAllInk()
-    for _, s in ipairs(PaintableSurface.Surfaces) do PaintableGrid.Clear(s) end
-    net.Start "SplashSWEPs: Clear all ink"
-    net.Broadcast()
-end

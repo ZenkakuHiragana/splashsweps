@@ -43,7 +43,7 @@ struct InkMapDetailWrite {
 // Shape mask contract:
 //   alpha = 0.5 + (signed distance to the edge in mask pixels, positive inside) / (mask width in pixels),
 // correct over the whole mask. Outside the shape, the mask keeps its own margin.
-// The server-side paint detection in inkshape.lua binarizes the masks at the same edge value.
+// The server-side paint detection binarizes the masks at the same edge value.
 static const float SHAPE_MASK_EDGE = 0.5;
 static const float eps = 5e-3;
 

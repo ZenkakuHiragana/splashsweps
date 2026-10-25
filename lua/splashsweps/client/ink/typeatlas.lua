@@ -1,14 +1,29 @@
 
+-- Atlases of the textures of ink types and the masks of ink shapes, which the paint shader reads.
+
 ---@class ss
 local ss = SplashSWEPs
-if not ss then return end
-
 local InkShape        = ss.import "splashsweps/shared/inkshape"
 local InkType         = ss.import "splashsweps/shared/inktype"
 local RectanglePacker = ss.import "splashsweps/shared/packer/packer"
 local Structures      = ss.import "splashsweps/shared/packer/structures"
 local Util            = ss.import "splashsweps/shared/util"
 local VTF             = ss.import "splashsweps/shared/vtf/reader"
+
+---@class ss.TypeAtlasModule
+local TypeAtlas = ss.module "splashsweps/client/ink/typeatlas"
+
+---@class ss.TypeAtlasModule.State
+---@field Albedo  ITexture?           $basetexture and height maps of ink types.
+---@field Tint    ITexture?           $tinttexture of ink types in RGB and masks of ink shapes in alpha.
+---@field BaseUV  table<integer, number[]> Ink type index --> atlas range (minU, minV, maxU, maxV) of $basetexture; negative minU encodes transposition.
+---@field TintUV  table<integer, number[]> Ink type index --> atlas range of $tinttexture.
+---@field ShapeUV table<integer, number[]> Ink shape index --> atlas range of the mask.
+local state = ss.state("splashsweps/client/ink/typeatlas", {
+    BaseUV = {},
+    TintUV = {},
+    ShapeUV = {},
+}) ---@type ss.TypeAtlasModule.State
 
 local MARGIN = 2
 local HALF_MARGIN = MARGIN / 2
@@ -193,16 +208,79 @@ local function GetAtlasRenderTarget(name, size)
         IMAGE_FORMAT_RGBA8888)
 end
 
----Builds the albedo and height atlas and assigns base UV ranges.
----@param sources ss.InkTypeAtlasSources
-local function BuildAlbedoAtlas(sources)
-    local packer = RectanglePacker.new(sources.BaseRects):packall()
-    local rt = GetAtlasRenderTarget("splashsweps_albedo", packer.maxsize)
-    ss.RenderTarget.StaticTextures.Albedo = rt
-    render.PushRenderTarget(rt)
+---Packed layout of the atlases.
+---@class ss.TypeAtlas.Plan
+---@field Sources     ss.InkTypeAtlasSources
+---@field BasePacker  ss.RectanglePacker
+---@field TintPacker  ss.RectanglePacker
+---@field ShapePacker ss.RectanglePacker
+
+---Collects the textures of ink types and the masks of ink shapes, and packs them.
+---@return ss.TypeAtlas.Plan
+function TypeAtlas.Plan()
+    local sources = ReadInkTypeSources()
+    return {
+        Sources     = sources,
+        BasePacker  = RectanglePacker.new(sources.BaseRects):packall(),
+        -- Tint images and shape masks are packed separately into color and alpha,
+        -- so the atlas takes the larger size of them.
+        TintPacker  = RectanglePacker.new(sources.TintRects):packall(),
+        ShapePacker = RectanglePacker.new(sources.ShapeRects):packall(),
+    }
+end
+
+---Returns the atlas range of a packed rectangle.
+---Min U is strictly positive due to the margin; its sign encodes transposition.
+---@param rect ss.Rectangle
+---@param rt ITexture
+---@param inset number Distance from the edge of the rectangle in pixels
+---@return number[]
+local function GetAtlasRange(rect, rt, inset)
+    return {
+        (rect.rotated and -1 or 1) * (rect.left + inset) / rt:Width(),
+        (rect.bottom + inset) / rt:Height(),
+        (rect.right  - inset) / rt:Width(),
+        (rect.top    - inset) / rt:Height(),
+    }
+end
+
+---Creates the atlas render targets and assigns the atlas ranges of ink types and ink shapes.
+---@param plan ss.TypeAtlas.Plan
+function TypeAtlas.Allocate(plan)
+    local sources = plan.Sources
+    state.Albedo = GetAtlasRenderTarget("splashsweps_albedo", plan.BasePacker.maxsize)
+    state.Tint = GetAtlasRenderTarget("splashsweps_tint", math.max(plan.TintPacker.maxsize, plan.ShapePacker.maxsize))
+    state.BaseUV, state.TintUV, state.ShapeUV = {}, {}, {}
+    for _, rect in ipairs(plan.BasePacker.rects) do
+        local inktype = rect.tag ---@type ss.InkType
+        state.BaseUV[inktype.Index] = GetAtlasRange(rect, state.Albedo, HALF_MARGIN + 0.5)
+    end
+    for _, rect in ipairs(plan.TintPacker.rects) do
+        local inktype = rect.tag ---@type ss.InkType
+        state.TintUV[inktype.Index] = GetAtlasRange(rect, state.Tint, HALF_MARGIN + 0.5)
+    end
+    -- The whole mask spans the paint quad, as PaintableGrid.Write does.
+    for _, rect in ipairs(plan.ShapePacker.rects) do
+        local shape = rect.tag ---@type ss.InkShape
+        state.ShapeUV[shape.Index] = GetAtlasRange(rect, state.Tint, HALF_MARGIN)
+    end
+    -- Ink types sharing a cell share its range.
+    for _, inktype in ipairs(InkType.Types) do
+        local i = inktype.Index
+        state.BaseUV[i] = state.BaseUV[i] or state.BaseUV[sources.BaseCache[sources.BaseKeys[i]]]
+        state.TintUV[i] = state.TintUV[i] or state.TintUV[sources.TintCache[sources.TintNames[i]]]
+    end
+end
+
+---Draws the textures and masks into the atlases.
+---Needs a rendering context, so call it after TypeAtlas.Allocate, from the next frame.
+---@param plan ss.TypeAtlas.Plan
+function TypeAtlas.Draw(plan)
+    local sources = plan.Sources
+    render.PushRenderTarget(state.Albedo)
     render.Clear(0, 0, 0, 0)
     cam.Start2D()
-        for _, rect in ipairs(packer.rects) do
+        for _, rect in ipairs(plan.BasePacker.rects) do
             local inktype = rect.tag ---@type ss.InkType
             cp:SetInt("$c0_x", 3)
             CopyTextureToRect(sources.BaseNames[inktype.Index], rect, true, true)
@@ -218,77 +296,48 @@ local function BuildAlbedoAtlas(sources)
                 end
                 CopyTextureToRect(tex, rect, false, true)
             end
-
-            -- Min U is strictly positive due to the margin; its sign encodes transposition.
-            inktype.BaseUV = {
-                (rect.rotated and -1 or 1) * (rect.left + HALF_MARGIN + 0.5) / rt:Width(),
-                (rect.bottom + HALF_MARGIN + 0.5) / rt:Height(),
-                (rect.right  - HALF_MARGIN - 0.5) / rt:Width(),
-                (rect.top    - HALF_MARGIN - 0.5) / rt:Height(),
-            }
         end
     cam.End2D()
     render.PopRenderTarget()
 
-    for _, inktype in ipairs(InkType.Types) do
-        inktype.BaseUV = inktype.BaseUV
-            or InkType.Types[sources.BaseCache[sources.BaseKeys[inktype.Index]]].BaseUV
-    end
-end
-
----Builds the tint and shape atlas and assigns their UV ranges.
----@param sources ss.InkTypeAtlasSources
-local function BuildTintAtlas(sources)
-    -- Tint images and shape masks are packed separately into color and alpha,
-    -- so the atlas takes the larger size of them.
-    local tintPacker  = RectanglePacker.new(sources.TintRects):packall()
-    local shapePacker = RectanglePacker.new(sources.ShapeRects):packall()
-    local rt = GetAtlasRenderTarget("splashsweps_tint", math.max(tintPacker.maxsize, shapePacker.maxsize))
-    ss.RenderTarget.StaticTextures.Tint = rt
-    render.PushRenderTarget(rt)
+    render.PushRenderTarget(state.Tint)
     render.Clear(0, 0, 0, 0)
     cam.Start2D()
-        for _, rect in ipairs(tintPacker.rects) do
+        for _, rect in ipairs(plan.TintPacker.rects) do
             local inktype = rect.tag ---@type ss.InkType
             CopyTextureToRect(sources.TintNames[inktype.Index], rect, true, false)
-            inktype.TintUV = {
-                (rect.rotated and -1 or 1) * (rect.left + HALF_MARGIN + 0.5) / rt:Width(),
-                (rect.bottom + HALF_MARGIN + 0.5) / rt:Height(),
-                (rect.right  - HALF_MARGIN - 0.5) / rt:Width(),
-                (rect.top    - HALF_MARGIN - 0.5) / rt:Height(),
-            }
         end
 
         -- Write shape atlas to the alpha channel.
-        -- The whole mask spans the paint quad, as the server-side grid in paintablegrid.lua does,
-        -- and the margin repeats the edge pixels for bilinear filtering at the edge of the mask.
-        for _, rect in ipairs(shapePacker.rects) do
+        -- The margin repeats the edge pixels for bilinear filtering at the edge of the mask.
+        for _, rect in ipairs(plan.ShapePacker.rects) do
             local shape = rect.tag ---@type ss.InkShape
             cp:SetInt("$c0_x", CHANNEL_INDEX[shape.Channel] or 3)
             CopyTextureToRect(shape.MaskTexture:StripExtension(), rect, false, true)
-            shape.UV = {
-                (rect.rotated and -1 or 1) * (rect.left + HALF_MARGIN) / rt:Width(),
-                (rect.bottom + HALF_MARGIN) / rt:Height(),
-                (rect.right  - HALF_MARGIN) / rt:Width(),
-                (rect.top    - HALF_MARGIN) / rt:Height(),
-            }
         end
     cam.End2D()
     render.PopRenderTarget()
-
-    for _, inktype in ipairs(InkType.Types) do
-        inktype.TintUV = inktype.TintUV
-            or InkType.Types[sources.TintCache[sources.TintNames[inktype.Index]]].TintUV
-    end
 end
 
-function ss.LoadInkTypesRT()
-    local sources = ReadInkTypeSources()
-    local rowsByType = ss.PrepareInkDetailsRT(sources.BaseNames)
-    if not rowsByType then return end
-    timer.Simple(0, function()
-        BuildAlbedoAtlas(sources)
-        BuildTintAtlas(sources)
-        ss.WriteInitialInkDetailsRT(rowsByType)
-    end)
+---Returns the atlas range (minU, minV, maxU, maxV) of $basetexture of an ink type; negative minU encodes transposition.
+---@param index integer Ink type index
+---@return number[]?
+function TypeAtlas.GetBaseUV(index)
+    return state.BaseUV[index]
 end
+
+---Returns the atlas range of $tinttexture of an ink type.
+---@param index integer Ink type index
+---@return number[]?
+function TypeAtlas.GetTintUV(index)
+    return state.TintUV[index]
+end
+
+---Returns the atlas range of the mask of an ink shape.
+---@param index integer Ink shape index
+---@return number[]?
+function TypeAtlas.GetShapeUV(index)
+    return state.ShapeUV[index]
+end
+
+return TypeAtlas
