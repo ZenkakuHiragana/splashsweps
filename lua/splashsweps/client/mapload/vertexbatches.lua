@@ -134,7 +134,7 @@ function VertexBatches.Build(surfaceInfo, meshGroups, bumpmapOffsetsByFace)
 end
 
 ---Writes each vertex batch into the matching ink IMesh.
----@param renderBatch   ss.RenderBatch                      Render entries created from the same vertexBatches order.
+---@param renderBatch   ss.RenderBatch                     Render entries created from the same vertexBatches order.
 ---@param vertexBatches ss.VertexBatches.MeshVertexBatch[] Vertex batches to write one-to-one with renderBatch.
 function VertexBatches.WriteMeshes(renderBatch, vertexBatches)
     for i, vertexBatch in ipairs(vertexBatches) do
@@ -160,7 +160,7 @@ end
 
 ---Writes the positions and normals of all vertex batches into as few IMeshes as possible.
 ---The flashlight pass draws them with a single material, so the batches need no split by material.
----@param renderBatch   ss.RenderBatch                      Render batch to store the meshes.
+---@param renderBatch   ss.RenderBatch                     Render batch to store the meshes.
 ---@param vertexBatches ss.VertexBatches.MeshVertexBatch[] Vertex batches of the model.
 function VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches)
     local flashlightMaterial = Material "splashsweps/shaders/lightmappedgeneric"

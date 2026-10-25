@@ -16,8 +16,8 @@ if not ss then return end
 
 local InkAtlases    = ss.import "splashsweps/client/ink/atlases"
 local InkMap        = ss.import "splashsweps/client/render/inkmap"
+local InkMesh       = ss.import "splashsweps/client/render/inkmesh"
 local RenderTargets = ss.import "splashsweps/client/render/rendertargets"
-local WorldMesh     = ss.import "splashsweps/client/render/worldmesh"
 
 local enabled = false
 local showSkinned = true
@@ -37,7 +37,6 @@ local screenDebugMesh ---@type IMesh?
 
 local function MakeMatrix(pos)
     local m = Matrix()
-    m:Identity()
     m:SetTranslation(pos)
     return m
 end
@@ -45,12 +44,12 @@ end
 local function BuildSolidMesh()
     solidMesh = Mesh(probeMaterial)
     local verts = {
-        { pos = Vector(-16, -16, 0), u = 0, v = 0, normal = Vector(0, 0, 1), color = Color(255, 64, 64), tangent = Vector(1, 0, 0) },
-        { pos = Vector(16, -16, 0), u = 1, v = 0, normal = Vector(0, 0, 1), color = Color(64, 255, 64), tangent = Vector(1, 0, 0) },
-        { pos = Vector(16, 16, 0), u = 1, v = 1, normal = Vector(0, 0, 1), color = Color(64, 64, 255), tangent = Vector(1, 0, 0) },
-        { pos = Vector(-16, -16, 0), u = 0, v = 0, normal = Vector(0, 0, 1), color = Color(255, 64, 64), tangent = Vector(1, 0, 0) },
-        { pos = Vector(16, 16, 0), u = 1, v = 1, normal = Vector(0, 0, 1), color = Color(64, 64, 255), tangent = Vector(1, 0, 0) },
-        { pos = Vector(-16, 16, 0), u = 0, v = 1, normal = Vector(0, 0, 1), color = Color(255, 255, 64), tangent = Vector(1, 0, 0) },
+        { pos = Vector(-16, -16, 0), u = 0, v = 0, normal = Vector(0, 0, 1), color = Color(255, 64,  64),  tangent = Vector(1, 0, 0) },
+        { pos = Vector( 16, -16, 0), u = 1, v = 0, normal = Vector(0, 0, 1), color = Color(64,  255, 64),  tangent = Vector(1, 0, 0) },
+        { pos = Vector( 16,  16, 0), u = 1, v = 1, normal = Vector(0, 0, 1), color = Color(64,  64,  255), tangent = Vector(1, 0, 0) },
+        { pos = Vector(-16, -16, 0), u = 0, v = 0, normal = Vector(0, 0, 1), color = Color(255, 64,  64),  tangent = Vector(1, 0, 0) },
+        { pos = Vector( 16,  16, 0), u = 1, v = 1, normal = Vector(0, 0, 1), color = Color(64,  64,  255), tangent = Vector(1, 0, 0) },
+        { pos = Vector(-16,  16, 0), u = 0, v = 1, normal = Vector(0, 0, 1), color = Color(255, 255, 64),  tangent = Vector(1, 0, 0) },
     }
     mesh.Begin(solidMesh, MATERIAL_TRIANGLES, #verts / 3)
     for _, v in ipairs(verts) do
@@ -67,8 +66,8 @@ end
 local function BuildSkinnedMesh()
     skinnedMesh = Mesh(probeMaterial, 2)
     local tris = {
-        { Vector(-16, -16, 0), Vector(16, -16, 0), Vector(16, 16, 0) },
-        { Vector(-16, -16, 0), Vector(16, 16, 0), Vector(-16, 16, 0) },
+        { Vector(-16, -16, 0), Vector(16, -16, 0), Vector( 16, 16, 0) },
+        { Vector(-16, -16, 0), Vector(16,  16, 0), Vector(-16, 16, 0) },
     }
     mesh.Begin(skinnedMesh, MATERIAL_TRIANGLES, 2)
     for ti, tri in ipairs(tris) do
@@ -250,7 +249,7 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     for _, name in ipairs { "inkmesh", "inkssr_compose", "inkssr" } do
         materials[#materials + 1] = Material("splashsweps/shaders/" .. name)
     end
-    for _, batch in ipairs(WorldMesh.Batches) do
+    for _, batch in ipairs(InkMesh.Batches) do
         for _, model in ipairs(batch) do
             materials[#materials + 1] = model.Material
         end

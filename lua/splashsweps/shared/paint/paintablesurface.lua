@@ -54,14 +54,14 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field StaticPropUnwrapIndex  integer?         Determines how this static prop surfaces are unwrapped.
 ---@field TriangleHash           table<integer, integer[]>? Hash table to lookup triangles of a displacement.
 ---@field Triangles              ss.DisplacementTriangle[]? Array of triangles of a displacement.
----@field WorldToLocalGridMatrix VMatrix The transformation matrix to convert world coordinates into local coordinates. This does not modify scales.
+---@field WorldToLocalGridMatrix VMatrix  The transformation matrix to convert world coordinates into local coordinates. This does not modify scales.
 ---@field WorldToUVRow1          number[] The first row of transformation matrox to convert world position into UV space without scaling.
 ---@field WorldToUVRow2          number[] The second row of transformation matrox to convert world position into UV space without scaling.
----@field OffsetU                number  The u-coordinate of left-top corner of this surface in UV space.
----@field OffsetV                number  The v-coordinate of left-top corner of this surface in UV space.
----@field UVWidth                number  The width of this surface in UV space.
----@field UVHeight               number  The height of this surface in UV space.
----@field Index                  integer The index of this surface in PaintableSurface.Surfaces used for debug purpose.
+---@field OffsetU                number   The u-coordinate of left-top corner of this surface in UV space.
+---@field OffsetV                number   The v-coordinate of left-top corner of this surface in UV space.
+---@field UVWidth                number   The width of this surface in UV space.
+---@field UVHeight               number   The height of this surface in UV space.
+---@field Index                  integer  The index of this surface in PaintableSurface.Surfaces used for debug purpose.
 
 ---Vertices and some other info of a triangle in a displacement.
 ---@class ss.DisplacementTriangle : ss.IHasMBB
@@ -78,9 +78,9 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field WorldToLocalRotation VMatrix Rotation matrix to convert world coordinates into local coordinates.
 
 ---@class ss.PaintableSurfaceModule.State
----@field Surfaces           ss.PaintableSurface[]              Paintable surfaces of the world and static props.
+---@field Surfaces           ss.PaintableSurface[] Paintable surfaces of the world and static props.
 ---@field BrushModelSurfaces table<integer, ss.PaintableSurface[]> Brush model index --> its paintable surfaces.
----@field ModelIndexBits     integer                            Required bits to transfer a brush model index as an unsigned integer.
+---@field ModelIndexBits     integer Required bits to transfer a brush model index as an unsigned integer.
 local state = ss.state("splashsweps/shared/paint/paintablesurface", {
     Surfaces = {},
     BrushModelSurfaces = {},
@@ -208,6 +208,11 @@ function PaintableSurface.Setup(surfaces, numModels)
     end
 end
 
+---Placement of the static props in the ink map, which only the client has.
+---@class ss.PaintableSurface.StaticPropInkMap
+---@field UVInfo          ss.PrecachedData.StaticProp.UVInfo[][] Placement of each static prop for each ink map resolution.
+---@field HammerUnitsToUV number                                 Conversion multiplier from hammer units to UV coordinates of the ink map.
+
 ---Reads a list of static props and stores them for later use.
 ---
 ---Each static prop has its own oriented bounding box (OBB).
@@ -308,9 +313,8 @@ end
 ---- `sy` is the smallest: (X, Y, Z) -> (Y, Z, X)
 ---- `sz` is the smallest: (X, Y, Z) -> (Z, X, Y)
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
----@param uvInfo ss.PrecachedData.StaticProp.UVInfo[][]
----@param hammerUnitsToUV number? Clientside conversion multiplier from hammer units to UV coordinates of the ink map.
-function PaintableSurface.SetupStaticProps(staticPropInfo, uvInfo, hammerUnitsToUV)
+---@param inkMap ss.PaintableSurface.StaticPropInkMap? Placement in the ink map to set the UV fields of the surfaces; the server has none.
+function PaintableSurface.SetupStaticProps(staticPropInfo, inkMap)
     local numSurfaces = #state.Surfaces
     local vec = Vector
     local localNormals = {
@@ -366,11 +370,11 @@ function PaintableSurface.SetupStaticProps(staticPropInfo, uvInfo, hammerUnitsTo
         local uvScale ---@type number
         local bilinearGuard ---@type number
         local isRotated ---@type boolean
-        if CLIENT then
+        if inkMap then
             local rtIndex = #PrecachedData.InkMapResolutions
             local rtSize = PrecachedData.InkMapResolutions[rtIndex]
-            local uv = uvInfo[i][rtIndex]
-            uvScale = hammerUnitsToUV
+            local uv = inkMap.UVInfo[i][rtIndex]
+            uvScale = inkMap.HammerUnitsToUV
             bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
             isRotated = uv.Offset.z > 0
             if isRotated then
@@ -406,8 +410,8 @@ function PaintableSurface.SetupStaticProps(staticPropInfo, uvInfo, hammerUnitsTo
                 math.abs(boundingBoxSize:Dot(faceForwardInModelSystem)),
                 math.abs(boundingBoxSize:Dot(faceAngleInModelSystem:Right())))
             local ps = newSurface(index,
-                math.ceil(faceSizeInModelSystem.x / ss.InkGridCellSize),
-                math.ceil(faceSizeInModelSystem.y / ss.InkGridCellSize))
+                math.ceil(faceSizeInModelSystem.x / PaintableGrid.CELL_SIZE),
+                math.ceil(faceSizeInModelSystem.y / PaintableGrid.CELL_SIZE))
             ps.AABBMax = aabbMax
             ps.AABBMin = aabbMin
             ps.WorldToLocalGridMatrix:SetAngles(faceAngleInModelSystem)
@@ -420,7 +424,7 @@ function PaintableSurface.SetupStaticProps(staticPropInfo, uvInfo, hammerUnitsTo
             ps.MBBAngles = worldTmodel:GetAngles()
             ps.MBBOrigin = worldTmodel:GetTranslation()
             ps.MBBSize   = boundingBoxSize
-            if CLIENT then
+            if inkMap then
                 -- +-------------> v
                 -- |\ <--- modelUVOriginInAbsoluteUV
                 -- | +----> v'

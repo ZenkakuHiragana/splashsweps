@@ -5,23 +5,25 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local InkMesh            = ss.import "splashsweps/client/render/inkmesh"
 local RenderTargets      = ss.import "splashsweps/client/render/rendertargets"
 local StaticPropRenderer = ss.import "splashsweps/client/render/staticproprenderer"
-local WorldMesh          = ss.import "splashsweps/client/render/worldmesh"
 
-local FullFrameFb1 = render.GetScreenEffectTexture(1)
-local SceneCopyMaterial = Material "splashsweps/shaders/scene_copy"
-local InkColorInitMaterial = Material "splashsweps/shaders/gbuf_inkcolor_init"
+local FullFrameFb1           = render.GetScreenEffectTexture(1)
+local SceneCopyMaterial      = Material "splashsweps/shaders/scene_copy"
+local InkColorInitMaterial   = Material "splashsweps/shaders/gbuf_inkcolor_init"
 local FlashlightInitMaterial = Material "splashsweps/shaders/flashlight_init"
 local FlashlightBakeMaterial = Material "splashsweps/shaders/lightmappedgeneric"
-local SSRTraceMaterial = Material "splashsweps/shaders/inkssr"
-local SSRCompositeMaterial = Material "splashsweps/shaders/inkssr_compose"
-local SSRDownsampleMaterial = Material "splashsweps/shaders/inkssr_downsample"
-local InkWaterMaterial = Material "splashsweps/shaders/inkmesh"
-local CVarWireframe = GetConVar "mat_wireframe"
-local CVarMinecraft = GetConVar "mat_showlowresimage"
+local SSRTraceMaterial       = Material "splashsweps/shaders/inkssr"
+local SSRCompositeMaterial   = Material "splashsweps/shaders/inkssr_compose"
+local SSRDownsampleMaterial  = Material "splashsweps/shaders/inkssr_downsample"
+local InkMeshWaterMaterial   = Material "splashsweps/shaders/inkmesh"
+local CVarWireframe          = GetConVar "mat_wireframe"
+local CVarMinecraft          = GetConVar "mat_showlowresimage"
 
-local ScreenQuadCorners = { Vector(0, 0, 0), Vector(1, 0, 0), Vector(1, 1, 0), Vector(0, 1, 0) }
+local ScreenQuadCorners = {
+    Vector(0, 0, 0), Vector(1, 0, 0), Vector(1, 1, 0), Vector(0, 1, 0)
+}
 
 local currentNormalMaterial = nil ---@type IMaterial?
 local function DrawNormalMesh(m, _)
@@ -40,7 +42,7 @@ end
 
 local function DrawNormalMeshes()
     currentNormalMaterial = nil
-    WorldMesh.Draw(DrawNormalMesh)
+    InkMesh.Draw(DrawNormalMesh)
 end
 
 local SSRViewMatrix = Matrix()
@@ -83,8 +85,8 @@ function(bDrawingDepth, bDrawingSkybox)
     local rt = render.GetRenderTarget()
     local isDrawingWater = rt and rt:GetName():find "_rt_waterref"
     if isDrawingWater then
-        render.SetMaterial(InkWaterMaterial)
-        WorldMesh.Draw(DrawMeshOnly)
+        render.SetMaterial(InkMeshWaterMaterial)
+        InkMesh.Draw(DrawMeshOnly)
         return
     end
 
@@ -108,7 +110,7 @@ function(bDrawingDepth, bDrawingSkybox)
     render.DrawQuad(ScreenQuadCorners[1], ScreenQuadCorners[2], ScreenQuadCorners[3], ScreenQuadCorners[4])
     render.RenderFlashlights(function()
         render.SetMaterial(FlashlightBakeMaterial)
-        WorldMesh.DrawFlashlight()
+        InkMesh.DrawFlashlight()
     end)
     render.PopRenderTarget()
 

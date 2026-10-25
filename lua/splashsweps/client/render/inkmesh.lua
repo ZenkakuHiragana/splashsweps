@@ -3,15 +3,15 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local InkMaterials    = ss.import "splashsweps/client/render/inkmaterials"
 local InkMeshMaterial = ss.import "splashsweps/client/mapload/inkmeshmaterial"
 local Lightmaps       = ss.import "splashsweps/client/mapload/lightmaps"
 local MapMaterials    = ss.import "splashsweps/client/mapload/materials"
 local Underlay        = ss.import "splashsweps/client/mapload/underlay"
+local UnderlaySync    = ss.import "splashsweps/client/render/underlaysync"
 local VertexBatches   = ss.import "splashsweps/client/mapload/vertexbatches"
 
----@class ss.WorldMeshModule
-local WorldMesh = ss.module "splashsweps/client/render/worldmesh"
+---@class ss.InkMeshModule
+local InkMesh = ss.module "splashsweps/client/render/inkmesh"
 
 ---@class ss.MeshData
 ---@field EnvmapSource IMaterial? For some reason $envmap is not set at InitPostEntity so use this to fetch later.
@@ -24,21 +24,21 @@ local WorldMesh = ss.module "splashsweps/client/render/worldmesh"
 ---@field [integer] ss.MeshData List of meshes to render this model.
 
 
----@class ss.WorldMeshModule.State
----@field Batches       ss.RenderBatch[]              Ink meshes of each BSP model, indexed by 1-based model index.
+---@class ss.InkMeshModule.State
+---@field Batches       ss.RenderBatch[] Ink meshes of each BSP model, indexed by 1-based model index.
 ---@field DebugMeshData ss.VertexBatches.MeshVertex[][] Vertices written into the meshes, kept for debug mesh inspection.
-local state = ss.state("splashsweps/client/render/worldmesh", {
+local state = ss.state("splashsweps/client/render/inkmesh", {
     Batches = {},
     DebugMeshData = {},
-}) ---@type ss.WorldMeshModule.State
+}) ---@type ss.InkMeshModule.State
 
 ---Ink meshes of each BSP model, indexed by 1-based model index.
-WorldMesh.Batches = state.Batches
+InkMesh.Batches = state.Batches
 
 ---Vertices written into the meshes, kept for debug mesh inspection.
-WorldMesh.DebugMeshData = state.DebugMeshData
+InkMesh.DebugMeshData = state.DebugMeshData
 
----Copies vertex batches into WorldMesh.DebugMeshData without exposing batch metadata.
+---Copies vertex batches into InkMesh.DebugMeshData without exposing batch metadata.
 ---@param debugMeshData ss.VertexBatches.MeshVertex[][]    Destination debug vertex lists.
 ---@param vertexBatches ss.VertexBatches.MeshVertexBatch[] Source draw-sized vertex batches.
 local function storeDebugMeshData(debugMeshData, vertexBatches)
@@ -53,7 +53,7 @@ end
 ---@param surfaceInfo   ss.PrecachedData.SurfaceInfo
 ---@param numModels     integer
 ---@param materialNames string[]
-function WorldMesh.Setup(surfaceInfo, numModels, materialNames)
+function InkMesh.Setup(surfaceInfo, numModels, materialNames)
     local entities = {} ---@type Entity[]
     for _, e in ipairs(ents.GetAll()) do
         local modelName = e:GetModel() or ""
@@ -76,11 +76,11 @@ function WorldMesh.Setup(surfaceInfo, numModels, materialNames)
     end
 
     InkMeshMaterial.SetupWater()
-    local materialInfo = MapMaterials.Enumerate(materialNames, surfaceInfo.Cubemaps)
-    local lightmapLayout = Lightmaps.Pack(surfaceInfo, materialInfo)
+    local materialInfo      = MapMaterials.Enumerate(materialNames, surfaceInfo.Cubemaps)
+    local lightmapLayout    = Lightmaps.Pack(surfaceInfo, materialInfo)
     local meshGroupsByModel = Lightmaps.BuildMeshGroups(surfaceInfo, lightmapLayout)
-    local bumpmapOffsets = Lightmaps.BuildBumpmapOffsets(lightmapLayout)
-    InkMaterials.Watch(materialInfo)
+    local bumpmapOffsets    = Lightmaps.BuildBumpmapOffsets(lightmapLayout)
+    UnderlaySync.WatchUnderlays(materialInfo)
     Underlay.Build(materialInfo)
 
     table.Empty(state.DebugMeshData)
@@ -102,7 +102,7 @@ end
 
 ---Draws the ink meshes of the worldspawn and brush entities by the handler.
 ---@param handler fun(m: ss.MeshData, ent: Entity?)
-function WorldMesh.Draw(handler)
+function InkMesh.Draw(handler)
     for _, model in ipairs(state.Batches) do -- Draw ink surface
         local ent = model.BrushEntity
         if #model > 0 and (not ent or IsValid(ent)) then
@@ -122,7 +122,7 @@ function WorldMesh.Draw(handler)
 end
 
 ---Draws the meshes for the flashlight pass with the material already set.
-function WorldMesh.DrawFlashlight()
+function InkMesh.DrawFlashlight()
     for _, model in ipairs(state.Batches) do
         local ent = model.BrushEntity
         if #model.FlashlightMeshes > 0 and (not ent or IsValid(ent)) then
@@ -141,4 +141,4 @@ function WorldMesh.DrawFlashlight()
     end
 end
 
-return WorldMesh
+return InkMesh

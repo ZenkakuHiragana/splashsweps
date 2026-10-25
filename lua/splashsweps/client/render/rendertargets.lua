@@ -46,15 +46,15 @@ local TEXTUREFLAGS = {
     SSBUMP            = 134217728,
 }
 local RTNAMES = {
-    INKMAP      = "splashsweps_inkmap",
-    INKMAP2     = "splashsweps_inkmap2",
-    SCENE       = "splashsweps_sceneandflashlight",
-    PROPLIGHT   = "splashsweps_staticpropflashlight",
-    PROPLIGHT_MSAA = "splashsweps_staticpropflashlight_msaa",
-    GCOLOR      = "splashsweps_gbuf_inkcolor",
-    GCOLOR_BLUR = "splashsweps_gbuf_inkcolor_blur",
-    GNORMAL     = "splashsweps_gbuf_inknormals",
-    SSR_RESULT  = "splashsweps_ssr_result",
+    INKMAP          = "splashsweps_inkmap",
+    INKMAP_SNAPSHOT = "splashsweps_inkmap_snapshot",
+    SCENE           = "splashsweps_sceneandflashlight",
+    PROPLIGHT       = "splashsweps_staticpropflashlight",
+    PROPLIGHT_MSAA  = "splashsweps_staticpropflashlight_msaa",
+    GCOLOR          = "splashsweps_gbuf_inkcolor",
+    GCOLOR_BLUR     = "splashsweps_gbuf_inkcolor_blur",
+    GNORMAL         = "splashsweps_gbuf_inknormals",
+    SSR_RESULT      = "splashsweps_ssr_result",
 }
 local COMMON_FLAGS = bit.bor(
     TEXTUREFLAGS.NOMIP,
@@ -69,18 +69,18 @@ local RTFLAGS = {
 ---Render targets of the ink map.
 ---@class ss.RenderTargets.InkMaps
 ---@field InkMap  ITexture Where the paints are drawn.
----@field InkMap2 ITexture Copy of InkMap taken before drawing a batch of paints into InkMap.
+---@field InkMapSnapshot ITexture Copy of InkMap taken before drawing a batch of paints into InkMap.
 
 ---One-frame textures for forward MRT shading and SSR composition.
 ---@class ss.RenderTargets.FrameTextures
----@field SceneAndFlashlight ITexture? Twice the screen height. Upper half: frame buffer copy + alpha channel as depth buffer. Lower half: flashlight light on the world ink meshes.
+---@field SceneAndFlashlight   ITexture? Twice the screen height. Upper half: frame buffer copy + alpha channel as depth buffer. Lower half: flashlight light on the world ink meshes.
 ---@field StaticPropFlashlight ITexture? Flashlight light on the static props. See StaticPropRenderer.DrawFlashlight.
----@field SSRResult          ITexture? Half-resolution (hit UV * confidence, blur width in pixels at roughness = 100% * confidence, confidence).
----@field InkColor           ITexture? Background or painted color without SSR; alpha is the painted-surface mask.
----@field InkColorBlur       ITexture? Quarter-resolution copy of InkColor for reflections on rough surfaces.
----@field InkNormals         ITexture? G-Buffer to store octahedral encoded ink normals.
----@field Reflection         ITexture? G-Buffer to store precomputed reflection weights and ink height.
----@field Envmap             ITexture? G-Buffer to store precomputed $envmap sample and ink roughness.
+---@field SSRResult            ITexture? Half-resolution (hit UV * confidence, blur width in pixels at roughness = 100% * confidence, confidence).
+---@field InkColor             ITexture? Background or painted color without SSR; alpha is the painted-surface mask.
+---@field InkColorBlur         ITexture? Quarter-resolution copy of InkColor for reflections on rough surfaces.
+---@field InkNormals           ITexture? G-Buffer to store octahedral encoded ink normals.
+---@field Reflection           ITexture? G-Buffer to store precomputed reflection weights and ink height.
+---@field Envmap               ITexture? G-Buffer to store precomputed $envmap sample and ink roughness.
 
 ---@class ss.RenderTargetsModule.State
 ---@field InkMaps                         ss.RenderTargets.InkMaps
@@ -92,7 +92,7 @@ local state = ss.state("splashsweps/client/render/rendertargets", {
     Frame = {},
     HammerUnitsToUV = 1,
     StaticPropFlashlightSharesDepth = true,
-}) ---@type ss.RenderTargetsModule.State
+})
 
 ---Render targets of the ink map.
 RenderTargets.InkMaps = state.InkMaps
@@ -137,8 +137,8 @@ function RenderTargets.Setup(hammerUnitsToUV)
         RTFLAGS.INKMAP,
         CREATERENDERTARGETFLAGS_NONE,
         IMAGE_FORMAT_RGBA8888)
-    state.InkMaps.InkMap2 = GetRenderTargetEx(
-        RTNAMES.INKMAP2,
+    state.InkMaps.InkMapSnapshot = GetRenderTargetEx(
+        RTNAMES.INKMAP_SNAPSHOT,
         rtSize, rtSize,
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,

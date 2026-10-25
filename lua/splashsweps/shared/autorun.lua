@@ -10,9 +10,6 @@ if not ss.Locals then
     ss.Locals = {}
 end
 
----Resolution of serverside canvas to maintain collision detection.
-ss.InkGridCellSize = 12
-
 ---Number of bits to transfer ink drop radius.
 ss.MAX_INK_RADIUS_BITS = 8
 

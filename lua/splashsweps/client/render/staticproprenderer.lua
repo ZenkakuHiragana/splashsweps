@@ -16,8 +16,8 @@ local state = ss.state("splashsweps/client/render/staticproprenderer", {
     IsDrawing = false,
 }) ---@type ss.StaticPropRendererModule.State
 
-local StaticPropLightMaterial = Material "splashsweps/shaders/phong"
-local StaticPropFlashlightMaterial = Material "splashsweps/shaders/vertexlitgeneric"
+local StaticPropLightMaterial          = Material "splashsweps/shaders/phong"
+local StaticPropFlashlightMaterial     = Material "splashsweps/shaders/vertexlitgeneric"
 local StaticPropFlashlightMaterialMSAA = Material "splashsweps/shaders/vertexlitgeneric_msaa"
 local CVarDrawStaticProps = GetConVar "r_drawstaticprops"
 local MIN_DRAW_RADIUS = 0.01 * 0.01 -- Squared minimum draw radius for static props relative to ScrH()
@@ -80,7 +80,7 @@ end
 function StaticPropRenderer.DrawInk()
     state.IsDrawing = true
     for _, prop in ipairs(state.Queue) do
-        -- VertexLitGeneric leaves the lighting of the prop in the shader constants the ink material reads.
+        -- VertexLitGeneric leaves the lighting of the prop in the shader constants the ink sprp material reads.
         render.MaterialOverride(StaticPropLightMaterial)
         prop:DrawModel(prop.QueuedFlags)
         render.MaterialOverride()

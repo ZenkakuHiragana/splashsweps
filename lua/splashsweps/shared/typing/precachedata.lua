@@ -9,20 +9,8 @@ local ss = SplashSWEPs
 local Util = ss.import "splashsweps/shared/util"
 
 ---@class ss.PrecachedDataModule
----@field new     fun(): ss.PrecachedData
----@field restore fun(t: table?): ss.PrecachedData? Sets metatables to a table decoded from <map>.json.
----@field Vertex               { new: (fun(): ss.PrecachedData.Vertex), restore: (fun(t: table?): ss.PrecachedData.Vertex?) }
----@field MatrixTransform      { new: (fun(): ss.PrecachedData.MatrixTransform), restore: (fun(t: table?): ss.PrecachedData.MatrixTransform?) }
----@field DirectionalLight     { new: (fun(): ss.PrecachedData.DirectionalLight), restore: (fun(t: table?): ss.PrecachedData.DirectionalLight?) }
----@field StaticPropUVInfo     { new: (fun(): ss.PrecachedData.StaticProp.UVInfo), restore: (fun(t: table?): ss.PrecachedData.StaticProp.UVInfo?) }
----@field UVInfo               { new: (fun(): ss.PrecachedData.UVInfo), restore: (fun(t: table?): ss.PrecachedData.UVInfo?) }
----@field StaticProp           { new: (fun(): ss.PrecachedData.StaticProp), restore: (fun(t: table?): ss.PrecachedData.StaticProp?) }
----@field DisplacementTriangle { new: (fun(): ss.PrecachedData.DisplacementTriangle), restore: (fun(t: table?): ss.PrecachedData.DisplacementTriangle?) }
----@field Surface              { new: (fun(): ss.PrecachedData.Surface), restore: (fun(t: table?): ss.PrecachedData.Surface?) }
----@field LightmapInfo         { new: (fun(): ss.PrecachedData.LightmapInfo), restore: (fun(t: table?): ss.PrecachedData.LightmapInfo?) }
----@field CubemapInfo          { new: (fun(): ss.PrecachedData.CubemapInfo), restore: (fun(t: table?): ss.PrecachedData.CubemapInfo?) }
----@field SurfaceInfo          { new: (fun(): ss.PrecachedData.SurfaceInfo), restore: (fun(t: table?): ss.PrecachedData.SurfaceInfo?) }
----@field HashParameters       { new: (fun(): ss.PrecachedData.HashParameters), restore: (fun(t: table?): ss.PrecachedData.HashParameters?) }
+---@field new     fun(): ss.PrecachedData Creates <map>.json with the defaults.
+---@field restore fun(t: table): ss.PrecachedData Sets metatables to a table decoded from <map>.json.
 local PrecachedData = ss.module "splashsweps/shared/typing/precachedata"
 
 ---Resolutions of the ink map, which the UV arrays of the cache are indexed by.
@@ -35,7 +23,7 @@ PrecachedData.InkMapResolutions = { 4096, 8192, 16384 }
 ---@class ss.PrecachedData.Field
 ---@field [1] string
 ---@field [2] any
----@field of  { restore: fun(t: table?): table? }?
+---@field of  { restore: fun(t: table): table }?
 
 ---Record types, to tell a nested record from a table default.
 local records = {} ---@type table<table, true>
@@ -71,7 +59,6 @@ local function record(fields, R)
     end
 
     function R.restore(t)
-        if t == nil then return nil end
         setmetatable(t, meta)
         for i, field in ipairs(fields) do
             local value = rawget(t, i)
@@ -91,8 +78,8 @@ local function record(fields, R)
 end
 
 ---Describes an array of the given type, for the elements of an array of arrays.
----@param element { restore: fun(t: table?): table? }
----@return { restore: fun(t: table?): table? }
+---@param element { restore: fun(t: table): table }
+---@return { restore: fun(t: table): table }
 local function arrayOf(element)
     return {
         restore = function(t)
@@ -116,6 +103,8 @@ local function blackColor() return Color(0, 0, 0) end
 ---@field BumpmapUV         Vector  Bumpmap UV coordinates of the original face in texels.
 ---                                 Z = blend factors toward $basetexture2, 3, and 4 as b2 + b3 * 256 + b4 * 65536.
 ---@field DispPaintOrigin   Vector? Displacement-only world-space reference point used to compute paint/ink UV.
+
+---@type { new: (fun(): ss.PrecachedData.Vertex), restore: (fun(t: table): ss.PrecachedData.Vertex) }
 PrecachedData.Vertex = record {
     { "Translation",      Vector },
     { "Normal",           Vector },
@@ -133,6 +122,8 @@ PrecachedData.Vertex = record {
 ---@class ss.PrecachedData.MatrixTransform
 ---@field Angle       Angle  The orientation corresponding to VMatrix:GetAngles9)
 ---@field Translation Vector The translation vector corresponding to VMatrix:GetTranslation()
+
+---@type { new: (fun(): ss.PrecachedData.MatrixTransform), restore: (fun(t: table): ss.PrecachedData.MatrixTransform) }
 PrecachedData.MatrixTransform = record {
     { "Angle",       Angle },
     { "Translation", Vector },
@@ -143,6 +134,8 @@ PrecachedData.MatrixTransform = record {
 ---@field Color    Color  The LDR color of the directional light.
 ---@field ColorHDR Color  The HDR color of the directional light. -1 means the same as LDR.
 ---@field ScaleHDR number HDR scale.
+
+---@type { new: (fun(): ss.PrecachedData.DirectionalLight), restore: (fun(t: table): ss.PrecachedData.DirectionalLight) }
 PrecachedData.DirectionalLight = record {
     { "Color",    blackColor },
     { "ColorHDR", blackColor },
@@ -173,6 +166,8 @@ PrecachedData.DirectionalLight = record {
 ---@field Offset Vector
 ---@field Width  number Width in the UV space in hammer units, including the margins of each face.
 ---@field Height number Height in the UV space in hammer units, including the margins of each face.
+
+---@type { new: (fun(): ss.PrecachedData.StaticProp.UVInfo), restore: (fun(t: table): ss.PrecachedData.StaticProp.UVInfo) }
 PrecachedData.StaticPropUVInfo = record {
     { "Offset", Vector },
     { "Width",  0 },
@@ -204,6 +199,8 @@ PrecachedData.StaticPropUVInfo = record {
 ---@field OffsetV     number Top position in UV space ranging from 0 to 1.
 ---@field Width       number The width of this surface in UV space ranging from 0 to 1.
 ---@field Height      number The height of this surface in UV space ranging from 0 to 1.
+
+---@type { new: (fun(): ss.PrecachedData.UVInfo), restore: (fun(t: table): ss.PrecachedData.UVInfo) }
 PrecachedData.UVInfo = record {
     { "Angle",       Angle },
     { "Translation", Vector },
@@ -226,6 +223,8 @@ PrecachedData.UVInfo = record {
 ---@field Skin         integer The skin of this prop.
 ---@field UnwrapIndex  integer Describes how the bounding box is unwrapped in UV space.  See GetStaticPropUVSize.
 ---@field CubemapIndex integer Index to ss.PrecachedData.SurfaceInfo.Cubemaps of the cubemap the engine uses, or 0 if none.
+
+---@type { new: (fun(): ss.PrecachedData.StaticProp), restore: (fun(t: table): ss.PrecachedData.StaticProp) }
 PrecachedData.StaticProp = record {
     { "Angles",       Angle },
     { "BoundsMax",    Vector },
@@ -249,6 +248,8 @@ PrecachedData.StaticProp = record {
 ---@field MBBOrigin       Vector  The origin of minimum (oriented) bounding box.
 ---@field MBBSize         Vector  The size of minimum (oriented) bounding box in their local coordinates.
 ---@field WorldToLocalGridRotation Angle Transforms world angles into local to map to serverside paint grid.
+
+---@type { new: (fun(): ss.PrecachedData.DisplacementTriangle), restore: (fun(t: table): ss.PrecachedData.DisplacementTriangle) }
 PrecachedData.DisplacementTriangle = record {
     { "Index",                    0 },
     { "BarycentricDot1",          Vector },
@@ -280,6 +281,8 @@ PrecachedData.DisplacementTriangle = record {
 ---@field TriangleHash  table<integer, integer[]>?
 ---@field Triangles     ss.PrecachedData.DisplacementTriangle[]? Array of triangles of a displacement.
 ---@field FaceLumpIndex integer? Index to face lump just used to calculate lightmap UV coordinates.
+
+---@type { new: (fun(): ss.PrecachedData.Surface), restore: (fun(t: table): ss.PrecachedData.Surface) }
 PrecachedData.Surface = record {
     { "AABBMax",            function() return Util.vector_one * -math.huge end },
     { "AABBMin",            function() return Util.vector_one * math.huge end },
@@ -304,6 +307,8 @@ PrecachedData.Surface = record {
 ---@field Width         integer? Width of the lightmap in luxels.
 ---@field Height        integer? Height of the lightmap in luxels.
 ---@field FaceIndex     integer? Index to the PrecachedData.Surface array. nil if it does not correspond to paintable surface array.
+
+---@type { new: (fun(): ss.PrecachedData.LightmapInfo), restore: (fun(t: table): ss.PrecachedData.LightmapInfo) }
 PrecachedData.LightmapInfo = record {
     { "MaterialIndex", 0 },
     { "HasLightmap" },
@@ -320,6 +325,8 @@ PrecachedData.LightmapInfo = record {
 ---@field BoxMax    Vector  Maximum corner of paintable face bounds using this cubemap.
 ---@field FaceCount integer Number of paintable faces accumulated into this box.
 ---@field Blend     number  Parallax correction blend ratio. 0 disables correction.
+
+---@type { new: (fun(): ss.PrecachedData.CubemapInfo), restore: (fun(t: table): ss.PrecachedData.CubemapInfo) }
 PrecachedData.CubemapInfo = record {
     { "Envmap",    "" },
     { "Origin",    Vector },
@@ -336,6 +343,8 @@ PrecachedData.CubemapInfo = record {
 ---@field SurfaceHash table<integer, integer[]> Spatial hash given to Hash.Setup.
 ---@field UVScales    number[]  Render target size index -> Hammer units to UV multiplier
 ---@field Cubemaps    ss.PrecachedData.CubemapInfo[] Cubemap samples and paintable face bounds using them.
+
+---@type { new: (fun(): ss.PrecachedData.SurfaceInfo), restore: (fun(t: table): ss.PrecachedData.SurfaceInfo) }
 PrecachedData.SurfaceInfo = record {
     { "Lightmaps",   {}, of = PrecachedData.LightmapInfo },
     { "Surfaces",    {}, of = PrecachedData.Surface },
@@ -348,6 +357,8 @@ PrecachedData.SurfaceInfo = record {
 ---@field GridSizeSurface integer
 ---@field MinGridSizeDisplacement integer
 ---@field NumDivisionsDisplacement integer
+
+---@type { new: (fun(): ss.PrecachedData.HashParameters), restore: (fun(t: table): ss.PrecachedData.HashParameters) }
 PrecachedData.HashParameters = record {
     { "GridSizeSurface",          128 },
     { "MinGridSizeDisplacement",  32 },

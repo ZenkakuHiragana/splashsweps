@@ -2,8 +2,8 @@
 {
     "$basetexture"     "white"
     "$color"           "[0.5 0.6 0.3]"
-    "$tinttexture"     "splashsweps/inktypes/material_test"
-    "$detail"          "splashsweps/inktypes/detail_samples/thin_film"
+    "$tinttexture"     "splashsweps/inks/material_test"
+    "$detail"          "splashsweps/inks/detail_samples/thin_film"
     "$detailblendmode" "5"
     "$detailperiod"    "1600"
     "$features"        ""

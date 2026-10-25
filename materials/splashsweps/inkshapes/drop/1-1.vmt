@@ -1,6 +1,6 @@
 "UnlitGeneric"
 {
-    "$basetexture" "splashsweps/paints/drop/a2"
+    "$basetexture" "splashsweps/inkshapes/drop/a1"
     "$splashsweps_tag" "builtin_drop"
     "$channel" "A"
 }

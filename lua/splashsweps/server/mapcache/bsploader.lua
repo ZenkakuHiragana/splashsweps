@@ -193,26 +193,26 @@ Binary.struct "BSP.dgamelump_t" {
 ---@alias ss.Binary.BSP.StaticProp.10 ss.Binary.BSP.StaticProp
 ---@alias ss.Binary.BSP.StaticProp.11 ss.Binary.BSP.StaticProp
 ---@class ss.Binary.BSP.StaticProp
----@field origin             Vector
----@field angle              Angle
----@field propType           integer
----@field firstLeaf          integer
----@field leafCount          integer
----@field solid              integer
----@field flags              integer    every version except v7*
----@field padding            integer?   v7*
----@field skin               integer
----@field fadeMinDist        number
----@field fadeMaxDist        number
----@field lightingOrigin     Vector
----@field forcedFadeScale    number?    since v5
----@field minDXLevel         integer?   v6, v7, and v7*
----@field maxDXLevel         integer?   v6, v7, and v7*
----@field cpugpuLevels       integer[]? since v8
----@field diffuseModulation  integer[]? since v7
----@field disableX360        boolean?   v9 and v10
----@field flagsEx            integer?   since v10
----@field uniformScale       number?    since v11
+---@field origin            Vector
+---@field angle             Angle
+---@field propType          integer
+---@field firstLeaf         integer
+---@field leafCount         integer
+---@field solid             integer
+---@field flags             integer    every version except v7*
+---@field padding           integer?   v7*
+---@field skin              integer
+---@field fadeMinDist       number
+---@field fadeMaxDist       number
+---@field lightingOrigin    Vector
+---@field forcedFadeScale   number?    since v5
+---@field minDXLevel        integer?   v6, v7, and v7*
+---@field maxDXLevel        integer?   v6, v7, and v7*
+---@field cpugpuLevels      integer[]? since v8
+---@field diffuseModulation integer[]? since v7
+---@field disableX360       boolean?   v9 and v10
+---@field flagsEx           integer?   since v10
+---@field uniformScale      number?    since v11
 
 Binary.struct "BSP.StaticProp.4" { -- version == 4
     Size = 56,

@@ -4,6 +4,7 @@ local ss = SplashSWEPs
 if not ss then return end
 
 local Hash             = ss.import "splashsweps/shared/hash"
+local PaintableGrid    = ss.import "splashsweps/shared/paint/paintablegrid"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
 local Players          = ss.import "splashsweps/shared/players"
 local Util             = ss.import "splashsweps/shared/util"
@@ -26,8 +27,8 @@ local function DrawSurfaceBounds(surf, toWorld, t)
     mbb:SetAngles(surf.MBBAngles)
     mbb = toWorld * mbb
     local m = toWorld * surf.WorldToLocalGridMatrix:GetInverseTR()
-    local width = surf.Grid.Width * ss.InkGridCellSize
-    local height = surf.Grid.Height * ss.InkGridCellSize
+    local width = surf.Grid.Width * PaintableGrid.CELL_SIZE
+    local height = surf.Grid.Height * PaintableGrid.CELL_SIZE
     local size = Vector(width, height)
     debugoverlay.BoxAngles(toWorld:GetTranslation(), surf.AABBMin, surf.AABBMax, toWorld:GetAngles(), t, color_transparent)
     debugoverlay.BoxAngles(mbb:GetTranslation() + vector_up, vector_origin, surf.MBBSize, mbb:GetAngles(), t, Color(255, 255, 160, 2))
@@ -42,8 +43,8 @@ end
 ---@param t            number  Duration of the overlay.
 local function DrawNearestOnFlatSurface(surf, toWorld, worldToLocal, nearestFrom, t)
     local nearestLocal = surf.WorldToLocalGridMatrix * (worldToLocal * nearestFrom)
-    if not (nearestLocal.x < 0 or nearestLocal.x > surf.Grid.Width * ss.InkGridCellSize
-    or nearestLocal.y < 0 or nearestLocal.y > surf.Grid.Height * ss.InkGridCellSize) then
+    if not (nearestLocal.x < 0 or nearestLocal.x > surf.Grid.Width * PaintableGrid.CELL_SIZE
+    or nearestLocal.y < 0 or nearestLocal.y > surf.Grid.Height * PaintableGrid.CELL_SIZE) then
         local nearest2D = Vector(nearestLocal.x, nearestLocal.y)
         local nearest = toWorld * (surf.WorldToLocalGridMatrix:GetInverseTR() * nearest2D)
         debugoverlay.Cross(nearest, 10, t, Color(255, 255, 0), true)

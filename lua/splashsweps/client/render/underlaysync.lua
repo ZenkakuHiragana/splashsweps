@@ -1,60 +1,61 @@
 
--- Ink materials of the world and static props, kept in sync with the materials they are drawn on.
+-- Keeps ink mesh materials and ink sprp materials in sync with their underlays,
+-- the materials under the paint that show through it.
 
 ---@class ss
 local ss = SplashSWEPs
 local Util = ss.import "splashsweps/shared/util"
 
----@class ss.InkMaterialsModule
-local InkMaterials = ss.module "splashsweps/client/render/inkmaterials"
+---@class ss.UnderlaySyncModule
+local UnderlaySync = ss.module "splashsweps/client/render/underlaysync"
 
----@class ss.InkMaterials.WatchState
+---@class ss.UnderlaySync.WatchState
 ---@field Interval integer Index of adaptive interval array to check this parameter.
 ---@field LastTime number  CurTime()-based last check time for this parameter.
 ---@field Value    string  Last observed value.
 
----@class ss.InkMaterials.WatchEntry
+---@class ss.UnderlaySync.WatchEntry
 ---@field Material IMaterial The material to watch the changes.
----@field Fields   table<string, ss.InkMaterials.WatchState>
+---@field Fields   table<string, ss.UnderlaySync.WatchState>
 
----@class ss.InkMaterialsModule.State
----@field World            table<IMaterial, IMaterial> Ink material of the world ink meshes --> bound geometry material.
----@field StaticProp       table<IMaterial, IMaterial> Ink material of the static props --> bound model material.
----@field WatchList        ss.InkMaterials.WatchEntry[]
+---@class ss.UnderlaySyncModule.State
+---@field InkMesh          table<IMaterial, IMaterial> Ink mesh material --> its underlay.
+---@field InkSprp          table<IMaterial, IMaterial> Ink sprp material --> its underlay.
+---@field WatchList        ss.UnderlaySync.WatchEntry[]
 ---@field LastSunDirection Vector
-local state = ss.state("splashsweps/client/render/inkmaterials", {
-    World = {},
-    StaticProp = {},
+local state = ss.state("splashsweps/client/render/underlaysync", {
+    InkMesh = {},
+    InkSprp = {},
     WatchList = {},
     LastSunDirection = Vector(),
-}) ---@type ss.InkMaterialsModule.State
+}) ---@type ss.UnderlaySyncModule.State
 
--- Ink materials are registered by the kind of the geometry, as the shader constants they share
--- with the material under the ink differ by the kind:
+-- Ink mesh materials and ink sprp materials are registered separately,
+-- as the shader constants they share with their underlays differ:
 --
---   kind           follows the material under the ink                  sun direction in $c0_xyz
---   -------------  --------------------------------------------------  ------------------------
---   world          transforms, $color, $color2, and $detail* to blend  yes
---   static prop    transforms, $color, and $color2                     no, $c0_x has another use
+--   kind               follows the underlay                                sun direction in $c0_xyz
+--   -----------------  --------------------------------------------------  ------------------------
+--   ink mesh material  transforms, $color, $color2, and $detail* to blend  yes
+--   ink sprp material  transforms, $color, and $color2                     no, $c0_x has another use
 
----Registers an ink material of the world ink meshes to keep it in sync with the material under the ink.
----@param mat IMaterial Ink material
----@param source IMaterial Material of the surfaces the ink is drawn on
-function InkMaterials.AddWorld(mat, source)
-    state.World[mat] = source
+---Registers an ink mesh material to keep it in sync with its underlay.
+---@param mat IMaterial Ink mesh material
+---@param underlay IMaterial Material of the world surfaces the paint is drawn on
+function UnderlaySync.AddInkMesh(mat, underlay)
+    state.InkMesh[mat] = underlay
 end
 
----Registers an ink material of a static prop to keep it in sync with the material under the ink.
----@param mat IMaterial Ink material
----@param source IMaterial Material of the model the ink is drawn on
-function InkMaterials.AddStaticProp(mat, source)
-    state.StaticProp[mat] = source
+---Registers an ink sprp material to keep it in sync with its underlay.
+---@param mat IMaterial Ink sprp material
+---@param underlay IMaterial Material of the static prop model the paint is drawn on
+function UnderlaySync.AddInkSprp(mat, underlay)
+    state.InkSprp[mat] = underlay
 end
 
 ---Envmap the engine falls back to when a material has no cubemap to use.
-InkMaterials.DEFAULT_ENVMAP = "editor/cubemap" .. (render.GetHDREnabled() and ".hdr" or "")
+UnderlaySync.DEFAULT_ENVMAP = "editor/cubemap" .. (render.GetHDREnabled() and ".hdr" or "")
 
-local InkWaterMaterial = Material "splashsweps/shaders/inkmesh"
+local InkMeshWaterMaterial = Material "splashsweps/shaders/inkmesh"
 local MaterialWatchInterval   = { 0, 0.05, 0.5, 1, 2, 5, math.huge }
 local MaterialWatchParameters = {
     ["$basetexturetransform"] = "Matrix",
@@ -67,12 +68,12 @@ local MaterialWatchParameters = {
     ["$color2"]               = "Vector",
 }
 
----Reflects a changed parameter of the source material to the ink material.
+---Reflects a changed parameter of the underlay to the ink mesh or ink sprp material.
 ---
----  RefreshInkMaterial        world and static props   transforms, $color, $color2
----  RefreshWorldInkMaterial   world                    the above and $detail*
+---  RefreshInkSprpMaterial   ink mesh and ink sprp materials   transforms, $color, $color2
+---  RefreshInkMeshMaterial   ink mesh materials                the above and $detail*
 ---@type table<string, fun(mat: IMaterial, src: IMaterial, value: any)>
-local RefreshInkMaterial = {
+local RefreshInkSprpMaterial = {
     ---@param mat IMaterial
     ---@param _   IMaterial
     ---@param value VMatrix
@@ -120,7 +121,7 @@ local RefreshInkMaterial = {
 }
 
 ---@type table<string, fun(mat: IMaterial, src: IMaterial, value: any)>
-local RefreshWorldInkMaterial = table.Merge({
+local RefreshInkMeshMaterial = table.Merge({
     ---@param mat IMaterial
     ---@param _   IMaterial
     ---@param value number
@@ -153,13 +154,13 @@ local RefreshWorldInkMaterial = table.Merge({
         m:SetField(3, 4, value.z)
         mat:SetMatrix("$viewprojmat", m)
     end,
-}, RefreshInkMaterial)
+}, RefreshInkSprpMaterial)
 
----Reflects the changed parameters of the source materials to their ink materials.
----@param materials table<IMaterial, IMaterial> Ink material --> source material.
----@param refreshers table<string, fun(mat: IMaterial, src: IMaterial, value: any)> RefreshInkMaterial or RefreshWorldInkMaterial.
+---Reflects the changed parameters of the underlays to their ink mesh or ink sprp materials.
+---@param materials   table<IMaterial, IMaterial> Ink mesh or ink sprp material --> its underlay.
+---@param refreshers  table<string, fun(mat: IMaterial, src: IMaterial, value: any)> RefreshInkSprpMaterial or RefreshInkMeshMaterial.
 ---@param refreshList table<IMaterial, string[]> Source material --> changed parameters.
-local function RefreshInkMaterials(materials, refreshers, refreshList)
+local function RefreshMaterials(materials, refreshers, refreshList)
     for renderMaterial, geometryMaterial in pairs(materials) do
         for _, key in ipairs(refreshList[geometryMaterial] or {}) do
             local refresh = refreshers[key]
@@ -196,18 +197,18 @@ hook.Add("PreRender", "SplashSWEPs: Refresh material parameters", function()
         end
     end
 
-    RefreshInkMaterials(state.World, RefreshWorldInkMaterial, refreshList)
-    RefreshInkMaterials(state.StaticProp, RefreshInkMaterial, refreshList)
+    RefreshMaterials(state.InkMesh, RefreshInkMeshMaterial, refreshList)
+    RefreshMaterials(state.InkSprp, RefreshInkSprpMaterial, refreshList)
 
     local sunInfo = util.GetSunInfo()
     local sunDir = sunInfo and sunInfo.direction or Vector(0, 0.3, 0.954)
     if not state.LastSunDirection:IsEqualTol(sunDir, Util.eps) then
         state.LastSunDirection = sunDir
-        InkWaterMaterial:SetFloat("$c0_x", sunDir.x)
-        InkWaterMaterial:SetFloat("$c0_y", sunDir.y)
-        InkWaterMaterial:SetFloat("$c0_z", sunDir.z)
+        InkMeshWaterMaterial:SetFloat("$c0_x", sunDir.x)
+        InkMeshWaterMaterial:SetFloat("$c0_y", sunDir.y)
+        InkMeshWaterMaterial:SetFloat("$c0_z", sunDir.z)
         -- Only the world part reads it. The static prop part uses the four lights instead.
-        for m in pairs(state.World) do
+        for m in pairs(state.InkMesh) do
             m:SetFloat("$c0_x", sunDir.x)
             m:SetFloat("$c0_y", sunDir.y)
             m:SetFloat("$c0_z", sunDir.z)
@@ -218,7 +219,7 @@ end)
 ---Checks material proxied to be checked in the given list of materials
 ---and registers them to the watch list to be refreshed.
 ---@param mats table<integer, { Material: IMaterial }> Materials, such as sparse enumeration-ID-indexed ss.MapMaterials.MaterialInfo.
-function InkMaterials.Watch(mats)
+function UnderlaySync.WatchUnderlays(mats)
     for _, m in pairs(mats) do
         local mat = m.Material
         local vmt = string.format("materials/%s.vmt", mat:GetName())
@@ -233,7 +234,7 @@ function InkMaterials.Watch(mats)
                 end
             end
 
-            local states = nil ---@type ss.InkMaterials.WatchEntry
+            local states = nil ---@type ss.UnderlaySync.WatchEntry
             for _, entry in ipairs(proxies or {}) do
                 local contents = entry.Value ---@cast contents { Key: string, Value: string }[]
                 local kv = table.CollapseKeyValue(contents)
@@ -258,4 +259,4 @@ function InkMaterials.Watch(mats)
     end
 end
 
-return InkMaterials
+return UnderlaySync

@@ -185,7 +185,7 @@ The readiness gate should include:
 - client autorun has completed;
 - map cache data has loaded;
 - render targets have been created;
-- `WorldMesh.Batches` (`client/render/worldmesh.lua`) has been built;
+- `InkMesh.Batches` (`client/render/inkmesh.lua`) has been built;
 - screen size and HDR/LDR mode have been recorded;
 - at least one render hook tick has passed if the case needs framebuffer state.
 

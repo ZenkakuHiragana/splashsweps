@@ -1,6 +1,6 @@
 "UnlitGeneric"
 {
-    "$heightmap" "splashsweps/inktypes/soft_a"
+    "$heightmap" "splashsweps/inks/soft_a"
     "$basetexture" "point"
     "$basealphaheightmap" "1"
     "$heightmapscale" "0.25"

@@ -1,17 +1,18 @@
 
--- Encodes the parameters of ink types into the data rows of the detail atlas the ink shaders read.
+-- Encodes the parameters of ink types into the ink data: texels of the ink detail atlas the shaders read,
+-- one column per ink type and one texel per parameter slot.
 
 ---@class ss
 local ss = SplashSWEPs
 local Util = ss.import "splashsweps/shared/util"
 local VTF  = ss.import "splashsweps/shared/vtf/reader"
 
----@class ss.DetailRowsModule
-local DetailRows = ss.module "splashsweps/client/ink/detailrows"
+---@class ss.InkDataModule
+local InkData = ss.module "splashsweps/client/ink/inkdata"
 
----@class ss.DetailRowsModule.State
+---@class ss.InkDataModule.State
 ---@field AverageHeights table<string, number> Mean alpha of each texture's smallest stored mipmap
-local state = ss.state("splashsweps/client/ink/detailrows", { AverageHeights = {} }) ---@type ss.DetailRowsModule.State
+local state = ss.state("splashsweps/client/ink/inkdata", { AverageHeights = {} }) ---@type ss.InkDataModule.State
 
 ---Averages the smallest stored mipmap, including levels the engine may omit without ALL_MIPS.
 ---@param path string
@@ -33,13 +34,13 @@ local function GetAverageHeight(path)
     return average
 end
 
----Reads VMT settings and encodes numeric RGBA rows the ink shaders read.
----Lua row j corresponds to shader row ID j - 1; image cell numbers are 1-based here.
----@param mat IMaterial The material of the ink type
----@param detailSlot integer? Grid cell of the detail image, nil if the ink type has none
----@param baseTextureName string Source of the automatic height baseline
----@return number[][] rows Data rows of four components each
-function DetailRows.Encode(mat, detailSlot, baseTextureName)
+---Reads the ink material and encodes its ink data.
+---Lua index j corresponds to the parameter slot ID j - 1 of the shaders; image cell numbers are 1-based here.
+---@param mat             IMaterial The ink material
+---@param detailSlot      integer?  Grid cell of the detail image, nil if the ink type has none
+---@param baseTextureName string    Source of the automatic height baseline
+---@return number[][] inkData Texels of four components each, indexed by parameter slot
+function InkData.Encode(mat, detailSlot, baseTextureName)
     local heightbaseline = mat:GetFloat "$heightbaseline" or -1
     if heightbaseline < 0 then heightbaseline = GetAverageHeight(baseTextureName) end
     local detailtexturetransform = mat:GetMatrix "$detailtexturetransform" or Matrix()
@@ -107,4 +108,4 @@ function DetailRows.Encode(mat, detailSlot, baseTextureName)
     }
 end
 
-return DetailRows
+return InkData

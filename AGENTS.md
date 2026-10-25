@@ -12,7 +12,7 @@
 - `lua/weapons/weapon_splashsweps_test.lua` is the fastest in-game smoke-test surface. It defines the spawnable `Inkling base` weapon mentioned in `README.md`.
 - Map paint/cache generation is driven from `lua/splashsweps/server/autorun.lua` and consumed from `lua/splashsweps/client/autorun.lua`. Debug map-cache issues against `data/splashsweps/<map>.json`, `<map>_ldr.json`, and `<map>_hdr.json`.
 - The README's cache-file note is stale: current code writes compressed JSON caches named `*.json`, `*_ldr.json`, and `*_hdr.json`, not `<map>.txt`.
-- Ink types are loaded by `InkType.Load()` (`lua/splashsweps/shared/inktype.lua`) from `materials/splashsweps/inktypes/**/*.vmt`, not from a separate JSON content directory.
+- Ink types are loaded by `InkType.Load()` (`lua/splashsweps/shared/inktype.lua`) from ink materials, `materials/splashsweps/inks/**/*.vmt`, not from a separate JSON content directory. Ink shapes are loaded by `InkShape.Load()` from `materials/splashsweps/inkshapes/**/*.vmt`.
 - Shader sources live in `shaders/src/*.hlsl`; compiled `.vcs` output lives under `shaders/fxc/splashsweps/`; the matching material stubs are in `materials/splashsweps/shaders/`.
 
 ## Runtime and debugging gotchas
@@ -28,14 +28,30 @@
 - A running Garry's Mod instance can be controlled and observed through the MCP bridge. `gmod_`-prefixed tools cover host launch and close, console execution, Lua execution, cvar state, screenshots, and debug hooks in both client and server realms.
 - MCP-driven sessions run with the game window unfocused. Frame-rate limiters that apply while unfocused (such as `fps_max_nofocus`) are readable through `gmod_cvar_state_cl`, but their values are environment-dependent. Do not assume or document a fixed value.
 
+## Terms
+
+Use these terms in names and comments.
+
+- ink type: a kind of ink, identified by an index over the network.
+- ink material: the VMT under `materials/splashsweps/inks` that defines an ink type.
+- ink mesh material: the material of the meshes that draw the paint on world geometry (`InkMeshMaterial`, `InkMesh`).
+- ink sprp material: the material that draws the paint on a static prop (`StaticPropBuilder`). "Sprp" and "StaticProp" both mean static prop.
+- underlay: the material under the paint that shows through it (`UnderlaySync`).
+- paintable grid: the grid-shaped data the server uses to detect paint (`PaintableGrid`).
+- ink shape mask: the binarized ink shape texture the server uses to update paintable grids (`InkShape.Mask`).
+- ink map: the render target the paints are drawn into; `InkMapSnapshot` is its copy taken before drawing a batch.
+- paint atlas: the atlases of ink material textures and ink shape masks that the paint material (`drawink`) reads when drawing paints into the ink map (`PaintAtlas`).
+- ink detail atlas: the atlas of the detail images of ink materials (`InkDetailAtlas`), with the ink data below them.
+- ink data: texels of the ink detail atlas holding the parameters of ink types, one column per ink type and one texel per parameter slot (`InkData`).
+
 ## Code conventions that matter here
 
 - A module file starts with `local M = ss.module "<its import path>"` and ends with `return M`. Keep state that must survive hot reload in `ss.state("<its import path>", { ... })`, not `ss.Locals`. A class-like module is its own metatable (`M.__index = M`, constructor `M.new`, methods `function M:Method()`), as in `client/mapload/rbtree.lua`. Do not copy fields of an imported module into locals when the file is loaded; hot reload replaces them in the module table.
-- Map cache records are defined in `lua/splashsweps/shared/typing/precachedata.lua`: each lists its fields with defaults in JSON array order, created by `PrecachedData.<Record>.new()`. JSON decoded from the cache files gets its metatables only from `PrecachedData.restore` and `PrecachedData.SurfaceInfo.restore`; do not call `setmetatable` on cache data elsewhere.
+- Map cache records are defined in `lua/splashsweps/shared/typing/precachedata.lua`: each lists its fields with defaults in JSON array order, created by `PrecachedData.<Record>.new()`, with the `---@type` of its `new` and `restore` right above its definition. `restore` takes a decoded table, so check the result of `util.JSONToTable` before calling it. JSON decoded from the cache files gets its metatables only from `PrecachedData.restore` and `PrecachedData.SurfaceInfo.restore`; do not call `setmetatable` on cache data elsewhere.
 - A type is declared with LuaLS `---@class ss.<Name>` and belongs to the file that creates it. A type without methods is a table literal built in that file (exported as `M.new` only when another file creates it, like `PaintableGrid.new`). Only a type with methods becomes a class-like module. A module that owns state exposes its tables as module fields (e.g. `InkType.Types`) and scalars through getters (e.g. `InkType.GetNumBits()`).
 - LuaLS annotations are pervasive in `lua/splashsweps/**`. Mirror `---@class` and `---@type` usage, especially for structured tables and empty table initializers, to keep realm-specific diagnostics useful.
 - The `SplashSWEPs` table holds the module loader and the shared constants assigned in `shared/autorun.lua`. Do not add other state or functions to it.
-- Other addons extend ink types with modules, not with registration functions: the `InkDetailUpdate` proxy of an ink type VMT names its updater module by the `updater` key, and the module implements `ss.IInkDetailUpdater`.
+- Other addons extend ink types with modules, not with registration functions: an ink material names its ink feature modules (`ss.IInkFeature`) in `$features`, and its `InkDetailUpdate` proxy names its updater module (`ss.IInkDetailUpdater`) by the `updater` key.
 - Prefer designs where one file owns one responsibility. State belongs to the module that writes it, in its `ss.state`; other files read it through that module's fields or getters.
 - Files that only register hooks, net receivers, or console commands, such as `client/render/inkpass.lua` and `shared/touch/player.lua`, are included from `autorun.lua` instead of being modules.
 - `ss.state` and the bootstrap blocks of `autorun.lua` are the hot-reload boundary. Do not add per-field `or {}` reinitialization guards.

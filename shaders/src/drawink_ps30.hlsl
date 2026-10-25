@@ -22,7 +22,7 @@ struct PS_OUTPUT {
     float4 color : COLOR0;
 };
 
-// Batch-start snapshot: the sampler reads InkMap2, copied once before the queue is drawn.
+// Batch-start snapshot: the sampler reads InkMapSnapshot, copied once before the queue is drawn.
 struct OldInk {
     float height; // ranging from -1 to +1
     float depth;  // ranging from 0 to 1

@@ -1,13 +1,13 @@
 
--- Creates the models of static props that draw their ink, and their ink materials.
+-- Creates the models of static props that draw their paint, and their ink sprp materials.
 
 ---@class ss
 local ss = SplashSWEPs
-local DetailAtlas        = ss.import "splashsweps/client/ink/detailatlas"
-local InkMaterials       = ss.import "splashsweps/client/render/inkmaterials"
+local InkDetailAtlas     = ss.import "splashsweps/client/ink/inkdetailatlas"
 local PrecachedData      = ss.import "splashsweps/shared/typing/precachedata"
 local RenderTargets      = ss.import "splashsweps/client/render/rendertargets"
 local StaticPropRenderer = ss.import "splashsweps/client/render/staticproprenderer"
+local UnderlaySync       = ss.import "splashsweps/client/render/underlaysync"
 local Util               = ss.import "splashsweps/shared/util"
 
 ---@class ss.StaticPropBuilderModule
@@ -59,7 +59,7 @@ local function getAlphaTestReference(mat)
     return math.floor((reference > 0 and reference or 0.7) * 255) / 255
 end
 
----Creates the models and the ink materials of static props.
+---Creates the models and the ink sprp materials of static props.
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
 ---@param modelNames     string[]
 ---@param uvInfo         ss.PrecachedData.StaticProp.UVInfo[][]
@@ -76,7 +76,7 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
     matKeyValues["$flags_defined"] = nil
     matKeyValues["$flags_defined2"] = nil
     matKeyValues["$basetexture"] = RenderTargets.InkMaps.InkMap:GetName()
-    matKeyValues["$texture1"] = DetailAtlas.GetRenderTarget():GetName()
+    matKeyValues["$texture1"] = InkDetailAtlas.GetRenderTarget():GetName()
     matKeyValues["$texture2"] = RenderTargets.Frame.SceneAndFlashlight:GetName()
     matKeyValues["$texture5"] = RenderTargets.Frame.StaticPropFlashlight:GetName()
     matKeyValues["$linearread_texture7"] = render.GetHDREnabled() and "1" or "0"
@@ -136,7 +136,7 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
 
                 -- The cache has the cubemap names without ".hdr"
                 local cubemap = cubemaps[prop.CubemapIndex]
-                local nearestEnvmap = cubemap and cubemap.Envmap .. (render.GetHDREnabled() and ".hdr" or "") or InkMaterials.DEFAULT_ENVMAP
+                local nearestEnvmap = cubemap and cubemap.Envmap .. (render.GetHDREnabled() and ".hdr" or "") or UnderlaySync.DEFAULT_ENVMAP
                 local params = table.Merge(matKeyValues, {
                     ["$c1_y"] = uv.Offset.z > 0 and uv.Width or 0,
                     ["$c2_x"] = uv.Offset.x,
@@ -174,7 +174,7 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
                         string.format("splashsweps_sprp_%d_%d_%s", i, j, game.GetMap()),
                         "Screenspace_General_8tex", params)
                     mat:SetTexture("$texture5", RenderTargets.Frame.StaticPropFlashlight)
-                    DetailAtlas.WriteLayout(mat)
+                    InkDetailAtlas.WriteLayout(mat)
                     mat:SetFloat("$c1_z", 2 / RenderTargets.GetHammerUnitsToUV())
                     transforms:SetUnpacked(
                         baseTextureTransform:GetField(1, 1),
@@ -192,13 +192,13 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
                     mat:SetMatrix("$viewprojmat", transforms)
                     mat:SetMatrix("$invviewprojmat", localTworld)
                     mdl:SetSubMaterial(j - 1, "!" .. mat:GetName())
-                    InkMaterials.AddStaticProp(mat, mdlmat)
+                    UnderlaySync.AddInkSprp(mat, mdlmat)
                 end
             end
         end
     end
 
-    InkMaterials.Watch(watchedMaterials)
+    UnderlaySync.WatchUnderlays(watchedMaterials)
 end
 
 return StaticPropBuilder

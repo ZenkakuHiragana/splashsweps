@@ -2,7 +2,7 @@
 {
     "$basetexture" "color/white"
     "$tinttexture" "color/black"
-    "$heightmap" "splashsweps/inktypes/soft_a"
+    "$heightmap" "splashsweps/inks/soft_a"
     "$color" "[0.8 0.8 0.8]"
     "$alpha" "1"
     "$maxlayers" "1"
@@ -15,5 +15,5 @@
     "$detailperiod" "2048"
     "$features" ""
     "$detailblendmode" "5"
-    "$detail" "splashsweps/inktypes/detail_samples/thin_film"
+    "$detail" "splashsweps/inks/detail_samples/thin_film"
 }

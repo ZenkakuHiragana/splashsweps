@@ -1,7 +1,7 @@
 "UnlitGeneric"
 {
-    "$basetexture"     "splashsweps/paints/drop/a2"
-    "$heightmap"       "splashsweps/inktypes/soft_a"
+    "$basetexture"     "splashsweps/inkshapes/drop/a2"
+    "$heightmap"       "splashsweps/inks/soft_a"
     "$detail"          "rubber_bump"
     "$detailblendmode" "2"
     "$heightmapscale"  "0.125"

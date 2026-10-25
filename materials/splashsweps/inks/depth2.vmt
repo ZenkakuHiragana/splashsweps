@@ -2,12 +2,12 @@
 {
     "$basetexture" "decals/eye"
     "$tinttexture" "color/white"
-    "$heightmap" "splashsweps/inktypes/soft_a"
+    "$heightmap" "splashsweps/inks/soft_a"
     "$heightmapscale" "-0.125"
     "$heightbaseline" "0"
     "$geometrypaintbias" "1"
     "$specularscale" "0"
-    "$alpha" "0"
-    "$heightonly" "1"
+    "$alpha" "0.125"
+    "$heightonly" "0"
     "$features" ""
 }

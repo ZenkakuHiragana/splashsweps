@@ -3,21 +3,21 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local DetailAtlas = ss.import "splashsweps/client/ink/detailatlas"
-local TypeAtlas   = ss.import "splashsweps/client/ink/typeatlas"
+local InkDetailAtlas = ss.import "splashsweps/client/ink/inkdetailatlas"
+local PaintAtlas     = ss.import "splashsweps/client/ink/paintatlas"
 
 ---@class ss.InkAtlasesModule
 local InkAtlases = ss.module "splashsweps/client/ink/atlases"
 
 ---Lays out and creates the atlases, and draws them from the next frame, when drawing works.
 function InkAtlases.Load()
-    local plan = TypeAtlas.Plan()
-    local rowsByType = DetailAtlas.Prepare(plan.Sources.BaseNames)
-    if not rowsByType then return end
-    TypeAtlas.Allocate(plan)
+    local plan = PaintAtlas.Plan()
+    local inkDataByType = InkDetailAtlas.Prepare(plan.Sources.BaseNames)
+    if not inkDataByType then return end
+    PaintAtlas.Allocate(plan)
     timer.Simple(0, function()
-        TypeAtlas.Draw(plan)
-        DetailAtlas.DrawInitial(rowsByType)
+        PaintAtlas.Draw(plan)
+        InkDetailAtlas.DrawInitial(inkDataByType)
     end)
 end
 

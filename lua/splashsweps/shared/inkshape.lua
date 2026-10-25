@@ -1,5 +1,5 @@
 
--- Shapes of painted ink, defined by vmt files under materials/splashsweps/paints.
+-- Shapes of painted ink, defined by vmt files under materials/splashsweps/inkshapes.
 
 ---@class ss
 local ss = SplashSWEPs
@@ -9,19 +9,19 @@ local Util = ss.import "splashsweps/shared/util"
 ---@class ss.InkShapeModule
 local InkShape = ss.module "splashsweps/shared/inkshape"
 
----Mask array used to draw on PaintableSurface grid.
----Access the mask value using `shape.Grid[y * shape.Grid.Width + x + 1]`: boolean.
----@class ss.InkShape.Grid
+---Ink shape mask: the ink shape texture binarized for the server to update paintable grids.
+---Access the mask value using `shape.Mask[y * shape.Mask.Width + x + 1]`: boolean.
+---@class ss.InkShape.Mask
 ---@field [integer]     boolean   True for filled pixel, index = y * Width + x + 1
----@field Width         integer   The width of the grid.
----@field Height        integer   The height of the grid.
+---@field Width         integer   The width of the mask.
+---@field Height        integer   The height of the mask.
 ---@field IntegralImage integer[] Integral image for faster filtering, index = y * Width + x + 1
 
 ---Defines the shape of painted ink.
 ---@class ss.InkShape
 ---@field Index       integer          The internal index used in networking.
----@field Identifier  string           The path of the vmt file under materials/splashsweps/paints.
----@field Grid        ss.InkShape.Grid Mask for drawing on PaintableSurface grid.
+---@field Identifier  string           The path of the vmt file under materials/splashsweps/inkshapes.
+---@field Mask        ss.InkShape.Mask Mask for drawing on paintable grids.
 ---@field MaskTexture string?          Only used clientside; mask texture to create drawing materials.
 ---@field Channel     "R"|"G"|"B"|"A"? Determines which channel of MaskTexture to use.
 
@@ -57,20 +57,20 @@ local function ReadPixelsFromVTF(vmt)
     local shape = {
         Index = 0,
         Identifier = "",
-        Grid = { Width = width, Height = height, IntegralImage = {} },
+        Mask = { Width = width, Height = height, IntegralImage = {} },
         MaskTexture = path,
         Channel = VALID_CHANNELS[vmt:GetString "$channel" or "R"] or "R",
     }
 
-    local grid = shape.Grid
+    local mask = shape.Mask
     for y = 0, height - 1 do
         for x = 0, width - 1 do
             local index = y * width + x + 1
-            local above =  y > 0            and grid.IntegralImage[(y - 1) * width + x + 1] or 0
-            local left  =  x > 0            and grid.IntegralImage[ y      * width + x    ] or 0
-            local diag  = (x > 0 and y > 0) and grid.IntegralImage[(y - 1) * width + x    ] or 0
-            grid[index] = VTF.ReadPixel(vtf, x, y).a > SHAPE_MASK_EDGE
-            grid.IntegralImage[index] = (grid[index] and 1 or 0) + left + above - diag
+            local above =  y > 0            and mask.IntegralImage[(y - 1) * width + x + 1] or 0
+            local left  =  x > 0            and mask.IntegralImage[ y      * width + x    ] or 0
+            local diag  = (x > 0 and y > 0) and mask.IntegralImage[(y - 1) * width + x    ] or 0
+            mask[index] = VTF.ReadPixel(vtf, x, y).a > SHAPE_MASK_EDGE
+            mask.IntegralImage[index] = (mask[index] and 1 or 0) + left + above - diag
         end
     end
 
@@ -80,7 +80,7 @@ end
 ---Reads all vmt files and defines all ink shapes used in this addon.
 function InkShape.Load()
     local shapeCount = 0
-    for f in Util.IterateFilesRecursive("materials/splashsweps/paints", "GAME", "*.vmt") do
+    for f in Util.IterateFilesRecursive("materials/splashsweps/inkshapes", "GAME", "*.vmt") do
         local vmt = Material(f:gsub("^materials/", ""), nil)
         if not vmt:IsError() then
             local param = vmt:GetString "$splashsweps_tag" or ""
@@ -89,7 +89,7 @@ function InkShape.Load()
             if tag and shape then
                 shapeCount = shapeCount + 1
                 shape.Index = shapeCount
-                shape.Identifier = f:gsub("^materials/splashsweps/paints/", "")
+                shape.Identifier = f:gsub("^materials/splashsweps/inkshapes/", "")
                 state.Lists[tag] = table.ForceInsert(state.Lists[tag], shape.Index)
                 state.Shapes[shape.Index] = shape
             end

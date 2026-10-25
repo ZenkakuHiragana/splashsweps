@@ -1,12 +1,12 @@
 
--- Creates the ink materials of the world ink meshes from the materials of the surfaces.
+-- Creates the ink mesh materials from their underlays, the materials of the world surfaces.
 
 ---@class ss
 local ss = SplashSWEPs
-local DetailAtlas   = ss.import "splashsweps/client/ink/detailatlas"
-local InkMaterials  = ss.import "splashsweps/client/render/inkmaterials"
-local Lightmaps     = ss.import "splashsweps/client/mapload/lightmaps"
-local RenderTargets = ss.import "splashsweps/client/render/rendertargets"
+local InkDetailAtlas = ss.import "splashsweps/client/ink/inkdetailatlas"
+local Lightmaps      = ss.import "splashsweps/client/mapload/lightmaps"
+local RenderTargets  = ss.import "splashsweps/client/render/rendertargets"
+local UnderlaySync   = ss.import "splashsweps/client/render/underlaysync"
 
 ---@class ss.InkMeshMaterialModule
 local InkMeshMaterial = ss.module "splashsweps/client/mapload/inkmeshmaterial"
@@ -17,9 +17,9 @@ local function buildBaseInkMeshMaterialParams()
     return {
         ["$vertexshader"]           = "splashsweps/inkmesh_vs30",
         ["$basetexture"]            = RenderTargets.InkMaps.InkMap:GetName(),
-        ["$texture1"]               = DetailAtlas.GetRenderTarget():GetName(),
+        ["$texture1"]               = InkDetailAtlas.GetRenderTarget():GetName(),
         ["$texture2"]               = RenderTargets.Frame.SceneAndFlashlight:GetName(),
-        ["$texture7"]               = InkMaterials.DEFAULT_ENVMAP,
+        ["$texture7"]               = UnderlaySync.DEFAULT_ENVMAP,
         ["$linearread_basetexture"] = "1",
         ["$linearread_texture1"]    = "1",
         ["$linearread_texture2"]    = "1",
@@ -84,8 +84,8 @@ local function set4WayBlendParams(m, mat)
         uvScale2.y, uvScale3.y, uvScale4.y, mat:GetInt "$texture4_blendmode")
 end
 
----Creates the ink material of the surfaces of a SortID, or gets the one created for the SortID before,
----and registers it to InkMaterials.
+---Creates the ink mesh material of the surfaces of a SortID, or gets the one created for the SortID before,
+---and registers it to UnderlaySync.
 ---@param lightmapLayout ss.Lightmaps.LightmapLayout SortID-indexed material and lightmap data.
 ---@param sortID         integer                     Lightmap/material group ID of the surfaces.
 ---@return IMaterial
@@ -109,7 +109,7 @@ function InkMeshMaterial.Create(lightmapLayout, sortID)
     materialParams["$texture4"] = materialInfo.Bumpmap or "null-bumpmap"
     materialParams["$texture5"] = materialInfo.Detail or "white"
     materialParams["$texture6"] = lightmapTextureName
-    materialParams["$texture7"] = cubemapInfo and cubemapInfo.Envmap or InkMaterials.DEFAULT_ENVMAP
+    materialParams["$texture7"] = cubemapInfo and cubemapInfo.Envmap or UnderlaySync.DEFAULT_ENVMAP
     materialParams["$c0_w"]     = detailBlendMode
     materialParams["$c1_z"]     = 2 / RenderTargets.GetHammerUnitsToUV() -- InkMap region UV -> packed-surface HU.
     materialParams["$c1_y"]     = (materialInfo.NeedsBumpedLightmaps and 1 or 0)
@@ -125,7 +125,7 @@ function InkMeshMaterial.Create(lightmapLayout, sortID)
     local mat = CreateMaterial(
         string.format("splashsweps_mesh_%d_%s", sortID, game.GetMap()),
         "Screenspace_General_8tex", materialParams)
-    DetailAtlas.WriteLayout(mat)
+    InkDetailAtlas.WriteLayout(mat)
     mat:SetFloat("$c1_z", 2 / RenderTargets.GetHammerUnitsToUV())
     m:SetUnpacked(
         materialInfo.BaseTextureTransform:GetField(1, 1),
@@ -159,14 +159,14 @@ function InkMeshMaterial.Create(lightmapLayout, sortID)
             0, 0, 0, 0)
     end
     mat:SetMatrix("$invviewprojmat", m)
-    InkMaterials.AddWorld(mat, materialInfo.Material)
+    UnderlaySync.AddInkMesh(mat, materialInfo.Material)
     return mat
 end
 
----Writes the constants of the ink material drawing the world ink meshes in water reflections.
+---Writes the constants of the ink mesh material drawing in water reflections.
 function InkMeshMaterial.SetupWater()
     local mat = Material "splashsweps/shaders/inkmesh"
-    DetailAtlas.WriteLayout(mat)
+    InkDetailAtlas.WriteLayout(mat)
     mat:SetFloat("$c1_z", 2 / RenderTargets.GetHammerUnitsToUV())
 end
 

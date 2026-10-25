@@ -1,44 +1,47 @@
 
--- Atlas of the detail images of ink types and the data rows of their parameters.
+-- Ink detail atlas: the detail images of ink materials, and the ink data below them.
 
 ---@class ss
 local ss = SplashSWEPs
-local DetailProxy   = ss.import "splashsweps/client/ink/detailproxy"
-local DetailRows    = ss.import "splashsweps/client/ink/detailrows"
-local InkType       = ss.import "splashsweps/shared/inktype"
-local MaterialProxy = ss.import "splashsweps/client/ink/materialproxy"
+local InkData        = ss.import "splashsweps/client/ink/inkdata"
+local InkDetailProxy = ss.import "splashsweps/client/ink/inkdetailproxy"
+local InkType        = ss.import "splashsweps/shared/inktype"
+local MaterialProxy  = ss.import "splashsweps/client/ink/materialproxy"
 
----@class ss.DetailAtlasModule
-local DetailAtlas = ss.module "splashsweps/client/ink/detailatlas"
+---@class ss.InkDetailAtlasModule
+local InkDetailAtlas = ss.module "splashsweps/client/ink/inkdetailatlas"
 
----@class ss.DetailAtlasModule.State
+---@class ss.InkDetailAtlasModule.State
 ---@field BaseTextureNames string[]                              $basetexture of each ink type, which also provides its average height
 ---@field CellImages       table<integer, ITexture>              Image copied into each grid cell, nil for generated cells
 ---@field Slots            table<integer, integer>               Grid cell of each ink type, nil if the ink type has no detail image
 ---@field Animations       table<integer, ss.InkDetailAnimation> External frame variable and last copied frame, per animated cell
 ---@field CellMesh         IMesh?                                Periodic border mesh shared by all cells
 ---@field CellTransforms   VMatrix[]                             Placement of each cell's mesh
----@field ProxiedMaterials ss.ProxiedInkMaterial[]               Ink definitions with material proxies
----@field ParameterRows    table<integer, number[][]>            Last encoded inputs sent to WriteInkTypeRows
+---@field ProxiedMaterials ss.ProxiedInkMaterial[]               Ink materials with material proxies
+---@field LastInkData      table<integer, number[][]>            Last encoded inputs sent to WriteInkData
 ---@field GeneratedCells   table<string, integer>                Material name --> grid cell drawn by its InkDetailUpdate
 ---@field RenderTarget     ITexture?                             The atlas
----@field ImageSize        number                                Side length of the square image area above the data rows
+---@field ImageSize        number                                Side length of the square image area above the ink data
 ---@field GridColumns      number                                Number of columns in the detail image grid
----@field BlendModes       table<integer, integer>               $detailblendmode of each ink type with a detail image
+---@field BlendModes       table<integer, integer>               $detailblendmode of each ink type, 0 if the detail is disabled
 -- Preparation replaces the contents, not the field names.
-local state = ss.state("splashsweps/client/ink/detailatlas", {
+local state = ss.state("splashsweps/client/ink/inkdetailatlas", {
     BaseTextureNames = {},
     CellImages = {},
     Slots = {},
     Animations = {},
     CellTransforms = {},
     ProxiedMaterials = {},
-    ParameterRows = {},
+    LastInkData = {},
     GeneratedCells = {},
     ImageSize = 0,
     GridColumns = 0,
     BlendModes = {},
-}) ---@type ss.DetailAtlasModule.State
+}) ---@type ss.InkDetailAtlasModule.State
+
+---$detailblendmode of each ink type, 0 if the detail is disabled.
+InkDetailAtlas.BlendModes = state.BlendModes
 
 local CELL_BORDER_TOTAL_PX = 2
 local CELL_BORDER_PX       = CELL_BORDER_TOTAL_PX / 2
@@ -46,7 +49,7 @@ local copyMaterial         = Material "splashsweps/shaders/copy"
 local detailCopyMaterial   = Material "splashsweps/shaders/copydetail"
 
 ---@class ss.InkDetailAnimation
----@field Material IMaterial Lowest-index ink definition using this texture
+---@field Material IMaterial Lowest-index ink material using this texture
 ---@field FrameVariable string Material parameter controlling the frame
 ---@field Frame integer Last frame copied to the cell
 
@@ -65,7 +68,7 @@ end
 ---and draws generated cells by the functions returned from their updaters.
 ---The Details render target must be pushed and cam.Start2D() must be called beforehand.
 ---@param textures table<integer, ITexture> Grid cell --> detail image
----@param drawRequests table<string, ss.InkDetailProxy> Material name --> changed drawing request
+---@param drawRequests table<string, ss.InkDetailProxyInstance> Material name --> changed drawing request
 local function WriteDetailCells(textures, drawRequests)
     if not next(textures) and not next(drawRequests) then return end
     render.OverrideBlend(true,
@@ -87,22 +90,22 @@ local function WriteDetailCells(textures, drawRequests)
             -- An error in the drawing function must not leave the render target pushed.
             local drawn = ProtectedCall(proxy.Draw, proxy.State, DrawCellMesh)
         cam.PopModelMatrix()
-        if drawn then DetailProxy.MarkDrawn(name, proxy) end
+        if drawn then InkDetailProxy.MarkDrawn(name, proxy) end
     end
     render.OverrideAlphaWriteEnable(false)
     render.OverrideBlend(false)
 end
 
----Writes data rows of ink types below the grid cells so that they can be read in the shader.
+---Writes the ink data of ink types below the grid cells so that they can be read in the shader.
 ---Automatic height baselines have already been resolved from the smallest stored mipmaps.
 ---The Details render target must be pushed and cam.Start2D() must be called beforehand.
----@param rowsByType table<integer, number[][]> Ink type index --> data rows from DetailRows.Encode()
-local function WriteInkTypeRows(rowsByType)
-    if not next(rowsByType) then return end
-    local numRows = 0
-    for i, rows in pairs(rowsByType) do
-        numRows = numRows + #rows
-        state.ParameterRows[i] = rows
+---@param inkDataByType table<integer, number[][]> Ink type index --> ink data from InkData.Encode()
+local function WriteInkData(inkDataByType)
+    if not next(inkDataByType) then return end
+    local numTexels = 0
+    for i, inkData in pairs(inkDataByType) do
+        numTexels = numTexels + #inkData
+        state.LastInkData[i] = inkData
     end
 
     copyMaterial:SetTexture("$basetexture", "color/white")
@@ -112,10 +115,10 @@ local function WriteInkTypeRows(rowsByType)
     render.OverrideBlend(true,
         BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD,
         BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
-    mesh.Begin(MATERIAL_POINTS, numRows)
+    mesh.Begin(MATERIAL_POINTS, numTexels)
     local imageAreaSizePx = state.ImageSize
-    for i, rows in pairs(rowsByType) do
-        for j, float4 in ipairs(rows) do
+    for i, inkData in pairs(inkDataByType) do
+        for j, float4 in ipairs(inkData) do
             mesh.Position(i, j + imageAreaSizePx, 0)
             mesh.TexCoord(0, 0.5, 0.5)
             mesh.TexCoord(1, unpack(float4))
@@ -185,12 +188,12 @@ local function BuildWrappedCellMesh(cellSizePx)
     state.CellMesh = m
 end
 
----Consumes pending generated draws and writes selected images/encoded rows in one Details RT context.
+---Consumes pending generated draws and writes selected images/ink data in one ink detail atlas context.
 ---@param imageCells integer[]
----@param rowsByType table<integer, number[][]>
-local function WriteAtlas(imageCells, rowsByType)
-    local drawRequests = DetailProxy.TakeChanged()
-    if #imageCells == 0 and not next(rowsByType) and not next(drawRequests) then return end
+---@param inkDataByType table<integer, number[][]>
+local function WriteAtlas(imageCells, inkDataByType)
+    local drawRequests = InkDetailProxy.TakeChanged()
+    if #imageCells == 0 and not next(inkDataByType) and not next(drawRequests) then return end
     local textures = {} ---@type table<integer, ITexture>
     for _, slot in ipairs(imageCells) do
         textures[slot] = state.CellImages[slot]
@@ -199,28 +202,28 @@ local function WriteAtlas(imageCells, rowsByType)
     render.PushRenderTarget(state.RenderTarget)
     cam.Start2D()
         WriteDetailCells(textures, drawRequests)
-        WriteInkTypeRows(rowsByType)
+        WriteInkData(inkDataByType)
     cam.End2D()
     render.PopRenderTarget()
 end
 
 ---Binds proxied materials, then reads their settings and externally selected animation frames.
----Only changed rows/frames and changed generated drawing inputs are written to the atlas.
+---Only changed ink data/frames and changed generated drawing inputs are written to the atlas.
 local function UpdateFromMaterials()
-    local rowsByType = {} ---@type table<integer, number[][]>
+    local inkDataByType = {} ---@type table<integer, number[][]>
     for _, entry in ipairs(state.ProxiedMaterials) do
-        render.SetMaterial(entry.Material) -- Ink definitions need an explicit bind to execute their proxies.
+        render.SetMaterial(entry.Material) -- Ink materials need an explicit bind to execute their proxies.
         local slot = state.Slots[entry.Index]
         local btstr = state.BaseTextureNames[entry.Index]
-        local rows = DetailRows.Encode(entry.Material, slot, btstr)
+        local inkData = InkData.Encode(entry.Material, slot, btstr)
         local changed = false
-        for j, row in ipairs(rows) do
-            for k, value in ipairs(row) do
-                if value ~= state.ParameterRows[entry.Index][j][k] then changed = true end
+        for j, texel in ipairs(inkData) do
+            for k, value in ipairs(texel) do
+                if value ~= state.LastInkData[entry.Index][j][k] then changed = true end
             end
         end
         if changed then
-            rowsByType[entry.Index] = rows
+            inkDataByType[entry.Index] = inkData
         end
     end
     local imageCells = {} ---@type integer[]
@@ -229,14 +232,14 @@ local function UpdateFromMaterials()
             imageCells[#imageCells + 1] = slot
         end
     end
-    WriteAtlas(imageCells, rowsByType)
+    WriteAtlas(imageCells, inkDataByType)
 end
 
 ---Lays out detail images of ink types, then creates the Details render target and the cell mesh.
----This also stops updating the render target until DetailAtlas.DrawInitial() is called.
+---This also stops updating the render target until InkDetailAtlas.DrawInitial() is called.
 ---@param baseTextureNames string[] $basetexture of each ink type, which also provides its average height
----@return number[][][]? rowsByType Data rows of each ink type, nil if there is no ink type
-function DetailAtlas.Prepare(baseTextureNames)
+---@return number[][][]? inkDataByType Ink data of each ink type, nil if there is no ink type
+function InkDetailAtlas.Prepare(baseTextureNames)
     hook.Remove("PreRender", "SplashSWEPs: Update ink materials")
     if #InkType.Types == 0 then return end
 
@@ -249,17 +252,17 @@ function DetailAtlas.Prepare(baseTextureNames)
     local generatedCells   = {} ---@type table<string, integer>
     local updaters         = {} ---@type table<string, string>
     local proxiedMaterials = {} ---@type ss.ProxiedInkMaterial[]
-    local rowsByType       = {} ---@type number[][][]
+    local inkDataByType    = {} ---@type number[][][]
     local blendModes       = {} ---@type table<integer, integer>
     for i, inktype in ipairs(InkType.Types) do
         local mat = Material(inktype.Identifier)
         local hasProxies, frameVariable, updater = ReadDetailProxyInfo(mat)
         copyMaterial:SetTexture("$basetexture", mat:GetString "$detail" or "???")
         local detail = copyMaterial:GetTexture "$basetexture"
+        blendModes[i] = detail and mat:GetInt "$detailblendmode" or 0
         if detail then
             local name = detail:GetName()
             detailNames[i] = name
-            blendModes[i] = mat:GetInt "$detailblendmode" or 0
             if updater then
                 -- The cell is owned by the material as its image differs from the source.
                 cellSizeSources[#cellSizeSources + 1] = detail
@@ -283,7 +286,7 @@ function DetailAtlas.Prepare(baseTextureNames)
             end
         end
 
-        rowsByType[i] = DetailRows.Encode(mat, slots[i], baseTextureNames[i])
+        inkDataByType[i] = InkData.Encode(mat, slots[i], baseTextureNames[i])
         if hasProxies then
             proxiedMaterials[#proxiedMaterials + 1] = {
                 Material = mat,
@@ -302,22 +305,22 @@ function DetailAtlas.Prepare(baseTextureNames)
         detailSize = math.max(detailSize, texture:Width(), texture:Height())
     end
     if #cellSizeSources > 0 then
-        detailSize = math.min(detailSize, math.floor((16384 - #rowsByType[1]) / gridColumns) - CELL_BORDER_TOTAL_PX)
+        detailSize = math.min(detailSize, math.floor((16384 - #inkDataByType[1]) / gridColumns) - CELL_BORDER_TOTAL_PX)
         imageAreaSizePx = gridColumns * (detailSize + CELL_BORDER_TOTAL_PX)
     end
 
-    local atlasWidthPx, atlasHeightPx = math.max(imageAreaSizePx, #rowsByType), imageAreaSizePx + #rowsByType[1]
+    local atlasWidthPx, atlasHeightPx = math.max(imageAreaSizePx, #inkDataByType), imageAreaSizePx + #inkDataByType[1]
     state.ImageSize = imageAreaSizePx
     state.GridColumns = gridColumns
-    state.BlendModes = blendModes
+    table.CopyFromTo(blendModes, state.BlendModes)
     state.BaseTextureNames = baseTextureNames
     state.CellImages = cellImages
     state.Slots = slots
     state.Animations = animations
     state.ProxiedMaterials = proxiedMaterials
-    state.ParameterRows = {}
+    state.LastInkData = {}
     state.GeneratedCells = generatedCells
-    DetailProxy.Reset(updaters)
+    InkDetailProxy.Reset(updaters)
     state.CellTransforms = {}
     local cellSizePx = gridColumns > 0 and imageAreaSizePx / gridColumns or 0
     BuildWrappedCellMesh(cellSizePx)
@@ -335,23 +338,23 @@ function DetailAtlas.Prepare(baseTextureNames)
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
         -- NOLOD | ALL_MIPS | RENDERTARGET | NODEPTHBUFFER (RTs imply NOMIP).
-        -- Detail images use bilinear filtering; numeric rows are read at texel centers.
+        -- Detail images use bilinear filtering; ink data is read at texel centers.
         512 + 1024 + 32768 + 8388608, 0,
         IMAGE_FORMAT_RGBA8888)
-    return rowsByType
+    return inkDataByType
 end
 
----Writes the first contents of the Details render target prepared by DetailAtlas.Prepare(),
+---Writes the first contents of the Details render target prepared by InkDetailAtlas.Prepare(),
 ---then starts updating it every frame if any ink type has material proxies or animated detail images.
 ---Generated cells are drawn by the first update.
----Needs a rendering context, so call it from the next frame of DetailAtlas.Prepare().
----@param rowsByType number[][][] Data rows returned by DetailAtlas.Prepare()
-function DetailAtlas.DrawInitial(rowsByType)
+---Needs a rendering context, so call it from the next frame of InkDetailAtlas.Prepare().
+---@param inkDataByType number[][][] Ink data returned by InkDetailAtlas.Prepare()
+function InkDetailAtlas.DrawInitial(inkDataByType)
     render.PushRenderTarget(state.RenderTarget)
     render.Clear(0, 0, 0, 0)
     cam.Start2D()
         WriteDetailCells(state.CellImages, {})
-        WriteInkTypeRows(rowsByType)
+        WriteInkData(inkDataByType)
     cam.End2D()
     render.PopRenderTarget()
     if #state.ProxiedMaterials > 0 or next(state.Animations) then
@@ -361,25 +364,18 @@ end
 
 ---Returns the atlas render target.
 ---@return ITexture
-function DetailAtlas.GetRenderTarget()
+function InkDetailAtlas.GetRenderTarget()
     return state.RenderTarget
 end
 
 ---Writes the layout of the atlas into a material reading it:
----the ink materials, and the material drawing paints into the ink map.
+---ink mesh materials, ink sprp materials, and the paint material drawing paints into the ink map.
 ---The layout is fixed once the atlas is laid out in this Lua state,
 ---as the render target keeps the size it was first created with.
 ---@param mat IMaterial
-function DetailAtlas.WriteLayout(mat)
+function InkDetailAtlas.WriteLayout(mat)
     mat:SetFloat("$c3_w", state.ImageSize)
     mat:SetFloat("$c1_x", state.GridColumns)
 end
 
----Returns $detailblendmode of an ink type, 0 if the detail is disabled.
----@param index integer Ink type index
----@return integer
-function DetailAtlas.GetBlendMode(index)
-    return state.BlendModes[index] or 0
-end
-
-return DetailAtlas
+return InkDetailAtlas

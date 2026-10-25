@@ -3,6 +3,7 @@
 
 ---@class ss
 local ss = SplashSWEPs
+local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
 local BoundingBox   = ss.import "splashsweps/server/mapcache/boundingbox"
 local Util          = ss.import "splashsweps/shared/util"
 local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
@@ -135,8 +136,8 @@ local function SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
     local paintGridMatrix = mbrMatrix:GetInverseTR()
     surf.TransformPaintGrid.Translation:Set(paintGridMatrix:GetTranslation())
     surf.TransformPaintGrid.Angle:Set(paintGridMatrix:GetAngles())
-    surf.PaintGridWidth  = ceil(mbrSize.x / ss.InkGridCellSize)
-    surf.PaintGridHeight = ceil(mbrSize.y / ss.InkGridCellSize)
+    surf.PaintGridWidth  = ceil(mbrSize.x / PaintableGrid.CELL_SIZE)
+    surf.PaintGridHeight = ceil(mbrSize.y / PaintableGrid.CELL_SIZE)
     for i = 1, #PrecachedData.InkMapResolutions do
         surf.UVInfo[i] = PrecachedData.UVInfo.new()
         surf.UVInfo[i].Angle:Set(mbrMatrix:GetAngles())

@@ -9,6 +9,9 @@ local InkType  = ss.import "splashsweps/shared/inktype"
 ---@class ss.PaintableGridModule
 local PaintableGrid = ss.module "splashsweps/shared/paint/paintablegrid"
 
+---Side length of a cell of paintable grids in Hammer units.
+PaintableGrid.CELL_SIZE = 12
+
 local Matrix = Matrix
 local ceil  = math.ceil
 local floor = math.floor
@@ -88,7 +91,7 @@ end
 ---@return integer # Number of painted cells.
 function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
     -- Caches
-    local inkGridCellSize = ss.InkGridCellSize
+    local cellSize = PaintableGrid.CELL_SIZE
     local surfaceGrid = self.Grid
     local surfaceGridWidth = surfaceGrid.Width
     local surfaceGridHeight = surfaceGrid.Height
@@ -144,23 +147,23 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
         inkSystemInSurfaceSystem:GetForward(),
        -inkSystemInSurfaceSystem:GetRight(),
         radius.x, radius.y)
-    local indexMinX = max(floor(x_min / inkGridCellSize), 0)
-    local indexMaxX = min( ceil(x_max / inkGridCellSize), surfaceGridWidth - 1)
-    local indexMinY = max(floor(y_min / inkGridCellSize), 0)
-    local indexMaxY = min( ceil(y_max / inkGridCellSize), surfaceGridHeight - 1)
+    local indexMinX = max(floor(x_min / cellSize), 0)
+    local indexMaxX = min( ceil(x_max / cellSize), surfaceGridWidth - 1)
+    local indexMinY = max(floor(y_min / cellSize), 0)
+    local indexMaxY = min( ceil(y_max / cellSize), surfaceGridHeight - 1)
 
     -- Caches
-    local shapeGrid              = InkShape.Shapes[shape].Grid
-    local shapeGridWidth         = shapeGrid.Width
-    local shapeGridHeight        = shapeGrid.Height
-    local oneOverShapeCellWidth  = shapeGridWidth  / (radius.x * 2)
-    local oneOverShapeCellHeight = shapeGridHeight / (radius.y * 2)
-    local inkGridCellSizeHalf    = inkGridCellSize / 2
+    local shapeMask              = InkShape.Shapes[shape].Mask
+    local shapeMaskWidth         = shapeMask.Width
+    local shapeMaskHeight        = shapeMask.Height
+    local oneOverShapeCellWidth  = shapeMaskWidth  / (radius.x * 2)
+    local oneOverShapeCellHeight = shapeMaskHeight / (radius.y * 2)
+    local halfCellSize           = cellSize / 2
 
     -- These values are originally defined inside the loop (indexMinX, indexMinY --> ix, iy)
     -- I took them out for optimization.
-    local xInSurfaceSystem = indexMinX * inkGridCellSize + inkGridCellSizeHalf
-    local yInSurfaceSystem = indexMinY * inkGridCellSize + inkGridCellSizeHalf
+    local xInSurfaceSystem = indexMinX * cellSize + halfCellSize
+    local yInSurfaceSystem = indexMinY * cellSize + halfCellSize
     local xInInkSystem
         = surfaceAxisXInInkSystemX * xInSurfaceSystem
         + surfaceAxisYInInkSystemX * yInSurfaceSystem
@@ -175,25 +178,25 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
     -- effectively removes multiplication inside the loop.
     --
     -- Difference between each inner iteration (ix).
-    local xInInkSystemStep = surfaceAxisXInInkSystemX * inkGridCellSize
-    local yInInkSystemStep = surfaceAxisXInInkSystemY * inkGridCellSize
+    local xInInkSystemStep = surfaceAxisXInInkSystemX * cellSize
+    local yInInkSystemStep = surfaceAxisXInInkSystemY * cellSize
     -- Difference between each outer iteration (iy).
     local xInInkSystemRewind
-        = surfaceAxisYInInkSystemX * inkGridCellSize
+        = surfaceAxisYInInkSystemX * cellSize
         - xInInkSystemStep * (indexMaxX - indexMinX + 1)
     local yInInkSystemRewind
-        = surfaceAxisYInInkSystemY * inkGridCellSize
+        = surfaceAxisYInInkSystemY * cellSize
         - yInInkSystemStep * (indexMaxX - indexMinX + 1)
 
     -- If the size of the ink is small enough then look up multiple cells of the shape grid
-    if inkGridCellSize * inkGridCellSize * oneOverShapeCellWidth * oneOverShapeCellHeight > 1 then
-        local shapeIntegralImage = shapeGrid.IntegralImage
+    if cellSize * cellSize * oneOverShapeCellWidth * oneOverShapeCellHeight > 1 then
+        local shapeIntegralImage = shapeMask.IntegralImage
         for iy = indexMinY, indexMaxY do
             for ix = indexMinX, indexMaxX do
                 x_min, x_max, y_min, y_max = CalculateBounds(
                     xInInkSystem, yInInkSystem,
                     surfaceAxisXInInkSystem, surfaceAxisYInInkSystem,
-                    inkGridCellSizeHalf, inkGridCellSizeHalf)
+                    halfCellSize, halfCellSize)
                 local shapeIndexMinX = floor((x_min + radius.x) * oneOverShapeCellWidth - 0.5)
                 local shapeIndexMaxX =  ceil((x_max + radius.x) * oneOverShapeCellWidth + 0.5)
                 local shapeIndexMinY = floor((y_min + radius.y) * oneOverShapeCellHeight - 0.5)
@@ -202,8 +205,8 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
                 -- Check if the index range for the shape grid at least partially overlaps
                 if shapeIndexMaxX >= 0
                 and shapeIndexMaxY >= 0
-                and shapeIndexMinX < shapeGridWidth
-                and shapeIndexMinY < shapeGridHeight then
+                and shapeIndexMinX < shapeMaskWidth
+                and shapeIndexMinY < shapeMaskHeight then
                     -- Total number of cells we have to look up into the shape grid.
                     local totalCells
                         = (shapeIndexMaxX - shapeIndexMinX + 1)
@@ -211,15 +214,15 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
 
                     -- Then clamp them to avoid out-of-range access
                     shapeIndexMinX = max(shapeIndexMinX, 0)
-                    shapeIndexMaxX = min(shapeIndexMaxX, shapeGridWidth  - 1)
+                    shapeIndexMaxX = min(shapeIndexMaxX, shapeMaskWidth  - 1)
                     shapeIndexMinY = max(shapeIndexMinY, 0)
-                    shapeIndexMaxY = min(shapeIndexMaxY, shapeGridHeight - 1)
+                    shapeIndexMaxY = min(shapeIndexMaxY, shapeMaskHeight - 1)
 
                     local paintedCells
-                        = shapeIntegralImage[shapeIndexMaxY * shapeGridWidth + shapeIndexMaxX + 1]
-                        - shapeIntegralImage[shapeIndexMaxY * shapeGridWidth + shapeIndexMinX + 1]
-                        - shapeIntegralImage[shapeIndexMinY * shapeGridWidth + shapeIndexMaxX + 1]
-                        + shapeIntegralImage[shapeIndexMinY * shapeGridWidth + shapeIndexMinX + 1]
+                        = shapeIntegralImage[shapeIndexMaxY * shapeMaskWidth + shapeIndexMaxX + 1]
+                        - shapeIntegralImage[shapeIndexMaxY * shapeMaskWidth + shapeIndexMinX + 1]
+                        - shapeIntegralImage[shapeIndexMinY * shapeMaskWidth + shapeIndexMaxX + 1]
+                        + shapeIntegralImage[shapeIndexMinY * shapeMaskWidth + shapeIndexMinX + 1]
 
                     -- -- Lookup range for the mask
                     -- debugoverlay.BoxAngles(worldpos,
@@ -233,10 +236,10 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
                         -- -- Painted cells
                         -- debugoverlay.BoxAngles(
                         --     self.WorldToLocalGridMatrix:GetInverseTR() * Vector(
-                        --         ix * inkGridCellSize + inkGridCellSizeHalf,
-                        --         iy * inkGridCellSize + inkGridCellSizeHalf),
-                        --     -Vector(inkGridCellSizeHalf, inkGridCellSizeHalf, 3),
-                        --     Vector(inkGridCellSizeHalf, inkGridCellSizeHalf, 3),
+                        --         ix * cellSize + halfCellSize,
+                        --         iy * cellSize + halfCellSize),
+                        --     -Vector(halfCellSize, halfCellSize, 3),
+                        --     Vector(halfCellSize, halfCellSize, 3),
                         --     self.WorldToLocalGridMatrix:GetInverseTR():GetAngles(), 3, Color(255, 128, 255, 16))
                     end
                 end
@@ -251,18 +254,18 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
             for ix = indexMinX, indexMaxX do
                 local shapeIndexX = floor((xInInkSystem + radius.x) * oneOverShapeCellWidth + 0.5)
                 local shapeIndexY = floor((yInInkSystem + radius.y) * oneOverShapeCellHeight + 0.5)
-                if  0 <= shapeIndexX and shapeIndexX < shapeGridWidth
-                and 0 <= shapeIndexY and shapeIndexY < shapeGridHeight
-                and shapeGrid[shapeIndexY * shapeGridWidth + shapeIndexX + 1] then
+                if  0 <= shapeIndexX and shapeIndexX < shapeMaskWidth
+                and 0 <= shapeIndexY and shapeIndexY < shapeMaskHeight
+                and shapeMask[shapeIndexY * shapeMaskWidth + shapeIndexX + 1] then
                     surfaceGrid[iy * surfaceGridWidth + ix + 1] = inktype
 
                     -- -- Painted cells
                     -- debugoverlay.BoxAngles(
                     --     self.WorldToLocalGridMatrix:GetInverseTR() * Vector(
-                    --         ix * inkGridCellSize + inkGridCellSizeHalf,
-                    --         iy * inkGridCellSize + inkGridCellSizeHalf),
-                    --     -Vector(inkGridCellSizeHalf, inkGridCellSizeHalf, 3),
-                    --     Vector(inkGridCellSizeHalf, inkGridCellSizeHalf, 3),
+                    --         ix * cellSize + halfCellSize,
+                    --         iy * cellSize + halfCellSize),
+                    --     -Vector(halfCellSize, halfCellSize, 3),
+                    --     Vector(halfCellSize, halfCellSize, 3),
                     --     self.WorldToLocalGridMatrix:GetInverseTR():GetAngles(), 3, Color(128, 128, 255, 16))
                 end
                 xInInkSystem = xInInkSystem + xInInkSystemStep
@@ -282,8 +285,8 @@ end
 ---@return ss.InkType? # The ink type painted at corresponding pixel.  nil if no ink was there.
 function PaintableGrid.Read(self, query)
     local query2d = self.WorldToLocalGridMatrix * query
-    local x = floor(query2d.x / ss.InkGridCellSize)
-    local y = floor(query2d.y / ss.InkGridCellSize)
+    local x = floor(query2d.x / PaintableGrid.CELL_SIZE)
+    local y = floor(query2d.y / PaintableGrid.CELL_SIZE)
     local pixel = self.Grid[y * self.Grid.Width + x + 1]
     if pixel and 0 <= x and x < self.Grid.Width and 0 <= y and y < self.Grid.Height then
         return InkType.Types[pixel]

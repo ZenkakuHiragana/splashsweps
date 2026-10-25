@@ -59,20 +59,20 @@ SWEP.Primary.Delay = 1 / 30
 
 SWEP.InkTypeIndex = 1
 SWEP.InkTypes = {
-    "splashsweps/inktypes/color_red",
-    "splashsweps/inktypes/color_seal",
-    "splashsweps/inktypes/material_test",
-    "splashsweps/inktypes/height1",
-    "splashsweps/inktypes/depth1",
-    "splashsweps/inktypes/depth2",
-    "splashsweps/inktypes/detail_samples/plain",
-    "splashsweps/inktypes/detail_samples/normal_ridges",
-    "splashsweps/inktypes/detail_samples/normal_crossed",
-    "splashsweps/inktypes/detail_samples/normal_rotated",
-    "splashsweps/inktypes/detail_samples/material_finish",
-    "splashsweps/inktypes/detail_samples/emission_tiles",
-    "splashsweps/inktypes/detail_samples/color_tiles",
-    "splashsweps/inktypes/detail_samples/thin_film",
+    "splashsweps/inks/color_red",
+    "splashsweps/inks/color_seal",
+    "splashsweps/inks/material_test",
+    "splashsweps/inks/height1",
+    "splashsweps/inks/depth1",
+    "splashsweps/inks/depth2",
+    "splashsweps/inks/detail_samples/plain",
+    "splashsweps/inks/detail_samples/normal_ridges",
+    "splashsweps/inks/detail_samples/normal_crossed",
+    "splashsweps/inks/detail_samples/normal_rotated",
+    "splashsweps/inks/detail_samples/material_finish",
+    "splashsweps/inks/detail_samples/emission_tiles",
+    "splashsweps/inks/detail_samples/color_tiles",
+    "splashsweps/inks/detail_samples/thin_film",
 }
 
 function SWEP:Initialize()
@@ -119,9 +119,9 @@ local function DrawGrid(surf, toWorld)
     for y = 0, surf.Grid.Height - 1 do
         for x = 0, surf.Grid.Width - 1 do
             local pixel = surf.Grid[y * surf.Grid.Width + x + 1] or 0
-            local xy = Vector(x + 0.5, y + 0.5, 0.1) * ss.InkGridCellSize
+            local xy = Vector(x + 0.5, y + 0.5, 0.1) * PaintableGrid.CELL_SIZE
             local color = pixel > 0 and Color(128, 255, 128) or Color(255, 255, 255)
-            debugoverlay.Cross(gridToWorld * xy, ss.InkGridCellSize / 2, 5, color, true)
+            debugoverlay.Cross(gridToWorld * xy, PaintableGrid.CELL_SIZE / 2, 5, color, true)
         end
     end
 end

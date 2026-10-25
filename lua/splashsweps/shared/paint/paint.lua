@@ -260,9 +260,7 @@ if SERVER then
         ---@diagnostic disable-next-line undefined-field
         net.Broadcast()
     end
-end
-
-if CLIENT then
+else
     local net_ReadInt = net.ReadInt
     local net_ReadUInt = net.ReadUInt
 

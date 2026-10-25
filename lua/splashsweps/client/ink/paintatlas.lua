@@ -10,20 +10,33 @@ local Structures      = ss.import "splashsweps/shared/packer/structures"
 local Util            = ss.import "splashsweps/shared/util"
 local VTF             = ss.import "splashsweps/shared/vtf/reader"
 
----@class ss.TypeAtlasModule
-local TypeAtlas = ss.module "splashsweps/client/ink/typeatlas"
+---@class ss.PaintAtlasModule
+local PaintAtlas = ss.module "splashsweps/client/ink/paintatlas"
 
----@class ss.TypeAtlasModule.State
----@field Albedo  ITexture?           $basetexture and height maps of ink types.
----@field Tint    ITexture?           $tinttexture of ink types in RGB and masks of ink shapes in alpha.
----@field BaseUV  table<integer, number[]> Ink type index --> atlas range (minU, minV, maxU, maxV) of $basetexture; negative minU encodes transposition.
----@field TintUV  table<integer, number[]> Ink type index --> atlas range of $tinttexture.
----@field ShapeUV table<integer, number[]> Ink shape index --> atlas range of the mask.
-local state = ss.state("splashsweps/client/ink/typeatlas", {
+---Range of an image in an atlas: (minU, minV, maxU, maxV).
+---Min U is strictly positive due to the margin; its sign encodes transposition.
+---@alias ss.PaintAtlas.Range [number, number, number, number]
+
+---@class ss.PaintAtlasModule.State
+---@field Albedo  ITexture?                           $basetexture and height maps of ink types.
+---@field Tint    ITexture?                           $tinttexture of ink types in RGB and masks of ink shapes in alpha.
+---@field BaseUV  table<integer, ss.PaintAtlas.Range> Ink type index --> range of its $basetexture.
+---@field TintUV  table<integer, ss.PaintAtlas.Range> Ink type index --> range of its $tinttexture.
+---@field ShapeUV table<integer, ss.PaintAtlas.Range> Ink shape index --> range of its mask.
+local state = ss.state("splashsweps/client/ink/paintatlas", {
     BaseUV = {},
     TintUV = {},
     ShapeUV = {},
-}) ---@type ss.TypeAtlasModule.State
+}) ---@type ss.PaintAtlasModule.State
+
+---Ink type index --> range of its $basetexture in the albedo atlas, for every ink type after PaintAtlas.Allocate.
+PaintAtlas.BaseUV = state.BaseUV
+
+---Ink type index --> range of its $tinttexture in the tint atlas, for every ink type after PaintAtlas.Allocate.
+PaintAtlas.TintUV = state.TintUV
+
+---Ink shape index --> range of its mask in the tint atlas, for every ink shape after PaintAtlas.Allocate.
+PaintAtlas.ShapeUV = state.ShapeUV
 
 local MARGIN = 2
 local HALF_MARGIN = MARGIN / 2
@@ -104,9 +117,9 @@ local function CopyTextureToRect(tex, rect, drawcolor, drawalpha)
 end
 
 ---Collects textures and packing rectangles.
----@return ss.InkTypeAtlasSources sources
+---@return ss.PaintAtlas.Sources sources
 local function ReadInkTypeSources()
-    local sources = { ---@class ss.InkTypeAtlasSources
+    local sources = { ---@class ss.PaintAtlas.Sources
         BaseNames        = {}, ---@type string[]
         BaseKeys         = {}, ---@type string[] $basetexture and height map source sharing an atlas cell
         BaseCache        = {}, ---@type table<string, integer>
@@ -183,7 +196,7 @@ local function ReadInkTypeSources()
 
     for i, shape in ipairs(InkShape.Shapes) do
         sources.ShapeRects[i] = Structures.MakeRectangle(
-            shape.Grid.Width + MARGIN, shape.Grid.Height + MARGIN, 0, 0, shape)
+            shape.Mask.Width + MARGIN, shape.Mask.Height + MARGIN, 0, 0, shape)
     end
 
     print "$basetexture"
@@ -209,15 +222,15 @@ local function GetAtlasRenderTarget(name, size)
 end
 
 ---Packed layout of the atlases.
----@class ss.TypeAtlas.Plan
----@field Sources     ss.InkTypeAtlasSources
+---@class ss.PaintAtlas.Plan
+---@field Sources     ss.PaintAtlas.Sources
 ---@field BasePacker  ss.RectanglePacker
 ---@field TintPacker  ss.RectanglePacker
 ---@field ShapePacker ss.RectanglePacker
 
 ---Collects the textures of ink types and the masks of ink shapes, and packs them.
----@return ss.TypeAtlas.Plan
-function TypeAtlas.Plan()
+---@return ss.PaintAtlas.Plan
+function PaintAtlas.Plan()
     local sources = ReadInkTypeSources()
     return {
         Sources     = sources,
@@ -230,11 +243,10 @@ function TypeAtlas.Plan()
 end
 
 ---Returns the atlas range of a packed rectangle.
----Min U is strictly positive due to the margin; its sign encodes transposition.
 ---@param rect ss.Rectangle
 ---@param rt ITexture
 ---@param inset number Distance from the edge of the rectangle in pixels
----@return number[]
+---@return ss.PaintAtlas.Range
 local function GetAtlasRange(rect, rt, inset)
     return {
         (rect.rotated and -1 or 1) * (rect.left + inset) / rt:Width(),
@@ -245,12 +257,14 @@ local function GetAtlasRange(rect, rt, inset)
 end
 
 ---Creates the atlas render targets and assigns the atlas ranges of ink types and ink shapes.
----@param plan ss.TypeAtlas.Plan
-function TypeAtlas.Allocate(plan)
+---@param plan ss.PaintAtlas.Plan
+function PaintAtlas.Allocate(plan)
     local sources = plan.Sources
     state.Albedo = GetAtlasRenderTarget("splashsweps_albedo", plan.BasePacker.maxsize)
     state.Tint = GetAtlasRenderTarget("splashsweps_tint", math.max(plan.TintPacker.maxsize, plan.ShapePacker.maxsize))
-    state.BaseUV, state.TintUV, state.ShapeUV = {}, {}, {}
+    table.Empty(state.BaseUV)
+    table.Empty(state.TintUV)
+    table.Empty(state.ShapeUV)
     for _, rect in ipairs(plan.BasePacker.rects) do
         local inktype = rect.tag ---@type ss.InkType
         state.BaseUV[inktype.Index] = GetAtlasRange(rect, state.Albedo, HALF_MARGIN + 0.5)
@@ -273,9 +287,9 @@ function TypeAtlas.Allocate(plan)
 end
 
 ---Draws the textures and masks into the atlases.
----Needs a rendering context, so call it after TypeAtlas.Allocate, from the next frame.
----@param plan ss.TypeAtlas.Plan
-function TypeAtlas.Draw(plan)
+---Needs a rendering context, so call it after PaintAtlas.Allocate, from the next frame.
+---@param plan ss.PaintAtlas.Plan
+function PaintAtlas.Draw(plan)
     local sources = plan.Sources
     render.PushRenderTarget(state.Albedo)
     render.Clear(0, 0, 0, 0)
@@ -319,25 +333,4 @@ function TypeAtlas.Draw(plan)
     render.PopRenderTarget()
 end
 
----Returns the atlas range (minU, minV, maxU, maxV) of $basetexture of an ink type; negative minU encodes transposition.
----@param index integer Ink type index
----@return number[]?
-function TypeAtlas.GetBaseUV(index)
-    return state.BaseUV[index]
-end
-
----Returns the atlas range of $tinttexture of an ink type.
----@param index integer Ink type index
----@return number[]?
-function TypeAtlas.GetTintUV(index)
-    return state.TintUV[index]
-end
-
----Returns the atlas range of the mask of an ink shape.
----@param index integer Ink shape index
----@return number[]?
-function TypeAtlas.GetShapeUV(index)
-    return state.ShapeUV[index]
-end
-
-return TypeAtlas
+return PaintAtlas

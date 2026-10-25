@@ -13,7 +13,6 @@ include "splashsweps/client/render/inkpass.lua"
 
 local Hash              = ss.import "splashsweps/shared/hash"
 local InkAtlases        = ss.import "splashsweps/client/ink/atlases"
-local InkFeature        = ss.import "splashsweps/shared/inkfeature"
 local InkMap            = ss.import "splashsweps/client/render/inkmap"
 local InkShape          = ss.import "splashsweps/shared/inkshape"
 local InkType           = ss.import "splashsweps/shared/inktype"
@@ -23,7 +22,7 @@ local PrecachedData     = ss.import "splashsweps/shared/typing/precachedata"
 local RenderTargets     = ss.import "splashsweps/client/render/rendertargets"
 local StaticPropBuilder = ss.import "splashsweps/client/mapload/staticpropbuilder"
 local Paint             = ss.import "splashsweps/shared/paint/paint"
-local WorldMesh         = ss.import "splashsweps/client/render/worldmesh"
+local InkMesh           = ss.import "splashsweps/client/render/inkmesh"
 
 local function LoadCache()
     local cachePath = string.format("splashsweps/%s.json", game.GetMap())
@@ -31,7 +30,8 @@ local function LoadCache()
     local hdrPath = string.format("splashsweps/%s_hdr.json", game.GetMap())
     local ldrExists = file.Exists(ldrPath, "DATA")
     local hdrExists = file.Exists(hdrPath, "DATA")
-    local cache = PrecachedData.restore(util.JSONToTable(util.Decompress(file.Read(cachePath) or "") or "", true))
+    local cacheJSON = util.JSONToTable(util.Decompress(file.Read(cachePath) or "") or "", true)
+    local cache = cacheJSON and PrecachedData.restore(cacheJSON)
     if not cache then return end
 
     local ishdr = false
@@ -44,20 +44,22 @@ local function LoadCache()
     local surfacePath = ishdr and hdrPath or ldrPath
     local staticPropUV = ishdr and cache.StaticPropHDR or cache.StaticPropLDR
     local waterSurfaces = ishdr and cache.SurfacesWaterHDR or cache.SurfacesWaterLDR
-
-    ---@type ss.PrecachedData.SurfaceInfo
-    local surfaces = PrecachedData.SurfaceInfo.restore(util.JSONToTable(util.Decompress(file.Read(surfacePath) or "") or "", true) or {})
+    local surfacesJSON = util.JSONToTable(util.Decompress(file.Read(surfacePath) or "") or "", true)
+    local surfaces = surfacesJSON and PrecachedData.SurfaceInfo.restore(surfacesJSON)
+    if not surfaces then return end
 
     Hash.Setup(surfaces.SurfaceHash, cache.HashParameters)
     RenderTargets.Setup(surfaces.UVScales[#PrecachedData.InkMapResolutions])
-    InkFeature.Load()
     InkShape.Load()
     InkType.Load()
     InkAtlases.Load()
     InkMap.Setup()
-    WorldMesh.Setup(surfaces, cache.NumModels, cache.MaterialNames)
+    InkMesh.Setup(surfaces, cache.NumModels, cache.MaterialNames)
     PaintableSurface.Setup(surfaces.Surfaces, cache.NumModels)
-    PaintableSurface.SetupStaticProps(cache.StaticProps, staticPropUV, RenderTargets.GetHammerUnitsToUV())
+    PaintableSurface.SetupStaticProps(cache.StaticProps, {
+        UVInfo = staticPropUV,
+        HammerUnitsToUV = RenderTargets.GetHammerUnitsToUV(),
+    })
     StaticPropBuilder.Setup(cache.StaticProps, cache.StaticPropMDL, staticPropUV, surfaces.Cubemaps)
     InkMap.ClearAll()
 end

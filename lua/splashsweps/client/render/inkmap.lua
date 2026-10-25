@@ -3,30 +3,30 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local DetailAtlas      = ss.import "splashsweps/client/ink/detailatlas"
+local InkDetailAtlas   = ss.import "splashsweps/client/ink/inkdetailatlas"
 local InkShape         = ss.import "splashsweps/shared/inkshape"
 local InkType          = ss.import "splashsweps/shared/inktype"
+local PaintAtlas       = ss.import "splashsweps/client/ink/paintatlas"
 local PaintableGrid    = ss.import "splashsweps/shared/paint/paintablegrid"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
 local RenderTargets    = ss.import "splashsweps/client/render/rendertargets"
-local TypeAtlas        = ss.import "splashsweps/client/ink/typeatlas"
 
 ---@class ss.InkMapModule
 local InkMap = ss.module "splashsweps/client/render/inkmap"
 
 ---A paint waiting to be drawn into the ink map.
 ---@class ss.InkMap.Paint
----@field pos    Vector   The world position to paint
----@field ang    Angle    The world angles to paint
----@field scale  Vector   X/Y/Z scale in hammer units
----@field base   number[] UV range for $basetexture
----@field shape  number[] UV range for the shape mask
----@field surf   number[] UV range for the surface
----@field tint   number[] UV range for $tinttexture
----@field typeid integer  ID of brush type
----@field detail integer  $detailblendmode of the ink type, 0 if the detail is disabled
----@field row1   number[] The first row of World to UV matrix
----@field row2   number[] The second row of World to UV matrix
+---@field pos    Vector              The world position to paint
+---@field ang    Angle               The world angles to paint
+---@field scale  Vector              X/Y/Z scale in hammer units
+---@field base   ss.PaintAtlas.Range Range of $basetexture in the paint atlas
+---@field shape  ss.PaintAtlas.Range Range of the ink shape mask in the paint atlas
+---@field surf   number[]            UV range (minU, minV, maxU, maxV) of the surface in the ink map
+---@field tint   ss.PaintAtlas.Range Range of $tinttexture in the paint atlas
+---@field typeid integer             Index of the ink type
+---@field detail integer             $detailblendmode of the ink type, 0 if the detail is disabled
+---@field row1   number[]            The first row of World to UV matrix
+---@field row2   number[]            The second row of World to UV matrix
 
 ---@class ss.InkMapModule.State
 ---@field Queue ss.InkMap.Paint[] Paints to draw in the next frame.
@@ -40,7 +40,7 @@ local SIZEOF_TEXCOORDS = NUM_TEXCOORDS * 4 * 4  -- texcoord: float4
 local SIZEOF_VERTEX = math.ceil((SIZEOF_POS_NORMAL_COLOR + SIZEOF_TEXCOORDS) / 16) * 16 -- float4 padding
 local MAX_VERTEX_SIZE_KB = (1024 + 512) * 1024 -- Maximum size of dynamic mesh hardcoded in Source
 local MAX_QUADS = math.floor(MAX_VERTEX_SIZE_KB / (NUM_VERTEX * SIZEOF_VERTEX))
-local InkDrawMaterial = Material "splashsweps/shaders/drawink"
+local PaintMaterial = Material "splashsweps/shaders/drawink"
 
 ---Queues a paint onto a surface to draw it into the ink map.
 ---@param surf   ss.PaintableSurface The surface to paint.
@@ -57,11 +57,11 @@ function InkMap.Push(surf, pos, ang, scale, shape, typeid)
         pos    = pos,
         ang    = ang,
         scale  = scale,
-        base   = TypeAtlas.GetBaseUV(typeid),
-        shape  = TypeAtlas.GetShapeUV(shape),
-        tint   = TypeAtlas.GetTintUV(typeid),
+        base   = PaintAtlas.BaseUV[typeid],
+        shape  = PaintAtlas.ShapeUV[shape],
+        tint   = PaintAtlas.TintUV[typeid],
         typeid = typeid,
-        detail = DetailAtlas.GetBlendMode(typeid),
+        detail = InkDetailAtlas.BlendModes[typeid],
         row1   = surf.WorldToUVRow1,
         row2   = surf.WorldToUVRow2,
         surf   = {
@@ -75,7 +75,7 @@ end
 
 ---Writes the layout of the detail atlas into the material drawing paints, which reads the data rows of ink types.
 function InkMap.Setup()
-    DetailAtlas.WriteLayout(InkDrawMaterial)
+    InkDetailAtlas.WriteLayout(PaintMaterial)
 end
 
 ---Clears all painted ink in the map.
@@ -151,8 +151,8 @@ hook.Add("RenderScreenspaceEffects", "SplashSWEPs: Paint ink in queue", function
     local quadIndex = 0
     local hammerUnitsToUV = RenderTargets.GetHammerUnitsToUV()
     render_PushRenderTarget(RenderTargets.InkMaps.InkMap)
-    render_CopyRenderTarget(RenderTargets.InkMaps.InkMap2)
-    render_SetMaterial(InkDrawMaterial)
+    render_CopyRenderTarget(RenderTargets.InkMaps.InkMapSnapshot)
+    render_SetMaterial(PaintMaterial)
     -- Quads are drawn in the queue order without depth, and the later ones overwrite the earlier ones.
     -- A band writes back the IDs of the batch-start snapshot, so every band goes before every paint.
     for _, q in ipairs(queue) do

@@ -2,7 +2,7 @@
 {
     "$basetexture" "red"
     "$tinttexture" "white"
-    "$heightmap" "splashsweps/inktypes/soft_a"
+    "$heightmap" "splashsweps/inks/soft_a"
     "$detail" "rubber_bump"
     "$detailblendmode" "0"
     "$alpha" "0.5"
