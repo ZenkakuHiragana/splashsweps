@@ -12,8 +12,10 @@ local function record(event, data)
     observations:write(vim.json.encode({ event = event, data = data }) .. "\n")
     observations:flush()
 end
+-- Same comparison key as path_key in .nvim-example.lua.
 local function key(uri)
-    return vim.fs.normalize(vim.uri_to_fname(uri)):gsub("\\", "/"):lower()
+    local path = vim.fs.normalize(vim.uri_to_fname(uri))
+    return vim.o.fileignorecase and path:lower() or path
 end
 local function observe(client)
     local old = client._simple_check

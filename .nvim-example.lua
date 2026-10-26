@@ -16,18 +16,21 @@ local initialized = false
 local native_root_wrapper
 local native_generation = {}
 
-local function lower_path(path)
-    return vim.fs.normalize(path or ""):gsub("\\", "/"):lower()
+-- Comparison key of a path. vim.fs.normalize unifies separators and the drive
+-- letter; case is folded only where Neovim itself treats file names that way.
+local function path_key(path)
+    path = vim.fs.normalize(path or "")
+    return vim.o.fileignorecase and path:lower() or path
 end
 
-local root_key = lower_path(root)
-local source_key = lower_path(source_root)
+local root_key = path_key(root)
+local source_key = path_key(source_root)
 
 -- Paths spelled through the unresolved project directory (configured libraries,
 -- the current directory) name the same files as the resolved root. Only the
 -- project prefix is mapped: links inside it, such as lua/types, stay as spelled.
 local function normalize(path)
-    path = lower_path(path)
+    path = path_key(path)
     if source_key ~= root_key
         and (path == source_key or path:sub(1, #source_key + 1) == source_key .. "/") then
         path = root_key .. path:sub(#source_key + 1)
@@ -47,7 +50,7 @@ end
 
 -- The resolved path of a project file named through the symlinked spelling.
 local function resolved_alias(path)
-    local key = lower_path(path)
+    local key = path_key(path)
     if source_key ~= root_key and (key == source_key or key:sub(1, #source_key + 1) == source_key .. "/") then
         return root .. vim.fs.normalize(path):sub(#source_root + 1)
     end

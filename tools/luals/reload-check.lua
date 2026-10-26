@@ -3,6 +3,14 @@ local root = vim.fs.normalize(vim.fn.getcwd())
 local work = root .. "/.opencode/work/nvim-lsp-simple/reload-" .. os.date("%Y%m%d-%H%M%S")
 vim.fn.mkdir(work, "p")
 local path = root .. "/__lsp_simple_reload.lua"
+-- Same comparison as path_key in .nvim-example.lua.
+local function same_path(a, b)
+    a, b = vim.fs.normalize(a), vim.fs.normalize(b)
+    if vim.o.fileignorecase then
+        a, b = a:lower(), b:lower()
+    end
+    return a == b
+end
 local client, bufnr, scope, latest
 local created = false
 local events = {}
@@ -53,7 +61,7 @@ local function run()
                 return response
             end,
             ["textDocument/publishDiagnostics"] = function(err, result, ctx, config)
-                if result and vim.fs.normalize(vim.uri_to_fname(result.uri)):lower() == path:lower() then
+                if result and same_path(vim.uri_to_fname(result.uri), path) then
                     latest = result
                     record("diagnostics", result)
                 end

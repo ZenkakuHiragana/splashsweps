@@ -11,12 +11,10 @@ local fileUri = require 'file-uri'
 local platform = require 'bee.platform'
 local glob = require 'glob'
 
+-- LuaLS decides workspace membership by URI prefix, case-sensitively except for
+-- the drive letter, which file-uri already normalizes. Compare paths the same way.
 local function normalizedPath(uri)
-    local path = fileUri.decode(uri):gsub('\\', '/')
-    if platform.os == 'windows' then
-        path = path:lower()
-    end
-    return path
+    return (fileUri.decode(uri):gsub('\\', '/'))
 end
 
 local rootPrefix = normalizedPath(bootstrapUri):gsub('/+$', '') .. '/'
