@@ -36,6 +36,26 @@ function Binary.Find(typename)
     return definitions[typename]
 end
 
+---Fields of each structure definition split into type, key, and array size.
+---Read runs for every element of a lump, so the split is cached per definition.
+local fieldsOf = setmetatable({}, { __mode = "k" }) ---@type table<ss.BinaryStructureDefinition, string[][]>
+
+---Returns the fields of a structure definition, each split into type, key, and array size.
+---@param definition ss.BinaryStructureDefinition
+---@return string[][]
+local function getFields(definition)
+    local fields = fieldsOf[definition]
+    if not fields then
+        fields = {}
+        for i, varstring in ipairs(definition) do
+            fields[i] = string.Explode(" +", varstring, true)
+        end
+        fieldsOf[definition] = fields
+    end
+
+    return fields
+end
+
 ---Read a value or structure from given binary file.
 ---The offset should correctly be set before call by binary:Seek().
 ---arg should be one of the following:
@@ -84,9 +104,9 @@ function Binary.Read(binary, arg, ...)
 
         ---@type table<string|integer, boolean|number|string|table|Angle|Vector?>
         local structure = {}
-        for _, varstring in ipairs(arg) do
+        for _, field in ipairs(getFields(arg)) do
             ---@type string, integer|string?, integer|string?
-            local fieldType, fieldKey, arraySize = unpack(string.Explode(" +", varstring, true))
+            local fieldType, fieldKey, arraySize = field[1], field[2], field[3]
             if fieldKey == nil or fieldKey == "" or fieldKey == "nil" then fieldKey = #structure + 1 end
             if arraySize == nil or arraySize == "" then arraySize = 1 end
             if isstring(arraySize) and structure[arraySize] or tonumber(arraySize) > 1 then

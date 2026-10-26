@@ -16,6 +16,9 @@ local tableCopy = table.Copy
 local Vector = Vector
 local Matrix = Matrix
 
+---Relative difference of areas regarded as the same in BoundingBox.FindMBR.
+local AREA_TOLERANCE = 1e-5
+
 ---Compares two vertices used by table.sort
 ---@param a Vector
 ---@param b Vector
@@ -92,37 +95,60 @@ function BoundingBox.FindMBR(vertices, angle)
         vertices2D[i] = WorldToLocal(v, angle_zero, center, angle)
     end
 
-    local mbrMins = Util.vector_one * math.huge
-    local minArea = math.huge
-    local mbrSize = Vector()
-    local mbrRotation = Matrix()
+    -- For each edge of the convex hull, finds the rectangle along the edge containing the hull.
+    -- The rotation of an edge is the matrix of which columns are
+    -- forward = (dx, dy, dz), the negated right = (-dy, dx, 0), and up = (0, 0, 1),
+    -- so its inverse maps (x, y, z) to (dx * x + dy * y + dz * z, dx * y - dy * x, z).
+    -- They are computed in plain numbers as this runs for every pair of an edge and a vertex.
+    -- Edges giving the same area within rounding errors, such as the four edges of a rectangle,
+    -- keep the first one so that the result does not depend on the rounding.
     local convex = GetConvex(vertices2D)
-    for i = 1, #convex do
-        local p0, p1 = convex[i], convex[i % #convex + 1]
-        local dp = p1 - p0
-        if dp:LengthSqr() > 0 then
-            local dir = dp:GetNormalized()
-            local rotation = Matrix() -- to represent the angle of the MBR
-            rotation:SetForward(dir)
-            rotation:SetRight(Vector(dir.y, -dir.x))
-            rotation:SetUp(vector_up)
+    local numConvex = #convex
+    local xs, ys, zs = {}, {}, {} ---@type number[], number[], number[]
+    for i, v in ipairs(convex) do
+        xs[i], ys[i], zs[i] = v.x, v.y, v.z
+    end
 
-            local maxs = Util.vector_one * -math.huge
-            local mins = Util.vector_one * math.huge
-            local rotationInv = rotation:GetInverseTR()
-            for _, v in ipairs(convex) do
-                maxs:Set(Util.MaxVector(maxs, rotationInv * v))
-                mins:Set(Util.MinVector(mins, rotationInv * v))
+    local minArea = math.huge
+    local mbrDir = nil ---@type Vector?
+    local mbrMins = Util.vector_one * math.huge
+    local mbrSize = Vector()
+    for i = 1, numConvex do
+        local j = i % numConvex + 1
+        local dx, dy, dz = xs[j] - xs[i], ys[j] - ys[i], zs[j] - zs[i]
+        local lengthSqr = dx * dx + dy * dy + dz * dz
+        if lengthSqr > 0 then
+            local length = sqrt(lengthSqr)
+            dx, dy, dz = dx / length, dy / length, dz / length
+            local minX, minY, minZ = math.huge, math.huge, math.huge
+            local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
+            for k = 1, numConvex do
+                local x, y, z = xs[k], ys[k], zs[k]
+                local u = dx * x + dy * y + dz * z
+                local v = dx * y - dy * x
+                if u < minX then minX = u end
+                if u > maxX then maxX = u end
+                if v < minY then minY = v end
+                if v > maxY then maxY = v end
+                if z < minZ then minZ = z end
+                if z > maxZ then maxZ = z end
             end
 
-            local size = maxs - mins
-            if minArea > size.x * size.y then
-                minArea = size.x * size.y
-                mbrMins = mins
-                mbrSize = size
-                mbrRotation = rotation
+            local area = (maxX - minX) * (maxY - minY)
+            if area < minArea * (1 - AREA_TOLERANCE) then
+                minArea = area
+                mbrDir = Vector(dx, dy, dz)
+                mbrMins = Vector(minX, minY, minZ)
+                mbrSize = Vector(maxX - minX, maxY - minY, maxZ - minZ)
             end
         end
+    end
+
+    local mbrRotation = Matrix()
+    if mbrDir then
+        mbrRotation:SetForward(mbrDir)
+        mbrRotation:SetRight(Vector(mbrDir.y, -mbrDir.x))
+        mbrRotation:SetUp(vector_up)
     end
 
     mbrRotation:SetTranslation(mbrRotation * mbrMins)
