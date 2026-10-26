@@ -77,6 +77,9 @@ local LUMP = {
     [64] = "DISP_MULTIBLEND",
 }
 
+---Size of dheader_t in bytes: ident, version, 64 lump_t of 16 bytes, and mapRevision.
+local HEADER_SIZE = 4 + 4 + 64 * 16 + 4
+
 ---Used for calculating the size of lump structures
 local BuiltinTypeSizes = {
     Angle       = 12,
@@ -112,7 +115,7 @@ Binary.struct "BSP.Header" {
 ---@field fourCC     integer
 Binary.struct "BSP.LumpHeader" {
     ---@param self ss.BinaryStructureDefinition
-    ---@param bsp File
+    ---@param bsp ss.BinaryStringReader
     ---@return ss.Binary.BSP.LumpHeader
     Read = function(self, bsp)
         local fileOffset = bsp:ReadLong()
@@ -679,7 +682,7 @@ Binary.struct "BSP.StaticPropLeaf" {
 ---@field prop        ss.Binary.BSP.StaticProp[]
 Binary.struct "BSP.GAME_LUMP.sprp" { -- Static Props
     ---@param self ss.BinaryStructureDefinition
-    ---@param binary File
+    ---@param binary ss.BinaryStringReader
     ---@param header ss.Binary.BSP.dgamelunp_t
     ---@return ss.Binary.BSP.GAME_LUMP.sprp
     Read = function(self, binary, header)
@@ -705,6 +708,8 @@ Binary.struct "BSP.GAME_LUMP.sprp" { -- Static Props
             ---Prevent spamming error messages about the size of static prop lump.
             local sprpInvalidSize = false
             for i = 1, propEntries do
+                -- A smaller size of each prop than the definition means an unknown format. Stop at the end of the lump.
+                if binary:Tell() + definition.Size > binary:Size() then break end
                 props[i] = Binary.Read(binary, structType)
                 if sizeofStaticPropLump ~= definition.Size then
                     binary:Skip(sizeofStaticPropLump - definition.Size)
@@ -828,34 +833,37 @@ local function getGameLumpStr(id)
     return string.char(a, b, c, d)
 end
 
----@param bsp File
----@return string
----@return integer
-local function decompress(bsp)
-    local current       = bsp:Tell()
-    local actualSize    = Binary.Read(bsp, 4)
-    bsp:Seek(current)
-    local actualSizeNum = Binary.Read(bsp, "Long")
-    local lzmaSize      = Binary.Read(bsp, "Long")
-    local props         = Binary.Read(bsp, 5)
-    local contents      = Binary.Read(bsp, lzmaSize)
+---Decompresses the LZMA data of a lump, which follows the "LZMA" id read before.
+---@param lump ss.BinaryStringReader
+---@return ss.BinaryStringReader decompressed
+---@return integer length
+local function decompress(lump)
+    local current       = lump:Tell()
+    local actualSize    = Binary.Read(lump, 4)
+    lump:Seek(current)
+    local actualSizeNum = Binary.Read(lump, "Long")
+    local lzmaSize      = Binary.Read(lump, "Long")
+    local props         = Binary.Read(lump, 5)
+    local contents      = Binary.Read(lump, lzmaSize)
     local formatted     = props .. actualSize .. "\0\0\0\0" .. contents
-    return util.Decompress(formatted) or "", actualSizeNum
+    return Binary.NewStringReader(util.Decompress(formatted) or ""), actualSizeNum
 end
 
+---Reads the data of a lump, decompressing it if needed.
 ---@param bsp File
----@return File
----@return integer
-local function openDecompressed(bsp)
-    local decompressed, length = decompress(bsp)
-    file.Write("splashsweps/temp.txt", decompressed)
-    return file.Open("splashsweps/temp.txt", "rb", "DATA"), length
-end
+---@param fileOffset integer
+---@param fileLength integer
+---@return ss.BinaryStringReader lump
+---@return integer length
+local function openLump(bsp, fileOffset, fileLength)
+    bsp:Seek(fileOffset)
+    local lump = Binary.NewStringReader(bsp:Read(fileLength) or "")
+    if Binary.Read(lump, 4) == "LZMA" then
+        return decompress(lump)
+    end
 
----@param tmp File
-local function closeDecompressed(tmp)
-    tmp:Close()
-    file.Delete "splashsweps/temp.txt"
+    lump:Seek(0)
+    return lump, fileLength
 end
 
 ---@param bsp File
@@ -864,36 +872,27 @@ end
 ---@return BSP.DefinedStructures?
 local function readLump(bsp, header, structType)
     local t = {} ---@type BSP.DefinedStructures|BSP.DefinedStructures[]
-    local offset = header.fileOffset
-    local totalLength = header.fileLength
     local definition = Binary.Find(structType)
     local elementLength = BuiltinTypeSizes[structType] or definition and definition.Size or math.huge
-
-    bsp:Seek(offset)
-    local isCompressed = Binary.Read(bsp, 4) == "LZMA"
-    if isCompressed then
-        bsp, totalLength = openDecompressed(bsp)
-    else
-        bsp:Seek(offset)
+    local lump, totalLength = openLump(bsp, header.fileOffset, header.fileLength)
+    if totalLength == 0 then
+        -- An empty lump has no element. A structure read from it would be made of nothing.
+        return structType == "Raw" and "" or {}
     end
 
     local numElements = totalLength / elementLength
     if structType == "Raw" then
-        t = Binary.Read(bsp, totalLength)
+        t = Binary.Read(lump, totalLength)
     elseif structType == "String" then
-        t = Binary.Read(bsp, totalLength):Split "\0"
+        t = Binary.Read(lump, totalLength):Split "\0"
         if t[#t] == "" then t[#t] = nil end -- Remove the last empty string
     elseif numElements > 0 then
         for i = 1, numElements do
-            t[i] = Binary.Read(bsp, structType)
+            t[i] = Binary.Read(lump, structType)
         end
     else
         ---@type BSP.DefinedStructures
-        t = Binary.Read(bsp, structType)
-    end
-
-    if isCompressed then
-        closeDecompressed(bsp)
+        t = Binary.Read(lump, structType)
     end
 
     return t
@@ -910,7 +909,8 @@ function BSP.Load()
 
     ---@type ss.RawBSPResults
     local t = {
-        header = Binary.Read(bsp, "BSP.Header"),
+        -- The header is at the beginning of the file, so its positions are the file offsets BSP.LumpHeader compares.
+        header = Binary.Read(Binary.NewStringReader(bsp:Read(HEADER_SIZE) or ""), "BSP.Header"),
         ENTITIES = {},
         PLANES = {},
         VERTEXES = {},
@@ -951,16 +951,8 @@ function BSP.Load()
         local structType = GameLumpToRead[idstr]
         if structType then
             print("        GameLump \"" .. idstr .. "\"... (version: " .. header.version .. ")")
-            bsp:Seek(header.fileOffset)
-            local LZMAHeader = Binary.Read(bsp, 4)
-            if LZMAHeader == "LZMA" then
-                local tmp = openDecompressed(bsp)
-                t[idstr] = Binary.Read(tmp, structType, header)
-                closeDecompressed(tmp)
-            else
-                bsp:Seek(header.fileOffset)
-                t[idstr] = Binary.Read(bsp, structType, header)
-            end
+            local lump = openLump(bsp, header.fileOffset, header.fileLength)
+            t[idstr] = Binary.Read(lump, structType, header)
         end
     end
 
