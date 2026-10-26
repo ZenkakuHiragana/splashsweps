@@ -66,10 +66,9 @@ local function BuildMinimapBounds(bsp)
         local area = band(leaf.areaAndFlags, 0x01FF)
         if area > 0 then
             if not bounds[area] then
-                bounds[area] = {
-                    maxs = Util.vector_one * huge_negative,
-                    mins = Util.vector_one * huge,
-                }
+                bounds[area] = PrecachedData.MinimapAreaBounds.new()
+                bounds[area].maxs = Util.vector_one * huge_negative
+                bounds[area].mins = Util.vector_one * huge
             end
 
             bounds[area].mins = Util.MinVector(bounds[area].mins, leaf.mins)
@@ -160,16 +159,14 @@ end
 ---and prepare paintable surfaces.
 ---@return ss.PrecachedData?
 function CacheBuilder.Build()
-    local gcpause = collectgarbage("setpause", 0)
     collectgarbage "collect"
     local bsp = BSP.Load()
     if not bsp then return end
     local cache = PrecachedData.new()
-    local mapCRC = util.CRC(file.Read("maps/" .. game.GetMap() .. ".bsp", "GAME") or "")
-    cache.CacheVersion  = ss.CACHE_VERSION
-    cache.MapCRC        = tonumber(mapCRC) or 0
-    cache.MinimapBounds = BuildMinimapBounds(bsp)
-    cache.NumModels     = #bsp.MODELS
+    cache.Revision         = bsp.header.mapRevision
+    cache.MinimapBounds    = BuildMinimapBounds(bsp)
+    cache.NumMinimapBounds = #cache.MinimapBounds
+    cache.NumModels        = #bsp.MODELS
     SurfaceBuilder.BuildStaticPropCache(bsp, cache)
     findLightEnvironment(bsp, cache)
 
@@ -180,30 +177,40 @@ function CacheBuilder.Build()
         prop.UnwrapIndex = layoutType
     end
 
+    local hdrPath = string.format("splashsweps/%s_hdr.dat", game.GetMap())
     do
         collectgarbage "collect"
         local hdr, whdr = SurfaceBuilder.BuildSurfaceCache(bsp, true)
         cache.SurfacesWaterHDR = whdr
+        cache.NumSurfacesWaterHDR = #whdr
         UVBuilder.Build(hdr, cache.StaticPropHDR, staticPropRectangles)
         Hash.BuildDisplacementHash(hdr.Surfaces)
         LightmapBuilder.Build(bsp, true, hdr, cache)
-        Hash.BuildSurfaceHash(hdr.Surfaces, cache.StaticProps, hdr.SurfaceHash)
-        file.Write(string.format("splashsweps/%s_hdr.json", game.GetMap()), util.Compress(util.TableToJSON(hdr)))
+        hdr.SurfaceHash = Hash.BuildSurfaceHash(hdr.Surfaces, cache.StaticProps)
+        hdr.NumSurfaceHashEntries = #hdr.SurfaceHash
+        PrecachedData.WriteFile(hdrPath, "PrecachedData.SurfaceInfo", hdr)
     end
 
+    collectgarbage "collect"
+    PrecachedData.CompressFile(hdrPath)
+
+    local ldrPath = string.format("splashsweps/%s_ldr.dat", game.GetMap())
     do
         collectgarbage "collect"
         local ldr, wldr = SurfaceBuilder.BuildSurfaceCache(bsp, false)
         cache.SurfacesWaterLDR = wldr
+        cache.NumSurfacesWaterLDR = #wldr
         UVBuilder.Build(ldr, cache.StaticPropLDR, staticPropRectangles)
         Hash.BuildDisplacementHash(ldr.Surfaces)
         LightmapBuilder.Build(bsp, false, ldr, cache)
-        Hash.BuildSurfaceHash(ldr.Surfaces, cache.StaticProps, ldr.SurfaceHash)
-        file.Write(string.format("splashsweps/%s_ldr.json", game.GetMap()), util.Compress(util.TableToJSON(ldr)))
+        ldr.SurfaceHash = Hash.BuildSurfaceHash(ldr.Surfaces, cache.StaticProps)
+        ldr.NumSurfaceHashEntries = #ldr.SurfaceHash
+        PrecachedData.WriteFile(ldrPath, "PrecachedData.SurfaceInfo", ldr)
     end
 
     collectgarbage "collect"
-    collectgarbage("setpause", gcpause)
+    PrecachedData.CompressFile(ldrPath)
+    collectgarbage "collect"
     return cache
 end
 

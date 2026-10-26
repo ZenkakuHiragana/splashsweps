@@ -19,10 +19,15 @@ local state = ss.state("splashsweps/shared/hash", {
 }) ---@type ss.HashModule.State
 
 ---Sets the spatial hash of the world surfaces and the parameters, both read from the map cache.
----@param surfaceHash table<integer, integer[]>
+---@param surfaceHash ss.PrecachedData.SurfaceHashEntry[]? The cells of the spatial hash, nil if there is none.
 ---@param parameters  ss.PrecachedData.HashParameters
 function Hash.Setup(surfaceHash, parameters)
-    state.SurfaceHash = surfaceHash
+    local cells = {} ---@type table<integer, integer[]>
+    for _, entry in ipairs(surfaceHash or {}) do
+        cells[entry.HashValue] = entry.SurfaceIndices
+    end
+
+    state.SurfaceHash = cells
     state.Parameters = parameters
 end
 
@@ -87,9 +92,10 @@ end
 ---Generates look-up table for spatial partitioning to find surfaces faster.
 ---@param surfaces    ss.PrecachedData.Surface[]    The source array.
 ---@param staticProps ss.PrecachedData.StaticProp[] List of static props.
----@param hash        table<integer, integer[]>     The output hash table.
-function Hash.BuildSurfaceHash(surfaces, staticProps, hash)
+---@return ss.PrecachedData.SurfaceHashEntry[] # The cells of the spatial hash, given to Hash.Setup.
+function Hash.BuildSurfaceHash(surfaces, staticProps)
     print("Constructing spatial hash table for paintable surfaces...")
+    local hash = {} ---@type table<integer, integer[]>
     for i, s in ipairs(surfaces) do
         if s.ModelIndex == 1 then
             for h in hashpairs(s.AABBMin, s.AABBMax) do
@@ -114,6 +120,17 @@ function Hash.BuildSurfaceHash(surfaces, staticProps, hash)
             end
         end
     end
+
+    local entries = {} ---@type ss.PrecachedData.SurfaceHashEntry[]
+    for h, indices in pairs(hash) do
+        local entry = PrecachedData.SurfaceHashEntry.new()
+        entry.HashValue = h
+        entry.NumSurfaceIndices = #indices
+        entry.SurfaceIndices = indices
+        entries[#entries + 1] = entry
+    end
+
+    return entries
 end
 
 ---Tests if the minimum bounding box of the surface intersects with given AABB.
@@ -253,10 +270,10 @@ end
 function Hash.BuildDisplacementHash(surfaces)
     print("Constructing spatial hash table for displacement triangles...")
     for _, surf in ipairs(surfaces) do
-        if surf.Triangles then
-            surf.TriangleHash = {}
+        if surf.NumTriangles > 0 then
+            local cells = {} ---@type table<integer, integer[]> Hash value + 1 --> indices of the triangles
             local v = surf.Vertices
-            local maxHash = -1
+            local numHashValues = 0
             for i, t in ipairs(surf.Triangles) do
                 local v1 = v[t.Index].Translation
                 local v2 = v[t.Index + 1].Translation
@@ -270,18 +287,24 @@ function Hash.BuildDisplacementHash(surfaces)
                     max(v1.y, v2.y, v3.y),
                     max(v1.z, v2.z, v3.z))
                 for h in hashpairsAABB(mins, maxs, surf.AABBMin, surf.AABBMax) do
-                    surf.TriangleHash[h + 1] = surf.TriangleHash[h + 1] or {}
-                    surf.TriangleHash[h + 1][#surf.TriangleHash[h + 1] + 1] = i
-                    maxHash = math.max(h + 1, maxHash)
+                    cells[h + 1] = cells[h + 1] or {}
+                    cells[h + 1][#cells[h + 1] + 1] = i
+                    numHashValues = math.max(h + 1, numHashValues)
                 end
             end
 
-            -- Make it sequential to avoid storing keys to the JSON
-            for i = 1, maxHash do
-                if not surf.TriangleHash[i] then
-                    surf.TriangleHash[i] = {}
+            local hash = surf.TriangleHash
+            hash.NumHashValues = numHashValues
+            for k = 1, numHashValues do
+                local indices = cells[k] or {}
+                hash.FirstTriangleIndex[k] = #hash.TriangleIndices + 1
+                hash.NumTriangleIndices[k] = #indices
+                for _, i in ipairs(indices) do
+                    hash.TriangleIndices[#hash.TriangleIndices + 1] = i
                 end
             end
+
+            hash.TotalTriangleIndices = #hash.TriangleIndices
         end
     end
 end
@@ -292,23 +315,28 @@ end
 ---@param maxs Vector AABB maximum.
 ---@return fun(): ss.DisplacementTriangle triangle An array of vertices.
 function Hash.CollectDisplacementTriangles(displacement, mins, maxs)
-    if not displacement.TriangleHash then return wrap(function() end) end
+    local hash = displacement.TriangleHash
+    if not hash then return wrap(function() end) end
     mins = mins - vector_tenth
     maxs = maxs + vector_tenth
     return wrap(function()
         local hasSeenThisTriangle = {} ---@type table<integer, true>
         for h in hashpairsAABB(mins, maxs, displacement.AABBMin, displacement.AABBMax) do
-            for _, i in ipairs(displacement.TriangleHash[h + 1] or {}) do
-                if not hasSeenThisTriangle[i] then
-                    hasSeenThisTriangle[i] = true
-                    local t = displacement.Triangles[i]
-                    -- debugoverlay.BoxAngles(
-                    --     t.MBBOrigin, vector_origin, t.MBBSize, t.MBBAngles,
-                    --     FrameTime() * 5, Color(255, 255, 255, 8))
-                    if IsOBBIntersectingOBB(
-                        t.MBBOrigin, t.MBBAngles, vector_origin, t.MBBSize,
-                        vector_origin, angle_zero, mins, maxs, Util.eps) then
-                        yield(t)
+            if h < hash.NumHashValues then
+                local first = hash.FirstTriangleIndex[h + 1]
+                for k = first, first + hash.NumTriangleIndices[h + 1] - 1 do
+                    local i = hash.TriangleIndices[k]
+                    if not hasSeenThisTriangle[i] then
+                        hasSeenThisTriangle[i] = true
+                        local t = displacement.Triangles[i]
+                        -- debugoverlay.BoxAngles(
+                        --     t.MBBOrigin, vector_origin, t.MBBSize, t.MBBAngles,
+                        --     FrameTime() * 5, Color(255, 255, 255, 8))
+                        if IsOBBIntersectingOBB(
+                            t.MBBOrigin, t.MBBAngles, vector_origin, t.MBBSize,
+                            vector_origin, angle_zero, mins, maxs, Util.eps) then
+                            yield(t)
+                        end
                     end
                 end
             end

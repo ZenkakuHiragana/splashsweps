@@ -52,7 +52,7 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field Normal                 Vector           Normal vector of this surface.
 ---@field Grid                   ss.PaintableGrid Represents serverside "canvas" for this surface to manage collision detection against painted ink.
 ---@field StaticPropUnwrapIndex  integer?         Determines how this static prop surfaces are unwrapped.
----@field TriangleHash           table<integer, integer[]>? Hash table to lookup triangles of a displacement.
+---@field TriangleHash           ss.PrecachedData.TriangleHash? Spatial hash to look up triangles of a displacement.
 ---@field Triangles              ss.DisplacementTriangle[]? Array of triangles of a displacement.
 ---@field WorldToLocalGridMatrix VMatrix  The transformation matrix to convert world coordinates into local coordinates. This does not modify scales.
 ---@field WorldToUVRow1          number[] The first row of transformation matrox to convert world position into UV space without scaling.
@@ -210,7 +210,7 @@ end
 
 ---Placement of the static props in the ink map, which only the client has.
 ---@class ss.PaintableSurface.StaticPropInkMap
----@field UVInfo          ss.PrecachedData.StaticProp.UVInfo[][] Placement of each static prop for each ink map resolution.
+---@field UVInfo          ss.PrecachedData.StaticProp.UVInfo[] Placement of each static prop for each ink map resolution in the layout of ss.PrecachedData.StaticPropHDR.
 ---@field HammerUnitsToUV number                                 Conversion multiplier from hammer units to UV coordinates of the ink map.
 
 ---Reads a list of static props and stores them for later use.
@@ -373,7 +373,7 @@ function PaintableSurface.SetupStaticProps(staticPropInfo, inkMap)
         if inkMap then
             local rtIndex = #PrecachedData.InkMapResolutions
             local rtSize = PrecachedData.InkMapResolutions[rtIndex]
-            local uv = inkMap.UVInfo[i][rtIndex]
+            local uv = inkMap.UVInfo[(i - 1) * #PrecachedData.InkMapResolutions + rtIndex]
             uvScale = inkMap.HammerUnitsToUV
             bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
             isRotated = uv.Offset.z > 0

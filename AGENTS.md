@@ -10,15 +10,15 @@
 ## High-value paths
 
 - `lua/weapons/weapon_splashsweps_test.lua` is the fastest in-game smoke-test surface. It defines the spawnable `Inkling base` weapon mentioned in `README.md`.
-- Map paint/cache generation is driven from `lua/splashsweps/server/autorun.lua` and consumed from `lua/splashsweps/client/autorun.lua`. Debug map-cache issues against `data/splashsweps/<map>.json`, `<map>_ldr.json`, and `<map>_hdr.json`.
-- The README's cache-file note is stale: current code writes compressed JSON caches named `*.json`, `*_ldr.json`, and `*_hdr.json`, not `<map>.txt`.
+- Map paint/cache generation is driven from `lua/splashsweps/server/autorun.lua` and consumed from `lua/splashsweps/client/autorun.lua`. Debug map-cache issues against `data/splashsweps/<map>.dat`, `<map>_ldr.dat`, and `<map>_hdr.dat`.
+- The README's cache-file note is stale: current code writes compressed binary caches named `*.dat`, `*_ldr.dat`, and `*_hdr.dat`, not `<map>.txt`.
 - Ink types are loaded by `InkType.Load()` (`lua/splashsweps/shared/inktype.lua`) from ink materials, `materials/splashsweps/inks/**/*.vmt`, not from a separate JSON content directory. Ink shapes are loaded by `InkShape.Load()` from `materials/splashsweps/inkshapes/**/*.vmt`.
 - Shader sources live in `shaders/src/*.hlsl`; compiled `.vcs` output lives under `shaders/fxc/splashsweps/`; the matching material stubs are in `materials/splashsweps/shaders/`.
 
 ## Runtime and debugging gotchas
 
 - Large maps are a real stress case. `README.md` explicitly warns that 32-bit GMOD can crash on some large maps; do not treat those reports as ordinary logic regressions until you rule out build/VRAM limits.
-- If paint stops working after map load, check generated cache artifacts before touching gameplay code. Server cache rebuild is gated by BSP CRC in `lua/splashsweps/server/autorun.lua` and `server/mapcache/cachebuilder.lua`.
+- If paint stops working after map load, check generated cache artifacts before touching gameplay code. Server cache rebuild is gated by the map revision of the BSP header and `ss.CACHE_VERSION` in `lua/splashsweps/server/autorun.lua` and `server/mapcache/cachebuilder.lua`.
 - The client chooses HDR vs LDR surface data at runtime in `lua/splashsweps/client/autorun.lua`; lighting or surface mismatches can be cache-selection issues, not shader math bugs.
 - Multiplayer testing has an asset-distribution constraint from `README.md`: all players need the addon assets. Missing materials on one client can look like a code bug.
 - Client readiness is explicit networking state, not just player spawn. `Players.Ready` (`lua/splashsweps/shared/players.lua`) is filled only after the client sends `SplashSWEPs: PlayerInitialSpawn` in `client/autorun.lua` and `server/playerconnection.lua`.
@@ -47,7 +47,7 @@ Use these terms in names and comments.
 ## Code conventions that matter here
 
 - A module file starts with `local M = ss.module "<its import path>"` and ends with `return M`. Keep state that must survive hot reload in `ss.state("<its import path>", { ... })`, not `ss.Locals`. A class-like module is its own metatable (`M.__index = M`, constructor `M.new`, methods `function M:Method()`), as in `client/mapload/rbtree.lua`. Do not copy fields of an imported module into locals when the file is loaded; hot reload replaces them in the module table.
-- Map cache records are defined in `lua/splashsweps/shared/typing/precachedata.lua`: each lists its fields with defaults in JSON array order, created by `PrecachedData.<Record>.new()`, with the `---@type` of its `new` and `restore` right above its definition. `restore` takes a decoded table, so check the result of `util.JSONToTable` before calling it. JSON decoded from the cache files gets its metatables only from `PrecachedData.restore` and `PrecachedData.SurfaceInfo.restore`; do not call `setmetatable` on cache data elsewhere.
+- Map cache records are defined in `lua/splashsweps/shared/typing/precachedata.lua` as binary structures of `Binary.struct`, listing their fields in file order, created by `PrecachedData.<Record>.new()`, with the `---@type` of its `new` right above its definition. Every field is written, and the code building the cache sets the length field before each array. An array of no elements is read as nil. Cache files are written and read only through `PrecachedData.WriteFile`, `PrecachedData.CompressFile`, and `PrecachedData.ReadFile`.
 - A type is declared with LuaLS `---@class ss.<Name>` and belongs to the file that creates it. A type without methods is a table literal built in that file (exported as `M.new` only when another file creates it, like `PaintableGrid.new`). Only a type with methods becomes a class-like module. A module that owns state exposes its tables as module fields (e.g. `InkType.Types`) and scalars through getters (e.g. `InkType.GetNumBits()`).
 - LuaLS annotations are pervasive in `lua/splashsweps/**`. Mirror `---@class` and `---@type` usage, especially for structured tables and empty table initializers, to keep realm-specific diagnostics useful.
 - The `SplashSWEPs` table holds the module loader and the shared constants assigned in `shared/autorun.lua`. Do not add other state or functions to it.

@@ -12,12 +12,12 @@ local UVBuilder = ss.module "splashsweps/server/mapcache/uvbuilder"
 
 ---Sets up UV coordinates for precached surface data.
 ---@param surfInfo ss.PrecachedData.SurfaceInfo
----@param staticPropInfo ss.PrecachedData.StaticProp.UVInfo[][]
+---@param staticPropInfo ss.PrecachedData.StaticProp.UVInfo[] In the layout of ss.PrecachedData.StaticPropHDR.
 ---@param staticPropRectangles Vector[]
 function UVBuilder.Build(surfInfo, staticPropInfo, staticPropRectangles)
     print "Calculation UV coordinates..."
     local totalArea = 0
-    local surfaces = surfInfo.Surfaces
+    local surfaces = surfInfo.Surfaces or {} -- nil when read from a cache file without surfaces
     for _, surf in ipairs(surfaces) do
         local info = surf.UVInfo[1]
         totalArea = totalArea + info.Width * info.Height
@@ -39,9 +39,8 @@ function UVBuilder.Build(surfInfo, staticPropInfo, staticPropRectangles)
             rects[i] = Structures.MakeRectangle(info.Width + margin, info.Height + margin, 0, 0, surf)
         end
 
-        for i, uvInfoList in ipairs(staticPropInfo) do
-            local info = uvInfoList[rtIndex]
-            local rect = staticPropRectangles[i]
+        for i, rect in ipairs(staticPropRectangles) do
+            local info = staticPropInfo[(i - 1) * #PrecachedData.InkMapResolutions + rtIndex]
             local tag = {
                 UV = info,
                 Rectangle = rect,

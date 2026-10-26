@@ -184,6 +184,8 @@ function LightmapBuilder.Build(bsp, ishdr, surfaceInfo, cache)
         cache.MaterialNames[i] = sanitized
     end
 
+    cache.NumMaterialNames = #cache.MaterialNames
+
     local faceLumpIndexToSurfaceInfoIndex = {} ---@type integer[]
     for i, surf in ipairs(surfaceInfo.Surfaces) do
         faceLumpIndexToSurfaceInfoIndex[surf.FaceLumpIndex] = i
@@ -214,9 +216,9 @@ function LightmapBuilder.Build(bsp, ishdr, surfaceInfo, cache)
                 t.HasLightmap = 1
             end
         end
-        t.Width = t.HasLightmap and width or nil
-        t.Height = t.HasLightmap and height or nil
-        t.FaceIndex = faceLumpIndexToSurfaceInfoIndex[i]
+        t.Width = t.HasLightmap > 0 and width or 0
+        t.Height = t.HasLightmap > 0 and height or 0
+        t.FaceIndex = faceLumpIndexToSurfaceInfoIndex[i] or 0
 
         -- CheckSurfaceLighting
         local v = Vector()
@@ -271,6 +273,8 @@ function LightmapBuilder.Build(bsp, ishdr, surfaceInfo, cache)
         end
         surfaceInfo.Lightmaps[i] = t
     end
+
+    surfaceInfo.NumLightmaps = #surfaceInfo.Lightmaps
 end
 
 return LightmapBuilder

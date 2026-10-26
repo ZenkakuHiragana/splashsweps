@@ -7,10 +7,11 @@ local ss = SplashSWEPs
 ---@class ss.BinaryReader
 local Binary = ss.module "splashsweps/shared/binary/reader"
 
----Structure definition to read binary data in a File.
+---Structure definition to read and write binary data in a File.
 ---@class ss.BinaryStructureDefinition
 ---@field [integer] string
 ---@field Read (fun(self: ss.BinaryStructureDefinition, binary: File|ss.BinaryStringReader, ...: any): table)? Special function to read this structure.
+---@field Write (fun(self: ss.BinaryStructureDefinition, binary: File, value: table, ...: any))? Special function to write this structure.
 ---@field Size integer? The total size of this structure.
 
 ---Defined binary structures, filled when the defining files are loaded.
@@ -161,13 +162,13 @@ function Binary.NewStringReader(data)
 end
 
 ---Fields of each structure definition split into type, key, and array size.
----Read runs for every element of a lump, so the split is cached per definition.
+---Reading and writing run for every element of an array, so the split is cached per definition.
 local fieldsOf = setmetatable({}, { __mode = "k" }) ---@type table<ss.BinaryStructureDefinition, string[][]>
 
 ---Returns the fields of a structure definition, each split into type, key, and array size.
 ---@param definition ss.BinaryStructureDefinition
 ---@return string[][]
-local function getFields(definition)
+function Binary.GetFields(definition)
     local fields = fieldsOf[definition]
     if not fields then
         fields = {}
@@ -228,7 +229,7 @@ function Binary.Read(binary, arg, ...)
 
         ---@type table<string|integer, boolean|number|string|table|Angle|Vector?>
         local structure = {}
-        for _, field in ipairs(getFields(arg)) do
+        for _, field in ipairs(Binary.GetFields(arg)) do
             ---@type string, integer|string?, integer|string?
             local fieldType, fieldKey, arraySize = field[1], field[2], field[3]
             if fieldKey == nil or fieldKey == "" or fieldKey == "nil" then fieldKey = #structure + 1 end

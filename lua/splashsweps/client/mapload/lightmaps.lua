@@ -91,14 +91,14 @@ function Lightmaps.Pack(surfaceInfo, materialInfo)
     for enumerationID, matInfo in pairs(materialInfo) do
         arrayIndexToEnumerationID[matInfo.ArrayIndex] = enumerationID
     end
-    for _, t in ipairs(surfaceInfo.Lightmaps) do
+    for _, t in ipairs(surfaceInfo.Lightmaps or {}) do
         t.MaterialIndex = arrayIndexToEnumerationID[t.MaterialIndex]
         sortableFaces:Insert(t)
     end
 
     for faceInfo in sortableFaces:Pairs() do ---@cast faceInfo ss.PrecachedData.LightmapInfo
         local enumerationID = faceInfo.MaterialIndex
-        if faceInfo.HasLightmap then
+        if faceInfo.HasLightmap > 0 then
             local width  = faceInfo.Width + 1
             local height = faceInfo.Height + 1
             local mat    = materialInfo[enumerationID]
@@ -155,7 +155,7 @@ function Lightmaps.Pack(surfaceInfo, materialInfo)
 
             ---@cast x -?
             ---@cast y -?
-            if faceInfo.FaceIndex then
+            if faceInfo.FaceIndex > 0 then
                 local faceIndices    = lightmapLayout.Groups[packedSortID].FaceIndices
                 local faceLightmaps  = lightmapLayout.Groups[packedSortID].FaceLightmaps
                 local lightmapWidths = lightmapLayout.Groups[packedSortID].LightmapWidths

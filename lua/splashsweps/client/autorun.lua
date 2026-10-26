@@ -25,13 +25,12 @@ local Paint             = ss.import "splashsweps/shared/paint/paint"
 local InkMesh           = ss.import "splashsweps/client/render/inkmesh"
 
 local function LoadCache()
-    local cachePath = string.format("splashsweps/%s.json", game.GetMap())
-    local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
-    local hdrPath = string.format("splashsweps/%s_hdr.json", game.GetMap())
+    local cachePath = string.format("splashsweps/%s.dat", game.GetMap())
+    local ldrPath = string.format("splashsweps/%s_ldr.dat", game.GetMap())
+    local hdrPath = string.format("splashsweps/%s_hdr.dat", game.GetMap())
     local ldrExists = file.Exists(ldrPath, "DATA")
     local hdrExists = file.Exists(hdrPath, "DATA")
-    local cacheJSON = util.JSONToTable(util.Decompress(file.Read(cachePath) or "") or "", true)
-    local cache = cacheJSON and PrecachedData.restore(cacheJSON)
+    local cache = PrecachedData.ReadFile(cachePath, "PrecachedData") ---@type ss.PrecachedData?
     if not cache then return end
 
     local ishdr = false
@@ -42,10 +41,9 @@ local function LoadCache()
     end
 
     local surfacePath = ishdr and hdrPath or ldrPath
-    local staticPropUV = ishdr and cache.StaticPropHDR or cache.StaticPropLDR
+    local staticPropUV = (ishdr and cache.StaticPropHDR or cache.StaticPropLDR) or {} -- nil without static props
     local waterSurfaces = ishdr and cache.SurfacesWaterHDR or cache.SurfacesWaterLDR
-    local surfacesJSON = util.JSONToTable(util.Decompress(file.Read(surfacePath) or "") or "", true)
-    local surfaces = surfacesJSON and PrecachedData.SurfaceInfo.restore(surfacesJSON)
+    local surfaces = PrecachedData.ReadFile(surfacePath, "PrecachedData.SurfaceInfo") ---@type ss.PrecachedData.SurfaceInfo?
     if not surfaces then return end
 
     Hash.Setup(surfaces.SurfaceHash, cache.HashParameters)

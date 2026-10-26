@@ -218,6 +218,8 @@ local function CalculateTriangleComponents(surf)
         t.WorldToLocalGridRotation:Set(WorldToLocalRotation:GetAngles())
         surf.Triangles[#surf.Triangles + 1] = t
     end
+
+    surf.NumTriangles = #surf.Triangles
 end
 
 ---Packs the blend factors toward $basetexture2, 3, and 4 for PrecachedData.Vertex.BumpmapUV.z.
@@ -540,6 +542,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
         surf.Vertices[i].DispPaintOrigin = paintorigin[t]
     end
 
+    surf.NumVertices = #surf.Vertices
     return surf
 end
 
@@ -664,7 +667,10 @@ local function BuildFromBrushFace(bsp, rawFace)
             surf.Vertices[i].BumpmapUV.y = bumpmapV[t]
             surf.Vertices[i].LightmapUV.x = lightmapU[t]
             surf.Vertices[i].LightmapUV.y = lightmapV[t]
+            surf.Vertices[i].DispPaintOrigin:Set(filteredVertices[t])
         end
+
+        surf.NumVertices = #surf.Vertices
 
         if not isWater then
             surf.MBBAngles:Set(mbrMatrix:GetAngles())
@@ -735,6 +741,8 @@ function SurfaceBuilder.BuildSurfaceCache(bsp, ishdr)
         end
     end
     FinalizeCubemapEntries(cubemaps)
+    surfInfo.NumSurfaces = #surf
+    surfInfo.NumCubemaps = #cubemaps
     print("    Generated " .. #lump .. " surfaces for " .. (ishdr and "HDR" or "LDR"))
 
     local elapsed = round((SysTime() - t0) * 1000, 2)
@@ -797,7 +805,7 @@ end
 function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
     print "Generating static prop surfaces..."
     local results = {} ---@type ss.PrecachedData.StaticProp[]
-    local uvinfo = {} ---@type ss.PrecachedData.StaticProp.UVInfo[][]
+    local uvinfo = {} ---@type ss.PrecachedData.StaticProp.UVInfo[]
     local illumpositions = {} ---@type table<string, Vector>
     for _, prop in ipairs(bsp.sprp.prop or {}) do
         if prop.solid > 0 then
@@ -809,31 +817,34 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
             if info and surf and surf.material ~= MAT_GRATE then
                 local scale = prop.uniformScale or 1
                 illumpositions[name] = illumpositions[name] or ReadIlluminationPosition(name)
-                results[#results + 1] = {
-                    Angles = prop.angle,
-                    BoundsMax = info.HullMax * scale,
-                    BoundsMin = info.HullMin * scale,
-                    FadeMax = prop.fadeMaxDist,
-                    FadeMin = prop.fadeMinDist,
-                    ModelIndex = modelIndex,
-                    Position = prop.origin,
-                    Scale = scale,
-                    Skin = prop.skin,
-                    UnwrapIndex = 1,
-                    CubemapIndex = FindStaticPropCubemap(bsp, prop, illumpositions[name]),
-                }
-                uvinfo[#uvinfo + 1] = {}
-                for i = 1, #PrecachedData.InkMapResolutions do
-                    uvinfo[#uvinfo][i] = PrecachedData.StaticPropUVInfo.new()
+                local result = PrecachedData.StaticProp.new()
+                result.Angles = prop.angle
+                result.BoundsMax = info.HullMax * scale
+                result.BoundsMin = info.HullMin * scale
+                result.FadeMax = prop.fadeMaxDist
+                result.FadeMin = prop.fadeMinDist
+                result.ModelIndex = modelIndex
+                result.Position = prop.origin
+                result.Scale = scale
+                result.Skin = prop.skin
+                result.UnwrapIndex = 1
+                result.CubemapIndex = FindStaticPropCubemap(bsp, prop, illumpositions[name])
+                results[#results + 1] = result
+                for _ = 1, #PrecachedData.InkMapResolutions do
+                    uvinfo[#uvinfo + 1] = PrecachedData.StaticPropUVInfo.new()
                 end
             end
         end
     end
 
     cache.StaticProps = results
+    cache.NumStaticProps = #results
     cache.StaticPropHDR = uvinfo
+    cache.NumStaticPropHDR = #uvinfo
     cache.StaticPropLDR = Util.deepcopy(uvinfo) or {}
+    cache.NumStaticPropLDR = #cache.StaticPropLDR
     cache.StaticPropMDL = bsp.sprp.name or {}
+    cache.NumStaticPropMDL = #cache.StaticPropMDL
     print("    Collected info for " .. #results .. " static props.")
 end
 

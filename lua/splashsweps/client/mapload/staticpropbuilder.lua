@@ -62,7 +62,7 @@ end
 ---Creates the models and the ink sprp materials of static props.
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
 ---@param modelNames     string[]
----@param uvInfo         ss.PrecachedData.StaticProp.UVInfo[][]
+---@param uvInfo         ss.PrecachedData.StaticProp.UVInfo[] In the layout of ss.PrecachedData.StaticPropHDR.
 ---@param cubemaps       ss.PrecachedData.CubemapInfo[]
 function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
     local templateMaterial = Material "splashsweps/shaders/staticprop"
@@ -94,7 +94,7 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
     -- xyzTzxy * Vector(X, Y, Z) = (Y, Z, X)
     local xyzTzxy = xyzTyzx:GetTransposed()
     for i, prop in ipairs(staticPropInfo or {}) do
-        local uv = uvInfo[i][#PrecachedData.InkMapResolutions]
+        local uv = uvInfo[i * #PrecachedData.InkMapResolutions]
         local modelName = modelNames[prop.ModelIndex]
         if modelName then
             ---@class ss.PaintableCSEnt : CSEnt
@@ -135,7 +135,7 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
                 localTworld:SetField(4, 4, ss.MARGIN_HAMMER_UNITS)
 
                 -- The cache has the cubemap names without ".hdr"
-                local cubemap = cubemaps[prop.CubemapIndex]
+                local cubemap = cubemaps and cubemaps[prop.CubemapIndex]
                 local nearestEnvmap = cubemap and cubemap.Envmap .. (render.GetHDREnabled() and ".hdr" or "") or UnderlaySync.DEFAULT_ENVMAP
                 local params = table.Merge(matKeyValues, {
                     ["$c1_y"] = uv.Offset.z > 0 and uv.Width or 0,

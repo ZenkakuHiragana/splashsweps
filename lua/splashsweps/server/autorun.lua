@@ -18,19 +18,18 @@ local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
 local PrecachedData    = ss.import "splashsweps/shared/typing/precachedata"
 
 local function LoadCache()
-    local txtPath = string.format("splashsweps/%s.json", game.GetMap())
-    local ldrPath = string.format("splashsweps/%s_ldr.json", game.GetMap())
-    local cacheJSON = util.JSONToTable(util.Decompress(file.Read(txtPath) or "") or "", true)
-    local cache = cacheJSON and PrecachedData.restore(cacheJSON)
-    local mapCRC = util.CRC(file.Read("maps/" .. game.GetMap() .. ".bsp", "GAME") or "")
+    local cachePath = string.format("splashsweps/%s.dat", game.GetMap())
+    local ldrPath = string.format("splashsweps/%s_ldr.dat", game.GetMap())
+    local cache = PrecachedData.ReadFile(cachePath, "PrecachedData") ---@type ss.PrecachedData?
     file.CreateDir "splashsweps"
-    if not cache or cache.MapCRC ~= tonumber(mapCRC) or cache.CacheVersion ~= ss.CACHE_VERSION then
-        cache = CacheBuilder.Build() or {}
-        file.Write(txtPath, util.Compress(util.TableToJSON(cache)))
+    if not cache or cache.Revision ~= game.GetMapVersion() then
+        cache = CacheBuilder.Build()
+        if not cache then return end
+        PrecachedData.WriteFile(cachePath, "PrecachedData", cache)
+        PrecachedData.CompressFile(cachePath)
     end
 
-    local ldrJSON = util.JSONToTable(util.Decompress(file.Read(ldrPath) or "") or "", true)
-    local ldr = ldrJSON and PrecachedData.SurfaceInfo.restore(ldrJSON)
+    local ldr = PrecachedData.ReadFile(ldrPath, "PrecachedData.SurfaceInfo") ---@type ss.PrecachedData.SurfaceInfo?
     if not ldr then return end
 
     Hash.Setup(ldr.SurfaceHash, cache.HashParameters)
