@@ -2,9 +2,11 @@
 -- Copy to .nvim.lua (or symlink it), enable 'exrc', and :trust the file.
 -- Game Lua uses separate server/client workspaces; other Lua keeps lua_ls.
 
--- A project reached through a symlinked directory has two spellings. Neovim
--- resolves a relative path containing a directory (`lua/...`) but keeps other
--- names as given, so buffers of both spellings are normal.
+-- A project reached through a symlinked directory has two spellings. LuaLS
+-- must only see the resolved one: its own file watcher reports changes under a
+-- symlinked workspace by their resolved paths, which then load as extra files
+-- outside the workspace, without libraries, and break the workspace's types.
+-- Lua buffers named through the link are therefore reopened by resolved path.
 local source_root = vim.fs.normalize(vim.fs.dirname(vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":p")))
 local root = vim.fs.normalize(vim.uv.fs_realpath(source_root) or source_root)
 local group = vim.api.nvim_create_augroup("splashsweps_gmod_lsp", { clear = true })
@@ -43,14 +45,35 @@ local function is_gmod(path)
     return within(path, lua_root)
 end
 
--- LuaLS attaches libraries only to files under its workspace as spelled, so a
--- game client's workspace uses the spelling of the buffers it serves.
-local function root_spelling(path)
+-- The resolved path of a project file named through the symlinked spelling.
+local function resolved_alias(path)
     local key = lower_path(path)
     if source_key ~= root_key and (key == source_key or key:sub(1, #source_key + 1) == source_key .. "/") then
-        return source_root
+        return root .. vim.fs.normalize(path):sub(#source_root + 1)
     end
-    return root
+end
+
+-- Renames a buffer named through the link to its resolved path, as
+-- `:edit lua/...` names it already. Neovim identifies both spellings as one
+-- file, so the buffer itself is renamed rather than another one opened.
+local function reopen_resolved(bufnr)
+    if not vim.api.nvim_buf_is_valid(bufnr) then
+        return
+    end
+    local path = resolved_alias(vim.api.nvim_buf_get_name(bufnr))
+    if not path then
+        return
+    end
+    if vim.bo[bufnr].modified then
+        vim.notify("Unsaved buffer named through a symlink gets no LSP; reopen it as " .. path, vim.log.levels.WARN)
+        return
+    end
+    vim.api.nvim_buf_set_name(bufnr, path)
+    -- A renamed buffer counts as not edited, so :write would refuse it.
+    -- Reading it again under the new name clears that.
+    vim.api.nvim_buf_call(bufnr, function()
+        vim.cmd "silent keepalt keepjumps edit"
+    end)
 end
 
 local function is_project_client(client)
@@ -104,12 +127,9 @@ end
 local function native_workspace(workspace)
     workspace = vim.deepcopy(workspace or {})
     workspace.ignoreDir = workspace.ignoreDir or {}
-    -- LuaLS compares ignoreDir as spelled, and a native workspace may be rooted
-    -- through either spelling of the project directory.
-    for _, ignored in ipairs { root .. "/lua", vim.fs.normalize(source_root) .. "/lua" } do
-        if not vim.tbl_contains(workspace.ignoreDir, ignored) then
-            table.insert(workspace.ignoreDir, ignored)
-        end
+    local ignored = root .. "/lua"
+    if not vim.tbl_contains(workspace.ignoreDir, ignored) then
+        table.insert(workspace.ignoreDir, ignored)
     end
     workspace.library = vim.tbl_filter(function(path)
         local absolute = vim.fs.abspath(path)
@@ -195,7 +215,8 @@ local function configure_native()
         original = previous.original
     end
     local wrapper = function(bufnr, on_dir)
-        if not is_gmod(vim.api.nvim_buf_get_name(bufnr)) then
+        local name = vim.api.nvim_buf_get_name(bufnr)
+        if not is_gmod(name) and not resolved_alias(name) then
             if type(original) == "function" then
                 original(bufnr, function(directory)
                     if not is_gmod(vim.api.nvim_buf_get_name(bufnr)) then
@@ -254,7 +275,15 @@ local function reconcile(bufnr)
         or vim.bo[bufnr].buftype ~= "" or vim.api.nvim_buf_get_name(bufnr) == "" then
         return
     end
+    -- Before the built-in vim.lsp.enable callback can start lua_ls for this buffer.
     configure_native()
+    if resolved_alias(vim.api.nvim_buf_get_name(bufnr)) then
+        -- Not while an autocommand may still be loading this buffer.
+        vim.schedule(function()
+            reopen_resolved(bufnr)
+        end)
+        return
+    end
     local game = is_gmod(vim.api.nvim_buf_get_name(bufnr))
     local expected = {}
     if game then
@@ -268,11 +297,9 @@ local function reconcile(bufnr)
     else
         expected.lua_ls = true
     end
-    local game_root = lower_path(root_spelling(vim.api.nvim_buf_get_name(bufnr)))
     for _, client in ipairs(vim.lsp.get_clients { bufnr = bufnr, _uninitialized = true }) do
         if is_managed(client) then
-            if client:is_stopped() or not expected[client.name]
-                or (game and lower_path(client.root_dir) ~= game_root) then
+            if client:is_stopped() or not expected[client.name] then
                 -- Close the old URI before a saveas rename can notify the
                 -- previous realm (including an untransformed outside file).
                 client:notify("textDocument/didClose", {
@@ -297,10 +324,6 @@ local function reconcile(bufnr)
             end)
         elseif config then
             local resolved = vim.deepcopy(config)
-            if game then
-                -- Clients are reused per name and root, hence one per spelling in use.
-                resolved.root_dir = root_spelling(vim.api.nvim_buf_get_name(bufnr))
-            end
             resolved.root_dir = resolved.root_dir or vim.fs.root(bufnr, resolved.root_markers or { ".git" }) or root
             vim.lsp.start(resolved, { bufnr = bufnr })
         end

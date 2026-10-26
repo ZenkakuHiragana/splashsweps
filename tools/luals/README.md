@@ -16,6 +16,7 @@ This restarts the game LuaLS instances so they also reload the plugin. It does n
 - Files used in both realms attach to both instances. Realm-specific exclusions come from `workspace.ignoreDir` in each `.luarc.*.json`. Client selection currently handles the literal relative paths used by these settings.
 - `lua/types` is loaded as a type library, without the text transformation applied to game code.
 - Lua files outside `lua/` use the normal `lua_ls`. Their definitions are excluded from the game instances, and this project's game files and libraries are excluded from the normal instance. This also filters library settings supplied later by `lazydev.nvim`.
+- When the project directory is reached through a symlink, every LuaLS instance uses the resolved directory as its workspace, and a Lua buffer named through the link is renamed to its resolved path before any LuaLS attaches. LuaLS's own file watcher reports changes under a symlinked workspace by resolved paths and loads them as extra files without the workspace libraries.
 
 Use `:GLuaLsp` to inspect attachments. For the current game Lua buffer, use `:GLuaServer` or `:GLuaClient` to select one realm, `:GLuaAutoRealm` to restore automatic selection, or `:GLuaToggle` to switch between realms.
 

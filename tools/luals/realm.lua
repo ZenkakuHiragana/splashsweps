@@ -109,7 +109,7 @@ function OnSetText(uri, text)
         local all = allLocalRefs()
         local low, high = 1, #all + 1
         while low < high do
-            local middle = (low + high) // 2
+            local middle = math.floor((low + high) / 2)
             if all[middle][1] < first then
                 low = middle + 1
             else
