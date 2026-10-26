@@ -187,6 +187,7 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
     local yInInkSystemRewind
         = surfaceAxisYInInkSystemY * cellSize
         - yInInkSystemStep * (indexMaxX - indexMinX + 1)
+    local radius_x, radius_y = radius.x, radius.y
 
     -- If the size of the ink is small enough then look up multiple cells of the shape grid
     if cellSize * cellSize * oneOverShapeCellWidth * oneOverShapeCellHeight > 1 then
@@ -197,10 +198,10 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
                     xInInkSystem, yInInkSystem,
                     surfaceAxisXInInkSystem, surfaceAxisYInInkSystem,
                     halfCellSize, halfCellSize)
-                local shapeIndexMinX = floor((x_min + radius.x) * oneOverShapeCellWidth - 0.5)
-                local shapeIndexMaxX =  ceil((x_max + radius.x) * oneOverShapeCellWidth + 0.5)
-                local shapeIndexMinY = floor((y_min + radius.y) * oneOverShapeCellHeight - 0.5)
-                local shapeIndexMaxY =  ceil((y_max + radius.y) * oneOverShapeCellHeight + 0.5)
+                local shapeIndexMinX = floor((x_min + radius_x) * oneOverShapeCellWidth - 0.5)
+                local shapeIndexMaxX =  ceil((x_max + radius_x) * oneOverShapeCellWidth + 0.5)
+                local shapeIndexMinY = floor((y_min + radius_y) * oneOverShapeCellHeight - 0.5)
+                local shapeIndexMaxY =  ceil((y_max + radius_y) * oneOverShapeCellHeight + 0.5)
 
                 -- Check if the index range for the shape grid at least partially overlaps
                 if shapeIndexMaxX >= 0
@@ -252,8 +253,8 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
     else -- Otherwise, look up the nearest one
         for iy = indexMinY, indexMaxY do
             for ix = indexMinX, indexMaxX do
-                local shapeIndexX = floor((xInInkSystem + radius.x) * oneOverShapeCellWidth + 0.5)
-                local shapeIndexY = floor((yInInkSystem + radius.y) * oneOverShapeCellHeight + 0.5)
+                local shapeIndexX = floor((xInInkSystem + radius_x) * oneOverShapeCellWidth + 0.5)
+                local shapeIndexY = floor((yInInkSystem + radius_y) * oneOverShapeCellHeight + 0.5)
                 if  0 <= shapeIndexX and shapeIndexX < shapeMaskWidth
                 and 0 <= shapeIndexY and shapeIndexY < shapeMaskHeight
                 and shapeMask[shapeIndexY * shapeMaskWidth + shapeIndexX + 1] then
