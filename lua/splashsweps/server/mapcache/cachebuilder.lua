@@ -187,7 +187,6 @@ function CacheBuilder.Build()
         Hash.BuildDisplacementHash(hdr.Surfaces)
         LightmapBuilder.Build(bsp, true, hdr, cache)
         hdr.SurfaceHash = Hash.BuildSurfaceHash(hdr.Surfaces, cache.StaticProps)
-        hdr.NumSurfaceHashEntries = #hdr.SurfaceHash
         PrecachedData.WriteFile(hdrPath, "PrecachedData.SurfaceInfo", hdr)
     end
 
@@ -204,7 +203,6 @@ function CacheBuilder.Build()
         Hash.BuildDisplacementHash(ldr.Surfaces)
         LightmapBuilder.Build(bsp, false, ldr, cache)
         ldr.SurfaceHash = Hash.BuildSurfaceHash(ldr.Surfaces, cache.StaticProps)
-        ldr.NumSurfaceHashEntries = #ldr.SurfaceHash
         PrecachedData.WriteFile(ldrPath, "PrecachedData.SurfaceInfo", ldr)
     end
 

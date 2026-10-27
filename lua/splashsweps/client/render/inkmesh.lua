@@ -26,7 +26,7 @@ local InkMesh = ss.module "splashsweps/client/render/inkmesh"
 
 ---@class ss.InkMeshModule.State
 ---@field Batches       ss.RenderBatch[] Ink meshes of each BSP model, indexed by 1-based model index.
----@field DebugMeshData ss.VertexBatches.MeshVertex[][] Vertices written into the meshes, kept for debug mesh inspection.
+---@field DebugMeshData ss.VertexBatches.MeshVertex[][] Vertices written into the meshes, kept for debug mesh inspection if InkMesh.Setup is asked to.
 local state = ss.state("splashsweps/client/render/inkmesh", {
     Batches = {},
     DebugMeshData = {},
@@ -35,7 +35,7 @@ local state = ss.state("splashsweps/client/render/inkmesh", {
 ---Ink meshes of each BSP model, indexed by 1-based model index.
 InkMesh.Batches = state.Batches
 
----Vertices written into the meshes, kept for debug mesh inspection.
+---Vertices written into the meshes, kept for debug mesh inspection if InkMesh.Setup is asked to.
 InkMesh.DebugMeshData = state.DebugMeshData
 
 ---Copies vertex batches into InkMesh.DebugMeshData without exposing batch metadata.
@@ -50,10 +50,11 @@ local function storeDebugMeshData(debugMeshData, vertexBatches)
 end
 
 ---Reads through BSP models which includes the worldspawn and brush entities and constructs IMeshes from them.
----@param surfaceInfo   ss.PrecachedData.SurfaceInfo
----@param numModels     integer
----@param materialNames string[]
-function InkMesh.Setup(surfaceInfo, numModels, materialNames)
+---@param surfaceInfo       ss.PrecachedData.SurfaceInfo
+---@param numModels         integer
+---@param materialNames     string[]
+---@param keepDebugMeshData boolean Keeps the vertices in InkMesh.DebugMeshData, which takes as much memory as the meshes.
+function InkMesh.Setup(surfaceInfo, numModels, materialNames, keepDebugMeshData)
     local entities = {} ---@type Entity[]
     for _, e in ipairs(ents.GetAll()) do
         local modelName = e:GetModel() or ""
@@ -94,7 +95,9 @@ function InkMesh.Setup(surfaceInfo, numModels, materialNames)
                 Mesh     = Mesh(mat),
             }
         end
-        storeDebugMeshData(state.DebugMeshData, vertexBatches)
+        if keepDebugMeshData then
+            storeDebugMeshData(state.DebugMeshData, vertexBatches)
+        end
         VertexBatches.WriteMeshes(renderBatch, vertexBatches)
         VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches)
     end

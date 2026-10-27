@@ -369,17 +369,26 @@ PrecachedData.CubemapInfo = record("PrecachedData.CubemapInfo", {
     "Float  Blend",
 })
 
----A cell of the spatial hash of the paintable surfaces.
----@class ss.PrecachedData.SurfaceHashEntry
----@field HashValue         integer   The hash value of the cell.
----@field NumSurfaceIndices integer
----@field SurfaceIndices    integer[] Indices of PaintableSurface.Surfaces in the cell.
+---Spatial hash of the paintable surfaces.
+---Element k of HashValues, FirstSurfaceIndex, and NumSurfaceIndices is for the cell of hash value HashValues[k],
+---which has the surfaces PaintableSurface.Surfaces[SurfaceIndices[j]]
+---for j = FirstSurfaceIndex[k], ..., FirstSurfaceIndex[k] + NumSurfaceIndices[k] - 1.
+---@class ss.PrecachedData.SurfaceHash
+---@field NumHashValues       integer
+---@field HashValues          integer[]?
+---@field FirstSurfaceIndex   integer[]?
+---@field NumSurfaceIndices   integer[]?
+---@field TotalSurfaceIndices integer
+---@field SurfaceIndices      integer[]?
 
----@type { new: fun(): ss.PrecachedData.SurfaceHashEntry }
-PrecachedData.SurfaceHashEntry = record("PrecachedData.SurfaceHashEntry", {
-    "ULong HashValue", -- 256 * 256 * 256 cells
-    "ULong NumSurfaceIndices",
-    "ULong SurfaceIndices NumSurfaceIndices",
+---@type { new: fun(): ss.PrecachedData.SurfaceHash }
+PrecachedData.SurfaceHash = record("PrecachedData.SurfaceHash", {
+    "ULong NumHashValues",
+    "ULong HashValues        NumHashValues", -- 256 * 256 * 256 cells
+    "ULong FirstSurfaceIndex NumHashValues",
+    "ULong NumSurfaceIndices NumHashValues",
+    "ULong TotalSurfaceIndices",
+    "ULong SurfaceIndices    TotalSurfaceIndices",
 })
 
 ---Paintable surfaces built from LUMP_FACES or LUMP_FACES_HDR.
@@ -389,8 +398,7 @@ PrecachedData.SurfaceHashEntry = record("PrecachedData.SurfaceHashEntry", {
 ---@field Lightmaps             ss.PrecachedData.LightmapInfo[]? Array made from LUMP_FACES used to pack lightmaps.
 ---@field NumSurfaces           integer
 ---@field Surfaces              ss.PrecachedData.Surface[]? Array of paintable surfaces.
----@field NumSurfaceHashEntries integer
----@field SurfaceHash           ss.PrecachedData.SurfaceHashEntry[]? Spatial hash given to Hash.Setup.
+---@field SurfaceHash           ss.PrecachedData.SurfaceHash Spatial hash given to Hash.Setup.
 ---@field UVScales              number[]  Render target size index -> Hammer units to UV multiplier
 ---@field NumCubemaps           integer
 ---@field Cubemaps              ss.PrecachedData.CubemapInfo[]? Cubemap samples and paintable face bounds using them.
@@ -401,8 +409,7 @@ PrecachedData.SurfaceInfo = record("PrecachedData.SurfaceInfo", {
     "PrecachedData.LightmapInfo Lightmaps NumLightmaps",
     "ULong  NumSurfaces",
     "PrecachedData.Surface Surfaces NumSurfaces",
-    "ULong  NumSurfaceHashEntries",
-    "PrecachedData.SurfaceHashEntry SurfaceHash NumSurfaceHashEntries",
+    "PrecachedData.SurfaceHash SurfaceHash",
     "Float  UVScales " .. NUM_RESOLUTIONS,
     "UShort NumCubemaps", -- MAX_MAP_CUBEMAPSAMPLES = 1024
     "PrecachedData.CubemapInfo Cubemaps NumCubemaps",

@@ -24,6 +24,9 @@ local StaticPropBuilder = ss.import "splashsweps/client/mapload/staticpropbuilde
 local Paint             = ss.import "splashsweps/shared/paint/paint"
 local InkMesh           = ss.import "splashsweps/client/render/inkmesh"
 
+local CVarDebugMeshData = CreateClientConVar("ss_debug_mesh_data", "0", false, false,
+    "1 keeps the vertices of the ink meshes built at map load, for debugging. It takes as much memory as the meshes.")
+
 local function LoadCache()
     local cachePath = string.format("splashsweps/%s.dat", game.GetMap())
     local ldrPath = string.format("splashsweps/%s_ldr.dat", game.GetMap())
@@ -52,7 +55,7 @@ local function LoadCache()
     InkType.Load()
     InkAtlases.Load()
     InkMap.Setup()
-    InkMesh.Setup(surfaces, cache.NumModels, cache.MaterialNames)
+    InkMesh.Setup(surfaces, cache.NumModels, cache.MaterialNames, CVarDebugMeshData:GetBool())
     PaintableSurface.Setup(surfaces.Surfaces, cache.NumModels)
     PaintableSurface.SetupStaticProps(cache.StaticProps, {
         UVInfo = staticPropUV,

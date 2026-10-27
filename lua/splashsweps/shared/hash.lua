@@ -11,23 +11,26 @@ local Util             = ss.import "splashsweps/shared/util"
 local Hash = ss.module "splashsweps/shared/hash"
 
 ---@class ss.HashModule.State
----@field SurfaceHash table<integer, integer[]> Grid hash --> indices of PaintableSurface.Surfaces in the grid.
+---@field SurfaceHash ss.PrecachedData.SurfaceHash The spatial hash of the world surfaces.
+---@field CellIndices table<integer, integer>      Hash value --> index of the cell in the arrays of SurfaceHash.
 ---@field Parameters  ss.PrecachedData.HashParameters
 local state = ss.state("splashsweps/shared/hash", {
-    SurfaceHash = {},
+    SurfaceHash = PrecachedData.SurfaceHash.new(),
+    CellIndices = {},
     Parameters = PrecachedData.HashParameters.new(),
 }) ---@type ss.HashModule.State
 
 ---Sets the spatial hash of the world surfaces and the parameters, both read from the map cache.
----@param surfaceHash ss.PrecachedData.SurfaceHashEntry[]? The cells of the spatial hash, nil if there is none.
+---@param surfaceHash ss.PrecachedData.SurfaceHash
 ---@param parameters  ss.PrecachedData.HashParameters
 function Hash.Setup(surfaceHash, parameters)
-    local cells = {} ---@type table<integer, integer[]>
-    for _, entry in ipairs(surfaceHash or {}) do
-        cells[entry.HashValue] = entry.SurfaceIndices
+    local cellIndices = {} ---@type table<integer, integer>
+    for k, h in ipairs(surfaceHash.HashValues or {}) do
+        cellIndices[h] = k
     end
 
-    state.SurfaceHash = cells
+    state.SurfaceHash = surfaceHash
+    state.CellIndices = cellIndices
     state.Parameters = parameters
 end
 
@@ -92,7 +95,7 @@ end
 ---Generates look-up table for spatial partitioning to find surfaces faster.
 ---@param surfaces    ss.PrecachedData.Surface[]    The source array.
 ---@param staticProps ss.PrecachedData.StaticProp[] List of static props.
----@return ss.PrecachedData.SurfaceHashEntry[] # The cells of the spatial hash, given to Hash.Setup.
+---@return ss.PrecachedData.SurfaceHash # The spatial hash given to Hash.Setup.
 function Hash.BuildSurfaceHash(surfaces, staticProps)
     print("Constructing spatial hash table for paintable surfaces...")
     local hash = {} ---@type table<integer, integer[]>
@@ -121,16 +124,24 @@ function Hash.BuildSurfaceHash(surfaces, staticProps)
         end
     end
 
-    local entries = {} ---@type ss.PrecachedData.SurfaceHashEntry[]
+    local surfaceHash = PrecachedData.SurfaceHash.new()
+    local hashValues = surfaceHash.HashValues ---@cast hashValues -?
+    local firstSurfaceIndex = surfaceHash.FirstSurfaceIndex ---@cast firstSurfaceIndex -?
+    local numSurfaceIndices = surfaceHash.NumSurfaceIndices ---@cast numSurfaceIndices -?
+    local surfaceIndices = surfaceHash.SurfaceIndices ---@cast surfaceIndices -?
     for h, indices in pairs(hash) do
-        local entry = PrecachedData.SurfaceHashEntry.new()
-        entry.HashValue = h
-        entry.NumSurfaceIndices = #indices
-        entry.SurfaceIndices = indices
-        entries[#entries + 1] = entry
+        local k = #hashValues + 1
+        hashValues[k] = h
+        firstSurfaceIndex[k] = #surfaceIndices + 1
+        numSurfaceIndices[k] = #indices
+        for _, i in ipairs(indices) do
+            surfaceIndices[#surfaceIndices + 1] = i
+        end
     end
 
-    return entries
+    surfaceHash.NumHashValues = #hashValues
+    surfaceHash.TotalSurfaceIndices = #surfaceIndices
+    return surfaceHash
 end
 
 ---Tests if the minimum bounding box of the surface intersects with given AABB.
@@ -154,8 +165,13 @@ function Hash.CollectSurfaces(mins, maxs)
     maxs = maxs + vector_tenth
     return wrap(function()
         local hasSeenThisSurface = {} ---@type table<integer, true>
+        local surfaceHash = state.SurfaceHash
         for h in hashpairs(mins, maxs) do
-            for _, i in ipairs(state.SurfaceHash[h] or {}) do
+            local k = state.CellIndices[h]
+            local first = k and surfaceHash.FirstSurfaceIndex[k] or 1
+            local last = k and first + surfaceHash.NumSurfaceIndices[k] - 1 or 0
+            for j = first, last do
+                local i = surfaceHash.SurfaceIndices[j]
                 if not hasSeenThisSurface[i] then
                     hasSeenThisSurface[i] = true
                     local s = PaintableSurface.Surfaces[i]
