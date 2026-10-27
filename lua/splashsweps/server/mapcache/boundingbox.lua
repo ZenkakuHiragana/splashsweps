@@ -5,7 +5,8 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local Util = ss.import "splashsweps/shared/util"
+local Geometry = ss.import "splashsweps/shared/geometry"
+local Util     = ss.import "splashsweps/shared/util"
 
 ---@class ss.BoundingBox
 local BoundingBox = ss.module "splashsweps/server/mapcache/boundingbox"
@@ -42,9 +43,10 @@ local function GetConvex(xs, ys, zs)
         local p, q = convex[#convex], convex[#convex - 1]
         local pqX, pqY, pqZ = xs[q] - xs[p], ys[q] - ys[p], zs[q] - zs[p]
         local prX, prY, prZ = xs[r] - xs[p], ys[r] - ys[p], zs[r] - zs[p]
-        return pqX * prY - pqY * prX > 0
-            or pqX * pqX + pqY * pqY + pqZ * pqZ < Util.eps
-            or prX * prX + prY * prY + prZ * prZ < Util.eps
+        local _, _, turn = Geometry.Cross(pqX, pqY, pqZ, prX, prY, prZ)
+        return turn > 0
+            or Geometry.LengthSqr(pqX, pqY, pqZ) < Util.eps
+            or Geometry.LengthSqr(prX, prY, prZ) < Util.eps
     end
 
     local convex = {} ---@type integer[]
@@ -98,20 +100,21 @@ function BoundingBox.FindMBR(xs, ys, zs, orientation)
     -- |   y      |
     -- +----------+
     -- ```
-    local forwardX, forwardY, forwardZ = orientation[1], orientation[5], orientation[9]
-    local leftX,    leftY,    leftZ    = orientation[2], orientation[6], orientation[10]
-    local upX,      upY,      upZ      = orientation[3], orientation[7], orientation[11]
+    local o = orientation
+    local planeToWorld = {
+        o[1], o[2],  o[3],  centerX,
+        o[5], o[6],  o[7],  centerY,
+        o[9], o[10], o[11], centerZ,
+    }
+    local worldToPlane = Geometry.InvertRotationTranslation(planeToWorld)
     local localXs, localYs, localZs = {}, {}, {} ---@type number[], number[], number[]
     for i = 1, n do
-        local dx, dy, dz = xs[i] - centerX, ys[i] - centerY, zs[i] - centerZ
-        localXs[i] = forwardX * dx + forwardY * dy + forwardZ * dz
-        localYs[i] = leftX    * dx + leftY    * dy + leftZ    * dz
-        localZs[i] = upX      * dx + upY      * dy + upZ      * dz
+        localXs[i], localYs[i], localZs[i] = Geometry.TransformPoint(worldToPlane, xs[i], ys[i], zs[i])
     end
 
     -- For each edge of the convex hull, finds the rectangle along the edge containing the hull.
-    -- The rectangle of an edge has the axes forward = (dx, dy, 0), left = (-dy, dx, 0), and up = (0, 0, 1),
-    -- so the point (x, y, z) is at (dx * x + dy * y, dx * y - dy * x, z) in the rectangle.
+    -- The rectangle of an edge with the direction d = (dx, dy, 0) has the axes d, up = (0, 0, 1), and up × d,
+    -- so the point p is at (d・p, (d × p).z, p.z) in the rectangle.
     -- The points can be off the plane by a little, so the edges are projected onto the plane
     -- to keep the axes perpendicular; otherwise the axes are not a rotation and break into angles.
     -- Edges giving the same area within rounding errors, such as the four edges of a rectangle,
@@ -124,18 +127,15 @@ function BoundingBox.FindMBR(xs, ys, zs, orientation)
     local sizeX, sizeY, sizeZ = 0, 0, 0
     for i = 1, numConvex do
         local a, b = convex[i], convex[i % numConvex + 1]
-        local dx, dy = localXs[b] - localXs[a], localYs[b] - localYs[a]
-        local lengthSqr = dx * dx + dy * dy
-        if lengthSqr > 0 then
-            local length = sqrt(lengthSqr)
-            dx, dy = dx / length, dy / length
+        local dx, dy = Geometry.Normalize(localXs[b] - localXs[a], localYs[b] - localYs[a], 0)
+        if dx ~= 0 or dy ~= 0 then
             local minX, minY, minZ = huge, huge, huge
             local maxX, maxY, maxZ = -huge, -huge, -huge
             for k = 1, numConvex do
                 local c = convex[k]
                 local x, y, z = localXs[c], localYs[c], localZs[c]
-                local u = dx * x + dy * y
-                local v = dx * y - dy * x
+                local u = Geometry.Dot(dx, dy, 0, x, y, 0)
+                local _, _, v = Geometry.Cross(dx, dy, 0, x, y, 0)
                 if u < minX then minX = u end
                 if u > maxX then maxX = u end
                 if v < minY then minY = v end
@@ -154,21 +154,14 @@ function BoundingBox.FindMBR(xs, ys, zs, orientation)
         end
     end
 
-    -- The axes of the rectangle in the world.
-    local rectForwardX = mbrDX * forwardX + mbrDY * leftX
-    local rectForwardY = mbrDX * forwardY + mbrDY * leftY
-    local rectForwardZ = mbrDX * forwardZ + mbrDY * leftZ
-    local rectLeftX = mbrDX * leftX - mbrDY * forwardX
-    local rectLeftY = mbrDX * leftY - mbrDY * forwardY
-    local rectLeftZ = mbrDX * leftZ - mbrDY * forwardZ
-    return {
-        rectForwardX, rectLeftX, upX,
-        centerX + rectForwardX * mbrMinX + rectLeftX * mbrMinY + upX * mbrMinZ,
-        rectForwardY, rectLeftY, upY,
-        centerY + rectForwardY * mbrMinX + rectLeftY * mbrMinY + upY * mbrMinZ,
-        rectForwardZ, rectLeftZ, upZ,
-        centerZ + rectForwardZ * mbrMinX + rectLeftZ * mbrMinY + upZ * mbrMinZ,
-    }, sizeX, sizeY, sizeZ
+    -- The rectangle in the plane, of which the origin is the corner of the minimum.
+    local rectToPlane = {
+        mbrDX, -mbrDY, 0, 0,
+        mbrDY,  mbrDX, 0, 0,
+        0,      0,     1, 0,
+    }
+    rectToPlane[4], rectToPlane[8], rectToPlane[12] = Geometry.TransformPoint(rectToPlane, mbrMinX, mbrMinY, mbrMinZ)
+    return Geometry.Multiply(planeToWorld, rectToPlane), sizeX, sizeY, sizeZ
 end
 
 ---Finds the oriented minimum bounding box of points, along the eigenvectors of their covariance.
@@ -293,22 +286,23 @@ function BoundingBox.FindMinimumOBB(xs, ys, zs)
     -- localToWorld:SetForward(axes[1]:GetNormalized())
     -- localToWorld:SetRight(axes[2]:GetNormalized())
     -- localToWorld:SetUp(axes[3]:GetNormalized())
+    local boxToWorld = {
+        r11, r12, r13, meanX,
+        r21, r22, r23, meanY,
+        r31, r32, r33, meanZ,
+    }
+    local worldToBox = Geometry.InvertRotationTranslation(boxToWorld)
     local minX, minY, minZ = huge, huge, huge
     local maxX, maxY, maxZ = -huge, -huge, -huge
     for i = 1, n do
-        local dx, dy, dz = xs[i] - meanX, ys[i] - meanY, zs[i] - meanZ
-        local x = r11 * dx + r21 * dy + r31 * dz
-        local y = r12 * dx + r22 * dy + r32 * dz
-        local z = r13 * dx + r23 * dy + r33 * dz
+        local x, y, z = Geometry.TransformPoint(worldToBox, xs[i], ys[i], zs[i])
         minX, minY, minZ = min(minX, x), min(minY, y), min(minZ, z)
         maxX, maxY, maxZ = max(maxX, x), max(maxY, y), max(maxZ, z)
     end
 
-    return {
-        r11, r12, r13, meanX + r11 * minX + r12 * minY + r13 * minZ,
-        r21, r22, r23, meanY + r21 * minX + r22 * minY + r23 * minZ,
-        r31, r32, r33, meanZ + r31 * minX + r32 * minY + r33 * minZ,
-    }, maxX - minX, maxY - minY, maxZ - minZ
+    -- Moves the origin to the corner of the minimum.
+    boxToWorld[4], boxToWorld[8], boxToWorld[12] = Geometry.TransformPoint(boxToWorld, minX, minY, minZ)
+    return boxToWorld, maxX - minX, maxY - minY, maxZ - minZ
 end
 
 return BoundingBox

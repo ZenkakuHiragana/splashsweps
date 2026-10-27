@@ -35,7 +35,6 @@ function Hash.Setup(surfaceHash, parameters)
     state.Parameters = parameters
 end
 
-local abs = math.abs
 local ceil = math.ceil
 local clamp = math.Clamp
 local floor = math.floor
@@ -111,17 +110,11 @@ function Hash.BuildSurfaceHash(surfaces, staticProps)
 
     for i, s in ipairs(staticProps) do
         -- World AABB of the rotated OBB, plus the margin as the other surfaces have
-        local m = Geometry.FromAngles(s.Pitch, s.Yaw, s.Roll, s.PositionX, s.PositionY, s.PositionZ)
-        local centerX, centerY, centerZ = Geometry.TransformPoint(m,
-            (s.BoundsMinX + s.BoundsMaxX) / 2, (s.BoundsMinY + s.BoundsMaxY) / 2, (s.BoundsMinZ + s.BoundsMaxZ) / 2)
-        local halfX = (s.BoundsMaxX - s.BoundsMinX) / 2
-        local halfY = (s.BoundsMaxY - s.BoundsMinY) / 2
-        local halfZ = (s.BoundsMaxZ - s.BoundsMinZ) / 2
-        local extentX = halfX * abs(m[1]) + halfY * abs(m[2])  + halfZ * abs(m[3])  + ss.MARGIN_HAMMER_UNITS
-        local extentY = halfX * abs(m[5]) + halfY * abs(m[6])  + halfZ * abs(m[7])  + ss.MARGIN_HAMMER_UNITS
-        local extentZ = halfX * abs(m[9]) + halfY * abs(m[10]) + halfZ * abs(m[11]) + ss.MARGIN_HAMMER_UNITS
-        for h in hashpairs(centerX - extentX, centerY - extentY, centerZ - extentZ,
-                           centerX + extentX, centerY + extentY, centerZ + extentZ) do
+        local minX, minY, minZ, maxX, maxY, maxZ = Geometry.TransformAABB(
+            Geometry.FromAngles(s.Pitch, s.Yaw, s.Roll, s.PositionX, s.PositionY, s.PositionZ),
+            s.BoundsMinX, s.BoundsMinY, s.BoundsMinZ, s.BoundsMaxX, s.BoundsMaxY, s.BoundsMaxZ)
+        local margin = ss.MARGIN_HAMMER_UNITS
+        for h in hashpairs(minX - margin, minY - margin, minZ - margin, maxX + margin, maxY + margin, maxZ + margin) do
             hash[h] = hash[h] or {}
             for j = 1, 6 do
                 hash[h][#hash[h] + 1] = #surfaces + 6 * (i - 1) + j

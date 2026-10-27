@@ -19,7 +19,6 @@ local huge = math.huge
 local max = math.max
 local min = math.min
 local round = math.Round
-local sqrt = math.sqrt
 local MaterialCache = {} ---@type table<string, IMaterial>
 local GRID_ROUNDING_TOLERANCE = 1e-6 -- In cells
 local TextureFilterBits = bit.bor(
@@ -146,7 +145,7 @@ end
 ---@return number[] # A transform of ss.GeometryModule with no translation.
 local function FaceOrientation(normalX, normalY, normalZ)
     local length = Geometry.Length(normalX, normalY, normalZ)
-    local xyLength = sqrt(normalX * normalX + normalY * normalY)
+    local xyLength = Geometry.Length(normalX, normalY, 0)
     local sinPitch, cosPitch, sinYaw, cosYaw ---@type number, number, number, number
     if normalX == 0 and normalY == 0 then -- normal:Angle() has the pitch 270 or 90, and the yaw 0.
         sinPitch, cosPitch, sinYaw, cosYaw = normalZ > 0 and -1 or 1, 0, 0, 1
@@ -229,22 +228,28 @@ local function PointsOfTriangles(xs, ys, zs, vertexIndices)
     return listX, listY, listZ
 end
 
----Returns the orientation of a triangle as the columns of a rotation:
+---Returns the transform of a triangle t1, t2, t3 of which the origin is t3:
 ---the forward along the edge t3 -> t2, the left toward t1 in the plane, and the up as the normal.
 ---This is the rotation of forward:AngleEx(forward:Cross(another)).
----@param forwardX number t2 - t3
----@param forwardY number
----@param forwardZ number
----@param anotherX number t1 - t3
----@param anotherY number
----@param anotherZ number
----@return number fx, number fy, number fz, number lx, number ly, number lz, number ux, number uy, number uz
-local function TriangleAxes(forwardX, forwardY, forwardZ, anotherX, anotherY, anotherZ)
+---@param xs number[]
+---@param ys number[]
+---@param zs number[]
+---@param i1 integer t1
+---@param i2 integer t2
+---@param i3 integer t3
+---@return number[]
+local function TriangleToWorld(xs, ys, zs, i1, i2, i3)
+    local forwardX, forwardY, forwardZ = xs[i2] - xs[i3], ys[i2] - ys[i3], zs[i2] - zs[i3]
+    local anotherX, anotherY, anotherZ = xs[i1] - xs[i3], ys[i1] - ys[i3], zs[i1] - zs[i3]
     local fx, fy, fz = Geometry.Normalize(forwardX, forwardY, forwardZ)
     local px, py, pz = Geometry.Cross(forwardX, forwardY, forwardZ, anotherX, anotherY, anotherZ)
     local lx, ly, lz = Geometry.Normalize(Geometry.Cross(px, py, pz, fx, fy, fz))
     local ux, uy, uz = Geometry.Cross(fx, fy, fz, lx, ly, lz)
-    return fx, fy, fz, lx, ly, lz, ux, uy, uz
+    return {
+        fx, lx, ux, xs[i3],
+        fy, ly, uy, ys[i3],
+        fz, lz, uz, zs[i3],
+    }
 end
 
 ---@param surf ss.PrecachedData.Surface Its vertex and triangle arrays are written.
@@ -268,40 +273,30 @@ local function CalculateTriangleComponents(surf)
         local i1 = vertexIndices[i]
         local i2 = vertexIndices[i + 1]
         local i3 = vertexIndices[i + 2]
-        local forwardX, forwardY, forwardZ = xs[i2] - xs[i3], ys[i2] - ys[i3], zs[i2] - zs[i3]
-        local anotherX, anotherY, anotherZ = xs[i1] - xs[i3], ys[i1] - ys[i3], zs[i1] - zs[i3]
-        local fx, fy, fz, lx, ly, lz, ux, uy, uz
-            = TriangleAxes(forwardX, forwardY, forwardZ, anotherX, anotherY, anotherZ)
-        local alongAnother = Geometry.Dot(fx, fy, fz, anotherX, anotherY, anotherZ)
-        local minX = min(0, alongAnother)
-        local maxX = max(Geometry.Dot(fx, fy, fz, forwardX, forwardY, forwardZ), alongAnother)
+
+        -- The bounding rectangle is along the edge t3 -> t2, and t1 is on its top.
+        local triangleToWorld = TriangleToWorld(xs, ys, zs, i1, i2, i3)
+        local worldToTriangle = Geometry.InvertRotationTranslation(triangleToWorld)
+        local x1, y1 = Geometry.TransformPoint(worldToTriangle, xs[i1], ys[i1], zs[i1])
+        local x2 = Geometry.TransformPoint(worldToTriangle, xs[i2], ys[i2], zs[i2])
+        local minX, maxX = min(0, x1), max(x2, x1)
+        local t = PrecachedData.DisplacementTriangle.new()
+        t.MBBPitch,   t.MBBYaw,     t.MBBRoll    = Geometry.ToAngles(triangleToWorld)
+        t.MBBOriginX, t.MBBOriginY, t.MBBOriginZ = Geometry.TransformPoint(triangleToWorld, minX, 0, 0)
+        t.MBBSizeX,   t.MBBSizeY                 = maxX - minX, y1
 
         -- Barycentric coordinates by the dual basis of the edges t1 -> t2 and t1 -> t3.
-        local e2x, e2y, e2z = xs[i2] - xs[i1], ys[i2] - ys[i1], zs[i2] - zs[i1]
-        local e3x, e3y, e3z = -anotherX, -anotherY, -anotherZ
-        local d22 = Geometry.Dot(e2x, e2y, e2z, e2x, e2y, e2z)
-        local d23 = Geometry.Dot(e2x, e2y, e2z, e3x, e3y, e3z)
-        local d33 = Geometry.Dot(e3x, e3y, e3z, e3x, e3y, e3z)
-        local denominator = d22 * d33 - d23 * d23
-        local t = PrecachedData.DisplacementTriangle.new()
-        t.BarycentricDot1X = (d33 * e2x - d23 * e3x) / denominator
-        t.BarycentricDot1Y = (d33 * e2y - d23 * e3y) / denominator
-        t.BarycentricDot1Z = (d33 * e2z - d23 * e3z) / denominator
-        t.BarycentricDot2X = (d22 * e3x - d23 * e2x) / denominator
-        t.BarycentricDot2Y = (d22 * e3y - d23 * e2y) / denominator
-        t.BarycentricDot2Z = (d22 * e3z - d23 * e2z) / denominator
-        t.MBBPitch, t.MBBYaw, t.MBBRoll = Geometry.ToAngles { fx, lx, ux, 0, fy, ly, uy, 0, fz, lz, uz, 0 }
-        t.MBBOriginX, t.MBBOriginY, t.MBBOriginZ = xs[i3] + fx * minX, ys[i3] + fy * minX, zs[i3] + fz * minX
-        t.MBBSizeX, t.MBBSizeY = maxX - minX, Geometry.Dot(lx, ly, lz, anotherX, anotherY, anotherZ)
+        t.BarycentricDot1X, t.BarycentricDot1Y, t.BarycentricDot1Z,
+        t.BarycentricDot2X, t.BarycentricDot2Y, t.BarycentricDot2Z = Geometry.DualBasis(
+            xs[i2] - xs[i1], ys[i2] - ys[i1], zs[i2] - zs[i1],
+            xs[i3] - xs[i1], ys[i3] - ys[i1], zs[i3] - zs[i1])
 
         -- The rotation from the triangle to the triangle of the paint origins.
-        local ofx, ofy, ofz, olx, oly, olz, oux, ouy, ouz = TriangleAxes(
-            oxs[i2] - oxs[i3], oys[i2] - oys[i3], ozs[i2] - ozs[i3],
-            oxs[i1] - oxs[i3], oys[i1] - oys[i3], ozs[i1] - ozs[i3])
+        local rotation = Geometry.Multiply(TriangleToWorld(oxs, oys, ozs, i1, i2, i3), worldToTriangle)
         local r = t.WorldToLocalGridRotation
-        r[1], r[2], r[3] = ofx * fx + olx * lx + oux * ux, ofx * fy + olx * ly + oux * uy, ofx * fz + olx * lz + oux * uz
-        r[4], r[5], r[6] = ofy * fx + oly * lx + ouy * ux, ofy * fy + oly * ly + ouy * uy, ofy * fz + oly * lz + ouy * uz
-        r[7], r[8], r[9] = ofz * fx + olz * lx + ouz * ux, ofz * fy + olz * ly + ouz * uy, ofz * fz + olz * lz + ouz * uz
+        r[1], r[2], r[3] = rotation[1], rotation[2],  rotation[3]
+        r[4], r[5], r[6] = rotation[5], rotation[6],  rotation[7]
+        r[7], r[8], r[9] = rotation[9], rotation[10], rotation[11]
         surf.DisplacementTriangles[#surf.DisplacementTriangles + 1] = t
     end
 
@@ -349,25 +344,18 @@ local function TriangleLightmapBasis(surf, i1, i2, i3)
     local xs, ys, zs = surf.PositionX, surf.PositionY, surf.PositionZ
     local e1x, e1y, e1z = xs[i2] - xs[i1], ys[i2] - ys[i1], zs[i2] - zs[i1]
     local e2x, e2y, e2z = xs[i3] - xs[i1], ys[i3] - ys[i1], zs[i3] - zs[i1]
-    local e11 = Geometry.Dot(e1x, e1y, e1z, e1x, e1y, e1z)
-    local e12 = Geometry.Dot(e1x, e1y, e1z, e2x, e2y, e2z)
-    local e22 = Geometry.Dot(e2x, e2y, e2z, e2x, e2y, e2z)
-    local det = e11 * e22 - e12 * e12
-    if abs(det) <= Util.eps then
+    if Geometry.LengthSqr(Geometry.Cross(e1x, e1y, e1z, e2x, e2y, e2z)) <= Util.eps then
         return 0, 0, 0, 0, 0, 0
     end
 
-    -- dual basis:
-    -- dot(e1, dual1) = 1, dot(e2, dual1) = 0
-    -- dot(e1, dual2) = 0, dot(e2, dual2) = 1
-    local invDet = 1 / det
-    local dual1x, dual1y, dual1z = (e1x * e22 - e2x * e12) * invDet, (e1y * e22 - e2y * e12) * invDet, (e1z * e22 - e2z * e12) * invDet
-    local dual2x, dual2y, dual2z = (e2x * e11 - e1x * e12) * invDet, (e2y * e11 - e1y * e12) * invDet, (e2z * e11 - e1z * e12) * invDet
+    -- The lightmap coordinates change by du1 along e1 and by du2 along e2,
+    -- so their gradient is du1 * e1* + du2 * e2* with the dual basis e1* and e2*.
+    local d1x, d1y, d1z, d2x, d2y, d2z = Geometry.DualBasis(e1x, e1y, e1z, e2x, e2y, e2z)
     local us, vs = surf.LightmapU, surf.LightmapV
     local du1, du2 = us[i2] - us[i1], us[i3] - us[i1]
     local dv1, dv2 = vs[i2] - vs[i1], vs[i3] - vs[i1]
-    return dual1x * du1 + dual2x * du2, dual1y * du1 + dual2y * du2, dual1z * du1 + dual2z * du2,
-           dual1x * dv1 + dual2x * dv2, dual1y * dv1 + dual2y * dv2, dual1z * dv1 + dual2z * dv2
+    return d1x * du1 + d2x * du2, d1y * du1 + d2y * du2, d1z * du1 + d2z * du2,
+           d1x * dv1 + d2x * dv2, d1y * dv1 + d2y * dv2, d1z * dv1 + d2z * dv2
 end
 
 ---Construct a polygon from a raw displacement data
@@ -396,8 +384,7 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
         -- the first corner so find correct one and sort them
         local mindist, startindex = huge, 0
         for i = 1, #xs do
-            local dx, dy, dz = xs[i] - startX, ys[i] - startY, zs[i] - startZ
-            local dist = dx * dx + dy * dy + dz * dz
+            local dist = Geometry.LengthSqr(xs[i] - startX, ys[i] - startY, zs[i] - startZ)
             if dist < mindist then
                 startindex, mindist = i, dist
             end
@@ -427,6 +414,13 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
     local parentNormalX, parentNormalY, parentNormalZ
         = Geometry.Normalize(Geometry.Cross(u1x, u1y, u1z, v1x, v1y, v1z))
 
+    -- The point at (u, v) on the quadrilateral is at (u, (1 - u) * v, u * v) in this transform.
+    local quadrilateralToWorld = {
+        u1x, v1x, v2x, startX,
+        u1y, v1y, v2y, startY,
+        u1z, v1z, v2z, startZ,
+    }
+
     ---The point at (u, v) on the quadrilateral, whose edges are stretched by scaleU along u and by scaleV along v.
     ---@param u number
     ---@param v number
@@ -434,10 +428,7 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
     ---@param scaleV number
     ---@return number x, number y, number z
     local function Subdivide(u, v, scaleU, scaleV)
-        local a, b, c = u * scaleU, (1 - u) * v * scaleV, u * v * scaleV
-        return startX + u1x * a + v1x * b + v2x * c,
-               startY + u1y * a + v1y * b + v2y * c,
-               startZ + u1z * a + v1z * b + v2z * c
+        return Geometry.TransformPoint(quadrilateralToWorld, u * scaleU, (1 - u) * v * scaleV, u * v * scaleV)
     end
 
     -- Here we track accumulated length of edges for each direction to get proper UV coordinates.
@@ -464,8 +455,8 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
     local textureOffsetS, textureOffsetT = texInfo.textureOffsetS, texInfo.textureOffsetT
     local cornerBumpmapU, cornerBumpmapV = {}, {} ---@type number[], number[]
     for i = 1, 4 do
-        cornerBumpmapU[i] = xs[i] * textureSX + ys[i] * textureSY + zs[i] * textureSZ + textureOffsetS
-        cornerBumpmapV[i] = xs[i] * textureTX + ys[i] * textureTY + zs[i] * textureTZ + textureOffsetT
+        cornerBumpmapU[i] = Geometry.Dot(xs[i], ys[i], zs[i], textureSX, textureSY, textureSZ) + textureOffsetS
+        cornerBumpmapV[i] = Geometry.Dot(xs[i], ys[i], zs[i], textureTX, textureTY, textureTZ) + textureOffsetT
     end
 
     local cornerLightmapU = { 0.5, 0.5,                  0.5 + lightmapWidth,  0.5 + lightmapWidth }
@@ -555,7 +546,7 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
         local nx, ny, nz = Geometry.Cross(
             positionXs[i3] - positionXs[i1], positionYs[i3] - positionYs[i1], positionZs[i3] - positionZs[i1],
             positionXs[i2] - positionXs[i1], positionYs[i2] - positionYs[i1], positionZs[i2] - positionZs[i1])
-        if nx * nx + ny * ny + nz * nz > Util.eps then
+        if Geometry.LengthSqr(nx, ny, nz) > Util.eps then
             nx, ny, nz = Geometry.Normalize(nx, ny, nz)
             for _, k in ipairs { i1, i2, i3 } do
                 normalXs[k], normalYs[k], normalZs[k] = normalXs[k] + nx, normalYs[k] + ny, normalZs[k] + nz
@@ -582,14 +573,14 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
         end
 
         local tangentX, tangentY, tangentZ = Geometry.Cross(nx, ny, nz, tX, tY, tZ)
-        if tangentX * tangentX + tangentY * tangentY + tangentZ * tangentZ <= Util.eps then
+        if Geometry.LengthSqr(tangentX, tangentY, tangentZ) <= Util.eps then
             tangentX, tangentY, tangentZ = sX, sY, sZ
         else
             tangentX, tangentY, tangentZ = Geometry.Normalize(tangentX, tangentY, tangentZ)
         end
 
         local binormalX, binormalY, binormalZ = Geometry.Cross(tangentX, tangentY, tangentZ, nx, ny, nz)
-        if binormalX * binormalX + binormalY * binormalY + binormalZ * binormalZ <= Util.eps then
+        if Geometry.LengthSqr(binormalX, binormalY, binormalZ) <= Util.eps then
             binormalX, binormalY, binormalZ = tX, tY, tZ
         else
             binormalX, binormalY, binormalZ = Geometry.Normalize(binormalX, binormalY, binormalZ)
@@ -708,10 +699,10 @@ local function BuildFromBrushFace(bsp, rawFace)
         surf.TangentX[i],     surf.TangentY[i],     surf.TangentZ[i]     = textureSX, textureSY, textureSZ
         surf.BinormalX[i],    surf.BinormalY[i],    surf.BinormalZ[i]    = textureTX, textureTY, textureTZ
         surf.PaintOriginX[i], surf.PaintOriginY[i], surf.PaintOriginZ[i] = x, y, z
-        surf.BumpmapU[i]  = x * textureSX  + y * textureSY  + z * textureSZ  + texInfo.textureOffsetS
-        surf.BumpmapV[i]  = x * textureTX  + y * textureTY  + z * textureTZ  + texInfo.textureOffsetT
-        surf.LightmapU[i] = x * lightmapSX + y * lightmapSY + z * lightmapSZ + lightmapOffsetS
-        surf.LightmapV[i] = x * lightmapTX + y * lightmapTY + z * lightmapTZ + lightmapOffsetT
+        surf.BumpmapU[i]  = Geometry.Dot(x, y, z, textureSX,  textureSY,  textureSZ)  + texInfo.textureOffsetS
+        surf.BumpmapV[i]  = Geometry.Dot(x, y, z, textureTX,  textureTY,  textureTZ)  + texInfo.textureOffsetT
+        surf.LightmapU[i] = Geometry.Dot(x, y, z, lightmapSX, lightmapSY, lightmapSZ) + lightmapOffsetS
+        surf.LightmapV[i] = Geometry.Dot(x, y, z, lightmapTX, lightmapTY, lightmapTZ) + lightmapOffsetT
         surf.Blend2[i], surf.Blend3[i], surf.Blend4[i] = 0, 0, 0
     end
 
@@ -844,8 +835,7 @@ local function FindStaticPropCubemap(bsp, prop, illumposition)
     local nearestDistanceSqr = huge
     for i, sample in ipairs(bsp.CUBEMAPS or {}) do
         local sampleX, sampleY, sampleZ = sample.origin:Unpack()
-        local dx, dy, dz = x - sampleX, y - sampleY, z - sampleZ
-        local distanceSqr = dx * dx + dy * dy + dz * dz
+        local distanceSqr = Geometry.LengthSqr(x - sampleX, y - sampleY, z - sampleZ)
         if distanceSqr < nearestDistanceSqr then
             nearestIndex = i
             nearestDistanceSqr = distanceSqr
