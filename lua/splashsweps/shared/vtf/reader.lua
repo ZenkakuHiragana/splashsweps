@@ -204,7 +204,9 @@ local BYTES_PER_PIXEL = {
 ---@field frames             integer
 ---@field firstFrame         integer
 ---@field padding0           string
----@field reflectivity       Vector
+---@field reflectivityR      number
+---@field reflectivityG      number
+---@field reflectivityB      number
 ---@field padding1           string
 ---@field bumpmapScale       number
 ---@field highResImageFormat integer
@@ -226,7 +228,9 @@ Binary.struct "VTF.Header" {
     "UShort frames",
     "UShort firstFrame",
     "4      padding0",
-    "Vector reflectivity",
+    "Float  reflectivityR",
+    "Float  reflectivityG",
+    "Float  reflectivityB",
     "4      padding1",
     "Float  bumpmapScale",
     "Long   highResImageFormat",

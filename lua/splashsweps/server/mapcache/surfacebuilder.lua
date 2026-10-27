@@ -38,7 +38,7 @@ end
 ---Index to SURFEDGES array -> actual vertex
 ---@param bsp ss.RawBSPResults
 ---@param index integer
----@return Vector
+---@return ss.Binary.BSP.VERTEXES
 local function SurfEdgeToVertex(bsp, index)
     return bsp.VERTEXES[SurfEdgeToVertexIndex(bsp, index) + 1]
 end
@@ -97,8 +97,7 @@ local function BuildCubemapEntries(bsp)
     local cubemapsByOrigin = {} ---@type table<string, ss.PrecachedData.CubemapInfo>
     local mapName = game.GetMap():lower()
     for _, sample in ipairs(bsp.CUBEMAPS or {}) do
-        local x, y, z = sample.origin:Unpack()
-        x, y, z = round(x), round(y), round(z)
+        local x, y, z = sample.originX, sample.originY, sample.originZ
         local cubemap = PrecachedData.CubemapInfo.new()
         cubemap.Envmap = string.format("maps/%s/c%d_%d_%d", mapName, x, y, z)
         cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ = x, y, z
@@ -333,8 +332,8 @@ local function Bilerp(c1, c2, c3, c4, u, v)
     return left + (right - left) * u
 end
 
----Returns the lightmap tangent and binormal of a triangle: the directions in the world along which
----the lightmap coordinates u and v increase by 1, in the plane of the triangle.
+---Returns the lightmap tangent and binormal of a triangle: the gradients s and t of the lightmap coordinates
+---in the plane of the triangle, which satisfy u(p) = u(t1) + (p - t1)・s and v(p) = v(t1) + (p - t1)・t.
 ---@param surf ss.PrecachedData.Surface Its positions and lightmap coordinates are read.
 ---@param i1   integer
 ---@param i2   integer
@@ -378,7 +377,7 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
     local lightmapHeight  = rawFace.lightmapTextureSizeInLuxels[2]
     local dispInfo        = rawDispInfo[rawFace.dispInfo + 1]
     local power           = 2 ^ dispInfo.power + 1
-    local startX, startY, startZ = dispInfo.startPosition:Unpack()
+    local startX, startY, startZ = dispInfo.startPositionX, dispInfo.startPositionY, dispInfo.startPositionZ
     do
         -- dispInfo.startPosition isn't always equal to
         -- the first corner so find correct one and sort them
@@ -450,8 +449,8 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
     local lengthIntegratedU = {} ---@type number[]
     local lengthIntegratedV = {} ---@type number[]
 
-    local textureSX, textureSY, textureSZ = texInfo.textureVecS:Unpack()
-    local textureTX, textureTY, textureTZ = texInfo.textureVecT:Unpack()
+    local textureSX, textureSY, textureSZ = texInfo.textureSX, texInfo.textureSY, texInfo.textureSZ
+    local textureTX, textureTY, textureTZ = texInfo.textureTX, texInfo.textureTY, texInfo.textureTZ
     local textureOffsetS, textureOffsetT = texInfo.textureOffsetS, texInfo.textureOffsetT
     local cornerBumpmapU, cornerBumpmapV = {}, {} ---@type number[], number[]
     for i = 1, 4 do
@@ -472,8 +471,8 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
             local u = ui / (power - 1)
             local v = vi / (power - 1)
             local x, y, z = Subdivide(u, v, 1, 1)
-            local offsetX, offsetY, offsetZ = dispVert.vec:Unpack()
-            x, y, z = x + offsetX * dispVert.dist, y + offsetY * dispVert.dist, z + offsetZ * dispVert.dist
+            local offset = dispVert.distance
+            x, y, z = x + dispVert.directionX * offset, y + dispVert.directionY * offset, z + dispVert.directionZ * offset
             positionXs[i], positionYs[i], positionZs[i] = x, y, z
             surf.BumpmapU[i] = Bilerp(cornerBumpmapU[1], cornerBumpmapU[2], cornerBumpmapU[3], cornerBumpmapU[4], u, v)
             surf.BumpmapV[i] = Bilerp(cornerBumpmapV[1], cornerBumpmapV[2], cornerBumpmapV[3], cornerBumpmapV[4], u, v)
@@ -641,13 +640,14 @@ local function BuildFromBrushFace(bsp, rawFace)
     local plane     = rawPlanes[rawFace.planeNum + 1]
     local firstedge = rawFace.firstEdge + 1
     local lastedge  = rawFace.firstEdge + rawFace.numEdges
-    local normalX, normalY, normalZ = plane.normal:Unpack()
+    local normalX, normalY, normalZ = plane.normalX, plane.normalY, plane.normalZ
 
     -- Collect "raw" vertex list
     local rawXs, rawYs, rawZs = {}, {}, {} ---@type number[], number[], number[]
     for i = firstedge, lastedge do
         local k = #rawXs + 1
-        rawXs[k], rawYs[k], rawZs[k] = SurfEdgeToVertex(bsp, i):Unpack()
+        local vertex = SurfEdgeToVertex(bsp, i)
+        rawXs[k], rawYs[k], rawZs[k] = vertex.x, vertex.y, vertex.z
     end
 
     -- Filter out colinear vertices, keeping the corners where the polygon turns around the normal.
@@ -680,10 +680,10 @@ local function BuildFromBrushFace(bsp, rawFace)
 
     local surf = PrecachedData.Surface.new()
     local mbr, mbrSizeX, mbrSizeY, mbrSizeZ = BoundingBox.FindMBR(xs, ys, zs, orientation)
-    local textureSX, textureSY, textureSZ = texInfo.textureVecS:Unpack()
-    local textureTX, textureTY, textureTZ = texInfo.textureVecT:Unpack()
-    local lightmapSX, lightmapSY, lightmapSZ = texInfo.lightmapVecS:Unpack()
-    local lightmapTX, lightmapTY, lightmapTZ = texInfo.lightmapVecT:Unpack()
+    local textureSX, textureSY, textureSZ = texInfo.textureSX, texInfo.textureSY, texInfo.textureSZ
+    local textureTX, textureTY, textureTZ = texInfo.textureTX, texInfo.textureTY, texInfo.textureTZ
+    local lightmapSX, lightmapSY, lightmapSZ = texInfo.lightmapSX, texInfo.lightmapSY, texInfo.lightmapSZ
+    local lightmapTX, lightmapTY, lightmapTZ = texInfo.lightmapTX, texInfo.lightmapTY, texInfo.lightmapTZ
     local lightmapOffsetS = texInfo.lightmapOffsetS - rawFace.lightmapTextureMinsInLuxels[1] + 0.5
     local lightmapOffsetT = texInfo.lightmapOffsetT - rawFace.lightmapTextureMinsInLuxels[2] + 0.5
 
@@ -823,19 +823,16 @@ end
 ---@param illumposition number[] illumposition of the model as x, y, and z.
 ---@return integer # Index to the cubemap samples in the lump, or 0 if the map has no cubemaps.
 local function FindStaticPropCubemap(bsp, prop, illumposition)
-    local x, y, z = prop.lightingOrigin:Unpack()
+    local x, y, z = prop.lightingOriginX, prop.lightingOriginY, prop.lightingOriginZ
     if bit.band(prop.flags, STATIC_PROP_USE_LIGHTING_ORIGIN) == 0 then
-        local pitch, yaw, roll = prop.angle:Unpack()
-        local originX, originY, originZ = prop.origin:Unpack()
-        x, y, z = Geometry.TransformPoint(Geometry.FromAngles(pitch, yaw, roll, originX, originY, originZ),
-            illumposition[1], illumposition[2], illumposition[3])
+        local modelToWorld = Geometry.FromAngles(prop.pitch, prop.yaw, prop.roll, prop.originX, prop.originY, prop.originZ)
+        x, y, z = Geometry.TransformPoint(modelToWorld, illumposition[1], illumposition[2], illumposition[3])
     end
 
     local nearestIndex = 0
     local nearestDistanceSqr = huge
     for i, sample in ipairs(bsp.CUBEMAPS or {}) do
-        local sampleX, sampleY, sampleZ = sample.origin:Unpack()
-        local distanceSqr = Geometry.LengthSqr(x - sampleX, y - sampleY, z - sampleZ)
+        local distanceSqr = Geometry.LengthSqr(x - sample.originX, y - sample.originY, z - sample.originZ)
         if distanceSqr < nearestDistanceSqr then
             nearestIndex = i
             nearestDistanceSqr = distanceSqr
@@ -865,13 +862,13 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
                 local result = PrecachedData.StaticProp.new()
                 local maxX, maxY, maxZ = info.HullMax:Unpack()
                 local minX, minY, minZ = info.HullMin:Unpack()
-                result.Pitch, result.Yaw, result.Roll = prop.angle:Unpack()
+                result.Pitch, result.Yaw, result.Roll = prop.pitch, prop.yaw, prop.roll
                 result.BoundsMaxX, result.BoundsMaxY, result.BoundsMaxZ = maxX * scale, maxY * scale, maxZ * scale
                 result.BoundsMinX, result.BoundsMinY, result.BoundsMinZ = minX * scale, minY * scale, minZ * scale
                 result.FadeMax = prop.fadeMaxDist
                 result.FadeMin = prop.fadeMinDist
                 result.ModelIndex = modelIndex
-                result.PositionX, result.PositionY, result.PositionZ = prop.origin:Unpack()
+                result.PositionX, result.PositionY, result.PositionZ = prop.originX, prop.originY, prop.originZ
                 result.Scale = scale
                 result.Skin = prop.skin
                 result.UnwrapIndex = 1

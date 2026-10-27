@@ -82,18 +82,14 @@ local HEADER_SIZE = 4 + 4 + 64 * 16 + 4
 
 ---Used for calculating the size of lump structures
 local BuiltinTypeSizes = {
-    Angle       = 12,
-    Bool        = 1,
-    Byte        = 1,
-    Float       = 4,
-    Long        = 4,
-    LongVector  = 12,
-    SByte       = 1,
-    Short       = 2,
-    ShortVector = 6,
-    ULong       = 4,
-    UShort      = 2,
-    Vector      = 12,
+    Bool   = 1,
+    Byte   = 1,
+    Float  = 4,
+    Long   = 4,
+    SByte  = 1,
+    Short  = 2,
+    ULong  = 4,
+    UShort = 2,
 }
 
 ---@class ss.Binary.BSP.Header
@@ -196,8 +192,12 @@ Binary.struct "BSP.dgamelump_t" {
 ---@alias ss.Binary.BSP.StaticProp.10 ss.Binary.BSP.StaticProp
 ---@alias ss.Binary.BSP.StaticProp.11 ss.Binary.BSP.StaticProp
 ---@class ss.Binary.BSP.StaticProp
----@field origin            Vector
----@field angle             Angle
+---@field originX           number
+---@field originY           number
+---@field originZ           number
+---@field pitch             number
+---@field yaw               number
+---@field roll              number
 ---@field propType          integer
 ---@field firstLeaf         integer
 ---@field leafCount         integer
@@ -207,7 +207,9 @@ Binary.struct "BSP.dgamelump_t" {
 ---@field skin              integer
 ---@field fadeMinDist       number
 ---@field fadeMaxDist       number
----@field lightingOrigin    Vector
+---@field lightingOriginX   number
+---@field lightingOriginY   number
+---@field lightingOriginZ   number
 ---@field forcedFadeScale   number?    since v5
 ---@field minDXLevel        integer?   v6, v7, and v7*
 ---@field maxDXLevel        integer?   v6, v7, and v7*
@@ -219,8 +221,12 @@ Binary.struct "BSP.dgamelump_t" {
 
 Binary.struct "BSP.StaticProp.4" { -- version == 4
     Size = 56,
-    "Vector origin",
-    "Angle  angle",
+    "Float  originX",
+    "Float  originY",
+    "Float  originZ",
+    "Float  pitch",
+    "Float  yaw",
+    "Float  roll",
     "UShort propType",
     "UShort firstLeaf",
     "UShort leafCount",
@@ -229,13 +235,19 @@ Binary.struct "BSP.StaticProp.4" { -- version == 4
     "Long   skin",
     "Float  fadeMinDist",
     "Float  fadeMaxDist",
-    "Vector lightingOrigin",
+    "Float  lightingOriginX",
+    "Float  lightingOriginY",
+    "Float  lightingOriginZ",
 }
 
 Binary.struct "BSP.StaticProp.5" { -- version == 5
     Size = 60,
-    "Vector origin",
-    "Angle  angle",
+    "Float  originX",
+    "Float  originY",
+    "Float  originZ",
+    "Float  pitch",
+    "Float  yaw",
+    "Float  roll",
     "UShort propType",
     "UShort firstLeaf",
     "UShort leafCount",
@@ -244,14 +256,20 @@ Binary.struct "BSP.StaticProp.5" { -- version == 5
     "Long   skin",
     "Float  fadeMinDist",
     "Float  fadeMaxDist",
-    "Vector lightingOrigin",
+    "Float  lightingOriginX",
+    "Float  lightingOriginY",
+    "Float  lightingOriginZ",
     "Float  forcedFadeScale", -- since v5
 }
 
 Binary.struct "BSP.StaticProp.6" { -- version == 6
     Size = 64,
-    "Vector origin",
-    "Angle  angle",
+    "Float  originX",
+    "Float  originY",
+    "Float  originZ",
+    "Float  pitch",
+    "Float  yaw",
+    "Float  roll",
     "UShort propType",
     "UShort firstLeaf",
     "UShort leafCount",
@@ -260,7 +278,9 @@ Binary.struct "BSP.StaticProp.6" { -- version == 6
     "Long   skin",
     "Float  fadeMinDist",
     "Float  fadeMaxDist",
-    "Vector lightingOrigin",
+    "Float  lightingOriginX",
+    "Float  lightingOriginY",
+    "Float  lightingOriginZ",
     "Float  forcedFadeScale", -- since v5
     "UShort minDXLevel",      -- v6, v7, v7*
     "UShort maxDXLevel",      -- v6, v7, v7*
@@ -268,8 +288,12 @@ Binary.struct "BSP.StaticProp.6" { -- version == 6
 
 Binary.struct "BSP.StaticProp.7*" { -- version == 7 or version == 10 and size matches
     Size = 72,
-    "Vector origin",
-    "Angle  angle",
+    "Float  originX",
+    "Float  originY",
+    "Float  originZ",
+    "Float  pitch",
+    "Float  yaw",
+    "Float  roll",
     "UShort propType",
     "UShort firstLeaf",
     "UShort leafCount",
@@ -278,7 +302,9 @@ Binary.struct "BSP.StaticProp.7*" { -- version == 7 or version == 10 and size ma
     "Long   skin",
     "Float  fadeMinDist",
     "Float  fadeMaxDist",
-    "Vector lightingOrigin",
+    "Float  lightingOriginX",
+    "Float  lightingOriginY",
+    "Float  lightingOriginZ",
     "Float  forcedFadeScale", -- since v5
     "UShort minDXLevel",      -- v6, v7, v7*
     "UShort maxDXLevel",      -- v6, v7, v7*
@@ -289,8 +315,12 @@ Binary.struct "BSP.StaticProp.7*" { -- version == 7 or version == 10 and size ma
 
 Binary.struct "BSP.StaticProp.7" { -- version == 7
     Size = 68,
-    "Vector origin",
-    "Angle  angle",
+    "Float  originX",
+    "Float  originY",
+    "Float  originZ",
+    "Float  pitch",
+    "Float  yaw",
+    "Float  roll",
     "UShort propType",
     "UShort firstLeaf",
     "UShort leafCount",
@@ -299,7 +329,9 @@ Binary.struct "BSP.StaticProp.7" { -- version == 7
     "Long   skin",
     "Float  fadeMinDist",
     "Float  fadeMaxDist",
-    "Vector lightingOrigin",
+    "Float  lightingOriginX",
+    "Float  lightingOriginY",
+    "Float  lightingOriginZ",
     "Float  forcedFadeScale",     -- since v5
     "UShort minDXLevel",          -- v6, v7, v7*
     "UShort maxDXLevel",          -- v6, v7, v7*
@@ -308,8 +340,12 @@ Binary.struct "BSP.StaticProp.7" { -- version == 7
 
 Binary.struct "BSP.StaticProp.8" { -- version == 8
     Size = 68,
-    "Vector origin",
-    "Angle  angle",
+    "Float  originX",
+    "Float  originY",
+    "Float  originZ",
+    "Float  pitch",
+    "Float  yaw",
+    "Float  roll",
     "UShort propType",
     "UShort firstLeaf",
     "UShort leafCount",
@@ -318,7 +354,9 @@ Binary.struct "BSP.StaticProp.8" { -- version == 8
     "Long   skin",
     "Float  fadeMinDist",
     "Float  fadeMaxDist",
-    "Vector lightingOrigin",
+    "Float  lightingOriginX",
+    "Float  lightingOriginY",
+    "Float  lightingOriginZ",
     "Float  forcedFadeScale",     -- since v5
     -- "UShort minDXLevel",          -- v6, v7, v7*
     -- "UShort maxDXLevel",          -- v6, v7, v7*
@@ -328,8 +366,12 @@ Binary.struct "BSP.StaticProp.8" { -- version == 8
 
 Binary.struct "BSP.StaticProp.9" { -- version == 9
     Size = 72,
-    "Vector origin",
-    "Angle  angle",
+    "Float  originX",
+    "Float  originY",
+    "Float  originZ",
+    "Float  pitch",
+    "Float  yaw",
+    "Float  roll",
     "UShort propType",
     "UShort firstLeaf",
     "UShort leafCount",
@@ -338,7 +380,9 @@ Binary.struct "BSP.StaticProp.9" { -- version == 9
     "Long   skin",
     "Float  fadeMinDist",
     "Float  fadeMaxDist",
-    "Vector lightingOrigin",
+    "Float  lightingOriginX",
+    "Float  lightingOriginY",
+    "Float  lightingOriginZ",
     "Float  forcedFadeScale",     -- since v5
     -- "UShort minDXLevel",          -- v6, v7, v7*
     -- "UShort maxDXLevel",          -- v6, v7, v7*
@@ -349,8 +393,12 @@ Binary.struct "BSP.StaticProp.9" { -- version == 9
 
 Binary.struct "BSP.StaticProp.10" { -- version == 10
     Size = 76,
-    "Vector origin",
-    "Angle  angle",
+    "Float  originX",
+    "Float  originY",
+    "Float  originZ",
+    "Float  pitch",
+    "Float  yaw",
+    "Float  roll",
     "UShort propType",
     "UShort firstLeaf",
     "UShort leafCount",
@@ -359,7 +407,9 @@ Binary.struct "BSP.StaticProp.10" { -- version == 10
     "Long   skin",
     "Float  fadeMinDist",
     "Float  fadeMaxDist",
-    "Vector lightingOrigin",
+    "Float  lightingOriginX",
+    "Float  lightingOriginY",
+    "Float  lightingOriginZ",
     "Float  forcedFadeScale",     -- since v5
     -- "UShort minDXLevel",          -- v6, v7, v7*
     -- "UShort maxDXLevel",          -- v6, v7, v7*
@@ -371,8 +421,12 @@ Binary.struct "BSP.StaticProp.10" { -- version == 10
 
 Binary.struct "BSP.StaticProp.11" { -- version == 11
     Size = 76,
-    "Vector origin",
-    "Angle  angle",
+    "Float  originX",
+    "Float  originY",
+    "Float  originZ",
+    "Float  pitch",
+    "Float  yaw",
+    "Float  roll",
     "UShort propType",
     "UShort firstLeaf",
     "UShort leafCount",
@@ -381,7 +435,9 @@ Binary.struct "BSP.StaticProp.11" { -- version == 11
     "Long   skin",
     "Float  fadeMinDist",
     "Float  fadeMaxDist",
-    "Vector lightingOrigin",
+    "Float  lightingOriginX",
+    "Float  lightingOriginY",
+    "Float  lightingOriginZ",
     "Float  forcedFadeScale",     -- since v5
     -- "UShort minDXLevel",          -- v6, v7, v7*
     -- "UShort maxDXLevel",          -- v6, v7, v7*
@@ -392,15 +448,30 @@ Binary.struct "BSP.StaticProp.11" { -- version == 11
     "Float uniformScale",         -- since v11
 }
 
+---@class ss.Binary.BSP.VERTEXES
+---@field x number
+---@field y number
+---@field z number
+Binary.struct "BSP.VERTEXES" {
+    Size = 12,
+    "Float x",
+    "Float y",
+    "Float z",
+}
+
 ---@class ss.Binary.BSP.PLANES
----@field normal   Vector
+---@field normalX  number
+---@field normalY  number
+---@field normalZ  number
 ---@field dist     number
 ---@field axisType integer
 Binary.struct "BSP.PLANES" {
     Size = 12 + 4 + 4,
-    "Vector normal",
-    "Float  dist",
-    "Long   axisType"
+    "Float normalX",
+    "Float normalY",
+    "Float normalZ",
+    "Float dist",
+    "Long  axisType"
 }
 
 ---@alias ss.Binary.BSP.EDGES integer[]
@@ -477,30 +548,42 @@ Binary.struct "BSP.BRUSHSIDES" {
 ---@class ss.Binary.BSP.NODES
 ---@field planeNum  integer
 ---@field children  integer[]
----@field mins      Vector
----@field maxs      Vector
+---@field minX      integer
+---@field minY      integer
+---@field minZ      integer
+---@field maxX      integer
+---@field maxY      integer
+---@field maxZ      integer
 ---@field firstFace integer
 ---@field numFaces  integer
 ---@field area      integer
 ---@field padding   integer
 Binary.struct "BSP.NODES" {
     Size = 32,
-    "Long        planeNum",
-    "Long        children 2",
-    "ShortVector mins",
-    "ShortVector maxs",
-    "UShort      firstFace",
-    "UShort      numFaces",
-    "Short       area",
-    "Short       padding",
+    "Long   planeNum",
+    "Long   children 2",
+    "Short  minX",
+    "Short  minY",
+    "Short  minZ",
+    "Short  maxX",
+    "Short  maxY",
+    "Short  maxZ",
+    "UShort firstFace",
+    "UShort numFaces",
+    "Short  area",
+    "Short  padding",
 }
 
 ---@class ss.Binary.BSP.LEAFS
 ---@field contents         integer
 ---@field cluster          integer
 ---@field areaAndFlags     integer
----@field mins             Vector
----@field maxs             Vector
+---@field minX             integer
+---@field minY             integer
+---@field minZ             integer
+---@field maxX             integer
+---@field maxY             integer
+---@field maxZ             integer
 ---@field firstLeafFace    integer
 ---@field numLeafFaces     integer
 ---@field firstLeafBrush   integer
@@ -509,48 +592,72 @@ Binary.struct "BSP.NODES" {
 ---@field padding          integer
 Binary.struct "BSP.LEAFS" {
     Size = 32,
-    "Long        contents",
-    "Short       cluster",
-    "Short       areaAndFlags", -- area: lower 9 bits, flags: upper 7 bits
-    "ShortVector mins",
-    "ShortVector maxs",
-    "UShort      firstLeafFace",
-    "UShort      numLeafFaces",
-    "UShort      firstLeafBrush",
-    "UShort      numLeafBrushes",
-    "Short       leafWaterDataID",
+    "Long   contents",
+    "Short  cluster",
+    "Short  areaAndFlags", -- area: lower 9 bits, flags: upper 7 bits
+    "Short  minX",
+    "Short  minY",
+    "Short  minZ",
+    "Short  maxX",
+    "Short  maxY",
+    "Short  maxZ",
+    "UShort firstLeafFace",
+    "UShort numLeafFaces",
+    "UShort firstLeafBrush",
+    "UShort numLeafBrushes",
+    "Short  leafWaterDataID",
     -- Also need the following when version <= 19
     -- "CompressedLightCube ambientLighting", -- 24 bytes
-    "Short       padding",
+    "Short  padding",
 }
 
 ---@class ss.Binary.BSP.TEXINFO
----@field textureVecS     Vector
+---The texture coordinate s of a point p in texels is textureS・p + textureOffsetS, and the same for t.
+---The lightmap coordinates in luxels are given by lightmapS and lightmapT in the same way.
+---@field textureSX       number
+---@field textureSY       number
+---@field textureSZ       number
 ---@field textureOffsetS  number
----@field textureVecT     Vector
+---@field textureTX       number
+---@field textureTY       number
+---@field textureTZ       number
 ---@field textureOffsetT  number
----@field lightmapVecS    Vector
+---@field lightmapSX      number
+---@field lightmapSY      number
+---@field lightmapSZ      number
 ---@field lightmapOffsetS number
----@field lightmapVecT    Vector
+---@field lightmapTX      number
+---@field lightmapTY      number
+---@field lightmapTZ      number
 ---@field lightmapOffsetT number
 ---@field flags           integer
 ---@field texData         integer
 Binary.struct "BSP.TEXINFO" {
     Size = 72,
-    "Vector textureVecS",
-    "Float  textureOffsetS",
-    "Vector textureVecT",
-    "Float  textureOffsetT",
-    "Vector lightmapVecS",
-    "Float  lightmapOffsetS",
-    "Vector lightmapVecT",
-    "Float  lightmapOffsetT",
-    "Long   flags",
-    "Long   texData",
+    "Float textureSX",
+    "Float textureSY",
+    "Float textureSZ",
+    "Float textureOffsetS",
+    "Float textureTX",
+    "Float textureTY",
+    "Float textureTZ",
+    "Float textureOffsetT",
+    "Float lightmapSX",
+    "Float lightmapSY",
+    "Float lightmapSZ",
+    "Float lightmapOffsetS",
+    "Float lightmapTX",
+    "Float lightmapTY",
+    "Float lightmapTZ",
+    "Float lightmapOffsetT",
+    "Long  flags",
+    "Long  texData",
 }
 
 ---@class ss.Binary.BSP.TEXDATA
----@field reflectivity      Vector
+---@field reflectivityR     number
+---@field reflectivityG     number
+---@field reflectivityB     number
 ---@field nameStringTableID integer
 ---@field width             integer
 ---@field height            integer
@@ -558,95 +665,122 @@ Binary.struct "BSP.TEXINFO" {
 ---@field viewHeight        integer
 Binary.struct "BSP.TEXDATA" {
     Size = 4 * 3 + 4 + 4 + 4 + 4 + 4,
-    "Vector reflectivity",
-    "Long   nameStringTableID",
-    "Long   width",
-    "Long   height",
-    "Long   viewWidth",
-    "Long   viewHeight",
+    "Float reflectivityR",
+    "Float reflectivityG",
+    "Float reflectivityB",
+    "Long  nameStringTableID",
+    "Long  width",
+    "Long  height",
+    "Long  viewWidth",
+    "Long  viewHeight",
 }
 
 ---@class ss.Binary.BSP.MODELS
----@field mins      Vector
----@field maxs      Vector
----@field origin    Vector
+---@field minX      number
+---@field minY      number
+---@field minZ      number
+---@field maxX      number
+---@field maxY      number
+---@field maxZ      number
+---@field originX   number
+---@field originY   number
+---@field originZ   number
 ---@field headNode  integer
 ---@field firstFace integer
 ---@field numFaces  integer
 Binary.struct "BSP.MODELS" {
     Size = 48,
-    "Vector mins",
-    "Vector maxs",
-    "Vector origin",
-    "Long   headNode",
-    "Long   firstFace",
-    "Long   numFaces",
+    "Float minX",
+    "Float minY",
+    "Float minZ",
+    "Float maxX",
+    "Float maxY",
+    "Float maxZ",
+    "Float originX",
+    "Float originY",
+    "Float originZ",
+    "Long  headNode",
+    "Long  firstFace",
+    "Long  numFaces",
 }
 
 ---@class ss.Binary.BSP.DISPINFO
----@field startPosition               Vector
----@field dispVertStart               integer
----@field dispTriStart                integer
----@field power                       integer
----@field minTesselation              integer
----@field smoothingAngle              number
----@field contents                    integer
----@field mapFace                     integer
----@field padding                     integer
----@field lightmapAlphaTest           integer
+---@field startPositionX    number
+---@field startPositionY    number
+---@field startPositionZ    number
+---@field dispVertStart     integer
+---@field dispTriStart      integer
+---@field power             integer
+---@field minTesselation    integer
+---@field smoothingAngle    number
+---@field contents          integer
+---@field mapFace           integer
+---@field padding           integer
+---@field lightmapAlphaTest integer
 ---@field lightmapSamplePositionStart integer
----@field edgeNeighbors               ss.Binary.BSP.CDispNeighbor[]
----@field cornerNeighbors             ss.Binary.BSP.CDispCornerNeighbors[]
----@field allowedVerts                integer[]
+---@field edgeNeighbors     ss.Binary.BSP.CDispNeighbor[]
+---@field cornerNeighbors   ss.Binary.BSP.CDispCornerNeighbors[]
+---@field allowedVerts      integer[]
 Binary.struct "BSP.DISPINFO" {
     Size = 176,
-    "Vector                   startPosition",
-    "Long                     dispVertStart",
-    "Long                     dispTriStart",
-    "Long                     power",
-    "Long                     minTesselation",
-    "Float                    smoothingAngle",
-    "Long                     contents",
-    "UShort                   mapFace",
-    "UShort                   padding",
-    "Long                     lightmapAlphaTest",
-    "Long                     lightmapSamplesPositionStart",
+    "Float  startPositionX",
+    "Float  startPositionY",
+    "Float  startPositionZ",
+    "Long   dispVertStart",
+    "Long   dispTriStart",
+    "Long   power",
+    "Long   minTesselation",
+    "Float  smoothingAngle",
+    "Long   contents",
+    "UShort mapFace",
+    "UShort padding",
+    "Long   lightmapAlphaTest",
+    "Long   lightmapSamplesPositionStart",
     "BSP.CDispNeighbor        edgeNeighbors   4", -- Probably these are
     "BSP.CDispCornerNeighbors cornerNeighbors 4", -- not correctly parsed
     "ULong                    allowedVerts    10",
 }
 
+---The offset of a grid point of a displacement from the flat surface, and its alpha.
 ---@class ss.Binary.BSP.DISP_VERTS
----@field vec   Vector
----@field dist  number
----@field alpha number
+---@field directionX number The direction of the offset, of length 1.
+---@field directionY number
+---@field directionZ number
+---@field distance   number The length of the offset.
+---@field alpha      number
 Binary.struct "BSP.DISP_VERTS" {
     Size = 20,
-    "Vector vec",
-    "Float  dist",
-    "Float  alpha",
+    "Float directionX",
+    "Float directionY",
+    "Float directionZ",
+    "Float distance",
+    "Float alpha",
 }
 
 ---@class ss.Binary.BSP.DISP_MULTIBLEND
 ---@field multiblend       number[] Blend factors (x, y, z, w); Lightmapped_4WayBlend blends layers 2, 3, and 4 by y, z, and w.
 ---@field alphablend       number[]
----@field multiblendColors Vector[]
+---@field multiblendColors number[] R, G, and B of each of the 4 layers.
 Binary.struct "BSP.DISP_MULTIBLEND" {
     Size = 80,
-    "Float  multiblend       4",
-    "Float  alphablend       4",
-    "Vector multiblendColors 4",
+    "Float multiblend       4",
+    "Float alphablend       4",
+    "Float multiblendColors 12",
 }
 
 ---@class ss.Binary.BSP.CUBEMAPS
----@field origin Vector
----@field size   integer
+---@field originX integer
+---@field originY integer
+---@field originZ integer
+---@field size    integer
 ---@field padding integer[]
 Binary.struct "BSP.CUBEMAPS" {
     Size = 16,
-    "LongVector origin",
-    "Byte       size",
-    "Byte       padding 3",
+    "Long originX",
+    "Long originY",
+    "Long originZ",
+    "Byte size",
+    "Byte padding 3",
 }
 
 ---@class ss.Binary.BSP.GAME_LUMP
@@ -754,18 +888,17 @@ Binary.struct "BSP.GAME_LUMP.sprp" { -- Static Props
 ---| ss.Binary.BSP.CDispNeighbor
 ---| ss.Binary.BSP.CDispCornerNeighbors
 ---| ss.Binary.BSP.dgamelunp_t
----| Angle
+---| ss.Binary.BSP.VERTEXES
 ---| boolean
 ---| number
 ---| string
----| Vector
 
 ---Stores all the Lumps parsed from the BSP.
 ---@class ss.RawBSPResults
 ---@field header                    ss.Binary.BSP.Header
 ---@field ENTITIES                  string[]
 ---@field PLANES                    ss.Binary.BSP.PLANES[]
----@field VERTEXES                  Vector[]
+---@field VERTEXES                  ss.Binary.BSP.VERTEXES[]
 ---@field EDGES                     integer[][]
 ---@field SURFEDGES                 integer[]
 ---@field FACES                     ss.Binary.BSP.FACES[]
@@ -796,7 +929,7 @@ local LUMP_INV = table.Flip(LUMP)
 local LumpsToRead = {
     ENTITIES             = "String",
     PLANES               = "BSP.PLANES",
-    VERTEXES             = "Vector",
+    VERTEXES             = "BSP.VERTEXES",
     EDGES                = "BSP.EDGES",
     SURFEDGES            = "Long",
     FACES                = "BSP.FACES",

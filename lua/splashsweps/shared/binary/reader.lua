@@ -187,14 +187,14 @@ end
 ---  - Number for `File:Read(%d)`
 ---  - String for one of these:
 ---    - a call of `File:Read%s()`, e.g. `Long`, `Float`
----    - Additional built-in types: `Vector`, `ShortVector`, `LongVector`, `Angle`, or `SByte` (signed byte)
+---    - Additional built-in type: `SByte` (signed byte)
 ---    - `String` for null-terminated string
 ---    - `String%d` for a null-terminated string but padded to `%d` bytes.
 ---    - Structure name defined by Binary.struct "T"
 ---  - Table representing a structure
 ---    Table containing a sequence of strings formatted as
 ---    `<type> <fieldname> <array amount (optional)>`
----    e.g. `Vector normal`, `Byte fourCC 4`
+---    e.g. `Float dist`, `Byte fourCC 4`
 ---    Array amount can be a field name previously defined in the same structure.
 ---    e.g. `{ "Long edgeCount", "UShort edgeIndices edgeCount" }`
 ---@generic T : table
@@ -214,10 +214,6 @@ end
 ---@overload fun(binary: File|ss.BinaryStringReader, arg: "ULong"):       integer
 ---@overload fun(binary: File|ss.BinaryStringReader, arg: "UShort"):      integer
 ---@overload fun(binary: File|ss.BinaryStringReader, arg: "SByte"):       integer
----@overload fun(binary: File|ss.BinaryStringReader, arg: "Angle"):       Angle
----@overload fun(binary: File|ss.BinaryStringReader, arg: "Vector"):      Vector
----@overload fun(binary: File|ss.BinaryStringReader, arg: "ShortVector"): Vector
----@overload fun(binary: File|ss.BinaryStringReader, arg: "LongVector"):  Vector
 ---@overload fun(binary: File|ss.BinaryStringReader, arg: "String"):      string
 function Binary.Read(binary, arg, ...)
     if isnumber(arg) then ---@cast arg integer
@@ -227,7 +223,7 @@ function Binary.Read(binary, arg, ...)
             return arg:Read(binary, ...)
         end
 
-        ---@type table<string|integer, boolean|number|string|table|Angle|Vector?>
+        ---@type table<string|integer, boolean|number|string|table?>
         local structure = {}
         for _, field in ipairs(Binary.GetFields(arg)) do
             ---@type string, integer|string?, integer|string?
@@ -254,24 +250,9 @@ function Binary.Read(binary, arg, ...)
         end
         return structure
     elseif isstring(arg) then ---@cast arg string
-        if arg == "Angle" then
-            local pitch = binary:ReadFloat()
-            local yaw   = binary:ReadFloat()
-            local roll  = binary:ReadFloat()
-            return Angle(pitch, yaw, roll)
-        elseif arg == "SByte" then
+        if arg == "SByte" then
             local n = binary:ReadByte()
             return n - (n > 127 and 256 or 0)
-        elseif arg == "ShortVector" then
-            local x = binary:ReadShort()
-            local y = binary:ReadShort()
-            local z = binary:ReadShort()
-            return Vector(x, y, z)
-        elseif arg == "LongVector" then
-            local x = binary:ReadLong()
-            local y = binary:ReadLong()
-            local z = binary:ReadLong()
-            return Vector(x, y, z)
         elseif arg:StartsWith "String" then
             local str = ""
             local chr = Binary.Read(binary, 1)
@@ -285,11 +266,6 @@ function Binary.Read(binary, arg, ...)
                 Binary.Read(binary, 1)
             end
             return str
-        elseif arg == "Vector" then
-            local x = binary:ReadFloat()
-            local y = binary:ReadFloat()
-            local z = binary:ReadFloat()
-            return Vector(x, y, z)
         elseif isfunction(binary["Read" .. arg]) then
             local read = binary["Read" .. arg] ---@type fun(self: File|ss.BinaryStringReader): any
             return read(binary)

@@ -43,10 +43,6 @@ local BinaryWriter = ss.module "splashsweps/shared/binary/writer"
 ---@overload fun(binary: File, arg: "ULong",       value: integer)
 ---@overload fun(binary: File, arg: "UShort",      value: integer)
 ---@overload fun(binary: File, arg: "SByte",       value: integer)
----@overload fun(binary: File, arg: "Angle",       value: Angle)
----@overload fun(binary: File, arg: "Vector",      value: Vector)
----@overload fun(binary: File, arg: "ShortVector", value: Vector)
----@overload fun(binary: File, arg: "LongVector",  value: Vector)
 ---@overload fun(binary: File, arg: "String",      value: string)
 function BinaryWriter.Write(binary, arg, value, ...)
     if isnumber(arg) then
@@ -83,28 +79,12 @@ function BinaryWriter.Write(binary, arg, value, ...)
             end
         end
     elseif isstring(arg) then ---@cast arg string
-        if arg == "Angle" then ---@cast value Angle
-            binary:WriteFloat(value.pitch)
-            binary:WriteFloat(value.yaw)
-            binary:WriteFloat(value.roll)
-        elseif arg == "SByte" then
+        if arg == "SByte" then
             binary:WriteByte(value % 256)
-        elseif arg == "ShortVector" then ---@cast value Vector
-            binary:WriteShort(value.x)
-            binary:WriteShort(value.y)
-            binary:WriteShort(value.z)
-        elseif arg == "LongVector" then ---@cast value Vector
-            binary:WriteLong(value.x)
-            binary:WriteLong(value.y)
-            binary:WriteLong(value.z)
         elseif arg:StartsWith "String" then ---@cast value string
             local fixedLength = tonumber(arg:sub(#"String" + 1)) or (#value + 1)
             binary:Write(value:sub(1, fixedLength))
             binary:Write(string.rep("\x00", fixedLength - #value))
-        elseif arg == "Vector" then ---@cast value Vector
-            binary:WriteFloat(value.x)
-            binary:WriteFloat(value.y)
-            binary:WriteFloat(value.z)
         elseif isfunction(binary["Write" .. arg]) then
             local write = binary["Write" .. arg] ---@type fun(self: File, value: any)
             write(binary, value)

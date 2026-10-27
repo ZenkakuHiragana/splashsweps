@@ -117,10 +117,8 @@ local function BuildMinimapBounds(bsp)
                 bounds[area] = b
             end
 
-            local minX, minY, minZ = leaf.mins:Unpack()
-            local maxX, maxY, maxZ = leaf.maxs:Unpack()
-            b.MinX, b.MinY, b.MinZ = min(b.MinX, minX), min(b.MinY, minY), min(b.MinZ, minZ)
-            b.MaxX, b.MaxY, b.MaxZ = max(b.MaxX, maxX), max(b.MaxY, maxY), max(b.MaxZ, maxZ)
+            b.MinX, b.MinY, b.MinZ = min(b.MinX, leaf.minX), min(b.MinY, leaf.minY), min(b.MinZ, leaf.minZ)
+            b.MaxX, b.MaxY, b.MaxZ = max(b.MaxX, leaf.maxX), max(b.MaxY, leaf.maxY), max(b.MaxZ, leaf.maxZ)
         end
     end
 
