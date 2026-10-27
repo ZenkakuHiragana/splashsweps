@@ -20,7 +20,6 @@ local round = math.Round
 local Vector = Vector
 local Matrix = Matrix
 local MaterialCache = {} ---@type table<string, IMaterial>
-local WorkMatrix = Matrix() -- Work area to rebuild matrices from angles.
 local TextureFilterBits = bit.bor(
     SURF_SKY, SURF_NOPORTAL, SURF_TRIGGER,
     SURF_NODRAW, SURF_HINT, SURF_SKIP)
@@ -138,14 +137,8 @@ end
 ---@param mbrMatrix VMatrix
 ---@param mbrSize Vector
 local function SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
-    -- Built through the angles so that the values stay the same as when the cache stored the angles.
-    -- SetAngles keeps the scale of the matrix with rounding errors, so the matrix is reset first.
-    local paintGridMatrix = mbrMatrix:GetInverseTR()
-    WorkMatrix:Identity()
-    WorkMatrix:SetAngles(paintGridMatrix:GetAngles())
-    WorkMatrix:SetTranslation(paintGridMatrix:GetTranslation())
     local g = surf.WorldToLocalGrid
-    g[1], g[2], g[3], g[4], g[5], g[6], g[7], g[8], g[9], g[10], g[11], g[12] = WorkMatrix:Unpack()
+    g[1], g[2], g[3], g[4], g[5], g[6], g[7], g[8], g[9], g[10], g[11], g[12] = mbrMatrix:GetInverseTR():Unpack()
     surf.PaintGridWidth  = ceil(mbrSize.x / PaintableGrid.CELL_SIZE)
     surf.PaintGridHeight = ceil(mbrSize.y / PaintableGrid.CELL_SIZE)
     local margin = 2 * ss.MARGIN_HAMMER_UNITS -- Both sides
@@ -281,15 +274,14 @@ local function CalculateTriangleComponents(surf, positions, paintOrigins, vertex
         local orgForward = org2 - org3
         local orgAnother = org1 - org3
         local orgAngle = orgForward:AngleEx(orgForward:Cross(orgAnother))
+        -- SetAngles keeps the scale of the matrix with rounding errors, so the matrices are reset first.
+        DispPaintOriginRotation:Identity()
         DispPaintOriginRotation:SetAngles(orgAngle)
+        WorldToLocalRotation:Identity()
         WorldToLocalRotation:SetAngles(angle)
         WorldToLocalRotation:InvertTR()
         WorldToLocalRotation:Set(DispPaintOriginRotation * WorldToLocalRotation)
-
-        -- Built through the angles so that the values stay the same as when the cache stored the angles.
-        WorkMatrix:Identity()
-        WorkMatrix:SetAngles(WorldToLocalRotation:GetAngles())
-        local e11, e12, e13, _, e21, e22, e23, _, e31, e32, e33 = WorkMatrix:Unpack()
+        local e11, e12, e13, _, e21, e22, e23, _, e31, e32, e33 = WorldToLocalRotation:Unpack()
         local r = t.WorldToLocalGridRotation
         r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9] = e11, e12, e13, e21, e22, e23, e31, e32, e33
         surf.DisplacementTriangles[#surf.DisplacementTriangles + 1] = t

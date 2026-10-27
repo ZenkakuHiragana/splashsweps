@@ -97,8 +97,10 @@ function BoundingBox.FindMBR(vertices, angle)
 
     -- For each edge of the convex hull, finds the rectangle along the edge containing the hull.
     -- The rotation of an edge is the matrix of which columns are
-    -- forward = (dx, dy, dz), the negated right = (-dy, dx, 0), and up = (0, 0, 1),
-    -- so its inverse maps (x, y, z) to (dx * x + dy * y + dz * z, dx * y - dy * x, z).
+    -- forward = (dx, dy, 0), the negated right = (-dy, dx, 0), and up = (0, 0, 1),
+    -- so its inverse maps (x, y, z) to (dx * x + dy * y, dx * y - dy * x, z).
+    -- The vertices can be off the plane by a little, so the edges are projected onto the plane
+    -- to keep the axes perpendicular; otherwise the rotation is not a rotation and breaks into angles.
     -- They are computed in plain numbers as this runs for every pair of an edge and a vertex.
     -- Edges giving the same area within rounding errors, such as the four edges of a rectangle,
     -- keep the first one so that the result does not depend on the rounding.
@@ -115,16 +117,16 @@ function BoundingBox.FindMBR(vertices, angle)
     local mbrSize = Vector()
     for i = 1, numConvex do
         local j = i % numConvex + 1
-        local dx, dy, dz = xs[j] - xs[i], ys[j] - ys[i], zs[j] - zs[i]
-        local lengthSqr = dx * dx + dy * dy + dz * dz
+        local dx, dy = xs[j] - xs[i], ys[j] - ys[i]
+        local lengthSqr = dx * dx + dy * dy
         if lengthSqr > 0 then
             local length = sqrt(lengthSqr)
-            dx, dy, dz = dx / length, dy / length, dz / length
+            dx, dy = dx / length, dy / length
             local minX, minY, minZ = math.huge, math.huge, math.huge
             local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
             for k = 1, numConvex do
                 local x, y, z = xs[k], ys[k], zs[k]
-                local u = dx * x + dy * y + dz * z
+                local u = dx * x + dy * y
                 local v = dx * y - dy * x
                 if u < minX then minX = u end
                 if u > maxX then maxX = u end
@@ -137,7 +139,7 @@ function BoundingBox.FindMBR(vertices, angle)
             local area = (maxX - minX) * (maxY - minY)
             if area < minArea * (1 - AREA_TOLERANCE) then
                 minArea = area
-                mbrDir = Vector(dx, dy, dz)
+                mbrDir = Vector(dx, dy, 0)
                 mbrMins = Vector(minX, minY, minZ)
                 mbrSize = Vector(maxX - minX, maxY - minY, maxZ - minZ)
             end
