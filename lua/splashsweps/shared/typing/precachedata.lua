@@ -8,7 +8,6 @@
 local ss = SplashSWEPs
 local Binary       = ss.import "splashsweps/shared/binary/reader"
 local BinaryWriter = ss.import "splashsweps/shared/binary/writer"
-local Util         = ss.import "splashsweps/shared/util"
 
 ---@class ss.PrecachedDataModule
 ---@field new fun(): ss.PrecachedData Creates the root of the map cache with the defaults.
@@ -23,6 +22,7 @@ local records = {} ---@type table<string, { new: fun(): table }>
 
 ---Default values of the built-in types of the fields.
 local builtinDefaults = {
+    Bool   = false,
     Byte   = 0,
     UShort = 0,
     ULong  = 0,
@@ -36,8 +36,6 @@ local builtinDefaults = {
 ---@return any
 local function newDefault(fieldType)
     if records[fieldType] then return records[fieldType].new() end
-    if fieldType == "Vector" then return Vector() end
-    if fieldType == "Angle" then return Angle() end
     if builtinDefaults[fieldType] ~= nil then return builtinDefaults[fieldType] end
     error("SplashSWEPs/PrecachedData: no default value for type " .. fieldType)
 end
@@ -45,7 +43,7 @@ end
 ---Defines a record: registers its fields as a binary structure,
 ---and gives the record new() which creates an instance with every field set.
 ---Each field is `<type> <name> <array amount (optional)>` as Binary.struct takes.
----The default of a field is the default of its type: a new record, Vector(), Angle(), "", or 0.
+---The default of a field is the default of its type: a new record, "", or 0.
 ---The default of an array of a fixed amount is that many defaults,
 ---and that of an array whose amount is a field is an empty table.
 ---@param name     string The name of the binary structure.
@@ -127,17 +125,19 @@ PrecachedData.DirectionalLight = record("PrecachedData.DirectionalLight", {
 ---. u
 ---```
 ---@class ss.PrecachedData.StaticProp.UVInfo
----Offset (left and top position) in the UV space in hammer units.
----Z indicates if this rectangle is rotated.
----@field Offset Vector
----@field Width  number Width in the UV space in hammer units, including the margins of each face.
----@field Height number Height in the UV space in hammer units, including the margins of each face.
+---@field OffsetU   number  Left position in the UV space in hammer units.
+---@field OffsetV   number  Top position in the UV space in hammer units.
+---@field IsRotated boolean
+---@field Width     number  Width in the UV space in hammer units, including the margins of each face.
+---@field Height    number  Height in the UV space in hammer units, including the margins of each face.
 
 ---@type { new: fun(): ss.PrecachedData.StaticProp.UVInfo }
 PrecachedData.StaticPropUVInfo = record("PrecachedData.StaticPropUVInfo", {
-    "Vector Offset",
-    "Float  Width",
-    "Float  Height",
+    "Float OffsetU",
+    "Float OffsetV",
+    "Bool  IsRotated",
+    "Float Width",
+    "Float Height",
 })
 
 ---Structure of UV coordinates.
@@ -180,13 +180,21 @@ PrecachedData.UVInfo = record("PrecachedData.UVInfo", {
 
 ---Fetched static prop information from the Game lump.
 ---@class ss.PrecachedData.StaticProp
----@field Angles       Angle   The angle of the prop.
----@field BoundsMax    Vector  OBB maximum.
----@field BoundsMin    Vector  OBB minimum.
+---@field Pitch        number  The angle of the prop.
+---@field Yaw          number
+---@field Roll         number
+---@field BoundsMaxX   number  OBB maximum in the local coordinates of the prop.
+---@field BoundsMaxY   number
+---@field BoundsMaxZ   number
+---@field BoundsMinX   number  OBB minimum in the local coordinates of the prop.
+---@field BoundsMinY   number
+---@field BoundsMinZ   number
 ---@field FadeMax      number  Fade-out distance which completely hides this model.
 ---@field FadeMin      number  Fade-out distance which starts fading.
 ---@field ModelIndex   integer Index to array of paths to mdl.
----@field Position     Vector  The origin.
+---@field PositionX    number  The origin.
+---@field PositionY    number
+---@field PositionZ    number
 ---@field Scale        number  The model scale of this prop.
 ---@field Skin         integer The skin of this prop.
 ---@field UnwrapIndex  integer Describes how the bounding box is unwrapped in UV space.  See GetStaticPropUVSize.
@@ -194,13 +202,21 @@ PrecachedData.UVInfo = record("PrecachedData.UVInfo", {
 
 ---@type { new: fun(): ss.PrecachedData.StaticProp }
 PrecachedData.StaticProp = record("PrecachedData.StaticProp", {
-    "Angle  Angles",
-    "Vector BoundsMax",
-    "Vector BoundsMin",
+    "Float  Pitch",
+    "Float  Yaw",
+    "Float  Roll",
+    "Float  BoundsMaxX",
+    "Float  BoundsMaxY",
+    "Float  BoundsMaxZ",
+    "Float  BoundsMinX",
+    "Float  BoundsMinY",
+    "Float  BoundsMinZ",
     "Float  FadeMax",
     "Float  FadeMin",
     "ULong  ModelIndex",   -- propType of StaticPropLump_t (unsigned short) + 1
-    "Vector Position",
+    "Float  PositionX",
+    "Float  PositionY",
+    "Float  PositionZ",
     "Float  Scale",
     "Byte   UnwrapIndex",  -- 1 to 3
     "Long   Skin",         -- m_Skin of StaticPropLump_t (int)
@@ -212,30 +228,48 @@ PrecachedData.StaticProp = record("PrecachedData.StaticProp", {
 })
 
 ---Info of a triangle in a displacement to paint it.
----Element j of the triangles of a surface is the triangle j of its mesh.
+---Element j of the displacement triangles of a surface is the triangle j of its mesh.
 ---@class ss.PrecachedData.DisplacementTriangle
----@field BarycentricDot1 Vector  Parameter to calculate barycentric coordinates v.
----@field BarycentricDot2 Vector  Parameter to calculate barycentric coordinates w.
----@field MBBAngles       Angle   The angle of minimum (oriented) bounding box.
----@field MBBOrigin       Vector  The origin of minimum (oriented) bounding box.
----@field MBBSize         Vector  The size of minimum (oriented) bounding box in their local coordinates.
+---@field BarycentricDot1X number Parameter to calculate barycentric coordinates v.
+---@field BarycentricDot1Y number
+---@field BarycentricDot1Z number
+---@field BarycentricDot2X number Parameter to calculate barycentric coordinates w.
+---@field BarycentricDot2Y number
+---@field BarycentricDot2Z number
+---@field MBBPitch         number The angle of minimum bounding box, which is a rectangle in the plane of the triangle.
+---@field MBBYaw           number
+---@field MBBRoll          number
+---@field MBBOriginX       number The origin of minimum bounding box.
+---@field MBBOriginY       number
+---@field MBBOriginZ       number
+---@field MBBSizeX         number The size of minimum bounding box in its local coordinates.
+---@field MBBSizeY         number
 ---3x3 rotation matrix in row-major order,
 ---which transforms world angles into local ones to map them to the serverside paint grid.
 ---@field WorldToLocalGridRotation number[]
 
 ---@type { new: fun(): ss.PrecachedData.DisplacementTriangle }
 PrecachedData.DisplacementTriangle = record("PrecachedData.DisplacementTriangle", {
-    "Vector BarycentricDot1",
-    "Vector BarycentricDot2",
-    "Angle  MBBAngles",
-    "Vector MBBOrigin",
-    "Vector MBBSize",
-    "Float  WorldToLocalGridRotation 9",
+    "Float BarycentricDot1X",
+    "Float BarycentricDot1Y",
+    "Float BarycentricDot1Z",
+    "Float BarycentricDot2X",
+    "Float BarycentricDot2Y",
+    "Float BarycentricDot2Z",
+    "Float MBBPitch",
+    "Float MBBYaw",
+    "Float MBBRoll",
+    "Float MBBOriginX",
+    "Float MBBOriginY",
+    "Float MBBOriginZ",
+    "Float MBBSizeX",
+    "Float MBBSizeY",
+    "Float WorldToLocalGridRotation 9",
 })
 
 ---Spatial hash of the triangles of a displacement.
 ---Element h + 1 of FirstTriangleIndex and NumTriangleIndices is for the cell of hash value h,
----which has the triangles Triangles[TriangleIndices[k]]
+---which has the triangles DisplacementTriangles[TriangleIndices[k]]
 ---for k = FirstTriangleIndex[h + 1], ..., FirstTriangleIndex[h + 1] + NumTriangleIndices[h + 1] - 1.
 ---@class ss.PrecachedData.TriangleHash
 ---@field NumHashValues        integer
@@ -255,13 +289,23 @@ PrecachedData.TriangleHash = record("PrecachedData.TriangleHash", {
 
 ---Per-surface precached data to construct paintable surface.
 ---@class ss.PrecachedData.Surface
----@field AABBMax            Vector   Maximum component of all vertices in world coordinates.
----@field AABBMin            Vector   Minimum component of all vertices in world coordinates.
+---@field AABBMaxX           number   Maximum component of all vertices in world coordinates, plus a margin.
+---@field AABBMaxY           number
+---@field AABBMaxZ           number
+---@field AABBMinX           number   Minimum component of all vertices in world coordinates, minus a margin.
+---@field AABBMinY           number
+---@field AABBMinZ           number
 ---3x4 matrix in row-major order, which transforms world coordinates into the serverside paint grid coordinates.
 ---@field WorldToLocalGrid   number[]
----@field MBBAngles          Angle    The angle of minimum (oriented) bounding box.
----@field MBBOrigin          Vector   The origin of minimum (oriented) bounding box.
----@field MBBSize            Vector   The size of minimum (oriented) bounding box in their local coordinates.
+---@field MBBPitch           number   The angle of minimum (oriented) bounding box.
+---@field MBBYaw             number
+---@field MBBRoll            number
+---@field MBBOriginX         number   The origin of minimum (oriented) bounding box.
+---@field MBBOriginY         number
+---@field MBBOriginZ         number
+---@field MBBSizeX           number   The size of minimum (oriented) bounding box in its local coordinates.
+---@field MBBSizeY           number
+---@field MBBSizeZ           number
 ---@field ModelIndex         integer  Index to model lump entry.
 ---@field PaintGridHeight    integer  The height of this surface in the serverside paint grid.
 ---@field PaintGridWidth     integer  The width of this surface in the serverside paint grid.
@@ -269,65 +313,105 @@ PrecachedData.TriangleHash = record("PrecachedData.TriangleHash", {
 ---One of them will be selected on mesh construction depending on the resolution of RenderTarget.
 ---@field UVInfo ss.PrecachedData.UVInfo[]
 ---Vertices of the mesh: the vertices of the polygon of a brush face, or the grid points of a displacement.
----Vertex k has its x, y, and z at 3k - 2, 3k - 1, and 3k of Positions, Normals, Tangents, Binormals,
----BumpmapUVs, and PaintOrigins, and its u and v at 2k - 1 and 2k of LightmapUVs.
----@field NumVertexCoordinates     integer  Number of the vertices times 3.
----@field Positions                number[] Positions in world coordinates.
----@field Normals                  number[]
----@field Tangents                 number[]
----@field Binormals                number[]
----Bumpmap UV coordinates of the original face in texels,
----and the blend factors toward $basetexture2, 3, and 4 as b2 + b3 * 256 + b4 * 65536.
----@field BumpmapUVs               number[]
----World-space reference points to compute the ink UV coordinates, the same as Positions except for displacements.
----@field PaintOrigins             number[]
----@field NumLightmapUVCoordinates integer  Number of the vertices times 2.
----@field LightmapUVs              number[] Lightmap UV coordinates relative to the lightmap of the face in luxels.
----Triangles of the mesh. Triangle j has the vertices VertexIndices[3j - 2], VertexIndices[3j - 1], and VertexIndices[3j],
----and its lightmap tangent and binormal at 3j - 2, 3j - 1, and 3j of LightmapTangents and LightmapBinormals.
----@field NumVertexIndices         integer  Number of the triangles times 3.
----@field VertexIndices            integer[]
----@field NumTriangleCoordinates   integer  Number of the triangles times 3.
----@field LightmapTangents         number[]
----@field LightmapBinormals        number[]
----@field TriangleHash  ss.PrecachedData.TriangleHash Spatial hash to search triangles of displacement.
----@field NumTriangles  integer
----@field Triangles     ss.PrecachedData.DisplacementTriangle[]? Array of triangles of a displacement, nil for the others.
+---Element k of each of the following arrays is for vertex k.
+---@field NumVertices integer
+---@field PositionX    number[] Positions in world coordinates.
+---@field PositionY    number[]
+---@field PositionZ    number[]
+---@field NormalX      number[]
+---@field NormalY      number[]
+---@field NormalZ      number[]
+---@field TangentX     number[]
+---@field TangentY     number[]
+---@field TangentZ     number[]
+---@field BinormalX    number[]
+---@field BinormalY    number[]
+---@field BinormalZ    number[]
+---@field BumpmapU     number[] Bumpmap UV coordinates of the original face in texels.
+---@field BumpmapV     number[]
+---@field Blend2       number[] Blend factors toward $basetexture2 from 0 to 1.
+---@field Blend3       number[] Blend factors toward $basetexture3 from 0 to 1.
+---@field Blend4       number[] Blend factors toward $basetexture4 from 0 to 1.
+---World-space reference points to compute the ink UV coordinates, the same as the positions except for displacements.
+---@field PaintOriginX number[]
+---@field PaintOriginY number[]
+---@field PaintOriginZ number[]
+---@field LightmapU    number[] Lightmap UV coordinates relative to the lightmap of the face in luxels.
+---@field LightmapV    number[]
+---Triangles of the mesh. Triangle j has the vertices VertexIndices[3j - 2], VertexIndices[3j - 1], and VertexIndices[3j].
+---Element j of the lightmap tangents and binormals is for triangle j.
+---@field NumTriangles      integer
+---@field NumVertexIndices  integer   Number of the triangles times 3.
+---@field VertexIndices     integer[]
+---@field LightmapTangentX  number[]
+---@field LightmapTangentY  number[]
+---@field LightmapTangentZ  number[]
+---@field LightmapBinormalX number[]
+---@field LightmapBinormalY number[]
+---@field LightmapBinormalZ number[]
+---@field TriangleHash ss.PrecachedData.TriangleHash Spatial hash to search triangles of displacement.
+---@field NumDisplacementTriangles integer
+---@field DisplacementTriangles    ss.PrecachedData.DisplacementTriangle[]? The triangles of a displacement, nil for the others.
 ---@field FaceLumpIndex integer? Index to face lump just used to calculate lightmap UV coordinates, not saved.
 ---@field MBRMatrix     VMatrix? Minimum bounding rectangle in the world, used by UVBuilder while building the cache, not saved.
 
 ---@type { new: fun(): ss.PrecachedData.Surface }
 PrecachedData.Surface = record("PrecachedData.Surface", {
-    "Vector AABBMax",
-    "Vector AABBMin",
+    "Float  AABBMaxX",
+    "Float  AABBMaxY",
+    "Float  AABBMaxZ",
+    "Float  AABBMinX",
+    "Float  AABBMinY",
+    "Float  AABBMinZ",
     "Float  WorldToLocalGrid 12",
-    "Angle  MBBAngles",
-    "Vector MBBOrigin",
-    "Vector MBBSize",
+    "Float  MBBPitch",
+    "Float  MBBYaw",
+    "Float  MBBRoll",
+    "Float  MBBOriginX",
+    "Float  MBBOriginY",
+    "Float  MBBOriginZ",
+    "Float  MBBSizeX",
+    "Float  MBBSizeY",
+    "Float  MBBSizeZ",
     "UShort ModelIndex",      -- MAX_MAP_MODELS = 1024
     "UShort PaintGridHeight", -- The diagonal of the map divided by PaintableGrid.CELL_SIZE
     "UShort PaintGridWidth",
     "PrecachedData.UVInfo UVInfo " .. NUM_RESOLUTIONS,
-    "UShort NumVertexCoordinates",     -- 3 * (2^4 + 1)^2 for the displacements of power 4
-    "Float  Positions    NumVertexCoordinates",
-    "Float  Normals      NumVertexCoordinates",
-    "Float  Tangents     NumVertexCoordinates",
-    "Float  Binormals    NumVertexCoordinates",
-    "Float  BumpmapUVs   NumVertexCoordinates",
-    "Float  PaintOrigins NumVertexCoordinates",
-    "UShort NumLightmapUVCoordinates",
-    "Float  LightmapUVs  NumLightmapUVCoordinates",
-    "UShort NumVertexIndices",         -- 3 * MAX_DISPTRIS = 1536
+    "UShort NumVertices",     -- (2^4 + 1)^2 for the displacements of power 4
+    "Float  PositionX    NumVertices",
+    "Float  PositionY    NumVertices",
+    "Float  PositionZ    NumVertices",
+    "Float  NormalX      NumVertices",
+    "Float  NormalY      NumVertices",
+    "Float  NormalZ      NumVertices",
+    "Float  TangentX     NumVertices",
+    "Float  TangentY     NumVertices",
+    "Float  TangentZ     NumVertices",
+    "Float  BinormalX    NumVertices",
+    "Float  BinormalY    NumVertices",
+    "Float  BinormalZ    NumVertices",
+    "Float  BumpmapU     NumVertices",
+    "Float  BumpmapV     NumVertices",
+    "Float  Blend2       NumVertices",
+    "Float  Blend3       NumVertices",
+    "Float  Blend4       NumVertices",
+    "Float  PaintOriginX NumVertices",
+    "Float  PaintOriginY NumVertices",
+    "Float  PaintOriginZ NumVertices",
+    "Float  LightmapU    NumVertices",
+    "Float  LightmapV    NumVertices",
+    "UShort NumTriangles",     -- MAX_DISPTRIS = 512
+    "UShort NumVertexIndices", -- 3 * MAX_DISPTRIS = 1536
     "UShort VertexIndices NumVertexIndices",
-    "UShort NumTriangleCoordinates",
-    "Float  LightmapTangents  NumTriangleCoordinates",
-    "Float  LightmapBinormals NumTriangleCoordinates",
+    "Float  LightmapTangentX  NumTriangles",
+    "Float  LightmapTangentY  NumTriangles",
+    "Float  LightmapTangentZ  NumTriangles",
+    "Float  LightmapBinormalX NumTriangles",
+    "Float  LightmapBinormalY NumTriangles",
+    "Float  LightmapBinormalZ NumTriangles",
     "PrecachedData.TriangleHash TriangleHash",
-    "UShort NumTriangles",    -- MAX_DISPTRIS = 512
-    "PrecachedData.DisplacementTriangle Triangles NumTriangles",
-}, {
-    AABBMax = function() return Util.vector_one * -math.huge end,
-    AABBMin = function() return Util.vector_one * math.huge end,
+    "UShort NumDisplacementTriangles", -- MAX_DISPTRIS = 512
+    "PrecachedData.DisplacementTriangle DisplacementTriangles NumDisplacementTriangles",
 })
 
 ---A wrapper for a BSP face to cache its properties for sorting.
@@ -350,18 +434,30 @@ PrecachedData.LightmapInfo = record("PrecachedData.LightmapInfo", {
 ---Cubemap sample and the paintable face bounds that use it.
 ---@class ss.PrecachedData.CubemapInfo
 ---@field Envmap    string  Resolved cubemap texture name, e.g. `maps/<map>/cX_Y_Z`.
----@field Origin    Vector  Cubemap sample origin in world coordinates.
----@field BoxMin    Vector  Minimum corner of paintable face bounds using this cubemap.
----@field BoxMax    Vector  Maximum corner of paintable face bounds using this cubemap.
+---@field OriginX   number  Cubemap sample origin in world coordinates.
+---@field OriginY   number
+---@field OriginZ   number
+---@field BoxMinX   number  Minimum corner of paintable face bounds using this cubemap.
+---@field BoxMinY   number
+---@field BoxMinZ   number
+---@field BoxMaxX   number  Maximum corner of paintable face bounds using this cubemap.
+---@field BoxMaxY   number
+---@field BoxMaxZ   number
 ---@field FaceCount integer Number of paintable faces accumulated into this box.
 ---@field Blend     number  Parallax correction blend ratio. 0 disables correction.
 
 ---@type { new: fun(): ss.PrecachedData.CubemapInfo }
 PrecachedData.CubemapInfo = record("PrecachedData.CubemapInfo", {
     "String Envmap",
-    "Vector Origin",
-    "Vector BoxMin",
-    "Vector BoxMax",
+    "Float  OriginX",
+    "Float  OriginY",
+    "Float  OriginZ",
+    "Float  BoxMinX",
+    "Float  BoxMinY",
+    "Float  BoxMinZ",
+    "Float  BoxMaxX",
+    "Float  BoxMaxY",
+    "Float  BoxMaxZ",
     "ULong  FaceCount", -- MAX_MAP_FACES = 65536
     "Float  Blend",
 })
@@ -430,13 +526,21 @@ PrecachedData.HashParameters = record("PrecachedData.HashParameters", {
 
 ---Defines playable area in the map.
 ---@class ss.MinimapAreaBounds
----@field maxs Vector
----@field mins Vector
+---@field MinX number
+---@field MinY number
+---@field MinZ number
+---@field MaxX number
+---@field MaxY number
+---@field MaxZ number
 
 ---@type { new: fun(): ss.MinimapAreaBounds }
 PrecachedData.MinimapAreaBounds = record("PrecachedData.MinimapAreaBounds", {
-    "Vector maxs",
-    "Vector mins",
+    "Float MinX",
+    "Float MinY",
+    "Float MinZ",
+    "Float MaxX",
+    "Float MaxY",
+    "Float MaxZ",
 })
 
 ---Precached results of the BSP which PrecachedData.WriteFile saves to <map>.dat.

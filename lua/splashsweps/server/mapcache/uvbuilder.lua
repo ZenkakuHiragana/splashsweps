@@ -92,7 +92,9 @@ function UVBuilder.Build(surfInfo, staticPropInfo, staticPropRectangles)
                 local rotated = rect.istall ~= (tag.Rectangle.x < tag.Rectangle.y)
                 tag.UV.Width = width
                 tag.UV.Height = height
-                tag.UV.Offset:SetUnpacked(rect.left, rect.bottom, rotated and 1 or 0)
+                tag.UV.OffsetU = rect.left
+                tag.UV.OffsetV = rect.bottom
+                tag.UV.IsRotated = rotated
             end
         end
 

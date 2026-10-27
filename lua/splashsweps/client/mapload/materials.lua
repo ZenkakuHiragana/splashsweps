@@ -60,9 +60,9 @@ local function resolveMaterialCubemap(envmap, cubemapLookup)
     local cubemap = PrecachedData.CubemapInfo.new()
     cubemap.Envmap = envmap
     if cached then
-        cubemap.Origin:Set(cached.Origin)
-        cubemap.BoxMin:Set(cached.BoxMin)
-        cubemap.BoxMax:Set(cached.BoxMax)
+        cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ = cached.OriginX, cached.OriginY, cached.OriginZ
+        cubemap.BoxMinX, cubemap.BoxMinY, cubemap.BoxMinZ = cached.BoxMinX, cached.BoxMinY, cached.BoxMinZ
+        cubemap.BoxMaxX, cubemap.BoxMaxY, cubemap.BoxMaxZ = cached.BoxMaxX, cached.BoxMaxY, cached.BoxMaxZ
         cubemap.FaceCount = cached.FaceCount
         cubemap.Blend = cached.Blend
     end

@@ -13,6 +13,13 @@ local MAX_TRIANGLES = math.floor(32768 / 3) -- mesh library limitation
 local MAX_VERTICES  = MAX_TRIANGLES * 3
 local floor = math.floor
 
+---Converts a value from 0 to 1 into a component of the vertex color, which has 8 bits.
+---@param x number
+---@return integer
+local function toColorComponent(x)
+    return floor(x * 255 + 0.5)
+end
+
 ---One vertex worth of packed data passed to inkmesh_vs30, kept only for debug mesh inspection.
 ---@class ss.VertexBatches.MeshVertex
 ---@field Position           Vector   World-space position written with mesh.Position.
@@ -87,9 +94,6 @@ function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, face
             local uvInfo    = surf.UVInfo[rtIndex]
             local lightmap  = faceLightmaps[faceIndex]
             local vertexIndices = surf.VertexIndices
-            local positions, normals, tangents, binormals = surf.Positions, surf.Normals, surf.Tangents, surf.Binormals
-            local bumpmapUVs, paintOrigins, lightmapUVs = surf.BumpmapUVs, surf.PaintOrigins, surf.LightmapUVs
-            local lightmapTangents, lightmapBinormals = surf.LightmapTangents, surf.LightmapBinormals
 
             -- The values shared by the vertices of the surface.
             local row1, row2 = uvInfo.WorldToUVRow1, uvInfo.WorldToUVRow2
@@ -104,27 +108,25 @@ function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, face
             local pageWidth, pageHeight = lightmap.PageWidth, lightmap.PageHeight
 
             for n = faceRanges[r + 1], faceRanges[r + 2] do
-                local vertex = vertexIndices[n]
-                local k = 3 * vertex               -- The coordinates of the vertex end at k.
-                local j = 3 * floor((n + 2) / 3)   -- The coordinates of its triangle end at j.
-                local positionX, positionY, positionZ = positions[k - 2], positions[k - 1], positions[k]
-                local normalX, normalY, normalZ = normals[k - 2], normals[k - 1], normals[k]
-                local tangentX, tangentY, tangentZ = tangents[k - 2], tangents[k - 1], tangents[k]
-                local binormalX, binormalY, binormalZ = binormals[k - 2], binormals[k - 1], binormals[k]
+                local k = vertexIndices[n]
+                local j = floor((n + 2) / 3) -- The triangle of the vertex
+                local positionX, positionY, positionZ = surf.PositionX[k], surf.PositionY[k], surf.PositionZ[k]
+                local normalX, normalY, normalZ = surf.NormalX[k], surf.NormalY[k], surf.NormalZ[k]
+                local tangentX, tangentY, tangentZ = surf.TangentX[k], surf.TangentY[k], surf.TangentZ[k]
+                local binormalX, binormalY, binormalZ = surf.BinormalX[k], surf.BinormalY[k], surf.BinormalZ[k]
                 local lightmapTangentX, lightmapTangentY, lightmapTangentZ
-                    = lightmapTangents[j - 2], lightmapTangents[j - 1], lightmapTangents[j]
+                    = surf.LightmapTangentX[j], surf.LightmapTangentY[j], surf.LightmapTangentZ[j]
                 local lightmapBinormalX, lightmapBinormalY, lightmapBinormalZ
-                    = lightmapBinormals[j - 2], lightmapBinormals[j - 1], lightmapBinormals[j]
-                local bumpmapU, bumpmapV, blend = bumpmapUVs[k - 2], bumpmapUVs[k - 1], bumpmapUVs[k]
-                local lightmapU, lightmapV = lightmapUVs[2 * vertex - 1], lightmapUVs[2 * vertex]
-                local originX, originY, originZ = paintOrigins[k - 2], paintOrigins[k - 1], paintOrigins[k]
+                    = surf.LightmapBinormalX[j], surf.LightmapBinormalY[j], surf.LightmapBinormalZ[j]
+                local bumpmapU, bumpmapV = surf.BumpmapU[k], surf.BumpmapV[k]
+                local blend2 = toColorComponent(surf.Blend2[k])
+                local blend3 = toColorComponent(surf.Blend3[k])
+                local blend4 = toColorComponent(surf.Blend4[k])
+                local originX, originY, originZ = surf.PaintOriginX[k], surf.PaintOriginY[k], surf.PaintOriginZ[k]
                 local uvX = row1x * originX + row1y * originY + row1z * originZ + row1w
                 local uvY = row2x * originX + row2y * originY + row2z * originZ + row2w
-                local blend2 = bit.band(blend, 255)
-                local blend3 = bit.band(bit.rshift(blend, 8), 255)
-                local blend4 = bit.rshift(blend, 16)
-                lightmapU = (lightmapU + lightmapOffsetX) / pageWidth
-                lightmapV = (lightmapV + lightmapOffsetY) / pageHeight
+                local lightmapU = (surf.LightmapU[k] + lightmapOffsetX) / pageWidth
+                local lightmapV = (surf.LightmapV[k] + lightmapOffsetY) / pageHeight
                 mesh.Color(blend2, blend3, blend4, 255)
                 mesh.Position(positionX, positionY, positionZ)
                 mesh.Normal(normalX, normalY, normalZ)
@@ -181,7 +183,7 @@ function VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches, surface
         local faceRanges = vertexBatch.FaceRanges
         for r = 1, #faceRanges, 3 do
             local surf = surfaceInfo.Surfaces[faceRanges[r]]
-            local vertexIndices, positions, normals = surf.VertexIndices, surf.Positions, surf.Normals
+            local vertexIndices = surf.VertexIndices
             for n = faceRanges[r + 1], faceRanges[r + 2] do
                 if numInMesh == meshSize then
                     local m = Mesh(flashlightMaterial)
@@ -190,9 +192,9 @@ function VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches, surface
                     mesh.Begin(m, MATERIAL_TRIANGLES, meshSize / 3)
                 end
 
-                local k = 3 * vertexIndices[n]
-                mesh.Position(positions[k - 2], positions[k - 1], positions[k])
-                mesh.Normal(normals[k - 2], normals[k - 1], normals[k])
+                local k = vertexIndices[n]
+                mesh.Position(surf.PositionX[k], surf.PositionY[k], surf.PositionZ[k])
+                mesh.Normal(surf.NormalX[k], surf.NormalY[k], surf.NormalZ[k])
                 mesh.AdvanceVertex()
                 numInMesh = numInMesh + 1
                 numRemaining = numRemaining - 1

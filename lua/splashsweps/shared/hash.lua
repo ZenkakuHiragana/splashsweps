@@ -51,15 +51,11 @@ local GRID_SIZE = 128
 local MAX_GRID_INDEX = 32768 / GRID_SIZE
 local MAX_GRID_INDEX_SQR = MAX_GRID_INDEX * MAX_GRID_INDEX
 
----Converts real number coordinate to rough coordinate.
----@param pos Vector
----@return number x Rough coordinate X.
----@return number y Rough coordinate Y.
----@return number z Rough coordinate Z.
-local function posToIndex(pos)
-    return floor((pos.x + 16384) / GRID_SIZE),
-           floor((pos.y + 16384) / GRID_SIZE),
-           floor((pos.z + 16384) / GRID_SIZE)
+---Converts a real number coordinate to a rough coordinate.
+---@param x number
+---@return integer
+local function toIndex(x)
+    return floor((x + 16384) / GRID_SIZE)
 end
 
 ---Calculates hash code from x, y, and z coordinates.
@@ -72,12 +68,16 @@ local function indexToHash(x, y, z)
 end
 
 ---Generator function that produces hash integers to look-up the surfaces within given AABB.
----@param mins Vector AABB minimum.
----@param maxs Vector AABB maximum.
+---@param minX number AABB minimum.
+---@param minY number
+---@param minZ number
+---@param maxX number AABB maximum.
+---@param maxY number
+---@param maxZ number
 ---@return fun(): number # Generator function.
-local function hashpairs(mins, maxs)
-    local x0, y0, z0 = posToIndex(mins)
-    local x1, y1, z1 = posToIndex(maxs)
+local function hashpairs(minX, minY, minZ, maxX, maxY, maxZ)
+    local x0, y0, z0 = toIndex(minX), toIndex(minY), toIndex(minZ)
+    local x1, y1, z1 = toIndex(maxX), toIndex(maxY), toIndex(maxZ)
     return wrap(function()
         for z = z0, z1 do
             for y = y0, y1 do
@@ -101,7 +101,7 @@ function Hash.BuildSurfaceHash(surfaces, staticProps)
     local hash = {} ---@type table<integer, integer[]>
     for i, s in ipairs(surfaces) do
         if s.ModelIndex == 1 then
-            for h in hashpairs(s.AABBMin, s.AABBMax) do
+            for h in hashpairs(s.AABBMinX, s.AABBMinY, s.AABBMinZ, s.AABBMaxX, s.AABBMaxY, s.AABBMaxZ) do
                 hash[h] = hash[h] or {}
                 hash[h][#hash[h] + 1] = i
             end
@@ -111,12 +111,16 @@ function Hash.BuildSurfaceHash(surfaces, staticProps)
     local localToWorld = Matrix()
     for i, s in ipairs(staticProps) do
         -- World AABB of the rotated OBB, plus the margin as the other surfaces have
-        localToWorld:SetAngles(s.Angles)
-        localToWorld:SetTranslation(s.Position)
-        local mins, maxs = Util.TransformAABB(localToWorld, s.BoundsMin, s.BoundsMax)
+        localToWorld:SetAngles(Angle(s.Pitch, s.Yaw, s.Roll))
+        localToWorld:SetTranslation(Vector(s.PositionX, s.PositionY, s.PositionZ))
+        local mins, maxs = Util.TransformAABB(localToWorld,
+            Vector(s.BoundsMinX, s.BoundsMinY, s.BoundsMinZ),
+            Vector(s.BoundsMaxX, s.BoundsMaxY, s.BoundsMaxZ))
         mins:Sub(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
         maxs:Add(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
-        for h in hashpairs(mins, maxs) do
+        local minX, minY, minZ = mins:Unpack()
+        local maxX, maxY, maxZ = maxs:Unpack()
+        for h in hashpairs(minX, minY, minZ, maxX, maxY, maxZ) do
             hash[h] = hash[h] or {}
             for j = 1, 6 do
                 hash[h][#hash[h] + 1] = #surfaces + 6 * (i - 1) + j
@@ -166,7 +170,9 @@ function Hash.CollectSurfaces(mins, maxs)
     return wrap(function()
         local hasSeenThisSurface = {} ---@type table<integer, true>
         local surfaceHash = state.SurfaceHash
-        for h in hashpairs(mins, maxs) do
+        local minX, minY, minZ = mins:Unpack()
+        local maxX, maxY, maxZ = maxs:Unpack()
+        for h in hashpairs(minX, minY, minZ, maxX, maxY, maxZ) do
             local k = state.CellIndices[h]
             local first = k and surfaceHash.FirstSurfaceIndex[k] or 1
             local last = k and first + surfaceHash.NumSurfaceIndices[k] - 1 or 0
@@ -286,24 +292,20 @@ end
 function Hash.BuildDisplacementHash(surfaces)
     print("Constructing spatial hash table for displacement triangles...")
     for _, surf in ipairs(surfaces) do
-        if surf.NumTriangles > 0 then
+        if surf.NumDisplacementTriangles > 0 then
             local cells = {} ---@type table<integer, integer[]> Hash value + 1 --> indices of the triangles
-            local p = surf.Positions
+            local x, y, z = surf.PositionX, surf.PositionY, surf.PositionZ
             local vertexIndices = surf.VertexIndices
+            local aabbMin = Vector(surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ)
+            local aabbMax = Vector(surf.AABBMaxX, surf.AABBMaxY, surf.AABBMaxZ)
             local numHashValues = 0
-            for i = 1, surf.NumTriangles do
-                local a = 3 * vertexIndices[3 * i - 2]
-                local b = 3 * vertexIndices[3 * i - 1]
-                local c = 3 * vertexIndices[3 * i]
-                local mins = Vector(
-                    min(p[a - 2], p[b - 2], p[c - 2]),
-                    min(p[a - 1], p[b - 1], p[c - 1]),
-                    min(p[a],     p[b],     p[c]))
-                local maxs = Vector(
-                    max(p[a - 2], p[b - 2], p[c - 2]),
-                    max(p[a - 1], p[b - 1], p[c - 1]),
-                    max(p[a],     p[b],     p[c]))
-                for h in hashpairsAABB(mins, maxs, surf.AABBMin, surf.AABBMax) do
+            for i = 1, surf.NumDisplacementTriangles do
+                local a = vertexIndices[3 * i - 2]
+                local b = vertexIndices[3 * i - 1]
+                local c = vertexIndices[3 * i]
+                local mins = Vector(min(x[a], x[b], x[c]), min(y[a], y[b], y[c]), min(z[a], z[b], z[c]))
+                local maxs = Vector(max(x[a], x[b], x[c]), max(y[a], y[b], y[c]), max(z[a], z[b], z[c]))
+                for h in hashpairsAABB(mins, maxs, aabbMin, aabbMax) do
                     cells[h + 1] = cells[h + 1] or {}
                     cells[h + 1][#cells[h + 1] + 1] = i
                     numHashValues = math.max(h + 1, numHashValues)

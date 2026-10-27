@@ -101,8 +101,8 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
             ---@field QueuedFlags Enum.STUDIO? Flags the engine drew this prop with in the current view.
             local mdl = ClientsideModel(modelName)
             if mdl then
-                mdl:SetPos(prop.Position or Vector())
-                mdl:SetAngles(prop.Angles or Angle())
+                mdl:SetPos(Vector(prop.PositionX, prop.PositionY, prop.PositionZ))
+                mdl:SetAngles(Angle(prop.Pitch, prop.Yaw, prop.Roll))
                 mdl:SetKeyValue("fademindist", prop.FadeMin or -1)
                 mdl:SetKeyValue("fademaxdist", prop.FadeMax or 0)
                 mdl:SetModelScale(prop.Scale or 1)
@@ -112,9 +112,10 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
                 local mins, maxs = mdl:GetModelBounds()
                 mdl.FadeMaxSqr = fadeMax and (fadeMax * fadeMax)
                 mdl.ModelLengthSqr = mins:DistToSqr(maxs)
-                local size = prop.BoundsMax - prop.BoundsMin
+                local boundsMin = Vector(prop.BoundsMinX, prop.BoundsMinY, prop.BoundsMinZ)
+                local size = Vector(prop.BoundsMaxX, prop.BoundsMaxY, prop.BoundsMaxZ) - boundsMin
                 local localTworld = mdl:GetWorldTransformMatrix()
-                localTworld:SetTranslation(localTworld * prop.BoundsMin)
+                localTworld:SetTranslation(localTworld * boundsMin)
                 if prop.UnwrapIndex == 2 then
                     -- (X, Y, Z) * xyzTyzx = (Y, Z, X)
                     localTworld:Mul(xyzTyzx)
@@ -138,9 +139,9 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
                 local cubemap = cubemaps and cubemaps[prop.CubemapIndex]
                 local nearestEnvmap = cubemap and cubemap.Envmap .. (render.GetHDREnabled() and ".hdr" or "") or UnderlaySync.DEFAULT_ENVMAP
                 local params = table.Merge(matKeyValues, {
-                    ["$c1_y"] = uv.Offset.z > 0 and uv.Width or 0,
-                    ["$c2_x"] = uv.Offset.x,
-                    ["$c2_y"] = uv.Offset.y,
+                    ["$c1_y"] = uv.IsRotated and uv.Width or 0,
+                    ["$c2_x"] = uv.OffsetU,
+                    ["$c2_y"] = uv.OffsetV,
                 })
                 for j, name in ipairs(mdl:GetMaterials()) do
                     local mdlmat = materialCache[name]

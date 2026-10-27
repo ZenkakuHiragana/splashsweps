@@ -9,7 +9,6 @@ local LightmapBuilder = ss.import "splashsweps/server/mapcache/lightmapbuilder"
 local PrecachedData   = ss.import "splashsweps/shared/typing/precachedata"
 local SurfaceBuilder  = ss.import "splashsweps/server/mapcache/surfacebuilder"
 local UVBuilder       = ss.import "splashsweps/server/mapcache/uvbuilder"
-local Util            = ss.import "splashsweps/shared/util"
 
 ---@class ss.CacheBuilderModule
 local CacheBuilder = ss.module "splashsweps/server/mapcache/cachebuilder"
@@ -17,6 +16,8 @@ local CacheBuilder = ss.module "splashsweps/server/mapcache/cachebuilder"
 local band = bit.band
 local huge = math.huge
 local huge_negative = -huge
+local max = math.max
+local min = math.min
 local ipairs = ipairs
 
 ---Finds light_environment entity in the ENTITIES lump and fetches directional light info.
@@ -65,14 +66,16 @@ local function BuildMinimapBounds(bsp)
     for _, leaf in ipairs(bsp.LEAFS) do
         local area = band(leaf.areaAndFlags, 0x01FF)
         if area > 0 then
-            if not bounds[area] then
-                bounds[area] = PrecachedData.MinimapAreaBounds.new()
-                bounds[area].maxs = Util.vector_one * huge_negative
-                bounds[area].mins = Util.vector_one * huge
+            local b = bounds[area]
+            if not b then
+                b = PrecachedData.MinimapAreaBounds.new()
+                b.MinX, b.MinY, b.MinZ = huge, huge, huge
+                b.MaxX, b.MaxY, b.MaxZ = huge_negative, huge_negative, huge_negative
+                bounds[area] = b
             end
 
-            bounds[area].mins = Util.MinVector(bounds[area].mins, leaf.mins)
-            bounds[area].maxs = Util.MaxVector(bounds[area].maxs, leaf.maxs)
+            b.MinX, b.MinY, b.MinZ = min(b.MinX, leaf.mins.x), min(b.MinY, leaf.mins.y), min(b.MinZ, leaf.mins.z)
+            b.MaxX, b.MaxY, b.MaxZ = max(b.MaxX, leaf.maxs.x), max(b.MaxY, leaf.maxs.y), max(b.MaxZ, leaf.maxs.z)
         end
     end
 
@@ -123,14 +126,14 @@ end
 ---.   sy | +x | +z |    sz | +y | +x |    sx | +z | +y |
 ---.      +----+----+       +----+----+       +----+----+
 ---```
----@param mins Vector
----@param maxs Vector
+---@param prop ss.PrecachedData.StaticProp
 ---@return number # w including the margins.
 ---@return number # h including the margins.
 ---@return integer # The selected pattern.
-local function GetStaticPropUVSize(mins, maxs)
-    local size = maxs - mins
-    local sx, sy, sz = size:Unpack()
+local function GetStaticPropUVSize(prop)
+    local sx = prop.BoundsMaxX - prop.BoundsMinX
+    local sy = prop.BoundsMaxY - prop.BoundsMinY
+    local sz = prop.BoundsMaxZ - prop.BoundsMinZ
     local margin = 2 * ss.MARGIN_HAMMER_UNITS -- Both sides of each face cell
 
     -- Pattern 1
@@ -172,7 +175,7 @@ function CacheBuilder.Build()
 
     local staticPropRectangles = {} ---@type Vector[]
     for i, prop in ipairs(cache.StaticProps) do
-        local w, h, layoutType = GetStaticPropUVSize(prop.BoundsMin, prop.BoundsMax)
+        local w, h, layoutType = GetStaticPropUVSize(prop)
         staticPropRectangles[i] = Vector(w, h)
         prop.UnwrapIndex = layoutType
     end

@@ -135,13 +135,15 @@ function PaintableSurface.BarycentricCoordinates(triangle, query)
     return Vector(1 - u - v, u, v)
 end
 
----Creates a Vector for each vertex from x, y, and z of the vertices in a row.
----@param coordinates number[]
+---Creates a Vector for each element of the arrays of x, y, and z.
+---@param xs number[]
+---@param ys number[]
+---@param zs number[]
 ---@return Vector[]
-local function vectorsOf(coordinates)
+local function vectorsOf(xs, ys, zs)
     local vectors = {} ---@type Vector[]
-    for k = 1, #coordinates / 3 do
-        vectors[k] = Vector(coordinates[3 * k - 2], coordinates[3 * k - 1], coordinates[3 * k])
+    for k, x in ipairs(xs) do
+        vectors[k] = Vector(x, ys[k], zs[k])
     end
 
     return vectors
@@ -157,28 +159,30 @@ function PaintableSurface.Setup(surfaces, numModels)
     for i, surf in ipairs(surfaces) do
         local ps = newSurface(i, surf.PaintGridWidth, surf.PaintGridHeight)
         local g = surf.WorldToLocalGrid
-        ps.AABBMax = surf.AABBMax
-        ps.AABBMin = surf.AABBMin
+        ps.AABBMax = Vector(surf.AABBMaxX, surf.AABBMaxY, surf.AABBMaxZ)
+        ps.AABBMin = Vector(surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ)
         ps.WorldToLocalGridMatrix:SetUnpacked(
             g[1], g[2],  g[3],  g[4],
             g[5], g[6],  g[7],  g[8],
             g[9], g[10], g[11], g[12],
             0,    0,     0,     1)
-        ps.Normal = surf.MBBAngles:Up()
-        ps.MBBAngles = surf.MBBAngles
-        ps.MBBOrigin = surf.MBBOrigin
-        ps.MBBSize = surf.MBBSize
+        ps.MBBAngles = Angle(surf.MBBPitch, surf.MBBYaw, surf.MBBRoll)
+        ps.MBBOrigin = Vector(surf.MBBOriginX, surf.MBBOriginY, surf.MBBOriginZ)
+        ps.MBBSize = Vector(surf.MBBSizeX, surf.MBBSizeY, surf.MBBSizeZ)
+        ps.Normal = ps.MBBAngles:Up()
         ps.TriangleHash = surf.TriangleHash
-        local triangles = surf.Triangles
+        local triangles = surf.DisplacementTriangles
         if triangles then
             -- The triangles share the Vectors of their vertices.
-            local positions = vectorsOf(surf.Positions)
-            local paintOrigins = vectorsOf(surf.PaintOrigins)
+            local positions = vectorsOf(surf.PositionX, surf.PositionY, surf.PositionZ)
+            local paintOrigins = vectorsOf(surf.PaintOriginX, surf.PaintOriginY, surf.PaintOriginZ)
             local vertexIndices = surf.VertexIndices
             ps.Triangles = {}
             for j, t in ipairs(triangles) do
                 local i1, i2, i3 = vertexIndices[3 * j - 2], vertexIndices[3 * j - 1], vertexIndices[3 * j]
                 local r = t.WorldToLocalGridRotation
+                local barycentricDot1 = Vector(t.BarycentricDot1X, t.BarycentricDot1Y, t.BarycentricDot1Z)
+                local barycentricDot2 = Vector(t.BarycentricDot2X, t.BarycentricDot2Y, t.BarycentricDot2Z)
                 local worldToLocal = Matrix()
                 worldToLocal:SetUnpacked(
                     r[1], r[2], r[3], 0,
@@ -192,13 +196,13 @@ function PaintableSurface.Setup(surfaces, numModels)
                     paintOrigins[i1],
                     paintOrigins[i2],
                     paintOrigins[i3],
-                    BarycentricDot1      = t.BarycentricDot1,
-                    BarycentricDot2      = t.BarycentricDot2,
-                    BarycentricAdd1      = -positions[i1]:Dot(t.BarycentricDot1),
-                    BarycentricAdd2      = -positions[i1]:Dot(t.BarycentricDot2),
-                    MBBAngles            = t.MBBAngles,
-                    MBBOrigin            = t.MBBOrigin,
-                    MBBSize              = t.MBBSize,
+                    BarycentricDot1      = barycentricDot1,
+                    BarycentricDot2      = barycentricDot2,
+                    BarycentricAdd1      = -positions[i1]:Dot(barycentricDot1),
+                    BarycentricAdd2      = -positions[i1]:Dot(barycentricDot2),
+                    MBBAngles            = Angle(t.MBBPitch, t.MBBYaw, t.MBBRoll),
+                    MBBOrigin            = Vector(t.MBBOriginX, t.MBBOriginY, t.MBBOriginZ),
+                    MBBSize              = Vector(t.MBBSizeX, t.MBBSizeY, 0),
                     WorldToLocalRotation = worldToLocal,
                 }
             end
@@ -368,10 +372,11 @@ function PaintableSurface.SetupStaticProps(staticPropInfo, inkMap)
     local modelUVOriginInAbsoluteUV = Vector()
     local worldToUV = Matrix()
     for i, prop in ipairs(staticPropInfo or {}) do
-        local boundingBoxSize = prop.BoundsMax - prop.BoundsMin
-        worldTmodel:SetAngles(prop.Angles)
-        worldTmodel:SetTranslation(prop.Position)
-        worldTmodel:SetTranslation(worldTmodel * prop.BoundsMin)
+        local boundsMin = Vector(prop.BoundsMinX, prop.BoundsMinY, prop.BoundsMinZ)
+        local boundingBoxSize = Vector(prop.BoundsMaxX, prop.BoundsMaxY, prop.BoundsMaxZ) - boundsMin
+        worldTmodel:SetAngles(Angle(prop.Pitch, prop.Yaw, prop.Roll))
+        worldTmodel:SetTranslation(Vector(prop.PositionX, prop.PositionY, prop.PositionZ))
+        worldTmodel:SetTranslation(worldTmodel * boundsMin)
         if prop.UnwrapIndex == 2 then
             worldTmodel:Mul(xyzTyzx)
             boundingBoxSize:Mul(xyzTzxy) -- xyzTyzx:GetTransposed()
@@ -391,7 +396,7 @@ function PaintableSurface.SetupStaticProps(staticPropInfo, inkMap)
             local uv = inkMap.UVInfo[(i - 1) * #PrecachedData.InkMapResolutions + rtIndex]
             uvScale = inkMap.HammerUnitsToUV
             bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
-            isRotated = uv.Offset.z > 0
+            isRotated = uv.IsRotated
             if isRotated then
                 -- +--------> v
                 -- |   v'
@@ -404,7 +409,7 @@ function PaintableSurface.SetupStaticProps(staticPropInfo, inkMap)
                     0,  0, 1, 0,
                     0,  0, 0, 1)
                 modelUVOriginInAbsoluteUV:SetUnpacked(
-                    uv.Offset.x + uv.Width, uv.Offset.y, 0)
+                    uv.OffsetU + uv.Width, uv.OffsetV, 0)
             else
                 -- +--------> v
                 -- | model local uv space
@@ -413,7 +418,7 @@ function PaintableSurface.SetupStaticProps(staticPropInfo, inkMap)
                 -- u   u'
                 absoluteuvRlocaluv:Identity()
                 modelUVOriginInAbsoluteUV:SetUnpacked(
-                    uv.Offset.x, uv.Offset.y, 0)
+                    uv.OffsetU, uv.OffsetV, 0)
             end
         end
         for j, faceNormalInModelSystem in ipairs(localNormals) do

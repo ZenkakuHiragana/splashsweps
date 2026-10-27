@@ -98,9 +98,9 @@ local function BuildCubemapEntries(bsp)
         local origin = Vector(round(sample.origin.x), round(sample.origin.y), round(sample.origin.z))
         local cubemap = PrecachedData.CubemapInfo.new()
         cubemap.Envmap = string.format("maps/%s/c%d_%d_%d", mapName, origin.x, origin.y, origin.z)
-        cubemap.Origin:Set(origin)
-        cubemap.BoxMin:Set(Util.vector_one * math.huge)
-        cubemap.BoxMax:Set(Util.vector_one * -math.huge)
+        cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ = origin:Unpack()
+        cubemap.BoxMinX, cubemap.BoxMinY, cubemap.BoxMinZ = math.huge, math.huge, math.huge
+        cubemap.BoxMaxX, cubemap.BoxMaxY, cubemap.BoxMaxZ = -math.huge, -math.huge, -math.huge
         cubemaps[#cubemaps + 1] = cubemap
         cubemapsByOrigin[CubemapOriginKey(origin)] = cubemap
     end
@@ -112,8 +112,12 @@ end
 ---@param surf ss.PrecachedData.Surface
 local function AccumulateCubemapBox(cubemap, surf)
     if not cubemap then return end
-    cubemap.BoxMin:Set(Util.MinVector(cubemap.BoxMin, surf.AABBMin))
-    cubemap.BoxMax:Set(Util.MaxVector(cubemap.BoxMax, surf.AABBMax))
+    cubemap.BoxMinX = min(cubemap.BoxMinX, surf.AABBMinX)
+    cubemap.BoxMinY = min(cubemap.BoxMinY, surf.AABBMinY)
+    cubemap.BoxMinZ = min(cubemap.BoxMinZ, surf.AABBMinZ)
+    cubemap.BoxMaxX = max(cubemap.BoxMaxX, surf.AABBMaxX)
+    cubemap.BoxMaxY = max(cubemap.BoxMaxY, surf.AABBMaxY)
+    cubemap.BoxMaxZ = max(cubemap.BoxMaxZ, surf.AABBMaxZ)
     cubemap.FaceCount = cubemap.FaceCount + 1
     cubemap.Blend = 1
 end
@@ -122,8 +126,8 @@ end
 local function FinalizeCubemapEntries(cubemaps)
     for _, cubemap in ipairs(cubemaps) do
         if cubemap.FaceCount == 0 then
-            cubemap.BoxMin:Set(cubemap.Origin)
-            cubemap.BoxMax:Set(cubemap.Origin)
+            cubemap.BoxMinX, cubemap.BoxMinY, cubemap.BoxMinZ = cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ
+            cubemap.BoxMaxX, cubemap.BoxMaxY, cubemap.BoxMaxZ = cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ
             cubemap.Blend = 0
         end
     end
@@ -159,19 +163,13 @@ end
 ---@param normal      Vector
 ---@param tangent     Vector
 ---@param binormal    Vector
----@param bumpmapUV   Vector
 ---@param paintOrigin Vector
----@param lightmapU   number
----@param lightmapV   number
-local function SetVertex(surf, k, position, normal, tangent, binormal, bumpmapUV, paintOrigin, lightmapU, lightmapV)
-    local i = 3 * k
-    surf.Positions[i - 2],    surf.Positions[i - 1],    surf.Positions[i]    = position:Unpack()
-    surf.Normals[i - 2],      surf.Normals[i - 1],      surf.Normals[i]      = normal:Unpack()
-    surf.Tangents[i - 2],     surf.Tangents[i - 1],     surf.Tangents[i]     = tangent:Unpack()
-    surf.Binormals[i - 2],    surf.Binormals[i - 1],    surf.Binormals[i]    = binormal:Unpack()
-    surf.BumpmapUVs[i - 2],   surf.BumpmapUVs[i - 1],   surf.BumpmapUVs[i]   = bumpmapUV:Unpack()
-    surf.PaintOrigins[i - 2], surf.PaintOrigins[i - 1], surf.PaintOrigins[i] = paintOrigin:Unpack()
-    surf.LightmapUVs[2 * k - 1], surf.LightmapUVs[2 * k] = lightmapU, lightmapV
+local function SetVertex(surf, k, position, normal, tangent, binormal, paintOrigin)
+    surf.PositionX[k],    surf.PositionY[k],    surf.PositionZ[k]    = position:Unpack()
+    surf.NormalX[k],      surf.NormalY[k],      surf.NormalZ[k]      = normal:Unpack()
+    surf.TangentX[k],     surf.TangentY[k],     surf.TangentZ[k]     = tangent:Unpack()
+    surf.BinormalX[k],    surf.BinormalY[k],    surf.BinormalZ[k]    = binormal:Unpack()
+    surf.PaintOriginX[k], surf.PaintOriginY[k], surf.PaintOriginZ[k] = paintOrigin:Unpack()
 end
 
 ---Writes triangle j of the mesh of a surface into its triangle arrays.
@@ -185,17 +183,38 @@ end
 local function SetTriangle(surf, j, i1, i2, i3, lightmapTangent, lightmapBinormal)
     local i = 3 * j
     surf.VertexIndices[i - 2], surf.VertexIndices[i - 1], surf.VertexIndices[i] = i1, i2, i3
-    surf.LightmapTangents[i - 2],  surf.LightmapTangents[i - 1],  surf.LightmapTangents[i]  = lightmapTangent:Unpack()
-    surf.LightmapBinormals[i - 2], surf.LightmapBinormals[i - 1], surf.LightmapBinormals[i] = lightmapBinormal:Unpack()
+    surf.LightmapTangentX[j],  surf.LightmapTangentY[j],  surf.LightmapTangentZ[j]  = lightmapTangent:Unpack()
+    surf.LightmapBinormalX[j], surf.LightmapBinormalY[j], surf.LightmapBinormalZ[j] = lightmapBinormal:Unpack()
 end
 
 ---Sets the lengths of the vertex and the triangle arrays of a surface after they are written.
 ---@param surf ss.PrecachedData.Surface
 local function SetMeshLengths(surf)
-    surf.NumVertexCoordinates     = #surf.Positions
-    surf.NumLightmapUVCoordinates = #surf.LightmapUVs
-    surf.NumVertexIndices         = #surf.VertexIndices
-    surf.NumTriangleCoordinates   = #surf.LightmapTangents
+    surf.NumVertices      = #surf.PositionX
+    surf.NumTriangles     = #surf.LightmapTangentX
+    surf.NumVertexIndices = #surf.VertexIndices
+end
+
+---Writes the AABB of a surface with the margin to construct overlapped hash table entries.
+---@param surf ss.PrecachedData.Surface
+---@param mins Vector
+---@param maxs Vector
+local function SetAABB(surf, mins, maxs)
+    local margin = ss.MARGIN_HAMMER_UNITS
+    local minX, minY, minZ = mins:Unpack()
+    local maxX, maxY, maxZ = maxs:Unpack()
+    surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ = minX - margin, minY - margin, minZ - margin
+    surf.AABBMaxX, surf.AABBMaxY, surf.AABBMaxZ = maxX + margin, maxY + margin, maxZ + margin
+end
+
+---Writes the minimum bounding box of a surface.
+---@param surf   ss.PrecachedData.Surface
+---@param matrix VMatrix The origin and the orientation of the box.
+---@param size   Vector
+local function SetMBB(surf, matrix, size)
+    surf.MBBPitch,   surf.MBBYaw,     surf.MBBRoll    = matrix:GetAngles():Unpack()
+    surf.MBBOriginX, surf.MBBOriginY, surf.MBBOriginZ = matrix:GetTranslation():Unpack()
+    surf.MBBSizeX,   surf.MBBSizeY,   surf.MBBSizeZ   = size:Unpack()
 end
 
 ---Lists the vertices of each triangle in order, which counts a vertex once for each triangle sharing it.
@@ -218,7 +237,7 @@ end
 local function CalculateTriangleComponents(surf, positions, paintOrigins, vertexIndices)
     local WorldToLocalRotation = Matrix()
     local DispPaintOriginRotation = Matrix()
-    surf.Triangles = {}
+    surf.DisplacementTriangles = {}
     for i = 1, #vertexIndices, 3 do
         --                 foward = t2 - t3
         --                       ^
@@ -253,11 +272,11 @@ local function CalculateTriangleComponents(surf, positions, paintOrigins, vertex
         local barycentricDot1 = (d1313 * t1t2 - d1213 * t1t3) / denominator
         local barycentricDot2 = (d1212 * t1t3 - d1213 * t1t2) / denominator
         local t = PrecachedData.DisplacementTriangle.new()
-        t.BarycentricDot1 = barycentricDot1
-        t.BarycentricDot2 = barycentricDot2
-        t.MBBAngles = angle
-        t.MBBOrigin:Set(t3 + e1 * minX)
-        t.MBBSize:SetUnpacked(maxX - minX, e2:Dot(another), 0)
+        t.BarycentricDot1X, t.BarycentricDot1Y, t.BarycentricDot1Z = barycentricDot1:Unpack()
+        t.BarycentricDot2X, t.BarycentricDot2Y, t.BarycentricDot2Z = barycentricDot2:Unpack()
+        t.MBBPitch, t.MBBYaw, t.MBBRoll = angle:Unpack()
+        t.MBBOriginX, t.MBBOriginY, t.MBBOriginZ = (t3 + e1 * minX):Unpack()
+        t.MBBSizeX, t.MBBSizeY = maxX - minX, e2:Dot(another)
 
         local org1 = paintOrigins[i1]
         local org2 = paintOrigins[i2]
@@ -276,25 +295,26 @@ local function CalculateTriangleComponents(surf, positions, paintOrigins, vertex
         local e11, e12, e13, _, e21, e22, e23, _, e31, e32, e33 = WorkMatrix:Unpack()
         local r = t.WorldToLocalGridRotation
         r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9] = e11, e12, e13, e21, e22, e23, e31, e32, e33
-        surf.Triangles[#surf.Triangles + 1] = t
+        surf.DisplacementTriangles[#surf.DisplacementTriangles + 1] = t
     end
 
-    surf.NumTriangles = #surf.Triangles
+    surf.NumDisplacementTriangles = #surf.DisplacementTriangles
 end
 
----Packs the blend factors toward $basetexture2, 3, and 4 for PrecachedData.Vertex.BumpmapUV.z.
----WorldVertexTransition has only the first one, the vertex alpha.
+---Returns the blend factors of a vertex toward $basetexture2, 3, and 4 from 0 to 1.
+---WorldVertexTransition has only the first one, the vertex alpha from 0 to 255.
 ---@param dispVert   ss.Binary.BSP.DISP_VERTS
 ---@param multiblend ss.Binary.BSP.DISP_MULTIBLEND? Only for Lightmapped_4WayBlend.
----@return integer
-local function PackVertexBlend(dispVert, multiblend)
+---@return number blend2
+---@return number blend3
+---@return number blend4
+local function GetVertexBlends(dispVert, multiblend)
     if not multiblend then
-        return math.Round(math.Clamp(dispVert.alpha, 0, 255))
+        return math.Clamp(dispVert.alpha / 255, 0, 1), 0, 0
     end
 
-    local function to8Bit(x) return math.Round(math.Clamp(x, 0, 1) * 255) end
     local m = multiblend.multiblend -- x, y, z, w
-    return to8Bit(m[2]) + to8Bit(m[3]) * 256 + to8Bit(m[4]) * 65536
+    return math.Clamp(m[2], 0, 1), math.Clamp(m[3], 0, 1), math.Clamp(m[4], 0, 1)
 end
 
 ---Construct a polygon from a raw displacement data
@@ -431,6 +451,8 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, angle)
     local lengthIntegratedU = {} ---@type number[]
     local lengthIntegratedV = {} ---@type number[]
 
+    local aabbMax     = Util.vector_one * -math.huge
+    local aabbMin     = Util.vector_one * math.huge
     local deformed    = {} ---@type Vector[]
     local subdivision = {} ---@type Vector[]
     local paintorigin = {} ---@type Vector[]
@@ -461,7 +483,8 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, angle)
             bumpmapuv[i] = Bilerp(
                 bumpmapCorners[1], bumpmapCorners[2],
                 bumpmapCorners[3], bumpmapCorners[4], u, v)
-            bumpmapuv[i].z = PackVertexBlend(dispVert, multiblendStart and rawMultiBlend[multiblendStart + i - 1])
+            surf.Blend2[i], surf.Blend3[i], surf.Blend4[i]
+                = GetVertexBlends(dispVert, multiblendStart and rawMultiBlend[multiblendStart + i - 1])
             lightmapuv[i] = Bilerp(
                 lightmapCorners[1], lightmapCorners[2],
                 lightmapCorners[3], lightmapCorners[4], u, v)
@@ -499,14 +522,12 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, angle)
             end
 
             -- Set bounding box
-            surf.AABBMax:Set(Util.MaxVector(surf.AABBMax, deformed[i]))
-            surf.AABBMin:Set(Util.MinVector(surf.AABBMin, deformed[i]))
+            aabbMax:Set(Util.MaxVector(aabbMax, deformed[i]))
+            aabbMin:Set(Util.MinVector(aabbMin, deformed[i]))
         end
     end
 
-    -- Add margin to construct overlapped hash table entries
-    surf.AABBMax:Add(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
-    surf.AABBMin:Sub(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
+    SetAABB(surf, aabbMin, aabbMax)
 
     local tangents     = {} ---@type Vector[]
     local binormals    = {} ---@type Vector[]
@@ -588,23 +609,24 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, angle)
 
     -- The vertices of the mesh are the grid points.
     for i, p in ipairs(deformed) do
-        SetVertex(surf, i, p, normals[i], tangents[i], binormals[i],
-            bumpmapuv[i], paintorigin[i], lightmapuv[i].x, lightmapuv[i].y)
+        SetVertex(surf, i, p, normals[i], tangents[i], binormals[i], paintorigin[i])
+        surf.BumpmapU[i], surf.BumpmapV[i] = bumpmapuv[i].x, bumpmapuv[i].y
+        surf.LightmapU[i], surf.LightmapV[i] = lightmapuv[i].x, lightmapuv[i].y
     end
 
     SetMeshLengths(surf)
 
     local mbrMatrix, mbrSize = BoundingBox.FindMBR(VerticesOfTriangles(paintorigin, triangles), angle)
     local mbbMatrix, mbbSize = BoundingBox.FindMinimumOBB(VerticesOfTriangles(deformed, triangles)) -- For the deformed mesh
-    local aabbSize = surf.AABBMax - surf.AABBMin
-    if mbbSize.x * mbbSize.y * mbbSize.z < aabbSize.x * aabbSize.y * aabbSize.z then
-        surf.MBBAngles:Set(mbbMatrix:GetAngles())
-        surf.MBBOrigin:Set(mbbMatrix:GetTranslation())
-        surf.MBBSize:Set(mbbSize)
-    else
-        surf.MBBAngles:Zero()
-        surf.MBBOrigin:Set(surf.AABBMin)
-        surf.MBBSize:Set(aabbSize)
+    local aabbSizeX = surf.AABBMaxX - surf.AABBMinX
+    local aabbSizeY = surf.AABBMaxY - surf.AABBMinY
+    local aabbSizeZ = surf.AABBMaxZ - surf.AABBMinZ
+    if mbbSize.x * mbbSize.y * mbbSize.z < aabbSizeX * aabbSizeY * aabbSizeZ then
+        SetMBB(surf, mbbMatrix, mbbSize)
+    else -- The AABB is the smaller box.
+        surf.MBBPitch,   surf.MBBYaw,     surf.MBBRoll    = 0, 0, 0
+        surf.MBBOriginX, surf.MBBOriginY, surf.MBBOriginZ = surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ
+        surf.MBBSizeX,   surf.MBBSizeY,   surf.MBBSizeZ   = aabbSizeX, aabbSizeY, aabbSizeZ
     end
 
     SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
@@ -676,26 +698,26 @@ local function BuildFromBrushFace(bsp, rawFace)
         local mbrMatrix, mbrSize = BoundingBox.FindMBR(filteredVertices, angle)
 
         -- The vertices of the mesh are those of the polygon.
+        local aabbMax = Util.vector_one * -math.huge
+        local aabbMin = Util.vector_one * math.huge
         for i, v in ipairs(filteredVertices) do
-            surf.AABBMax:Set(Util.MaxVector(surf.AABBMax, v))
-            surf.AABBMin:Set(Util.MinVector(surf.AABBMin, v))
-            local bumpmapUV = Vector(
-                v:Dot(texInfo.textureVecS) + texInfo.textureOffsetS,
-                v:Dot(texInfo.textureVecT) + texInfo.textureOffsetT)
-            local lightmapU = v:Dot(texInfo.lightmapVecS)
+            aabbMax:Set(Util.MaxVector(aabbMax, v))
+            aabbMin:Set(Util.MinVector(aabbMin, v))
+            SetVertex(surf, i, v, normal, texInfo.textureVecS, texInfo.textureVecT, v)
+            surf.BumpmapU[i] = v:Dot(texInfo.textureVecS) + texInfo.textureOffsetS
+            surf.BumpmapV[i] = v:Dot(texInfo.textureVecT) + texInfo.textureOffsetT
+            surf.Blend2[i], surf.Blend3[i], surf.Blend4[i] = 0, 0, 0
+            surf.LightmapU[i] = v:Dot(texInfo.lightmapVecS)
                 + texInfo.lightmapOffsetS
                 - rawFace.lightmapTextureMinsInLuxels[1]
                 + 0.5
-            local lightmapV = v:Dot(texInfo.lightmapVecT)
+            surf.LightmapV[i] = v:Dot(texInfo.lightmapVecT)
                 + texInfo.lightmapOffsetT
                 - rawFace.lightmapTextureMinsInLuxels[2]
                 + 0.5
-            SetVertex(surf, i, v, normal, texInfo.textureVecS, texInfo.textureVecT, bumpmapUV, v, lightmapU, lightmapV)
         end
 
-        -- Add margin to construct overlapped hash table entries
-        surf.AABBMax:Add(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
-        surf.AABBMin:Sub(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
+        SetAABB(surf, aabbMin, aabbMax)
 
         -- The triangles are a fan of the vertices.
         for i = 2, #filteredVertices - 1 do
@@ -705,9 +727,7 @@ local function BuildFromBrushFace(bsp, rawFace)
         SetMeshLengths(surf)
 
         if not isWater then
-            surf.MBBAngles:Set(mbrMatrix:GetAngles())
-            surf.MBBOrigin:Set(mbrMatrix:GetTranslation())
-            surf.MBBSize:Set(mbrSize)
+            SetMBB(surf, mbrMatrix, mbrSize)
             SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
         end
 
@@ -850,13 +870,13 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
                 local scale = prop.uniformScale or 1
                 illumpositions[name] = illumpositions[name] or ReadIlluminationPosition(name)
                 local result = PrecachedData.StaticProp.new()
-                result.Angles = prop.angle
-                result.BoundsMax = info.HullMax * scale
-                result.BoundsMin = info.HullMin * scale
+                result.Pitch, result.Yaw, result.Roll = prop.angle:Unpack()
+                result.BoundsMaxX, result.BoundsMaxY, result.BoundsMaxZ = (info.HullMax * scale):Unpack()
+                result.BoundsMinX, result.BoundsMinY, result.BoundsMinZ = (info.HullMin * scale):Unpack()
                 result.FadeMax = prop.fadeMaxDist
                 result.FadeMin = prop.fadeMinDist
                 result.ModelIndex = modelIndex
-                result.Position = prop.origin
+                result.PositionX, result.PositionY, result.PositionZ = prop.origin:Unpack()
                 result.Scale = scale
                 result.Skin = prop.skin
                 result.UnwrapIndex = 1
