@@ -29,39 +29,30 @@ local CVarDebugMeshData = CreateClientConVar("ss_debug_mesh_data", "0", false, f
 
 local function LoadCache()
     local cachePath = string.format("splashsweps/%s.dat", game.GetMap())
-    local ldrPath = string.format("splashsweps/%s_ldr.dat", game.GetMap())
-    local hdrPath = string.format("splashsweps/%s_hdr.dat", game.GetMap())
-    local ldrExists = file.Exists(ldrPath, "DATA")
-    local hdrExists = file.Exists(hdrPath, "DATA")
+    local surfacesPath = string.format("splashsweps/%s_surfaces.dat", game.GetMap())
     local cache = PrecachedData.ReadFile(cachePath, "PrecachedData") ---@type ss.PrecachedData?
     if not cache then return end
 
-    local ishdr = false
-    if render.GetHDREnabled() then
-        ishdr = hdrExists
-    else
-        ishdr = not ldrExists
-    end
-
-    local surfacePath = ishdr and hdrPath or ldrPath
-    local staticPropUV = (ishdr and cache.StaticPropHDR or cache.StaticPropLDR) or {} -- nil without static props
-    local waterSurfaces = ishdr and cache.SurfacesWaterHDR or cache.SurfacesWaterLDR
-    local surfaces = PrecachedData.ReadFile(surfacePath, "PrecachedData.SurfaceInfo") ---@type ss.PrecachedData.SurfaceInfo?
+    local surfaces = PrecachedData.ReadFile(surfacesPath, "PrecachedData.SurfaceInfo") ---@type ss.PrecachedData.SurfaceInfo?
     if not surfaces then return end
 
+    -- The engine packs the HDR lightmaps if HDR is enabled, and the cache has them only if the faces match.
+    local lightmaps = render.GetHDREnabled() and surfaces.LightmapsHDR or surfaces.LightmapsLDR or {}
     Hash.Setup(surfaces.SurfaceHash, cache.HashParameters)
-    RenderTargets.Setup(surfaces.UVScales[#PrecachedData.InkMapResolutions])
+    RenderTargets.Setup(surfaces.HammerUnitsToUV)
     InkShape.Load()
     InkType.Load()
     InkAtlases.Load()
     InkMap.Setup()
-    InkMesh.Setup(surfaces, cache.NumModels, cache.MaterialNames, CVarDebugMeshData:GetBool())
-    PaintableSurface.Setup(surfaces.Surfaces, cache.NumModels)
-    PaintableSurface.SetupStaticProps(cache.StaticProps, {
-        UVInfo = staticPropUV,
-        HammerUnitsToUV = RenderTargets.GetHammerUnitsToUV(),
-    })
-    StaticPropBuilder.Setup(cache.StaticProps, cache.StaticPropMDL, staticPropUV, surfaces.Cubemaps)
+    local inkMap = {
+        HammerUnitsToUV = surfaces.HammerUnitsToUV,
+        BilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / RenderTargets.InkMaps.InkMap:Width(),
+    }
+    PaintableSurface.Setup(surfaces.Surfaces, cache.NumModels, inkMap)
+    PaintableSurface.SetupStaticProps(cache.StaticProps, inkMap)
+    InkMesh.Setup(surfaces, lightmaps, PaintableSurface.Surfaces, cache.NumModels, cache.MaterialNames,
+        CVarDebugMeshData:GetBool())
+    StaticPropBuilder.Setup(cache.StaticProps, cache.StaticPropMDL, surfaces.Cubemaps)
     InkMap.ClearAll()
 end
 

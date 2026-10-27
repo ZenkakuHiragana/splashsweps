@@ -1,109 +1,41 @@
 
--- Packs the paintable surfaces into the UV space of the ink map.
+-- Packs the paintable surfaces and the static props into the ink map.
 
 ---@class ss
 local ss = SplashSWEPs
-local PrecachedData   = ss.import "splashsweps/shared/typing/precachedata"
 local RectanglePacker = ss.import "splashsweps/shared/packer/packer"
 local Structures      = ss.import "splashsweps/shared/packer/structures"
 
 ---@class ss.UVBuilderModule
 local UVBuilder = ss.module "splashsweps/server/mapcache/uvbuilder"
 
----Sets up UV coordinates for precached surface data.
----@param surfInfo ss.PrecachedData.SurfaceInfo
----@param staticPropInfo ss.PrecachedData.StaticProp.UVInfo[] In the layout of ss.PrecachedData.StaticPropHDR.
----@param staticPropRectangles Vector[]
-function UVBuilder.Build(surfInfo, staticPropInfo, staticPropRectangles)
-    print "Calculation UV coordinates..."
-    local totalArea = 0
-    local surfaces = surfInfo.Surfaces or {} -- nil when read from a cache file without surfaces
-    for _, surf in ipairs(surfaces) do
-        local info = surf.UVInfo[1]
-        totalArea = totalArea + info.Width * info.Height
-    end
-
-    for _, rect in ipairs(staticPropRectangles) do
-        totalArea = totalArea + rect.x * rect.y ---@type number
-    end
-
+---Places rectangles in the ink map.
+---Each rectangle has its size before this, and gets its position and rotation, with its size swapped if rotated.
+---@param rectangles ss.PrecachedData.InkMapRectangle[]
+---@return number # Converts hammer units of the rectangles into UV coordinates of the ink map.
+function UVBuilder.Build(rectangles)
+    print "Packing surfaces into the ink map..."
     local t0 = SysTime()
-    local workMatrix = Matrix() -- Work area to invert matrix.
-    local worldToUV = Matrix() -- Work area to rebuild the matrix from angles.
-    for rtIndex, rtSize in ipairs(PrecachedData.InkMapResolutions) do
-        local rects = {} ---@type ss.Rectangle[]
-        local marginPerSide = ss.MARGIN_HAMMER_UNITS
-        local margin = marginPerSide * 2
-        local marginVector = Vector(marginPerSide, marginPerSide)
-        for i, surf in ipairs(surfaces) do
-            local info = surf.UVInfo[rtIndex]
-            rects[i] = Structures.MakeRectangle(info.Width + margin, info.Height + margin, 0, 0, surf)
-        end
-
-        for i, rect in ipairs(staticPropRectangles) do
-            local info = staticPropInfo[(i - 1) * #PrecachedData.InkMapResolutions + rtIndex]
-            local tag = {
-                UV = info,
-                Rectangle = rect,
-            }
-            -- The rectangle already includes the margins of each face; see GetStaticPropUVSize.
-            rects[#surfaces + i] = Structures.MakeRectangle(rect.x, rect.y, 0, 0, tag)
-        end
-
-        local packer = RectanglePacker.new(rects):packall()
-        local rectangleSizeHU = packer.maxsize -- Size of generated rectangle in Hammer Units
-        surfInfo.UVScales[rtIndex] = 1 / rectangleSizeHU
-        for _, index in ipairs(packer.results) do
-            local rect = packer.rects[index]
-            local tag = rect.tag ---@cast tag ss.PrecachedData.Surface
-            local width = rect.width
-            local height = rect.height
-            if tag.UVInfo then
-                local info = tag.UVInfo[rtIndex]
-                local mbrMatrix = tag.MBRMatrix ---@cast mbrMatrix -?
-                local angle = mbrMatrix:GetAngles()
-                local translation = mbrMatrix:GetTranslation()
-
-                -- If the face is rotated in the UV coord.
-                if rect.istall ~= (info.Width < info.Height) then
-                    angle:RotateAroundAxis(angle:Up(), 90)
-                    workMatrix:Identity()
-                    workMatrix:SetAngles(angle)
-                    translation:Sub(workMatrix * Vector(0, height - margin, 0))
-                end
-
-                info.OffsetU = rect.left   / rectangleSizeHU
-                info.OffsetV = rect.bottom / rectangleSizeHU
-                info.Width   = width       / rectangleSizeHU
-                info.Height  = height      / rectangleSizeHU
-
-                workMatrix:SetTranslation(translation)
-                workMatrix:SetAngles(angle)
-                workMatrix:InvertTR()
-
-                -- Built through the angles so that the values stay the same as when the cache stored the angles.
-                -- SetAngles keeps the scale of the matrix with rounding errors, so the matrix is reset first.
-                worldToUV:Identity()
-                worldToUV:SetAngles(workMatrix:GetAngles())
-                worldToUV:SetTranslation(workMatrix:GetTranslation() + rect.bottomleft + marginVector)
-                local row1, row2 = info.WorldToUVRow1, info.WorldToUVRow2
-                row1[1], row1[2], row1[3], row1[4], row2[1], row2[2], row2[3], row2[4] = worldToUV:Unpack()
-            else ---@cast tag { UV: ss.PrecachedData.StaticProp.UVInfo, Rectangle: Vector }
-                local rotated = rect.istall ~= (tag.Rectangle.x < tag.Rectangle.y)
-                tag.UV.Width = width
-                tag.UV.Height = height
-                tag.UV.OffsetU = rect.left
-                tag.UV.OffsetV = rect.bottom
-                tag.UV.IsRotated = rotated
-            end
-        end
-
-        local elapsed = math.Round((SysTime() - t0) * 1000, 2)
-        print("    Render Target size: " .. rtSize
-            .. " (" .. elapsed .. " ms), pixel/hammer unit = "
-            .. rtSize / rectangleSizeHU)
-        t0 = SysTime()
+    local rects = {} ---@type ss.Rectangle[]
+    for i, r in ipairs(rectangles) do
+        rects[i] = Structures.MakeRectangle(r.Width, r.Height, 0, 0, r)
     end
+
+    local packer = RectanglePacker.new(rects):packall()
+    for _, index in ipairs(packer.results) do
+        local rect = packer.rects[index]
+        local r = rect.tag ---@cast r ss.PrecachedData.InkMapRectangle
+        r.OffsetU   = rect.left
+        r.OffsetV   = rect.bottom
+        r.Width     = rect.width
+        r.Height    = rect.height
+        r.IsRotated = rect.rotated
+    end
+
+    local elapsed = math.Round((SysTime() - t0) * 1000, 2)
+    print("    Packed " .. #rects .. " rectangles into "
+        .. packer.maxsize .. " hammer units (" .. elapsed .. " ms)")
+    return 1 / packer.maxsize
 end
 
 return UVBuilder

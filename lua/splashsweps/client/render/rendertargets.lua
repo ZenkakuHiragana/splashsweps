@@ -3,7 +3,6 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
 
 ---@class ss.RenderTargetsModule
 local RenderTargets = ss.module "splashsweps/client/render/rendertargets"
@@ -11,6 +10,7 @@ local RenderTargets = ss.module "splashsweps/client/render/rendertargets"
 local InkSSRComposeMaterial = Material "splashsweps/shaders/inkssr_compose"
 local InkSSRBlurResolutionMul = InkSSRComposeMaterial:GetFloat "$c0_x"
 local CREATERENDERTARGETFLAGS_NONE = 0
+local INK_MAP_SIZE = 16384 -- Width and height of the ink map in pixels
 local TEXTUREFLAGS = {
     CLAMPS            = 4,
     NOMIP             = 256,
@@ -127,11 +127,9 @@ function RenderTargets.Setup(hammerUnitsToUV)
             IMAGE_FORMAT_RGBA16161616F)
     end
 
-    local rtIndex = #PrecachedData.InkMapResolutions
-    local rtSize = PrecachedData.InkMapResolutions[rtIndex]
     state.InkMaps.InkMap = GetRenderTargetEx(
         RTNAMES.INKMAP,
-        rtSize, rtSize,
+        INK_MAP_SIZE, INK_MAP_SIZE,
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_SEPARATE,
         RTFLAGS.INKMAP,
@@ -139,7 +137,7 @@ function RenderTargets.Setup(hammerUnitsToUV)
         IMAGE_FORMAT_RGBA8888)
     state.InkMaps.InkMapSnapshot = GetRenderTargetEx(
         RTNAMES.INKMAP_SNAPSHOT,
-        rtSize, rtSize,
+        INK_MAP_SIZE, INK_MAP_SIZE,
         RT_SIZE_LITERAL,
         MATERIAL_RT_DEPTH_NONE,
         RTFLAGS.INKMAP,

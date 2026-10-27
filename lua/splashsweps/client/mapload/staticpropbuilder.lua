@@ -4,7 +4,6 @@
 ---@class ss
 local ss = SplashSWEPs
 local InkDetailAtlas     = ss.import "splashsweps/client/ink/inkdetailatlas"
-local PrecachedData      = ss.import "splashsweps/shared/typing/precachedata"
 local RenderTargets      = ss.import "splashsweps/client/render/rendertargets"
 local StaticPropRenderer = ss.import "splashsweps/client/render/staticproprenderer"
 local UnderlaySync       = ss.import "splashsweps/client/render/underlaysync"
@@ -62,9 +61,8 @@ end
 ---Creates the models and the ink sprp materials of static props.
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
 ---@param modelNames     string[]
----@param uvInfo         ss.PrecachedData.StaticProp.UVInfo[] In the layout of ss.PrecachedData.StaticPropHDR.
 ---@param cubemaps       ss.PrecachedData.CubemapInfo[]
-function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
+function StaticPropBuilder.Setup(staticPropInfo, modelNames, cubemaps)
     local templateMaterial = Material "splashsweps/shaders/staticprop"
     local materialCache = {} ---@type table<string, IMaterial>
     local watchedMaterials = {} ---@type { Material: IMaterial }[]
@@ -94,7 +92,7 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, uvInfo, cubemaps)
     -- xyzTzxy * Vector(X, Y, Z) = (Y, Z, X)
     local xyzTzxy = xyzTyzx:GetTransposed()
     for i, prop in ipairs(staticPropInfo or {}) do
-        local uv = uvInfo[i * #PrecachedData.InkMapResolutions]
+        local uv = prop.InkMapRectangle
         local modelName = modelNames[prop.ModelIndex]
         if modelName then
             ---@class ss.PaintableCSEnt : CSEnt

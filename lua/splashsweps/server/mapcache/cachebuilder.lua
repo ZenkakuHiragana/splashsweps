@@ -58,6 +58,49 @@ local function findLightEnvironment(bsp, cache)
     end
 end
 
+---Lists the material names of the map in the order of TEXDATA_STRING_DATA.
+---@param bsp ss.RawBSPResults
+---@return string[]
+local function BuildMaterialNames(bsp)
+    local names = {} ---@type string[]
+    for i, texName in ipairs(bsp.TEXDATA_STRING_DATA) do
+        names[i] = texName:lower():StripExtension():gsub("\\", "/")
+    end
+
+    return names
+end
+
+---Tests if LUMP_FACES_HDR has the same faces as LUMP_FACES except for their lighting,
+---so that the surfaces built from LUMP_FACES can use the lightmaps of LUMP_FACES_HDR.
+---@param bsp ss.RawBSPResults
+---@return boolean
+local function HasMatchingHDRFaces(bsp)
+    local faces, hdrFaces = bsp.FACES, bsp.FACES_HDR
+    if not hdrFaces or #hdrFaces == 0 then return false end
+    local matches = #hdrFaces == #faces
+    for i = 1, matches and #faces or 0 do
+        local f, h = faces[i], hdrFaces[i]
+        if f.planeNum ~= h.planeNum
+        or f.firstEdge ~= h.firstEdge
+        or f.numEdges ~= h.numEdges
+        or f.texInfo ~= h.texInfo
+        or f.dispInfo ~= h.dispInfo
+        or f.lightmapTextureMinsInLuxels[1] ~= h.lightmapTextureMinsInLuxels[1]
+        or f.lightmapTextureMinsInLuxels[2] ~= h.lightmapTextureMinsInLuxels[2]
+        or f.lightmapTextureSizeInLuxels[1] ~= h.lightmapTextureSizeInLuxels[1]
+        or f.lightmapTextureSizeInLuxels[2] ~= h.lightmapTextureSizeInLuxels[2] then
+            matches = false
+            break
+        end
+    end
+
+    if not matches then
+        print "    LUMP_FACES_HDR has faces other than LUMP_FACES, so the client uses the LDR lightmaps."
+    end
+
+    return matches
+end
+
 ---Calculates playable areas from parsed BSP structures.
 ---@param bsp ss.RawBSPResults
 ---@return ss.MinimapAreaBounds[]
@@ -167,50 +210,51 @@ function CacheBuilder.Build()
     if not bsp then return end
     local cache = PrecachedData.new()
     cache.Revision         = bsp.header.mapRevision
+    cache.MaterialNames    = BuildMaterialNames(bsp)
+    cache.NumMaterialNames = #cache.MaterialNames
     cache.MinimapBounds    = BuildMinimapBounds(bsp)
     cache.NumMinimapBounds = #cache.MinimapBounds
     cache.NumModels        = #bsp.MODELS
     SurfaceBuilder.BuildStaticPropCache(bsp, cache)
     findLightEnvironment(bsp, cache)
-
-    local staticPropRectangles = {} ---@type Vector[]
-    for i, prop in ipairs(cache.StaticProps) do
-        local w, h, layoutType = GetStaticPropUVSize(prop)
-        staticPropRectangles[i] = Vector(w, h)
-        prop.UnwrapIndex = layoutType
+    for _, prop in ipairs(cache.StaticProps) do
+        local rectangle = prop.InkMapRectangle
+        rectangle.Width, rectangle.Height, prop.UnwrapIndex = GetStaticPropUVSize(prop)
     end
 
-    local hdrPath = string.format("splashsweps/%s_hdr.dat", game.GetMap())
+    -- The surfaces are released before the compression, which needs memory.
+    local path = string.format("splashsweps/%s_surfaces.dat", game.GetMap())
     do
         collectgarbage "collect"
-        local hdr, whdr = SurfaceBuilder.BuildSurfaceCache(bsp, true)
-        cache.SurfacesWaterHDR = whdr
-        cache.NumSurfacesWaterHDR = #whdr
-        UVBuilder.Build(hdr, cache.StaticPropHDR, staticPropRectangles)
-        Hash.BuildDisplacementHash(hdr.Surfaces)
-        LightmapBuilder.Build(bsp, true, hdr, cache)
-        hdr.SurfaceHash = Hash.BuildSurfaceHash(hdr.Surfaces, cache.StaticProps)
-        PrecachedData.WriteFile(hdrPath, "PrecachedData.SurfaceInfo", hdr)
+        local surfaceInfo, waterSurfaces = SurfaceBuilder.BuildSurfaceCache(bsp)
+        local surfaces = surfaceInfo.Surfaces ---@cast surfaces -? SurfaceInfo.new() creates the array.
+        cache.WaterSurfaces = waterSurfaces
+        cache.NumWaterSurfaces = #waterSurfaces
+
+        local rectangles = {} ---@type ss.PrecachedData.InkMapRectangle[]
+        for _, surf in ipairs(surfaces) do
+            rectangles[#rectangles + 1] = surf.InkMapRectangle
+        end
+
+        for _, prop in ipairs(cache.StaticProps) do
+            rectangles[#rectangles + 1] = prop.InkMapRectangle
+        end
+
+        surfaceInfo.HammerUnitsToUV = UVBuilder.Build(rectangles)
+        Hash.BuildDisplacementHash(surfaces)
+        surfaceInfo.LightmapsLDR = LightmapBuilder.Build(bsp, bsp.FACES, bsp.LIGHTING, surfaces, cache.MaterialNames)
+        surfaceInfo.NumLightmapsLDR = #surfaceInfo.LightmapsLDR
+        if HasMatchingHDRFaces(bsp) then
+            surfaceInfo.LightmapsHDR = LightmapBuilder.Build(bsp, bsp.FACES_HDR, bsp.LIGHTING_HDR, surfaces, cache.MaterialNames)
+            surfaceInfo.NumLightmapsHDR = #surfaceInfo.LightmapsHDR
+        end
+
+        surfaceInfo.SurfaceHash = Hash.BuildSurfaceHash(surfaces, cache.StaticProps)
+        PrecachedData.WriteFile(path, "PrecachedData.SurfaceInfo", surfaceInfo)
     end
 
     collectgarbage "collect"
-    PrecachedData.CompressFile(hdrPath)
-
-    local ldrPath = string.format("splashsweps/%s_ldr.dat", game.GetMap())
-    do
-        collectgarbage "collect"
-        local ldr, wldr = SurfaceBuilder.BuildSurfaceCache(bsp, false)
-        cache.SurfacesWaterLDR = wldr
-        cache.NumSurfacesWaterLDR = #wldr
-        UVBuilder.Build(ldr, cache.StaticPropLDR, staticPropRectangles)
-        Hash.BuildDisplacementHash(ldr.Surfaces)
-        LightmapBuilder.Build(bsp, false, ldr, cache)
-        ldr.SurfaceHash = Hash.BuildSurfaceHash(ldr.Surfaces, cache.StaticProps)
-        PrecachedData.WriteFile(ldrPath, "PrecachedData.SurfaceInfo", ldr)
-    end
-
-    collectgarbage "collect"
-    PrecachedData.CompressFile(ldrPath)
+    PrecachedData.CompressFile(path)
     collectgarbage "collect"
     return cache
 end

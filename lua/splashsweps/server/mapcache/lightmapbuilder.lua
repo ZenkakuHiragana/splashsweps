@@ -161,35 +161,28 @@ for i = 1, 1024 do
     linearToScreen[i] = Clamp(floor(255 * pow((i - 1) / 1023, 1 / 2.2)), 0, 255)
 end
 
----Generates lightmap packing information for all faces in a BSP.
----@param bsp ss.RawBSPResults
----@param ishdr boolean
----@param surfaceInfo ss.PrecachedData.SurfaceInfo
----@param cache ss.PrecachedData
-function LightmapBuilder.Build(bsp, ishdr, surfaceInfo, cache)
-    print("    Generating lightmap info (" .. (ishdr and "HDR" or "LDR") .. ")...")
-    local faces = ishdr and bsp.FACES_HDR or bsp.FACES
-    if not faces or #faces == 0 then return end
-
+---Generates lightmap packing information for the faces of a face lump.
+---@param bsp           ss.RawBSPResults
+---@param faces         ss.Binary.BSP.FACES[] LUMP_FACES, or LUMP_FACES_HDR which has the same faces.
+---@param rawSamples    string                LUMP_LIGHTING for LUMP_FACES, or LUMP_LIGHTING_HDR for LUMP_FACES_HDR.
+---@param surfaces      ss.PrecachedData.Surface[] Paintable surfaces built from LUMP_FACES.
+---@param materialNames string[] Material names in the order of TEXDATA_STRING_DATA.
+---@return ss.PrecachedData.LightmapInfo[] # Indexed by the face.
+function LightmapBuilder.Build(bsp, faces, rawSamples, surfaces, materialNames)
+    print "    Generating lightmap info..."
+    local lightmaps = {} ---@type ss.PrecachedData.LightmapInfo[]
     local rawTexInfo   = bsp.TEXINFO
     local rawTexData   = bsp.TEXDATA
     local rawTexDict   = bsp.TEXDATA_STRING_TABLE
     local rawTexIndex  = bsp.TexDataStringTableToIndex
-    local rawTexString = bsp.TEXDATA_STRING_DATA
-    local rawSamples   = ishdr and bsp.LIGHTING_HDR or bsp.LIGHTING
     local materialIDs  = {} ---@type table<string, integer>
-    for i, texName in ipairs(rawTexString) do
-        local sanitized = texName:lower():StripExtension():gsub("\\", "/")
-        materialIDs[sanitized] = i
-        cache.MaterialNames[i] = sanitized
+    for i, name in ipairs(materialNames) do
+        materialIDs[name] = i
     end
 
-    cache.NumMaterialNames = #cache.MaterialNames
-
     local faceLumpIndexToSurfaceInfoIndex = {} ---@type integer[]
-    for i, surf in ipairs(surfaceInfo.Surfaces) do
+    for i, surf in ipairs(surfaces) do
         faceLumpIndexToSurfaceInfoIndex[surf.FaceLumpIndex] = i
-        surf.FaceLumpIndex = nil
     end
 
     -- Create a list of face objects with all necessary info for sorting
@@ -198,8 +191,7 @@ function LightmapBuilder.Build(bsp, ishdr, surfaceInfo, cache)
         local texData     = rawTexData[texInfo.texData + 1]
         local texOffset   = rawTexDict[texData.nameStringTableID + 1]
         local texIndex    = rawTexIndex[texOffset]
-        local texName     = rawTexString[texIndex]
-        local materialID  = materialIDs[texName:lower():StripExtension():gsub("\\", "/")]
+        local materialID  = materialIDs[materialNames[texIndex]]
         local lightOffset = rawFace.lightOffset + 1
         local lightStyles = rawFace.styles
         local width       = rawFace.lightmapTextureSizeInLuxels[1]
@@ -271,10 +263,10 @@ function LightmapBuilder.Build(bsp, ishdr, surfaceInfo, cache)
                 t.HasLightmap = 1
             end
         end
-        surfaceInfo.Lightmaps[i] = t
+        lightmaps[i] = t
     end
 
-    surfaceInfo.NumLightmaps = #surfaceInfo.Lightmaps
+    return lightmaps
 end
 
 return LightmapBuilder

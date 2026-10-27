@@ -4,7 +4,6 @@
 ---@class ss
 local ss = SplashSWEPs
 local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
-local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
 local Util          = ss.import "splashsweps/shared/util"
 
 ---@class ss.PaintableSurfaceModule
@@ -149,10 +148,16 @@ local function vectorsOf(xs, ys, zs)
     return vectors
 end
 
+---Scale of the ink map, which only the client has.
+---@class ss.PaintableSurface.InkMap
+---@field HammerUnitsToUV number Converts hammer units of the ink map rectangles into UV coordinates.
+---@field BilinearGuard   number Width in UV coordinates inside the edges of each rectangle where the paints are clipped.
+
 ---Reads a surface list from a file and stores them for later use.
 ---@param surfaces  ss.PrecachedData.Surface[]?
 ---@param numModels integer Number of entries in the BSP model lump.
-function PaintableSurface.Setup(surfaces, numModels)
+---@param inkMap    ss.PaintableSurface.InkMap? Scale of the ink map to set the UV fields of the surfaces; the server has none.
+function PaintableSurface.Setup(surfaces, numModels, inkMap)
     if not surfaces then return end
     state.ModelIndexBits = math.max(select(2, math.frexp(numModels - 1)), 1)
     table.Empty(state.BrushModelSurfaces)
@@ -207,17 +212,24 @@ function PaintableSurface.Setup(surfaces, numModels)
                 }
             end
         end
-        if CLIENT then
-            local rtIndex = #PrecachedData.InkMapResolutions
-            local rtSize = PrecachedData.InkMapResolutions[rtIndex]
-            local uvInfo = surf.UVInfo[rtIndex]
-            ps.WorldToUVRow1 = uvInfo.WorldToUVRow1
-            ps.WorldToUVRow2 = uvInfo.WorldToUVRow2
-            local bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
-            ps.OffsetU  = uvInfo.OffsetU + bilinearGuard
-            ps.OffsetV  = uvInfo.OffsetV + bilinearGuard
-            ps.UVWidth  = uvInfo.Width  - 2 * bilinearGuard
-            ps.UVHeight = uvInfo.Height - 2 * bilinearGuard
+        if inkMap then
+            -- The paint grid (x, y) starts at the margin from the corner of the rectangle.
+            -- A rotated rectangle has (x, y) along (-v, u).
+            local rectangle = surf.InkMapRectangle
+            local margin = ss.MARGIN_HAMMER_UNITS
+            if rectangle.IsRotated then
+                ps.WorldToUVRow1 = { g[5], g[6], g[7], g[8] + rectangle.OffsetU + margin }
+                ps.WorldToUVRow2 = { -g[1], -g[2], -g[3], -g[4] + rectangle.OffsetV + rectangle.Height - margin }
+            else
+                ps.WorldToUVRow1 = { g[1], g[2], g[3], g[4] + rectangle.OffsetU + margin }
+                ps.WorldToUVRow2 = { g[5], g[6], g[7], g[8] + rectangle.OffsetV + margin }
+            end
+
+            local scale, guard = inkMap.HammerUnitsToUV, inkMap.BilinearGuard
+            ps.OffsetU  = rectangle.OffsetU * scale + guard
+            ps.OffsetV  = rectangle.OffsetV * scale + guard
+            ps.UVWidth  = rectangle.Width   * scale - 2 * guard
+            ps.UVHeight = rectangle.Height  * scale - 2 * guard
         end
         state.Surfaces[i] = ps
         if surf.ModelIndex > 1 then
@@ -226,11 +238,6 @@ function PaintableSurface.Setup(surfaces, numModels)
         end
     end
 end
-
----Placement of the static props in the ink map, which only the client has.
----@class ss.PaintableSurface.StaticPropInkMap
----@field UVInfo          ss.PrecachedData.StaticProp.UVInfo[] Placement of each static prop for each ink map resolution in the layout of ss.PrecachedData.StaticPropHDR.
----@field HammerUnitsToUV number                                 Conversion multiplier from hammer units to UV coordinates of the ink map.
 
 ---Reads a list of static props and stores them for later use.
 ---
@@ -332,7 +339,7 @@ end
 ---- `sy` is the smallest: (X, Y, Z) -> (Y, Z, X)
 ---- `sz` is the smallest: (X, Y, Z) -> (Z, X, Y)
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
----@param inkMap ss.PaintableSurface.StaticPropInkMap? Placement in the ink map to set the UV fields of the surfaces; the server has none.
+---@param inkMap ss.PaintableSurface.InkMap? Scale of the ink map to set the UV fields of the surfaces; the server has none.
 function PaintableSurface.SetupStaticProps(staticPropInfo, inkMap)
     local numSurfaces = #state.Surfaces
     local vec = Vector
@@ -391,11 +398,9 @@ function PaintableSurface.SetupStaticProps(staticPropInfo, inkMap)
         local bilinearGuard ---@type number
         local isRotated ---@type boolean
         if inkMap then
-            local rtIndex = #PrecachedData.InkMapResolutions
-            local rtSize = PrecachedData.InkMapResolutions[rtIndex]
-            local uv = inkMap.UVInfo[(i - 1) * #PrecachedData.InkMapResolutions + rtIndex]
+            local uv = prop.InkMapRectangle
             uvScale = inkMap.HammerUnitsToUV
-            bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
+            bilinearGuard = inkMap.BilinearGuard
             isRotated = uv.IsRotated
             if isRotated then
                 -- +--------> v

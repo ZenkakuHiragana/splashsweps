@@ -4,7 +4,6 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
 
 ---@class ss.VertexBatchesModule
 local VertexBatches = ss.module "splashsweps/client/mapload/vertexbatches"
@@ -12,13 +11,6 @@ local VertexBatches = ss.module "splashsweps/client/mapload/vertexbatches"
 local MAX_TRIANGLES = math.floor(32768 / 3) -- mesh library limitation
 local MAX_VERTICES  = MAX_TRIANGLES * 3
 local floor = math.floor
-
----Converts a value from 0 to 1 into a component of the vertex color, which has 8 bits.
----@param x number
----@return integer
-local function toColorComponent(x)
-    return floor(x * 255 + 0.5)
-end
 
 ---One vertex worth of packed data passed to inkmesh_vs30, kept only for debug mesh inspection.
 ---@class ss.VertexBatches.MeshVertex
@@ -76,14 +68,12 @@ end
 ---Writes the vertices of each vertex batch into the matching ink IMesh.
 ---@param renderBatch   ss.RenderBatch                     Render entries created from the same vertexBatches order.
 ---@param vertexBatches ss.VertexBatches.MeshVertexBatch[] Vertex batches to write one-to-one with renderBatch.
----@param surfaceInfo   ss.PrecachedData.SurfaceInfo       Cached BSP surface data.
----@param faceLightmaps ss.Lightmaps.FaceLightmap[]        Face-indexed lightmap placements.
----@param debugMeshData ss.VertexBatches.MeshVertex[][]?   Receives the vertices written into each IMesh if given.
-function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, faceLightmaps, debugMeshData)
-    local rtIndex       = #PrecachedData.InkMapResolutions
-    local rtSize        = PrecachedData.InkMapResolutions[rtIndex]
-    local bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
-    local scale         = surfaceInfo.UVScales[rtIndex]
+---@param surfaceInfo       ss.PrecachedData.SurfaceInfo   Cached BSP surface data.
+---@param paintableSurfaces ss.PaintableSurface[]          Face-indexed placements in the ink map.
+---@param faceLightmaps     ss.Lightmaps.FaceLightmap[]    Face-indexed lightmap placements.
+---@param debugMeshData     ss.VertexBatches.MeshVertex[][]? Receives the vertices written into each IMesh if given.
+function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, paintableSurfaces, faceLightmaps, debugMeshData)
+    local scale = surfaceInfo.HammerUnitsToUV
     for i, vertexBatch in ipairs(vertexBatches) do
         local debugVertices = debugMeshData and {} ---@type ss.VertexBatches.MeshVertex[]?
         local faceRanges = vertexBatch.FaceRanges
@@ -91,18 +81,16 @@ function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, face
         for r = 1, #faceRanges, 3 do
             local faceIndex = faceRanges[r]
             local surf      = surfaceInfo.Surfaces[faceIndex]
-            local uvInfo    = surf.UVInfo[rtIndex]
+            local ps        = paintableSurfaces[faceIndex]
             local lightmap  = faceLightmaps[faceIndex]
             local vertexIndices = surf.VertexIndices
 
             -- The values shared by the vertices of the surface.
-            local row1, row2 = uvInfo.WorldToUVRow1, uvInfo.WorldToUVRow2
+            local row1, row2 = ps.WorldToUVRow1, ps.WorldToUVRow2
             local row1x, row1y, row1z, row1w = row1[1] * scale, row1[2] * scale, row1[3] * scale, row1[4] * scale
             local row2x, row2y, row2z, row2w = row2[1] * scale, row2[2] * scale, row2[3] * scale, row2[4] * scale
-            local minU = uvInfo.OffsetU + bilinearGuard
-            local minV = uvInfo.OffsetV + bilinearGuard
-            local maxU = uvInfo.OffsetU + uvInfo.Width  - bilinearGuard
-            local maxV = uvInfo.OffsetV + uvInfo.Height - bilinearGuard
+            local minU, minV = ps.OffsetU, ps.OffsetV
+            local maxU, maxV = ps.OffsetU + ps.UVWidth, ps.OffsetV + ps.UVHeight
             local bumpmapOffset = lightmap.BumpmapOffset
             local lightmapOffsetX, lightmapOffsetY = lightmap.OffsetX, lightmap.OffsetY
             local pageWidth, pageHeight = lightmap.PageWidth, lightmap.PageHeight
@@ -119,9 +107,7 @@ function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, face
                 local lightmapBinormalX, lightmapBinormalY, lightmapBinormalZ
                     = surf.LightmapBinormalX[j], surf.LightmapBinormalY[j], surf.LightmapBinormalZ[j]
                 local bumpmapU, bumpmapV = surf.BumpmapU[k], surf.BumpmapV[k]
-                local blend2 = toColorComponent(surf.Blend2[k])
-                local blend3 = toColorComponent(surf.Blend3[k])
-                local blend4 = toColorComponent(surf.Blend4[k])
+                local blend2, blend3, blend4 = surf.Blend2[k], surf.Blend3[k], surf.Blend4[k]
                 local originX, originY, originZ = surf.PaintOriginX[k], surf.PaintOriginY[k], surf.PaintOriginZ[k]
                 local uvX = row1x * originX + row1y * originY + row1z * originZ + row1w
                 local uvY = row2x * originX + row2y * originY + row2z * originZ + row2w

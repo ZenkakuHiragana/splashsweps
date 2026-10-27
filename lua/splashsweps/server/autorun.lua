@@ -19,7 +19,7 @@ local PrecachedData    = ss.import "splashsweps/shared/typing/precachedata"
 
 local function LoadCache()
     local cachePath = string.format("splashsweps/%s.dat", game.GetMap())
-    local ldrPath = string.format("splashsweps/%s_ldr.dat", game.GetMap())
+    local surfacesPath = string.format("splashsweps/%s_surfaces.dat", game.GetMap())
     local cache = PrecachedData.ReadFile(cachePath, "PrecachedData") ---@type ss.PrecachedData?
     file.CreateDir "splashsweps"
     if not cache or cache.Revision ~= game.GetMapVersion() then
@@ -29,11 +29,11 @@ local function LoadCache()
         PrecachedData.CompressFile(cachePath)
     end
 
-    local ldr = PrecachedData.ReadFile(ldrPath, "PrecachedData.SurfaceInfo") ---@type ss.PrecachedData.SurfaceInfo?
-    if not ldr then return end
+    local surfaces = PrecachedData.ReadFile(surfacesPath, "PrecachedData.SurfaceInfo") ---@type ss.PrecachedData.SurfaceInfo?
+    if not surfaces then return end
 
-    Hash.Setup(ldr.SurfaceHash, cache.HashParameters)
-    PaintableSurface.Setup(ldr.Surfaces, cache.NumModels)
+    Hash.Setup(surfaces.SurfaceHash, cache.HashParameters)
+    PaintableSurface.Setup(surfaces.Surfaces, cache.NumModels)
     PaintableSurface.SetupStaticProps(cache.StaticProps)
     InkShape.Load()
     InkType.Load()

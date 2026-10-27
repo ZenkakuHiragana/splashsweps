@@ -10,8 +10,8 @@
 ## High-value paths
 
 - `lua/weapons/weapon_splashsweps_test.lua` is the fastest in-game smoke-test surface. It defines the spawnable `Inkling base` weapon mentioned in `README.md`.
-- Map paint/cache generation is driven from `lua/splashsweps/server/autorun.lua` and consumed from `lua/splashsweps/client/autorun.lua`. Debug map-cache issues against `data/splashsweps/<map>.dat`, `<map>_ldr.dat`, and `<map>_hdr.dat`.
-- The README's cache-file note is stale: current code writes compressed binary caches named `*.dat`, `*_ldr.dat`, and `*_hdr.dat`, not `<map>.txt`.
+- Map paint/cache generation is driven from `lua/splashsweps/server/autorun.lua` and consumed from `lua/splashsweps/client/autorun.lua`. Debug map-cache issues against `data/splashsweps/<map>.dat` and `<map>_surfaces.dat`.
+- The README's cache-file note is stale: current code writes compressed binary caches named `*.dat` and `*_surfaces.dat`, not `<map>.txt`.
 - Ink types are loaded by `InkType.Load()` (`lua/splashsweps/shared/inktype.lua`) from ink materials, `materials/splashsweps/inks/**/*.vmt`, not from a separate JSON content directory. Ink shapes are loaded by `InkShape.Load()` from `materials/splashsweps/inkshapes/**/*.vmt`.
 - Shader sources live in `shaders/src/*.hlsl`; compiled `.vcs` output lives under `shaders/fxc/splashsweps/`; the matching material stubs are in `materials/splashsweps/shaders/`.
 
@@ -19,7 +19,7 @@
 
 - Large maps are a real stress case. `README.md` explicitly warns that 32-bit GMOD can crash on some large maps; do not treat those reports as ordinary logic regressions until you rule out build/VRAM limits.
 - If paint stops working after map load, check generated cache artifacts before touching gameplay code. Server cache rebuild is gated by the map revision of the BSP header and `ss.CACHE_VERSION` in `lua/splashsweps/server/autorun.lua` and `server/mapcache/cachebuilder.lua`.
-- The client chooses HDR vs LDR surface data at runtime in `lua/splashsweps/client/autorun.lua`; lighting or surface mismatches can be cache-selection issues, not shader math bugs.
+- The client chooses HDR vs LDR lightmap info at runtime in `lua/splashsweps/client/autorun.lua`; lighting or surface mismatches can be cache-selection issues, not shader math bugs.
 - Multiplayer testing has an asset-distribution constraint from `README.md`: all players need the addon assets. Missing materials on one client can look like a code bug.
 - Client readiness is explicit networking state, not just player spawn. `Players.Ready` (`lua/splashsweps/shared/players.lua`) is filled only after the client sends `SplashSWEPs: PlayerInitialSpawn` in `client/autorun.lua` and `server/playerconnection.lua`.
 

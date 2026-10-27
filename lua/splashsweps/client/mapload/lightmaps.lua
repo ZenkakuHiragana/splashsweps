@@ -65,10 +65,10 @@ local function lightmapLess(a, b)
 end
 
 ---Packs surface lightmaps into SortID groups that mirror Source lightmap allocation order.
----@param surfaceInfo  ss.PrecachedData.SurfaceInfo     Cached BSP surface and lightmap metadata.
+---@param lightmaps    ss.PrecachedData.LightmapInfo[] Lightmap info of the faces the engine uses.
 ---@param materialInfo table<integer, ss.MapMaterials.MaterialInfo> Sparse enumeration-ID-indexed material metadata.
 ---@return ss.Lightmaps.LightmapLayout lightmapLayout Packed lightmap pages and SortID groups.
-function Lightmaps.Pack(surfaceInfo, materialInfo)
+function Lightmaps.Pack(lightmaps, materialInfo)
     ---SortID --> packed lightmap group
     ---@type ss.Lightmaps.LightmapLayout
     local lightmapLayout = {
@@ -91,7 +91,7 @@ function Lightmaps.Pack(surfaceInfo, materialInfo)
     for enumerationID, matInfo in pairs(materialInfo) do
         arrayIndexToEnumerationID[matInfo.ArrayIndex] = enumerationID
     end
-    for _, t in ipairs(surfaceInfo.Lightmaps or {}) do
+    for _, t in ipairs(lightmaps) do
         t.MaterialIndex = arrayIndexToEnumerationID[t.MaterialIndex]
         sortableFaces:Insert(t)
     end

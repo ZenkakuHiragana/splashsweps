@@ -133,7 +133,7 @@ local function FinalizeCubemapEntries(cubemaps)
     end
 end
 
----Bakes the transform into the paint grid, and sets the sizes of the paint grid and of the UV space.
+---Bakes the transform into the paint grid, and sets the sizes of the paint grid and of its rectangle in the ink map.
 ---@param surf ss.PrecachedData.Surface
 ---@param mbrMatrix VMatrix
 ---@param mbrSize Vector
@@ -148,12 +148,9 @@ local function SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
     g[1], g[2], g[3], g[4], g[5], g[6], g[7], g[8], g[9], g[10], g[11], g[12] = WorkMatrix:Unpack()
     surf.PaintGridWidth  = ceil(mbrSize.x / PaintableGrid.CELL_SIZE)
     surf.PaintGridHeight = ceil(mbrSize.y / PaintableGrid.CELL_SIZE)
-    surf.MBRMatrix = mbrMatrix
-    for i = 1, #PrecachedData.InkMapResolutions do
-        surf.UVInfo[i] = PrecachedData.UVInfo.new()
-        surf.UVInfo[i].Width  = mbrSize.x
-        surf.UVInfo[i].Height = mbrSize.y
-    end
+    local margin = 2 * ss.MARGIN_HAMMER_UNITS -- Both sides
+    surf.InkMapRectangle.Width  = mbrSize.x + margin
+    surf.InkMapRectangle.Height = mbrSize.y + margin
 end
 
 ---Writes vertex k of the mesh of a surface into its vertex arrays.
@@ -301,8 +298,8 @@ local function CalculateTriangleComponents(surf, positions, paintOrigins, vertex
     surf.NumDisplacementTriangles = #surf.DisplacementTriangles
 end
 
----Returns the blend factors of a vertex toward $basetexture2, 3, and 4 from 0 to 1.
----WorldVertexTransition has only the first one, the vertex alpha from 0 to 255.
+---Returns the blend factors of a vertex toward $basetexture2, 3, and 4 in the unit of the vertex color, from 0 to 255.
+---WorldVertexTransition has only the first one, the vertex alpha, which is in this unit.
 ---@param dispVert   ss.Binary.BSP.DISP_VERTS
 ---@param multiblend ss.Binary.BSP.DISP_MULTIBLEND? Only for Lightmapped_4WayBlend.
 ---@return number blend2
@@ -310,11 +307,11 @@ end
 ---@return number blend4
 local function GetVertexBlends(dispVert, multiblend)
     if not multiblend then
-        return math.Clamp(dispVert.alpha / 255, 0, 1), 0, 0
+        return math.Clamp(dispVert.alpha, 0, 255), 0, 0
     end
 
-    local m = multiblend.multiblend -- x, y, z, w
-    return math.Clamp(m[2], 0, 1), math.Clamp(m[3], 0, 1), math.Clamp(m[4], 0, 1)
+    local m = multiblend.multiblend -- x, y, z, and w from 0 to 1
+    return math.Clamp(m[2] * 255, 0, 255), math.Clamp(m[3] * 255, 0, 255), math.Clamp(m[4] * 255, 0, 255)
 end
 
 ---Construct a polygon from a raw displacement data
@@ -735,17 +732,16 @@ local function BuildFromBrushFace(bsp, rawFace)
     end
 end
 
----Extract surfaces from parsed BSP structures.
+---Extracts surfaces from LUMP_FACES of parsed BSP structures.
 ---@param bsp ss.RawBSPResults
----@param ishdr boolean
 ---@return ss.PrecachedData.SurfaceInfo surf
 ---@return ss.PrecachedData.Surface[] water
-function SurfaceBuilder.BuildSurfaceCache(bsp, ishdr)
+function SurfaceBuilder.BuildSurfaceCache(bsp)
     local t0 = SysTime()
     local surfInfo = PrecachedData.SurfaceInfo.new()
     local surf = surfInfo.Surfaces
     local water = {} ---@type ss.PrecachedData.Surface[]
-    local lump = ishdr and bsp.FACES_HDR or bsp.FACES or {}
+    local lump = bsp.FACES or {}
     local cubemaps, cubemapsByOrigin = BuildCubemapEntries(bsp)
     local faceIndexToModelIndex = {} ---@type integer[]
     for i, mdl in ipairs(bsp.MODELS) do
@@ -755,7 +751,7 @@ function SurfaceBuilder.BuildSurfaceCache(bsp, ishdr)
     end
     surfInfo.Cubemaps = cubemaps
 
-    print("Generating inkable surfaces for " .. (ishdr and "HDR" or "LDR") .. "...")
+    print "Generating inkable surfaces..."
     local validFaces  = {} ---@type boolean[] face index --> is paintable
     local faceCubemaps = {} ---@type table<integer, ss.PrecachedData.CubemapInfo>
     for i, face in ipairs(lump) do
@@ -795,7 +791,7 @@ function SurfaceBuilder.BuildSurfaceCache(bsp, ishdr)
     FinalizeCubemapEntries(cubemaps)
     surfInfo.NumSurfaces = #surf
     surfInfo.NumCubemaps = #cubemaps
-    print("    Generated " .. #lump .. " surfaces for " .. (ishdr and "HDR" or "LDR"))
+    print("    Generated " .. #surf .. " surfaces from " .. #lump .. " faces")
 
     local elapsed = round((SysTime() - t0) * 1000, 2)
     print("Elapsed time: " .. elapsed .. " ms.")
@@ -857,7 +853,6 @@ end
 function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
     print "Generating static prop surfaces..."
     local results = {} ---@type ss.PrecachedData.StaticProp[]
-    local uvinfo = {} ---@type ss.PrecachedData.StaticProp.UVInfo[]
     local illumpositions = {} ---@type table<string, Vector>
     for _, prop in ipairs(bsp.sprp.prop or {}) do
         if prop.solid > 0 then
@@ -882,19 +877,12 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
                 result.UnwrapIndex = 1
                 result.CubemapIndex = FindStaticPropCubemap(bsp, prop, illumpositions[name])
                 results[#results + 1] = result
-                for _ = 1, #PrecachedData.InkMapResolutions do
-                    uvinfo[#uvinfo + 1] = PrecachedData.StaticPropUVInfo.new()
-                end
             end
         end
     end
 
     cache.StaticProps = results
     cache.NumStaticProps = #results
-    cache.StaticPropHDR = uvinfo
-    cache.NumStaticPropHDR = #uvinfo
-    cache.StaticPropLDR = Util.deepcopy(uvinfo) or {}
-    cache.NumStaticPropLDR = #cache.StaticPropLDR
     cache.StaticPropMDL = bsp.sprp.name or {}
     cache.NumStaticPropMDL = #cache.StaticPropMDL
     print("    Collected info for " .. #results .. " static props.")

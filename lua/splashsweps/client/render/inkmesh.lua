@@ -40,10 +40,12 @@ InkMesh.DebugMeshData = state.DebugMeshData
 
 ---Reads through BSP models which includes the worldspawn and brush entities and constructs IMeshes from them.
 ---@param surfaceInfo       ss.PrecachedData.SurfaceInfo
+---@param lightmaps         ss.PrecachedData.LightmapInfo[] Lightmap info of the faces the engine uses, LDR or HDR.
+---@param paintableSurfaces ss.PaintableSurface[] Paintable surfaces set up from surfaceInfo, which have their placement in the ink map.
 ---@param numModels         integer
 ---@param materialNames     string[]
 ---@param keepDebugMeshData boolean Keeps the vertices in InkMesh.DebugMeshData, which takes as much memory as the meshes.
-function InkMesh.Setup(surfaceInfo, numModels, materialNames, keepDebugMeshData)
+function InkMesh.Setup(surfaceInfo, lightmaps, paintableSurfaces, numModels, materialNames, keepDebugMeshData)
     local entities = {} ---@type Entity[]
     for _, e in ipairs(ents.GetAll()) do
         local modelName = e:GetModel() or ""
@@ -67,7 +69,7 @@ function InkMesh.Setup(surfaceInfo, numModels, materialNames, keepDebugMeshData)
 
     InkMeshMaterial.SetupWater()
     local materialInfo      = MapMaterials.Enumerate(materialNames, surfaceInfo.Cubemaps)
-    local lightmapLayout    = Lightmaps.Pack(surfaceInfo, materialInfo)
+    local lightmapLayout    = Lightmaps.Pack(lightmaps, materialInfo)
     local meshGroupsByModel = Lightmaps.BuildMeshGroups(surfaceInfo, lightmapLayout)
     local faceLightmaps     = Lightmaps.BuildFaceLightmaps(lightmapLayout)
     UnderlaySync.WatchUnderlays(materialInfo)
@@ -85,7 +87,7 @@ function InkMesh.Setup(surfaceInfo, numModels, materialNames, keepDebugMeshData)
                 Mesh     = Mesh(mat),
             }
         end
-        VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, faceLightmaps, debugMeshData)
+        VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, paintableSurfaces, faceLightmaps, debugMeshData)
         VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches, surfaceInfo)
     end
 end

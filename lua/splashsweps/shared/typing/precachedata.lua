@@ -1,6 +1,6 @@
 
 -- Records of the map cache, saved by PrecachedData.WriteFile and loaded by PrecachedData.ReadFile.
--- <map>.dat is PrecachedData itself, and <map>_hdr.dat and <map>_ldr.dat are PrecachedData.SurfaceInfo.
+-- <map>.dat is PrecachedData itself, and <map>_surfaces.dat is PrecachedData.SurfaceInfo.
 -- Each record is a binary structure of Binary.struct, which lists its fields in the order in the file.
 -- An array is preceded by the field of its length, which the code building the cache sets.
 
@@ -12,10 +12,6 @@ local BinaryWriter = ss.import "splashsweps/shared/binary/writer"
 ---@class ss.PrecachedDataModule
 ---@field new fun(): ss.PrecachedData Creates the root of the map cache with the defaults.
 local PrecachedData = ss.module "splashsweps/shared/typing/precachedata"
-
----Resolutions of the ink map, which the UV arrays of the cache are indexed by.
----The client uses the last one.
-PrecachedData.InkMapResolutions = { 4096, 8192, 16384 }
 
 ---Records by the names of their binary structures, to create the defaults of nested records.
 local records = {} ---@type table<string, { new: fun(): table }>
@@ -80,7 +76,6 @@ local function record(name, fields, defaults, R)
 end
 
 local function blackColor() return Color(0, 0, 0) end
-local NUM_RESOLUTIONS = #PrecachedData.InkMapResolutions
 
 ---Components of Color, which the cache stores without the metatable of Color.
 Binary.struct "PrecachedData.Color" {
@@ -106,7 +101,8 @@ PrecachedData.DirectionalLight = record("PrecachedData.DirectionalLight", {
     ColorHDR = blackColor,
 })
 
----Structure of UV coordinates for static props.
+---Placement of a rectangle in the ink map, which has a surface or the faces of a static prop.
+---Values are in hammer units, which ss.PrecachedData.SurfaceInfo.HammerUnitsToUV converts into UV coordinates.
 ---```text
 ---. +-----------------------------> v
 ---. |
@@ -124,58 +120,20 @@ PrecachedData.DirectionalLight = record("PrecachedData.DirectionalLight", {
 ---. V      (not rotated)         (rotated)
 ---. u
 ---```
----@class ss.PrecachedData.StaticProp.UVInfo
----@field OffsetU   number  Left position in the UV space in hammer units.
----@field OffsetV   number  Top position in the UV space in hammer units.
----@field IsRotated boolean
----@field Width     number  Width in the UV space in hammer units, including the margins of each face.
----@field Height    number  Height in the UV space in hammer units, including the margins of each face.
+---@class ss.PrecachedData.InkMapRectangle
+---@field OffsetU   number  Left position.
+---@field OffsetV   number  Top position.
+---@field IsRotated boolean True if the rectangle is rotated by 90 degrees in the ink map.
+---@field Width     number  Width in the ink map, including the margins.
+---@field Height    number  Height in the ink map, including the margins.
 
----@type { new: fun(): ss.PrecachedData.StaticProp.UVInfo }
-PrecachedData.StaticPropUVInfo = record("PrecachedData.StaticPropUVInfo", {
+---@type { new: fun(): ss.PrecachedData.InkMapRectangle }
+PrecachedData.InkMapRectangle = record("PrecachedData.InkMapRectangle", {
     "Float OffsetU",
     "Float OffsetV",
     "Bool  IsRotated",
     "Float Width",
     "Float Height",
-})
-
----Structure of UV coordinates.
----```text
----. +-----------------------------> v
----. |
----. |            (OffsetU, OffsetV)
----. |          /^^^^^^^^^^^^^^^^^^^
----. |         /
----. |        / Height              Width
----. |       +---------+          +-------+
----. | Width |         |          |       |
----. |       +---------+   Height |       |
----. |                            |       |
----. |                            +-------+
----. |        (OffsetU, OffsetV) /
----. |        ^^^^^^^^^^^^^^^^^^^
----. V      (not rotated)         (rotated)
----. u
----```
----@class ss.PrecachedData.UVInfo
----Rows 1 and 2 of the 3x4 matrix that transforms world coordinates into the UV space in Hammer units,
----which UVScales of the surface info scales into 0 to 1.
----@field WorldToUVRow1 number[]
----@field WorldToUVRow2 number[]
----@field OffsetU     number Left position in UV space ranging from 0 to 1.
----@field OffsetV     number Top position in UV space ranging from 0 to 1.
----@field Width       number The width of this surface in UV space ranging from 0 to 1.
----@field Height      number The height of this surface in UV space ranging from 0 to 1.
-
----@type { new: fun(): ss.PrecachedData.UVInfo }
-PrecachedData.UVInfo = record("PrecachedData.UVInfo", {
-    "Float  WorldToUVRow1 4",
-    "Float  WorldToUVRow2 4",
-    "Float  OffsetU",
-    "Float  OffsetV",
-    "Float  Width",
-    "Float  Height",
 })
 
 ---Fetched static prop information from the Game lump.
@@ -198,6 +156,7 @@ PrecachedData.UVInfo = record("PrecachedData.UVInfo", {
 ---@field Scale        number  The model scale of this prop.
 ---@field Skin         integer The skin of this prop.
 ---@field UnwrapIndex  integer Describes how the bounding box is unwrapped in UV space.  See GetStaticPropUVSize.
+---@field InkMapRectangle ss.PrecachedData.InkMapRectangle Where the unwrapped faces of the bounding box are in the ink map.
 ---@field CubemapIndex integer Index to ss.PrecachedData.SurfaceInfo.Cubemaps of the cubemap the engine uses, or 0 if none.
 
 ---@type { new: fun(): ss.PrecachedData.StaticProp }
@@ -221,6 +180,7 @@ PrecachedData.StaticProp = record("PrecachedData.StaticProp", {
     "Byte   UnwrapIndex",  -- 1 to 3
     "Long   Skin",         -- m_Skin of StaticPropLump_t (int)
     "UShort CubemapIndex", -- MAX_MAP_CUBEMAPSAMPLES = 1024
+    "PrecachedData.InkMapRectangle InkMapRectangle",
 }, {
     FadeMin     = -1,
     Scale       = 1,
@@ -309,9 +269,9 @@ PrecachedData.TriangleHash = record("PrecachedData.TriangleHash", {
 ---@field ModelIndex         integer  Index to model lump entry.
 ---@field PaintGridHeight    integer  The height of this surface in the serverside paint grid.
 ---@field PaintGridWidth     integer  The width of this surface in the serverside paint grid.
----Array of UV coordinates.
----One of them will be selected on mesh construction depending on the resolution of RenderTarget.
----@field UVInfo ss.PrecachedData.UVInfo[]
+---Where the paint grid of the surface is in the ink map.
+---The paint grid starts at the margin from the corner of the rectangle, and is rotated with the rectangle.
+---@field InkMapRectangle ss.PrecachedData.InkMapRectangle
 ---Vertices of the mesh: the vertices of the polygon of a brush face, or the grid points of a displacement.
 ---Element k of each of the following arrays is for vertex k.
 ---@field NumVertices integer
@@ -329,9 +289,10 @@ PrecachedData.TriangleHash = record("PrecachedData.TriangleHash", {
 ---@field BinormalZ    number[]
 ---@field BumpmapU     number[] Bumpmap UV coordinates of the original face in texels.
 ---@field BumpmapV     number[]
----@field Blend2       number[] Blend factors toward $basetexture2 from 0 to 1.
----@field Blend3       number[] Blend factors toward $basetexture3 from 0 to 1.
----@field Blend4       number[] Blend factors toward $basetexture4 from 0 to 1.
+---Blend factors toward $basetexture2, 3, and 4 in the unit of the vertex color, from 0 to 255.
+---@field Blend2       number[]
+---@field Blend3       number[]
+---@field Blend4       number[]
 ---World-space reference points to compute the ink UV coordinates, the same as the positions except for displacements.
 ---@field PaintOriginX number[]
 ---@field PaintOriginY number[]
@@ -376,7 +337,7 @@ PrecachedData.Surface = record("PrecachedData.Surface", {
     "UShort ModelIndex",      -- MAX_MAP_MODELS = 1024
     "UShort PaintGridHeight", -- The diagonal of the map divided by PaintableGrid.CELL_SIZE
     "UShort PaintGridWidth",
-    "PrecachedData.UVInfo UVInfo " .. NUM_RESOLUTIONS,
+    "PrecachedData.InkMapRectangle InkMapRectangle",
     "UShort NumVertices",     -- (2^4 + 1)^2 for the displacements of power 4
     "Float  PositionX    NumVertices",
     "Float  PositionY    NumVertices",
@@ -484,26 +445,32 @@ PrecachedData.SurfaceHash = record("PrecachedData.SurfaceHash", {
     "ULong SurfaceIndices    TotalSurfaceIndices",
 })
 
----Paintable surfaces built from LUMP_FACES or LUMP_FACES_HDR.
+---Paintable surfaces built from LUMP_FACES, which PrecachedData.WriteFile saves to <map>_surfaces.dat.
 ---An array of no elements is nil when it is read from the cache file.
 ---@class ss.PrecachedData.SurfaceInfo
----@field NumLightmaps          integer
----@field Lightmaps             ss.PrecachedData.LightmapInfo[]? Array made from LUMP_FACES used to pack lightmaps.
+---@field NumLightmapsLDR       integer
+---@field LightmapsLDR          ss.PrecachedData.LightmapInfo[]? Made from LUMP_FACES to pack lightmaps, indexed by the face.
+---@field NumLightmapsHDR       integer
+---Made from LUMP_FACES_HDR in the same way, empty if the map has no HDR lighting
+---or LUMP_FACES_HDR has faces other than LUMP_FACES.
+---@field LightmapsHDR          ss.PrecachedData.LightmapInfo[]?
 ---@field NumSurfaces           integer
 ---@field Surfaces              ss.PrecachedData.Surface[]? Array of paintable surfaces.
 ---@field SurfaceHash           ss.PrecachedData.SurfaceHash Spatial hash given to Hash.Setup.
----@field UVScales              number[]  Render target size index -> Hammer units to UV multiplier
+---@field HammerUnitsToUV       number Converts hammer units of the ink map rectangles into UV coordinates.
 ---@field NumCubemaps           integer
 ---@field Cubemaps              ss.PrecachedData.CubemapInfo[]? Cubemap samples and paintable face bounds using them.
 
 ---@type { new: fun(): ss.PrecachedData.SurfaceInfo }
 PrecachedData.SurfaceInfo = record("PrecachedData.SurfaceInfo", {
-    "ULong  NumLightmaps",
-    "PrecachedData.LightmapInfo Lightmaps NumLightmaps",
+    "ULong  NumLightmapsLDR",
+    "PrecachedData.LightmapInfo LightmapsLDR NumLightmapsLDR",
+    "ULong  NumLightmapsHDR",
+    "PrecachedData.LightmapInfo LightmapsHDR NumLightmapsHDR",
     "ULong  NumSurfaces",
     "PrecachedData.Surface Surfaces NumSurfaces",
     "PrecachedData.SurfaceHash SurfaceHash",
-    "Float  UVScales " .. NUM_RESOLUTIONS,
+    "Float  HammerUnitsToUV",
     "UShort NumCubemaps", -- MAX_MAP_CUBEMAPSAMPLES = 1024
     "PrecachedData.CubemapInfo Cubemaps NumCubemaps",
 })
@@ -558,16 +525,8 @@ PrecachedData.MinimapAreaBounds = record("PrecachedData.MinimapAreaBounds", {
 ---@field StaticProps         ss.PrecachedData.StaticProp[]?
 ---@field NumStaticPropMDL    integer
 ---@field StaticPropMDL       string[]? List of paths to model of static props.
----Placement of the static props in the ink map for HDR,
----the element (i - 1) * #PrecachedData.InkMapResolutions + r for the static prop i and the resolution r.
----@field NumStaticPropHDR    integer
----@field StaticPropHDR       ss.PrecachedData.StaticProp.UVInfo[]?
----@field NumStaticPropLDR    integer
----@field StaticPropLDR       ss.PrecachedData.StaticProp.UVInfo[]? The same as StaticPropHDR for LDR.
----@field NumSurfacesWaterHDR integer
----@field SurfacesWaterHDR    ss.PrecachedData.Surface[]?
----@field NumSurfacesWaterLDR integer
----@field SurfacesWaterLDR    ss.PrecachedData.Surface[]?
+---@field NumWaterSurfaces    integer
+---@field WaterSurfaces       ss.PrecachedData.Surface[]? Surfaces of water, which have no paint grid or placement in the ink map.
 record("PrecachedData", {
     "Long   Revision", -- mapRevision of dheader_t (int)
     "ULong  NumMaterialNames",
@@ -581,14 +540,8 @@ record("PrecachedData", {
     "PrecachedData.StaticProp StaticProps NumStaticProps",
     "ULong  NumStaticPropMDL",
     "String StaticPropMDL NumStaticPropMDL",
-    "ULong  NumStaticPropHDR",
-    "PrecachedData.StaticPropUVInfo StaticPropHDR NumStaticPropHDR",
-    "ULong  NumStaticPropLDR",
-    "PrecachedData.StaticPropUVInfo StaticPropLDR NumStaticPropLDR",
-    "ULong  NumSurfacesWaterHDR",
-    "PrecachedData.Surface SurfacesWaterHDR NumSurfacesWaterHDR",
-    "ULong  NumSurfacesWaterLDR",
-    "PrecachedData.Surface SurfacesWaterLDR NumSurfacesWaterLDR",
+    "ULong  NumWaterSurfaces",
+    "PrecachedData.Surface WaterSurfaces NumWaterSurfaces",
 }, nil, PrecachedData)
 
 ---Writes a record to a cache file in the data folder, after the cache version, without compression.
