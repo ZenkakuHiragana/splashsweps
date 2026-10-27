@@ -20,6 +20,7 @@ local round = math.Round
 local Vector = Vector
 local Matrix = Matrix
 local MaterialCache = {} ---@type table<string, IMaterial>
+local WorkMatrix = Matrix() -- Work area to rebuild matrices from angles.
 local TextureFilterBits = bit.bor(
     SURF_SKY, SURF_NOPORTAL, SURF_TRIGGER,
     SURF_NODRAW, SURF_HINT, SURF_SKIP)
@@ -128,43 +129,97 @@ local function FinalizeCubemapEntries(cubemaps)
     end
 end
 
----Set placeholder values to VMatrix transform and 2D size fields.
+---Bakes the transform into the paint grid, and sets the sizes of the paint grid and of the UV space.
 ---@param surf ss.PrecachedData.Surface
 ---@param mbrMatrix VMatrix
 ---@param mbrSize Vector
 local function SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
+    -- Built through the angles so that the values stay the same as when the cache stored the angles.
+    -- SetAngles keeps the scale of the matrix with rounding errors, so the matrix is reset first.
     local paintGridMatrix = mbrMatrix:GetInverseTR()
-    surf.TransformPaintGrid.Translation:Set(paintGridMatrix:GetTranslation())
-    surf.TransformPaintGrid.Angle:Set(paintGridMatrix:GetAngles())
+    WorkMatrix:Identity()
+    WorkMatrix:SetAngles(paintGridMatrix:GetAngles())
+    WorkMatrix:SetTranslation(paintGridMatrix:GetTranslation())
+    local g = surf.WorldToLocalGrid
+    g[1], g[2], g[3], g[4], g[5], g[6], g[7], g[8], g[9], g[10], g[11], g[12] = WorkMatrix:Unpack()
     surf.PaintGridWidth  = ceil(mbrSize.x / PaintableGrid.CELL_SIZE)
     surf.PaintGridHeight = ceil(mbrSize.y / PaintableGrid.CELL_SIZE)
+    surf.MBRMatrix = mbrMatrix
     for i = 1, #PrecachedData.InkMapResolutions do
         surf.UVInfo[i] = PrecachedData.UVInfo.new()
-        surf.UVInfo[i].Angle:Set(mbrMatrix:GetAngles())
-        surf.UVInfo[i].Translation:Set(mbrMatrix:GetTranslation())
         surf.UVInfo[i].Width  = mbrSize.x
         surf.UVInfo[i].Height = mbrSize.y
     end
 end
 
----Collects the flattened paint-grid vertices used by a displacement surface.
----@param surf ss.PrecachedData.Surface
----@return Vector[] vertices
-local function CollectDisplacementPaintOrigins(surf)
-    local vertices = {} ---@type Vector[]
-    for i, v in ipairs(surf.Vertices) do
-        vertices[i] = v.DispPaintOrigin or v.Translation
-    end
-
-    return vertices
+---Writes vertex k of the mesh of a surface into its vertex arrays.
+---@param surf        ss.PrecachedData.Surface
+---@param k           integer
+---@param position    Vector
+---@param normal      Vector
+---@param tangent     Vector
+---@param binormal    Vector
+---@param bumpmapUV   Vector
+---@param paintOrigin Vector
+---@param lightmapU   number
+---@param lightmapV   number
+local function SetVertex(surf, k, position, normal, tangent, binormal, bumpmapUV, paintOrigin, lightmapU, lightmapV)
+    local i = 3 * k
+    surf.Positions[i - 2],    surf.Positions[i - 1],    surf.Positions[i]    = position:Unpack()
+    surf.Normals[i - 2],      surf.Normals[i - 1],      surf.Normals[i]      = normal:Unpack()
+    surf.Tangents[i - 2],     surf.Tangents[i - 1],     surf.Tangents[i]     = tangent:Unpack()
+    surf.Binormals[i - 2],    surf.Binormals[i - 1],    surf.Binormals[i]    = binormal:Unpack()
+    surf.BumpmapUVs[i - 2],   surf.BumpmapUVs[i - 1],   surf.BumpmapUVs[i]   = bumpmapUV:Unpack()
+    surf.PaintOrigins[i - 2], surf.PaintOrigins[i - 1], surf.PaintOrigins[i] = paintOrigin:Unpack()
+    surf.LightmapUVs[2 * k - 1], surf.LightmapUVs[2 * k] = lightmapU, lightmapV
 end
 
+---Writes triangle j of the mesh of a surface into its triangle arrays.
+---@param surf             ss.PrecachedData.Surface
+---@param j                integer
+---@param i1               integer
+---@param i2               integer
+---@param i3               integer
+---@param lightmapTangent  Vector
+---@param lightmapBinormal Vector
+local function SetTriangle(surf, j, i1, i2, i3, lightmapTangent, lightmapBinormal)
+    local i = 3 * j
+    surf.VertexIndices[i - 2], surf.VertexIndices[i - 1], surf.VertexIndices[i] = i1, i2, i3
+    surf.LightmapTangents[i - 2],  surf.LightmapTangents[i - 1],  surf.LightmapTangents[i]  = lightmapTangent:Unpack()
+    surf.LightmapBinormals[i - 2], surf.LightmapBinormals[i - 1], surf.LightmapBinormals[i] = lightmapBinormal:Unpack()
+end
+
+---Sets the lengths of the vertex and the triangle arrays of a surface after they are written.
 ---@param surf ss.PrecachedData.Surface
-local function CalculateTriangleComponents(surf)
+local function SetMeshLengths(surf)
+    surf.NumVertexCoordinates     = #surf.Positions
+    surf.NumLightmapUVCoordinates = #surf.LightmapUVs
+    surf.NumVertexIndices         = #surf.VertexIndices
+    surf.NumTriangleCoordinates   = #surf.LightmapTangents
+end
+
+---Lists the vertices of each triangle in order, which counts a vertex once for each triangle sharing it.
+---@param vertices      Vector[]
+---@param vertexIndices integer[] Three vertices of each triangle.
+---@return Vector[]
+local function VerticesOfTriangles(vertices, vertexIndices)
+    local list = {} ---@type Vector[]
+    for i, k in ipairs(vertexIndices) do
+        list[i] = vertices[k]
+    end
+
+    return list
+end
+
+---@param surf          ss.PrecachedData.Surface
+---@param positions     Vector[]  Positions of the vertices.
+---@param paintOrigins  Vector[]  Reference points of the vertices to compute the ink UV coordinates.
+---@param vertexIndices integer[] Three vertices of each triangle.
+local function CalculateTriangleComponents(surf, positions, paintOrigins, vertexIndices)
     local WorldToLocalRotation = Matrix()
     local DispPaintOriginRotation = Matrix()
     surf.Triangles = {}
-    for i = 1, #surf.Vertices, 3 do
+    for i = 1, #vertexIndices, 3 do
         --                 foward = t2 - t3
         --                       ^
         --                       |
@@ -176,12 +231,12 @@ local function CalculateTriangleComponents(surf)
         --  = t1 - t3   /        |
         --      <---  +----------+
         --            t1         t3
-        local v1 = surf.Vertices[i]
-        local v2 = surf.Vertices[i + 1]
-        local v3 = surf.Vertices[i + 2]
-        local t1 = v1.Translation
-        local t2 = v2.Translation
-        local t3 = v3.Translation
+        local i1 = vertexIndices[i]
+        local i2 = vertexIndices[i + 1]
+        local i3 = vertexIndices[i + 2]
+        local t1 = positions[i1]
+        local t2 = positions[i2]
+        local t3 = positions[i3]
         local forward = t2 - t3
         local another = t1 - t3
         local angle = forward:AngleEx(forward:Cross(another))
@@ -198,16 +253,15 @@ local function CalculateTriangleComponents(surf)
         local barycentricDot1 = (d1313 * t1t2 - d1213 * t1t3) / denominator
         local barycentricDot2 = (d1212 * t1t3 - d1213 * t1t2) / denominator
         local t = PrecachedData.DisplacementTriangle.new()
-        t.Index = i
         t.BarycentricDot1 = barycentricDot1
         t.BarycentricDot2 = barycentricDot2
         t.MBBAngles = angle
         t.MBBOrigin:Set(t3 + e1 * minX)
         t.MBBSize:SetUnpacked(maxX - minX, e2:Dot(another), 0)
 
-        local org1 = surf.Vertices[i].DispPaintOrigin
-        local org2 = surf.Vertices[i + 1].DispPaintOrigin
-        local org3 = surf.Vertices[i + 2].DispPaintOrigin
+        local org1 = paintOrigins[i1]
+        local org2 = paintOrigins[i2]
+        local org3 = paintOrigins[i3]
         local orgForward = org2 - org3
         local orgAnother = org1 - org3
         local orgAngle = orgForward:AngleEx(orgForward:Cross(orgAnother))
@@ -215,7 +269,13 @@ local function CalculateTriangleComponents(surf)
         WorldToLocalRotation:SetAngles(angle)
         WorldToLocalRotation:InvertTR()
         WorldToLocalRotation:Set(DispPaintOriginRotation * WorldToLocalRotation)
-        t.WorldToLocalGridRotation:Set(WorldToLocalRotation:GetAngles())
+
+        -- Built through the angles so that the values stay the same as when the cache stored the angles.
+        WorkMatrix:Identity()
+        WorkMatrix:SetAngles(WorldToLocalRotation:GetAngles())
+        local e11, e12, e13, _, e21, e22, e23, _, e31, e32, e33 = WorkMatrix:Unpack()
+        local r = t.WorldToLocalGridRotation
+        r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9] = e11, e12, e13, e21, e22, e23, e31, e32, e33
         surf.Triangles[#surf.Triangles + 1] = t
     end
 
@@ -242,8 +302,9 @@ end
 ---@param rawFace ss.Binary.BSP.FACES
 ---@param vertices Vector[] The vertices of flat quadrilateral surface that will be modified in this function.
 ---@param texInfo ss.Binary.BSP.TEXINFO
+---@param angle Angle The angle of the face in the world coordinate system. Up() should be the normal.
 ---@return ss.PrecachedData.Surface
-local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
+local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, angle)
     ---@param p Vector
     ---@return Vector
     local function GetBaseTexelUV(p)
@@ -376,8 +437,6 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
     local triangles   = {} ---@type integer[] Indices of triangle mesh
     local bumpmapuv   = {} ---@type Vector[]
     local lightmapuv  = {} ---@type Vector[]  Fractional values used in lightmap sampling
-    local lightmapS   = {} ---@type Vector[]
-    local lightmapT   = {} ---@type Vector[]
     local bumpmapCorners = {
         GetBaseTexelUV(vertices[1]),
         GetBaseTexelUV(vertices[2]),
@@ -492,9 +551,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
         local s, t = BuildTriangleLightmapBasis(
             deformed[i1], deformed[i2], deformed[i3],
             lightmapuv[i1], lightmapuv[i2], lightmapuv[i3])
-        lightmapS[i],     lightmapT[i]     = s, t
-        lightmapS[i + 1], lightmapT[i + 1] = s, t
-        lightmapS[i + 2], lightmapT[i + 2] = s, t
+        SetTriangle(surf, (i + 2) / 3, i1, i2, i3, s, t)
     end
 
     local textureVecSLength  = texInfo.textureVecS:Length()
@@ -529,20 +586,29 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo)
         binormals[i]:Mul(textureVecTLength)
     end
 
-    for i, t in ipairs(triangles) do
-        surf.Vertices[i] = PrecachedData.Vertex.new()
-        surf.Vertices[i].Translation:Set(deformed[t])
-        surf.Vertices[i].Normal:Set(normals[t])
-        surf.Vertices[i].Tangent:Set(tangents[t])
-        surf.Vertices[i].Binormal:Set(binormals[t])
-        surf.Vertices[i].LightmapTangent:Set(lightmapS[i])
-        surf.Vertices[i].LightmapBinormal:Set(lightmapT[i])
-        surf.Vertices[i].BumpmapUV:Set(bumpmapuv[t])
-        surf.Vertices[i].LightmapUV:Set(lightmapuv[t])
-        surf.Vertices[i].DispPaintOrigin = paintorigin[t]
+    -- The vertices of the mesh are the grid points.
+    for i, p in ipairs(deformed) do
+        SetVertex(surf, i, p, normals[i], tangents[i], binormals[i],
+            bumpmapuv[i], paintorigin[i], lightmapuv[i].x, lightmapuv[i].y)
     end
 
-    surf.NumVertices = #surf.Vertices
+    SetMeshLengths(surf)
+
+    local mbrMatrix, mbrSize = BoundingBox.FindMBR(VerticesOfTriangles(paintorigin, triangles), angle)
+    local mbbMatrix, mbbSize = BoundingBox.FindMinimumOBB(VerticesOfTriangles(deformed, triangles)) -- For the deformed mesh
+    local aabbSize = surf.AABBMax - surf.AABBMin
+    if mbbSize.x * mbbSize.y * mbbSize.z < aabbSize.x * aabbSize.y * aabbSize.z then
+        surf.MBBAngles:Set(mbbMatrix:GetAngles())
+        surf.MBBOrigin:Set(mbbMatrix:GetTranslation())
+        surf.MBBSize:Set(mbbSize)
+    else
+        surf.MBBAngles:Zero()
+        surf.MBBOrigin:Set(surf.AABBMin)
+        surf.MBBSize:Set(aabbSize)
+    end
+
+    SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
+    CalculateTriangleComponents(surf, deformed, paintorigin, triangles)
     return surf
 end
 
@@ -604,73 +670,39 @@ local function BuildFromBrushFace(bsp, rawFace)
     assert(normal:GetNormalized():Dot(angle:Up()) > 0.999)
 
     if isDisplacement then
-        local surf = BuildFromDisplacement(bsp, rawFace, filteredVertices, texInfo)
-        local mbrMatrix, mbrSize = BoundingBox.FindMBR(CollectDisplacementPaintOrigins(surf), angle)
-        local mbbMatrix, mbbSize = BoundingBox.FindMinimumOBB(surf.Vertices) -- For the deformed mesh
-        local aabbSize = surf.AABBMax - surf.AABBMin
-        if mbbSize.x * mbbSize.y * mbbSize.z < aabbSize.x * aabbSize.y * aabbSize.z then
-            surf.MBBAngles:Set(mbbMatrix:GetAngles())
-            surf.MBBOrigin:Set(mbbMatrix:GetTranslation())
-            surf.MBBSize:Set(mbbSize)
-        else
-            surf.MBBAngles:Zero()
-            surf.MBBOrigin:Set(surf.AABBMin)
-            surf.MBBSize:Set(aabbSize)
-        end
-
-        SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
-        CalculateTriangleComponents(surf)
-        return surf, tobool(isWater)
+        return BuildFromDisplacement(bsp, rawFace, filteredVertices, texInfo, angle), tobool(isWater)
     else
         local surf = PrecachedData.Surface.new()
         local mbrMatrix, mbrSize = BoundingBox.FindMBR(filteredVertices, angle)
-        local bumpmapU = {} ---@type number[]
-        local bumpmapV = {} ---@type number[]
-        local lightmapU = {} ---@type number[]
-        local lightmapV = {} ---@type number[]
-        local triangles = {} ---@type integer[]
+
+        -- The vertices of the mesh are those of the polygon.
         for i, v in ipairs(filteredVertices) do
             surf.AABBMax:Set(Util.MaxVector(surf.AABBMax, v))
             surf.AABBMin:Set(Util.MinVector(surf.AABBMin, v))
-            bumpmapU[i] = v:Dot(texInfo.textureVecS) + texInfo.textureOffsetS
-            bumpmapV[i] = v:Dot(texInfo.textureVecT) + texInfo.textureOffsetT
-            lightmapU[i] = v:Dot(texInfo.lightmapVecS)
+            local bumpmapUV = Vector(
+                v:Dot(texInfo.textureVecS) + texInfo.textureOffsetS,
+                v:Dot(texInfo.textureVecT) + texInfo.textureOffsetT)
+            local lightmapU = v:Dot(texInfo.lightmapVecS)
                 + texInfo.lightmapOffsetS
                 - rawFace.lightmapTextureMinsInLuxels[1]
                 + 0.5
-            lightmapV[i] = v:Dot(texInfo.lightmapVecT)
+            local lightmapV = v:Dot(texInfo.lightmapVecT)
                 + texInfo.lightmapOffsetT
                 - rawFace.lightmapTextureMinsInLuxels[2]
                 + 0.5
+            SetVertex(surf, i, v, normal, texInfo.textureVecS, texInfo.textureVecT, bumpmapUV, v, lightmapU, lightmapV)
         end
 
         -- Add margin to construct overlapped hash table entries
         surf.AABBMax:Add(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
         surf.AABBMin:Sub(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
 
-        -- Construct triangles
+        -- The triangles are a fan of the vertices.
         for i = 2, #filteredVertices - 1 do
-            triangles[#triangles + 1] = 1
-            triangles[#triangles + 1] = i
-            triangles[#triangles + 1] = i + 1
+            SetTriangle(surf, i - 1, 1, i, i + 1, texInfo.lightmapVecS, texInfo.lightmapVecT)
         end
 
-        for i, t in ipairs(triangles) do
-            surf.Vertices[i] = PrecachedData.Vertex.new()
-            surf.Vertices[i].Translation:Set(filteredVertices[t])
-            surf.Vertices[i].Normal:Set(normal)
-            surf.Vertices[i].Tangent:Set(texInfo.textureVecS)
-            surf.Vertices[i].Binormal:Set(texInfo.textureVecT)
-            surf.Vertices[i].LightmapTangent:Set(texInfo.lightmapVecS)
-            surf.Vertices[i].LightmapBinormal:Set(texInfo.lightmapVecT)
-            surf.Vertices[i].BumpmapUV.x = bumpmapU[t]
-            surf.Vertices[i].BumpmapUV.y = bumpmapV[t]
-            surf.Vertices[i].LightmapUV.x = lightmapU[t]
-            surf.Vertices[i].LightmapUV.y = lightmapV[t]
-            surf.Vertices[i].DispPaintOrigin:Set(filteredVertices[t])
-        end
-
-        surf.NumVertices = #surf.Vertices
+        SetMeshLengths(surf)
 
         if not isWater then
             surf.MBBAngles:Set(mbrMatrix:GetAngles())

@@ -288,20 +288,21 @@ function Hash.BuildDisplacementHash(surfaces)
     for _, surf in ipairs(surfaces) do
         if surf.NumTriangles > 0 then
             local cells = {} ---@type table<integer, integer[]> Hash value + 1 --> indices of the triangles
-            local v = surf.Vertices
+            local p = surf.Positions
+            local vertexIndices = surf.VertexIndices
             local numHashValues = 0
-            for i, t in ipairs(surf.Triangles) do
-                local v1 = v[t.Index].Translation
-                local v2 = v[t.Index + 1].Translation
-                local v3 = v[t.Index + 2].Translation
+            for i = 1, surf.NumTriangles do
+                local a = 3 * vertexIndices[3 * i - 2]
+                local b = 3 * vertexIndices[3 * i - 1]
+                local c = 3 * vertexIndices[3 * i]
                 local mins = Vector(
-                    min(v1.x, v2.x, v3.x),
-                    min(v1.y, v2.y, v3.y),
-                    min(v1.z, v2.z, v3.z))
+                    min(p[a - 2], p[b - 2], p[c - 2]),
+                    min(p[a - 1], p[b - 1], p[c - 1]),
+                    min(p[a],     p[b],     p[c]))
                 local maxs = Vector(
-                    max(v1.x, v2.x, v3.x),
-                    max(v1.y, v2.y, v3.y),
-                    max(v1.z, v2.z, v3.z))
+                    max(p[a - 2], p[b - 2], p[c - 2]),
+                    max(p[a - 1], p[b - 1], p[c - 1]),
+                    max(p[a],     p[b],     p[c]))
                 for h in hashpairsAABB(mins, maxs, surf.AABBMin, surf.AABBMax) do
                     cells[h + 1] = cells[h + 1] or {}
                     cells[h + 1][#cells[h + 1] + 1] = i

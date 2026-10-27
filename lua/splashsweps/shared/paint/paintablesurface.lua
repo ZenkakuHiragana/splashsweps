@@ -135,6 +135,18 @@ function PaintableSurface.BarycentricCoordinates(triangle, query)
     return Vector(1 - u - v, u, v)
 end
 
+---Creates a Vector for each vertex from x, y, and z of the vertices in a row.
+---@param coordinates number[]
+---@return Vector[]
+local function vectorsOf(coordinates)
+    local vectors = {} ---@type Vector[]
+    for k = 1, #coordinates / 3 do
+        vectors[k] = Vector(coordinates[3 * k - 2], coordinates[3 * k - 1], coordinates[3 * k])
+    end
+
+    return vectors
+end
+
 ---Reads a surface list from a file and stores them for later use.
 ---@param surfaces  ss.PrecachedData.Surface[]?
 ---@param numModels integer Number of entries in the BSP model lump.
@@ -142,58 +154,61 @@ function PaintableSurface.Setup(surfaces, numModels)
     if not surfaces then return end
     state.ModelIndexBits = math.max(select(2, math.frexp(numModels - 1)), 1)
     table.Empty(state.BrushModelSurfaces)
-    local tempMatrix = Matrix()
     for i, surf in ipairs(surfaces) do
         local ps = newSurface(i, surf.PaintGridWidth, surf.PaintGridHeight)
+        local g = surf.WorldToLocalGrid
         ps.AABBMax = surf.AABBMax
         ps.AABBMin = surf.AABBMin
-        ps.WorldToLocalGridMatrix:SetAngles(surf.TransformPaintGrid.Angle)
-        ps.WorldToLocalGridMatrix:SetTranslation(surf.TransformPaintGrid.Translation)
+        ps.WorldToLocalGridMatrix:SetUnpacked(
+            g[1], g[2],  g[3],  g[4],
+            g[5], g[6],  g[7],  g[8],
+            g[9], g[10], g[11], g[12],
+            0,    0,     0,     1)
         ps.Normal = surf.MBBAngles:Up()
         ps.MBBAngles = surf.MBBAngles
         ps.MBBOrigin = surf.MBBOrigin
         ps.MBBSize = surf.MBBSize
         ps.TriangleHash = surf.TriangleHash
-        ps.Triangles = surf.Triangles and {}
-        for j, t in ipairs(surf.Triangles or {}) do
-            local v1, v2, v3 = surf.Vertices[t.Index], surf.Vertices[t.Index + 1], surf.Vertices[t.Index + 2]
-            local worldToLocal = Matrix()
-            worldToLocal:SetAngles(t.WorldToLocalGridRotation)
-            ps.Triangles[j] = {
-                v1.Translation,
-                v2.Translation,
-                v3.Translation,
-                v1.DispPaintOrigin,
-                v2.DispPaintOrigin,
-                v3.DispPaintOrigin,
-                BarycentricDot1      = t.BarycentricDot1,
-                BarycentricDot2      = t.BarycentricDot2,
-                BarycentricAdd1      = -v1.Translation:Dot(t.BarycentricDot1),
-                BarycentricAdd2      = -v1.Translation:Dot(t.BarycentricDot2),
-                MBBAngles            = t.MBBAngles,
-                MBBOrigin            = t.MBBOrigin,
-                MBBSize              = t.MBBSize,
-                WorldToLocalRotation = worldToLocal,
-            }
+        local triangles = surf.Triangles
+        if triangles then
+            -- The triangles share the Vectors of their vertices.
+            local positions = vectorsOf(surf.Positions)
+            local paintOrigins = vectorsOf(surf.PaintOrigins)
+            local vertexIndices = surf.VertexIndices
+            ps.Triangles = {}
+            for j, t in ipairs(triangles) do
+                local i1, i2, i3 = vertexIndices[3 * j - 2], vertexIndices[3 * j - 1], vertexIndices[3 * j]
+                local r = t.WorldToLocalGridRotation
+                local worldToLocal = Matrix()
+                worldToLocal:SetUnpacked(
+                    r[1], r[2], r[3], 0,
+                    r[4], r[5], r[6], 0,
+                    r[7], r[8], r[9], 0,
+                    0,    0,    0,    1)
+                ps.Triangles[j] = {
+                    positions[i1],
+                    positions[i2],
+                    positions[i3],
+                    paintOrigins[i1],
+                    paintOrigins[i2],
+                    paintOrigins[i3],
+                    BarycentricDot1      = t.BarycentricDot1,
+                    BarycentricDot2      = t.BarycentricDot2,
+                    BarycentricAdd1      = -positions[i1]:Dot(t.BarycentricDot1),
+                    BarycentricAdd2      = -positions[i1]:Dot(t.BarycentricDot2),
+                    MBBAngles            = t.MBBAngles,
+                    MBBOrigin            = t.MBBOrigin,
+                    MBBSize              = t.MBBSize,
+                    WorldToLocalRotation = worldToLocal,
+                }
+            end
         end
         if CLIENT then
             local rtIndex = #PrecachedData.InkMapResolutions
             local rtSize = PrecachedData.InkMapResolutions[rtIndex]
             local uvInfo = surf.UVInfo[rtIndex]
-            tempMatrix:SetAngles(uvInfo.Angle)
-            tempMatrix:SetTranslation(uvInfo.Translation)
-            ps.WorldToUVRow1 = {
-                tempMatrix:GetField(1, 1),
-                tempMatrix:GetField(1, 2),
-                tempMatrix:GetField(1, 3),
-                tempMatrix:GetField(1, 4),
-            }
-            ps.WorldToUVRow2 = {
-                tempMatrix:GetField(2, 1),
-                tempMatrix:GetField(2, 2),
-                tempMatrix:GetField(2, 3),
-                tempMatrix:GetField(2, 4),
-            }
+            ps.WorldToUVRow1 = uvInfo.WorldToUVRow1
+            ps.WorldToUVRow2 = uvInfo.WorldToUVRow2
             local bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
             ps.OffsetU  = uvInfo.OffsetU + bilinearGuard
             ps.OffsetV  = uvInfo.OffsetV + bilinearGuard

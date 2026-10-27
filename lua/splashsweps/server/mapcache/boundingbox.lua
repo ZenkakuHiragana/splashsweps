@@ -161,12 +161,12 @@ function BoundingBox.FindMBR(vertices, angle)
 end
 
 ---Finds the oriented minimum boundibg box from displacement positions.
----@param vertices ss.PrecachedData.Vertex[]
+---@param vertices Vector[]
 ---@return VMatrix origin Represents the origin and angle of the minimum OBB in the world coordinate system.
 ---@return Vector  size   The size of the MBR in Hammer units.
 function BoundingBox.FindMinimumOBB(vertices)
     local mean = Vector()
-    for _, v in ipairs(vertices) do mean:Add(v.Translation) end
+    for _, v in ipairs(vertices) do mean:Add(v) end
     mean:Div(#vertices)
 
     -- Calculates a variance-covariance matrix
@@ -176,7 +176,7 @@ function BoundingBox.FindMinimumOBB(vertices)
     local variance   = Vector() -- = ( sxx syy szz )
     local covariance = Vector() -- = ( sxy syz szx )
     for _, v in ipairs(vertices) do
-        local diff = v.Translation - mean
+        local diff = v - mean
         variance:Add(diff * diff)
         covariance:Add(Vector(
             diff.x * diff.y,
@@ -309,7 +309,7 @@ function BoundingBox.FindMinimumOBB(vertices)
     local mins = Util.vector_one * math.huge
     local maxs = Util.vector_one * -math.huge
     for _, v in ipairs(vertices) do
-        local pos = worldToLocal * v.Translation
+        local pos = worldToLocal * v
         mins:Set(Util.MinVector(mins, pos))
         maxs:Set(Util.MaxVector(maxs, pos))
     end

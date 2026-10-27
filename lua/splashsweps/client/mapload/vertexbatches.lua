@@ -5,13 +5,13 @@
 ---@class ss
 local ss = SplashSWEPs
 local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
-local Util          = ss.import "splashsweps/shared/util"
 
 ---@class ss.VertexBatchesModule
 local VertexBatches = ss.module "splashsweps/client/mapload/vertexbatches"
 
 local MAX_TRIANGLES = math.floor(32768 / 3) -- mesh library limitation
 local MAX_VERTICES  = MAX_TRIANGLES * 3
+local floor = math.floor
 
 ---One vertex worth of packed data passed to inkmesh_vs30, kept only for debug mesh inspection.
 ---@class ss.VertexBatches.MeshVertex
@@ -27,15 +27,15 @@ local MAX_VERTICES  = MAX_TRIANGLES * 3
 ---@field LightmapBinormal_V number[] xyz: world lightmap binormal,    w: packed lightmap V.
 ---@field SurfaceIndex       integer  Source BSP face index.
 
----A draw-sized range of the vertices of the surfaces that maps one-to-one to a render batch entry.
+---A draw-sized range of the triangles of the surfaces that maps one-to-one to a render batch entry.
 ---@class ss.VertexBatches.MeshVertexBatch
 ---@field SortID      integer   Lightmap/material group ID used to choose the render material.
 ---@field NumVertices integer   Number of vertices written into one IMesh.
----Face index, first vertex, and last vertex of each part of the vertices of a surface in this batch, repeated.
+---Face index, and the first and the last positions in VertexIndices of the surface, for each part in this batch, repeated.
 ---@field FaceRanges  integer[]
 
 ---Splits mesh groups into draw-sized vertex batches for mesh.Begin.
----A batch ends when it reaches the limit of the mesh library, even in the middle of the vertices of a surface.
+---A batch ends when it reaches the limit of the mesh library, even in the middle of the triangles of a surface.
 ---@param surfaceInfo ss.PrecachedData.SurfaceInfo Cached BSP surface data.
 ---@param meshGroups  ss.Lightmaps.MeshGroup[]     Mesh groups for one BSP model.
 ---@return ss.VertexBatches.MeshVertexBatch[] vertexBatches Draw-sized vertex batches.
@@ -44,7 +44,7 @@ function VertexBatches.Build(surfaceInfo, meshGroups)
     for _, meshGroup in ipairs(meshGroups) do
         local vertexBatch = nil ---@type ss.VertexBatches.MeshVertexBatch?
         for _, faceIndex in ipairs(meshGroup.FaceIndices) do
-            local numVertices = #surfaceInfo.Surfaces[faceIndex].Vertices
+            local numVertices = surfaceInfo.Surfaces[faceIndex].NumVertexIndices
             local first = 1
             while first <= numVertices do
                 if not vertexBatch or vertexBatch.NumVertices >= MAX_VERTICES then
@@ -77,8 +77,6 @@ function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, face
     local rtSize        = PrecachedData.InkMapResolutions[rtIndex]
     local bilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / rtSize
     local scale         = surfaceInfo.UVScales[rtIndex]
-    local worldToUV     = Matrix()
-    worldToUV:SetScale(Util.vector_one * scale)
     for i, vertexBatch in ipairs(vertexBatches) do
         local debugVertices = debugMeshData and {} ---@type ss.VertexBatches.MeshVertex[]?
         local faceRanges = vertexBatch.FaceRanges
@@ -86,19 +84,17 @@ function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, face
         for r = 1, #faceRanges, 3 do
             local faceIndex = faceRanges[r]
             local surf      = surfaceInfo.Surfaces[faceIndex]
-            local vertices  = surf.Vertices
             local uvInfo    = surf.UVInfo[rtIndex]
             local lightmap  = faceLightmaps[faceIndex]
+            local vertexIndices = surf.VertexIndices
+            local positions, normals, tangents, binormals = surf.Positions, surf.Normals, surf.Tangents, surf.Binormals
+            local bumpmapUVs, paintOrigins, lightmapUVs = surf.BumpmapUVs, surf.PaintOrigins, surf.LightmapUVs
+            local lightmapTangents, lightmapBinormals = surf.LightmapTangents, surf.LightmapBinormals
 
-            -- The values shared by the vertices of the surface, read from C functions once per surface.
-            worldToUV:SetAngles(uvInfo.Angle)
-            local row1x, row1y, row1z, row1w =
-                worldToUV:GetField(1, 1), worldToUV:GetField(1, 2), worldToUV:GetField(1, 3), worldToUV:GetField(1, 4)
-            local row2x, row2y, row2z, row2w =
-                worldToUV:GetField(2, 1), worldToUV:GetField(2, 2), worldToUV:GetField(2, 3), worldToUV:GetField(2, 4)
-            local translationX, translationY = uvInfo.Translation:Unpack()
-            row1w = row1w + translationX * scale
-            row2w = row2w + translationY * scale
+            -- The values shared by the vertices of the surface.
+            local row1, row2 = uvInfo.WorldToUVRow1, uvInfo.WorldToUVRow2
+            local row1x, row1y, row1z, row1w = row1[1] * scale, row1[2] * scale, row1[3] * scale, row1[4] * scale
+            local row2x, row2y, row2z, row2w = row2[1] * scale, row2[2] * scale, row2[3] * scale, row2[4] * scale
             local minU = uvInfo.OffsetU + bilinearGuard
             local minV = uvInfo.OffsetV + bilinearGuard
             local maxU = uvInfo.OffsetU + uvInfo.Width  - bilinearGuard
@@ -107,16 +103,21 @@ function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, face
             local lightmapOffsetX, lightmapOffsetY = lightmap.OffsetX, lightmap.OffsetY
             local pageWidth, pageHeight = lightmap.PageWidth, lightmap.PageHeight
 
-            for k = faceRanges[r + 1], faceRanges[r + 2] do
-                local v = vertices[k]
-                local normalX, normalY, normalZ = v.Normal:Unpack()
-                local tangentX, tangentY, tangentZ = v.Tangent:Unpack()
-                local binormalX, binormalY, binormalZ = v.Binormal:Unpack()
-                local lightmapTangentX, lightmapTangentY, lightmapTangentZ = v.LightmapTangent:Unpack()
-                local lightmapBinormalX, lightmapBinormalY, lightmapBinormalZ = v.LightmapBinormal:Unpack()
-                local bumpmapU, bumpmapV, blend = v.BumpmapUV:Unpack()
-                local lightmapU, lightmapV = v.LightmapUV:Unpack()
-                local originX, originY, originZ = v.DispPaintOrigin:Unpack()
+            for n = faceRanges[r + 1], faceRanges[r + 2] do
+                local vertex = vertexIndices[n]
+                local k = 3 * vertex               -- The coordinates of the vertex end at k.
+                local j = 3 * floor((n + 2) / 3)   -- The coordinates of its triangle end at j.
+                local positionX, positionY, positionZ = positions[k - 2], positions[k - 1], positions[k]
+                local normalX, normalY, normalZ = normals[k - 2], normals[k - 1], normals[k]
+                local tangentX, tangentY, tangentZ = tangents[k - 2], tangents[k - 1], tangents[k]
+                local binormalX, binormalY, binormalZ = binormals[k - 2], binormals[k - 1], binormals[k]
+                local lightmapTangentX, lightmapTangentY, lightmapTangentZ
+                    = lightmapTangents[j - 2], lightmapTangents[j - 1], lightmapTangents[j]
+                local lightmapBinormalX, lightmapBinormalY, lightmapBinormalZ
+                    = lightmapBinormals[j - 2], lightmapBinormals[j - 1], lightmapBinormals[j]
+                local bumpmapU, bumpmapV, blend = bumpmapUVs[k - 2], bumpmapUVs[k - 1], bumpmapUVs[k]
+                local lightmapU, lightmapV = lightmapUVs[2 * vertex - 1], lightmapUVs[2 * vertex]
+                local originX, originY, originZ = paintOrigins[k - 2], paintOrigins[k - 1], paintOrigins[k]
                 local uvX = row1x * originX + row1y * originY + row1z * originZ + row1w
                 local uvY = row2x * originX + row2y * originY + row2z * originZ + row2w
                 local blend2 = bit.band(blend, 255)
@@ -125,7 +126,7 @@ function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, face
                 lightmapU = (lightmapU + lightmapOffsetX) / pageWidth
                 lightmapV = (lightmapV + lightmapOffsetY) / pageHeight
                 mesh.Color(blend2, blend3, blend4, 255)
-                mesh.Position(v.Translation)
+                mesh.Position(positionX, positionY, positionZ)
                 mesh.Normal(normalX, normalY, normalZ)
                 mesh.TexCoord(0, minU, minV, maxU, maxV)
                 mesh.TexCoord(1, tangentX, tangentY, tangentZ, bumpmapU)
@@ -139,7 +140,7 @@ function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, face
 
                 if debugVertices then
                     debugVertices[#debugVertices + 1] = {
-                        Position           = v.Translation,
+                        Position           = Vector(positionX, positionY, positionZ),
                         Color              = { blend2, blend3, blend4, 255 },
                         UVRange            = { minU, minV, maxU, maxV },
                         WorldTangent_U     = { tangentX, tangentY, tangentZ, bumpmapU },
@@ -179,8 +180,9 @@ function VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches, surface
     for _, vertexBatch in ipairs(vertexBatches) do
         local faceRanges = vertexBatch.FaceRanges
         for r = 1, #faceRanges, 3 do
-            local vertices = surfaceInfo.Surfaces[faceRanges[r]].Vertices
-            for k = faceRanges[r + 1], faceRanges[r + 2] do
+            local surf = surfaceInfo.Surfaces[faceRanges[r]]
+            local vertexIndices, positions, normals = surf.VertexIndices, surf.Positions, surf.Normals
+            for n = faceRanges[r + 1], faceRanges[r + 2] do
                 if numInMesh == meshSize then
                     local m = Mesh(flashlightMaterial)
                     renderBatch.FlashlightMeshes[#renderBatch.FlashlightMeshes + 1] = m
@@ -188,9 +190,9 @@ function VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches, surface
                     mesh.Begin(m, MATERIAL_TRIANGLES, meshSize / 3)
                 end
 
-                local v = vertices[k]
-                mesh.Position(v.Translation)
-                mesh.Normal(v.Normal)
+                local k = 3 * vertexIndices[n]
+                mesh.Position(positions[k - 2], positions[k - 1], positions[k])
+                mesh.Normal(normals[k - 2], normals[k - 1], normals[k])
                 mesh.AdvanceVertex()
                 numInMesh = numInMesh + 1
                 numRemaining = numRemaining - 1

@@ -29,6 +29,7 @@ function UVBuilder.Build(surfInfo, staticPropInfo, staticPropRectangles)
 
     local t0 = SysTime()
     local workMatrix = Matrix() -- Work area to invert matrix.
+    local worldToUV = Matrix() -- Work area to rebuild the matrix from angles.
     for rtIndex, rtSize in ipairs(PrecachedData.InkMapResolutions) do
         local rects = {} ---@type ss.Rectangle[]
         local marginPerSide = ss.MARGIN_HAMMER_UNITS
@@ -59,13 +60,16 @@ function UVBuilder.Build(surfInfo, staticPropInfo, staticPropRectangles)
             local height = rect.height
             if tag.UVInfo then
                 local info = tag.UVInfo[rtIndex]
+                local mbrMatrix = tag.MBRMatrix ---@cast mbrMatrix -?
+                local angle = mbrMatrix:GetAngles()
+                local translation = mbrMatrix:GetTranslation()
 
                 -- If the face is rotated in the UV coord.
                 if rect.istall ~= (info.Width < info.Height) then
-                    info.Angle:RotateAroundAxis(info.Angle:Up(), 90)
+                    angle:RotateAroundAxis(angle:Up(), 90)
                     workMatrix:Identity()
-                    workMatrix:SetAngles(info.Angle)
-                    info.Translation:Sub(workMatrix * Vector(0, height - margin, 0))
+                    workMatrix:SetAngles(angle)
+                    translation:Sub(workMatrix * Vector(0, height - margin, 0))
                 end
 
                 info.OffsetU = rect.left   / rectangleSizeHU
@@ -73,12 +77,17 @@ function UVBuilder.Build(surfInfo, staticPropInfo, staticPropRectangles)
                 info.Width   = width       / rectangleSizeHU
                 info.Height  = height      / rectangleSizeHU
 
-                workMatrix:SetTranslation(info.Translation)
-                workMatrix:SetAngles(info.Angle)
+                workMatrix:SetTranslation(translation)
+                workMatrix:SetAngles(angle)
                 workMatrix:InvertTR()
-                info.Angle:Set(workMatrix:GetAngles())
-                info.Translation:Set(
-                    workMatrix:GetTranslation() + rect.bottomleft + marginVector)
+
+                -- Built through the angles so that the values stay the same as when the cache stored the angles.
+                -- SetAngles keeps the scale of the matrix with rounding errors, so the matrix is reset first.
+                worldToUV:Identity()
+                worldToUV:SetAngles(workMatrix:GetAngles())
+                worldToUV:SetTranslation(workMatrix:GetTranslation() + rect.bottomleft + marginVector)
+                local row1, row2 = info.WorldToUVRow1, info.WorldToUVRow2
+                row1[1], row1[2], row1[3], row1[4], row2[1], row2[2], row2[3], row2[4] = worldToUV:Unpack()
             else ---@cast tag { UV: ss.PrecachedData.StaticProp.UVInfo, Rectangle: Vector }
                 local rotated = rect.istall ~= (tag.Rectangle.x < tag.Rectangle.y)
                 tag.UV.Width = width

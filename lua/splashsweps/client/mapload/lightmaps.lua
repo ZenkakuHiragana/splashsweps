@@ -223,7 +223,7 @@ function Lightmaps.BuildMeshGroups(surfaceInfo, lightmapLayout)
             end
             local meshGroup = meshGroups[meshGroupIndex]
             meshGroup.FaceIndices[#meshGroup.FaceIndices + 1] = faceIndex
-            meshGroup.TriangleCount = meshGroup.TriangleCount + #surf.Vertices / 3
+            meshGroup.TriangleCount = meshGroup.TriangleCount + surf.NumVertexIndices / 3
         end
     end
 

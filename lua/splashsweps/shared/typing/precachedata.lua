@@ -84,45 +84,6 @@ end
 local function blackColor() return Color(0, 0, 0) end
 local NUM_RESOLUTIONS = #PrecachedData.InkMapResolutions
 
----Precached information of a vertex stored in a local file.
----@class ss.PrecachedData.Vertex
----@field Translation       Vector  The position.
----@field Normal            Vector
----@field Tangent           Vector
----@field Binormal          Vector
----@field LightmapTangent   Vector
----@field LightmapBinormal  Vector
----@field LightmapUV        Vector  Relative Lightmap UV values in luxels.
----@field BumpmapUV         Vector  Bumpmap UV coordinates of the original face in texels.
----                                 Z = blend factors toward $basetexture2, 3, and 4 as b2 + b3 * 256 + b4 * 65536.
----@field DispPaintOrigin   Vector  World-space reference point used to compute paint/ink UV.
----                                 The same as Translation except for displacements.
-
----@type { new: fun(): ss.PrecachedData.Vertex }
-PrecachedData.Vertex = record("PrecachedData.Vertex", {
-    "Vector Translation",
-    "Vector Normal",
-    "Vector Tangent",
-    "Vector Binormal",
-    "Vector LightmapTangent",
-    "Vector LightmapBinormal",
-    "Vector LightmapUV",
-    "Vector BumpmapUV",
-    "Vector DispPaintOrigin",
-})
-
----Precached transformation matrix stored in a local file.
----The cache stores the angles and the translation of VMatrix.
----@class ss.PrecachedData.MatrixTransform
----@field Angle       Angle  The orientation corresponding to VMatrix:GetAngles()
----@field Translation Vector The translation vector corresponding to VMatrix:GetTranslation()
-
----@type { new: fun(): ss.PrecachedData.MatrixTransform }
-PrecachedData.MatrixTransform = record("PrecachedData.MatrixTransform", {
-    "Angle  Angle",
-    "Vector Translation",
-})
-
 ---Components of Color, which the cache stores without the metatable of Color.
 Binary.struct "PrecachedData.Color" {
     "Float r",
@@ -198,8 +159,10 @@ PrecachedData.StaticPropUVInfo = record("PrecachedData.StaticPropUVInfo", {
 ---. u
 ---```
 ---@class ss.PrecachedData.UVInfo
----@field Angle       Angle  Transforms world coordinates into UV space.
----@field Translation Vector Transforms world coordinates into UV space.
+---Rows 1 and 2 of the 3x4 matrix that transforms world coordinates into the UV space in Hammer units,
+---which UVScales of the surface info scales into 0 to 1.
+---@field WorldToUVRow1 number[]
+---@field WorldToUVRow2 number[]
 ---@field OffsetU     number Left position in UV space ranging from 0 to 1.
 ---@field OffsetV     number Top position in UV space ranging from 0 to 1.
 ---@field Width       number The width of this surface in UV space ranging from 0 to 1.
@@ -207,8 +170,8 @@ PrecachedData.StaticPropUVInfo = record("PrecachedData.StaticPropUVInfo", {
 
 ---@type { new: fun(): ss.PrecachedData.UVInfo }
 PrecachedData.UVInfo = record("PrecachedData.UVInfo", {
-    "Angle  Angle",
-    "Vector Translation",
+    "Float  WorldToUVRow1 4",
+    "Float  WorldToUVRow2 4",
     "Float  OffsetU",
     "Float  OffsetV",
     "Float  Width",
@@ -248,25 +211,26 @@ PrecachedData.StaticProp = record("PrecachedData.StaticProp", {
     UnwrapIndex = 1,
 })
 
----Vertices and some other info of a triangle in a displacement.
+---Info of a triangle in a displacement to paint it.
+---Element j of the triangles of a surface is the triangle j of its mesh.
 ---@class ss.PrecachedData.DisplacementTriangle
----@field Index           integer Index to the vertices.
 ---@field BarycentricDot1 Vector  Parameter to calculate barycentric coordinates v.
 ---@field BarycentricDot2 Vector  Parameter to calculate barycentric coordinates w.
 ---@field MBBAngles       Angle   The angle of minimum (oriented) bounding box.
 ---@field MBBOrigin       Vector  The origin of minimum (oriented) bounding box.
 ---@field MBBSize         Vector  The size of minimum (oriented) bounding box in their local coordinates.
----@field WorldToLocalGridRotation Angle Transforms world angles into local to map to serverside paint grid.
+---3x3 rotation matrix in row-major order,
+---which transforms world angles into local ones to map them to the serverside paint grid.
+---@field WorldToLocalGridRotation number[]
 
 ---@type { new: fun(): ss.PrecachedData.DisplacementTriangle }
 PrecachedData.DisplacementTriangle = record("PrecachedData.DisplacementTriangle", {
-    "UShort Index", -- 3 vertices of MAX_DISPTRIS = 512 triangles
     "Vector BarycentricDot1",
     "Vector BarycentricDot2",
     "Angle  MBBAngles",
     "Vector MBBOrigin",
     "Vector MBBSize",
-    "Angle  WorldToLocalGridRotation",
+    "Float  WorldToLocalGridRotation 9",
 })
 
 ---Spatial hash of the triangles of a displacement.
@@ -293,7 +257,8 @@ PrecachedData.TriangleHash = record("PrecachedData.TriangleHash", {
 ---@class ss.PrecachedData.Surface
 ---@field AABBMax            Vector   Maximum component of all vertices in world coordinates.
 ---@field AABBMin            Vector   Minimum component of all vertices in world coordinates.
----@field TransformPaintGrid ss.PrecachedData.MatrixTransform Transforms world coordinates into the serverside paint grid coordinates.
+---3x4 matrix in row-major order, which transforms world coordinates into the serverside paint grid coordinates.
+---@field WorldToLocalGrid   number[]
 ---@field MBBAngles          Angle    The angle of minimum (oriented) bounding box.
 ---@field MBBOrigin          Vector   The origin of minimum (oriented) bounding box.
 ---@field MBBSize            Vector   The size of minimum (oriented) bounding box in their local coordinates.
@@ -303,19 +268,39 @@ PrecachedData.TriangleHash = record("PrecachedData.TriangleHash", {
 ---Array of UV coordinates.
 ---One of them will be selected on mesh construction depending on the resolution of RenderTarget.
 ---@field UVInfo ss.PrecachedData.UVInfo[]
----@field NumVertices integer
----Vertices in world coordinates (x0, y0, z0) which are directly fed into mesh triangles.
----@field Vertices ss.PrecachedData.Vertex[]
+---Vertices of the mesh: the vertices of the polygon of a brush face, or the grid points of a displacement.
+---Vertex k has its x, y, and z at 3k - 2, 3k - 1, and 3k of Positions, Normals, Tangents, Binormals,
+---BumpmapUVs, and PaintOrigins, and its u and v at 2k - 1 and 2k of LightmapUVs.
+---@field NumVertexCoordinates     integer  Number of the vertices times 3.
+---@field Positions                number[] Positions in world coordinates.
+---@field Normals                  number[]
+---@field Tangents                 number[]
+---@field Binormals                number[]
+---Bumpmap UV coordinates of the original face in texels,
+---and the blend factors toward $basetexture2, 3, and 4 as b2 + b3 * 256 + b4 * 65536.
+---@field BumpmapUVs               number[]
+---World-space reference points to compute the ink UV coordinates, the same as Positions except for displacements.
+---@field PaintOrigins             number[]
+---@field NumLightmapUVCoordinates integer  Number of the vertices times 2.
+---@field LightmapUVs              number[] Lightmap UV coordinates relative to the lightmap of the face in luxels.
+---Triangles of the mesh. Triangle j has the vertices VertexIndices[3j - 2], VertexIndices[3j - 1], and VertexIndices[3j],
+---and its lightmap tangent and binormal at 3j - 2, 3j - 1, and 3j of LightmapTangents and LightmapBinormals.
+---@field NumVertexIndices         integer  Number of the triangles times 3.
+---@field VertexIndices            integer[]
+---@field NumTriangleCoordinates   integer  Number of the triangles times 3.
+---@field LightmapTangents         number[]
+---@field LightmapBinormals        number[]
 ---@field TriangleHash  ss.PrecachedData.TriangleHash Spatial hash to search triangles of displacement.
 ---@field NumTriangles  integer
 ---@field Triangles     ss.PrecachedData.DisplacementTriangle[]? Array of triangles of a displacement, nil for the others.
 ---@field FaceLumpIndex integer? Index to face lump just used to calculate lightmap UV coordinates, not saved.
+---@field MBRMatrix     VMatrix? Minimum bounding rectangle in the world, used by UVBuilder while building the cache, not saved.
 
 ---@type { new: fun(): ss.PrecachedData.Surface }
 PrecachedData.Surface = record("PrecachedData.Surface", {
     "Vector AABBMax",
     "Vector AABBMin",
-    "PrecachedData.MatrixTransform TransformPaintGrid",
+    "Float  WorldToLocalGrid 12",
     "Angle  MBBAngles",
     "Vector MBBOrigin",
     "Vector MBBSize",
@@ -323,8 +308,20 @@ PrecachedData.Surface = record("PrecachedData.Surface", {
     "UShort PaintGridHeight", -- The diagonal of the map divided by PaintableGrid.CELL_SIZE
     "UShort PaintGridWidth",
     "PrecachedData.UVInfo UVInfo " .. NUM_RESOLUTIONS,
-    "ULong  NumVertices",
-    "PrecachedData.Vertex Vertices NumVertices",
+    "UShort NumVertexCoordinates",     -- 3 * (2^4 + 1)^2 for the displacements of power 4
+    "Float  Positions    NumVertexCoordinates",
+    "Float  Normals      NumVertexCoordinates",
+    "Float  Tangents     NumVertexCoordinates",
+    "Float  Binormals    NumVertexCoordinates",
+    "Float  BumpmapUVs   NumVertexCoordinates",
+    "Float  PaintOrigins NumVertexCoordinates",
+    "UShort NumLightmapUVCoordinates",
+    "Float  LightmapUVs  NumLightmapUVCoordinates",
+    "UShort NumVertexIndices",         -- 3 * MAX_DISPTRIS = 1536
+    "UShort VertexIndices NumVertexIndices",
+    "UShort NumTriangleCoordinates",
+    "Float  LightmapTangents  NumTriangleCoordinates",
+    "Float  LightmapBinormals NumTriangleCoordinates",
     "PrecachedData.TriangleHash TriangleHash",
     "UShort NumTriangles",    -- MAX_DISPTRIS = 512
     "PrecachedData.DisplacementTriangle Triangles NumTriangles",
