@@ -38,17 +38,6 @@ InkMesh.Batches = state.Batches
 ---Vertices written into the meshes, kept for debug mesh inspection if InkMesh.Setup is asked to.
 InkMesh.DebugMeshData = state.DebugMeshData
 
----Copies vertex batches into InkMesh.DebugMeshData without exposing batch metadata.
----@param debugMeshData ss.VertexBatches.MeshVertex[][]    Destination debug vertex lists.
----@param vertexBatches ss.VertexBatches.MeshVertexBatch[] Source draw-sized vertex batches.
-local function storeDebugMeshData(debugMeshData, vertexBatches)
-    for _, vertexBatch in ipairs(vertexBatches) do
-        local dest = {}
-        for _, v in ipairs(vertexBatch.Vertices) do table.insert(dest, v) end
-        table.insert(debugMeshData, dest)
-    end
-end
-
 ---Reads through BSP models which includes the worldspawn and brush entities and constructs IMeshes from them.
 ---@param surfaceInfo       ss.PrecachedData.SurfaceInfo
 ---@param numModels         integer
@@ -80,13 +69,14 @@ function InkMesh.Setup(surfaceInfo, numModels, materialNames, keepDebugMeshData)
     local materialInfo      = MapMaterials.Enumerate(materialNames, surfaceInfo.Cubemaps)
     local lightmapLayout    = Lightmaps.Pack(surfaceInfo, materialInfo)
     local meshGroupsByModel = Lightmaps.BuildMeshGroups(surfaceInfo, lightmapLayout)
-    local bumpmapOffsets    = Lightmaps.BuildBumpmapOffsets(lightmapLayout)
+    local faceLightmaps     = Lightmaps.BuildFaceLightmaps(lightmapLayout)
     UnderlaySync.WatchUnderlays(materialInfo)
     Underlay.Build(materialInfo)
 
     table.Empty(state.DebugMeshData)
+    local debugMeshData = keepDebugMeshData and state.DebugMeshData or nil
     for modelIndex, meshGroups in pairs(meshGroupsByModel) do
-        local vertexBatches = VertexBatches.Build(surfaceInfo, meshGroups, bumpmapOffsets)
+        local vertexBatches = VertexBatches.Build(surfaceInfo, meshGroups)
         local renderBatch = state.Batches[modelIndex]
         for _, vertexBatch in ipairs(vertexBatches) do
             local mat = InkMeshMaterial.Create(lightmapLayout, vertexBatch.SortID)
@@ -95,11 +85,8 @@ function InkMesh.Setup(surfaceInfo, numModels, materialNames, keepDebugMeshData)
                 Mesh     = Mesh(mat),
             }
         end
-        if keepDebugMeshData then
-            storeDebugMeshData(state.DebugMeshData, vertexBatches)
-        end
-        VertexBatches.WriteMeshes(renderBatch, vertexBatches)
-        VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches)
+        VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, faceLightmaps, debugMeshData)
+        VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches, surfaceInfo)
     end
 end
 

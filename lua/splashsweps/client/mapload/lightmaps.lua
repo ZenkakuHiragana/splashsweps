@@ -193,8 +193,8 @@ function Lightmaps.GetPageSize(lightmapLayout, lightmapGroup)
     return pageWidth, pageHeight
 end
 
----Groups packed faces by model and SortID, while applying packed lightmap UVs to vertices.
----@param surfaceInfo    ss.PrecachedData.SurfaceInfo     Cached BSP surface data to update in-place.
+---Groups packed faces by model and SortID.
+---@param surfaceInfo    ss.PrecachedData.SurfaceInfo Cached BSP surface data.
 ---@param lightmapLayout ss.Lightmaps.LightmapLayout Packed lightmap layout from Lightmaps.Pack.
 ---@return ss.Lightmaps.MeshGroup[][] meshGroupsByModel    Model-indexed mesh groups.
 function Lightmaps.BuildMeshGroups(surfaceInfo, lightmapLayout)
@@ -203,15 +203,8 @@ function Lightmaps.BuildMeshGroups(surfaceInfo, lightmapLayout)
     local meshGroupsByModel      = {}
     local sortIDToMeshGroupIndex = {} ---@type integer[][]
     for sortID, lightmapGroup in ipairs(lightmapLayout.Groups) do
-        local pageWidth, pageHeight = Lightmaps.GetPageSize(lightmapLayout, lightmapGroup)
-        for i, faceIndex in ipairs(lightmapGroup.FaceIndices) do
+        for _, faceIndex in ipairs(lightmapGroup.FaceIndices) do
             local surf = surfaceInfo.Surfaces[faceIndex]
-            local lightmapCoordinates = lightmapGroup.FaceLightmaps[i]
-            for _, v in ipairs(surf.Vertices) do
-                v.LightmapUV.x = (v.LightmapUV.x + lightmapCoordinates.x) / pageWidth
-                v.LightmapUV.y = (v.LightmapUV.y + lightmapCoordinates.y) / pageHeight
-            end
-
             if not meshGroupsByModel[surf.ModelIndex] then
                 meshGroupsByModel[surf.ModelIndex] = {}
                 sortIDToMeshGroupIndex[surf.ModelIndex] = {}
@@ -241,19 +234,36 @@ function Lightmaps.BuildMeshGroups(surfaceInfo, lightmapLayout)
     return meshGroupsByModel
 end
 
+---Where the lightmap of a face is in its lightmap page.
+---The lightmap UV of a vertex in the page is (LightmapUV + (OffsetX, OffsetY)) / (PageWidth, PageHeight).
+---@class ss.Lightmaps.FaceLightmap
+---@field OffsetX       number  Left of the lightmap of the face in the page in luxels.
+---@field OffsetY       number  Top of the lightmap of the face in the page in luxels.
+---@field PageWidth     integer Width of the page in luxels.
+---@field PageHeight    integer Height of the page in luxels.
+---@field BumpmapOffset number  Lightmap U offset between bumped lightmaps, or 0 if the material has no bumped lightmaps.
+
 ---@param lightmapLayout ss.Lightmaps.LightmapLayout Packed lightmap layout from Lightmaps.Pack.
----@return number[] bumpmapOffsetsByFace Face-indexed lightmap U offsets for bumped lightmaps.
-function Lightmaps.BuildBumpmapOffsets(lightmapLayout)
-    local bumpmapOffsetsByFace   = {} ---@type number[] faceIndex --> bumpmap offset
+---@return ss.Lightmaps.FaceLightmap[] faceLightmaps Face-indexed lightmap placements.
+function Lightmaps.BuildFaceLightmaps(lightmapLayout)
+    local faceLightmaps = {} ---@type ss.Lightmaps.FaceLightmap[]
     for _, lightmapGroup in ipairs(lightmapLayout.Groups) do
         local materialInfo = lightmapGroup.Material
-        local pageWidth, _ = Lightmaps.GetPageSize(lightmapLayout, lightmapGroup)
+        local pageWidth, pageHeight = Lightmaps.GetPageSize(lightmapLayout, lightmapGroup)
         for i, faceIndex in ipairs(lightmapGroup.FaceIndices) do
+            local lightmapCoordinates = lightmapGroup.FaceLightmaps[i]
             local lightmapWidth = lightmapGroup.LightmapWidths[i]
-            bumpmapOffsetsByFace[faceIndex] = materialInfo.NeedsBumpedLightmaps and lightmapWidth / pageWidth or 0
+            faceLightmaps[faceIndex] = {
+                OffsetX       = lightmapCoordinates.x,
+                OffsetY       = lightmapCoordinates.y,
+                PageWidth     = pageWidth,
+                PageHeight    = pageHeight,
+                BumpmapOffset = materialInfo.NeedsBumpedLightmaps and lightmapWidth / pageWidth or 0,
+            }
         end
     end
-    return bumpmapOffsetsByFace
+
+    return faceLightmaps
 end
 
 return Lightmaps
