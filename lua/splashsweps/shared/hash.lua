@@ -3,6 +3,7 @@
 
 ---@class ss
 local ss = SplashSWEPs
+local Geometry         = ss.import "splashsweps/shared/geometry"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
 local PrecachedData    = ss.import "splashsweps/shared/typing/precachedata"
 local Util             = ss.import "splashsweps/shared/util"
@@ -34,6 +35,7 @@ function Hash.Setup(surfaceHash, parameters)
     state.Parameters = parameters
 end
 
+local abs = math.abs
 local ceil = math.ceil
 local clamp = math.Clamp
 local floor = math.floor
@@ -43,7 +45,6 @@ local min = math.min
 local wrap = coroutine.wrap
 local yield = coroutine.yield
 local IsOBBIntersectingOBB = util.IsOBBIntersectingOBB
-local OrderVectors = OrderVectors
 local angle_zero = angle_zero
 local vector_origin = vector_origin
 local vector_tenth = Util.vector_one * 0.1
@@ -108,19 +109,19 @@ function Hash.BuildSurfaceHash(surfaces, staticProps)
         end
     end
 
-    local localToWorld = Matrix()
     for i, s in ipairs(staticProps) do
         -- World AABB of the rotated OBB, plus the margin as the other surfaces have
-        localToWorld:SetAngles(Angle(s.Pitch, s.Yaw, s.Roll))
-        localToWorld:SetTranslation(Vector(s.PositionX, s.PositionY, s.PositionZ))
-        local mins, maxs = Util.TransformAABB(localToWorld,
-            Vector(s.BoundsMinX, s.BoundsMinY, s.BoundsMinZ),
-            Vector(s.BoundsMaxX, s.BoundsMaxY, s.BoundsMaxZ))
-        mins:Sub(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
-        maxs:Add(Util.vector_one * ss.MARGIN_HAMMER_UNITS)
-        local minX, minY, minZ = mins:Unpack()
-        local maxX, maxY, maxZ = maxs:Unpack()
-        for h in hashpairs(minX, minY, minZ, maxX, maxY, maxZ) do
+        local m = Geometry.FromAngles(s.Pitch, s.Yaw, s.Roll, s.PositionX, s.PositionY, s.PositionZ)
+        local centerX, centerY, centerZ = Geometry.TransformPoint(m,
+            (s.BoundsMinX + s.BoundsMaxX) / 2, (s.BoundsMinY + s.BoundsMaxY) / 2, (s.BoundsMinZ + s.BoundsMaxZ) / 2)
+        local halfX = (s.BoundsMaxX - s.BoundsMinX) / 2
+        local halfY = (s.BoundsMaxY - s.BoundsMinY) / 2
+        local halfZ = (s.BoundsMaxZ - s.BoundsMinZ) / 2
+        local extentX = halfX * abs(m[1]) + halfY * abs(m[2])  + halfZ * abs(m[3])  + ss.MARGIN_HAMMER_UNITS
+        local extentY = halfX * abs(m[5]) + halfY * abs(m[6])  + halfZ * abs(m[7])  + ss.MARGIN_HAMMER_UNITS
+        local extentZ = halfX * abs(m[9]) + halfY * abs(m[10]) + halfZ * abs(m[11]) + ss.MARGIN_HAMMER_UNITS
+        for h in hashpairs(centerX - extentX, centerY - extentY, centerZ - extentZ,
+                           centerX + extentX, centerY + extentY, centerZ + extentZ) do
             hash[h] = hash[h] or {}
             for j = 1, 6 do
                 hash[h][#hash[h] + 1] = #surfaces + 6 * (i - 1) + j
@@ -224,63 +225,66 @@ function Hash.CollectBrushEntities(mins, maxs)
     end)
 end
 
----Converts real number coordinate to rough coordinate using given AABB size and number of division.
----@param pos Vector
----@param mins Vector The AABB minimum.
----@param maxs Vector The AABB maximum.
----@return number x Rough coordinate X.
----@return number y Rough coordinate Y.
----@return number z Rough coordinate Z.
-local function posToIndexAABB(pos, mins, maxs)
-    local size = maxs - mins
-    local minGridSize = state.Parameters.MinGridSizeDisplacement
-    local numDivision = state.Parameters.NumDivisionsDisplacement
-    local maxIndicesX = clamp(ceil(size.x / minGridSize), 1, numDivision)
-    local maxIndicesY = clamp(ceil(size.y / minGridSize), 1, numDivision)
-    local maxIndicesZ = clamp(ceil(size.z / minGridSize), 1, numDivision)
-    local gridSize = size / numDivision
-    OrderVectors(Util.vector_one * minGridSize, gridSize)
-    local indices = (pos - mins) / gridSize
-    return clamp(floor(indices.x), 0, maxIndicesX - 1),
-           clamp(floor(indices.y), 0, maxIndicesY - 1),
-           clamp(floor(indices.z), 0, maxIndicesZ - 1)
+---The grid of the spatial hash of a displacement, which divides its AABB.
+---@class ss.Hash.DisplacementGrid
+---@field MinX      number The AABB minimum.
+---@field MinY      number
+---@field MinZ      number
+---@field CellSizeX number
+---@field CellSizeY number
+---@field CellSizeZ number
+---@field NumCellsX integer
+---@field NumCellsY integer
+---@field NumCellsZ integer
+
+---Divides the AABB of a displacement into the grid of its spatial hash.
+---The cells are at least MinGridSizeDisplacement long, and each side has at most NumDivisionsDisplacement of them.
+---@param minX number The AABB minimum.
+---@param minY number
+---@param minZ number
+---@param maxX number The AABB maximum.
+---@param maxY number
+---@param maxZ number
+---@return ss.Hash.DisplacementGrid
+local function displacementGrid(minX, minY, minZ, maxX, maxY, maxZ)
+    local minCellSize = state.Parameters.MinGridSizeDisplacement
+    local numDivisions = state.Parameters.NumDivisionsDisplacement
+    local sizeX, sizeY, sizeZ = maxX - minX, maxY - minY, maxZ - minZ
+    return {
+        MinX = minX,
+        MinY = minY,
+        MinZ = minZ,
+        CellSizeX = max(sizeX / numDivisions, minCellSize),
+        CellSizeY = max(sizeY / numDivisions, minCellSize),
+        CellSizeZ = max(sizeZ / numDivisions, minCellSize),
+        NumCellsX = clamp(ceil(sizeX / minCellSize), 1, numDivisions),
+        NumCellsY = clamp(ceil(sizeY / minCellSize), 1, numDivisions),
+        NumCellsZ = clamp(ceil(sizeZ / minCellSize), 1, numDivisions),
+    }
 end
 
----Calculates hash code from x, y, and z coordinates using given AABB size and number of division.
----@param x integer Rough coordinate which can be obtained from posToGrid(x: number).
----@param y integer Rough coordinate which can be obtained from posToGrid(y: number).
----@param z integer Rough coordinate which can be obtained from posToGrid(z: number).
----@param mins Vector The AABB minimum.
----@param maxs Vector The AABB maximum.
----@return integer
-local function indexToHashAABB(x, y, z, mins, maxs)
-    local size = maxs - mins
-    local minGridSize = state.Parameters.MinGridSizeDisplacement
-    local numDivision = state.Parameters.NumDivisionsDisplacement
-    local maxIndicesX = min(ceil(size.x / minGridSize), numDivision)
-    local maxIndicesY = min(ceil(size.y / minGridSize), numDivision)
-    return x + y * maxIndicesX + z * maxIndicesX * maxIndicesY
-end
-
----Generator function that produces hash integers to look-up the surfaces within given AABB.
----@param queryMins Vector Minimum vector of AABB query.
----@param queryMaxs Vector Maximum vector of AABB query.
----@param mins      Vector Minimum vector of the area to search.
----@param maxs      Vector Maximum vector of the area to search.
+---Generator function that produces hash integers to look-up the cells of a displacement within given AABB.
+---@param grid ss.Hash.DisplacementGrid
+---@param minX number Minimum of the AABB query.
+---@param minY number
+---@param minZ number
+---@param maxX number Maximum of the AABB query.
+---@param maxY number
+---@param maxZ number
 ---@return fun(): number # Generator function.
-local function hashpairsAABB(queryMins, queryMaxs, mins, maxs)
-    local x0, y0, z0 = posToIndexAABB(queryMins, mins, maxs)
-    local x1, y1, z1 = posToIndexAABB(queryMaxs, mins, maxs)
+local function hashpairsAABB(grid, minX, minY, minZ, maxX, maxY, maxZ)
+    local numX, numY, numZ = grid.NumCellsX, grid.NumCellsY, grid.NumCellsZ
+    local x0 = clamp(floor((minX - grid.MinX) / grid.CellSizeX), 0, numX - 1)
+    local y0 = clamp(floor((minY - grid.MinY) / grid.CellSizeY), 0, numY - 1)
+    local z0 = clamp(floor((minZ - grid.MinZ) / grid.CellSizeZ), 0, numZ - 1)
+    local x1 = clamp(floor((maxX - grid.MinX) / grid.CellSizeX), 0, numX - 1)
+    local y1 = clamp(floor((maxY - grid.MinY) / grid.CellSizeY), 0, numY - 1)
+    local z1 = clamp(floor((maxZ - grid.MinZ) / grid.CellSizeZ), 0, numZ - 1)
     return wrap(function()
         for z = z0, z1 do
             for y = y0, y1 do
                 for x = x0, x1 do
-                    -- local gridSize = (maxs - mins) / state.Parameters.NumDivisionsDisplacement
-                    -- OrderVectors(Util.vector_one * state.Parameters.MinGridSizeDisplacement, gridSize)
-                    -- local gmin = Vector(x, y, z) * gridSize + mins
-                    -- local gmax = gmin + gridSize
-                    -- debugoverlay.Box(Vector(), gmin, gmax, FrameTime() * 20, Color(0, 255, 0, 16))
-                    yield(indexToHashAABB(x, y, z, mins, maxs))
+                    yield(x + y * numX + z * numX * numY)
                 end
             end
         end
@@ -296,16 +300,16 @@ function Hash.BuildDisplacementHash(surfaces)
             local cells = {} ---@type table<integer, integer[]> Hash value + 1 --> indices of the triangles
             local x, y, z = surf.PositionX, surf.PositionY, surf.PositionZ
             local vertexIndices = surf.VertexIndices
-            local aabbMin = Vector(surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ)
-            local aabbMax = Vector(surf.AABBMaxX, surf.AABBMaxY, surf.AABBMaxZ)
+            local grid = displacementGrid(
+                surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ, surf.AABBMaxX, surf.AABBMaxY, surf.AABBMaxZ)
             local numHashValues = 0
             for i = 1, surf.NumDisplacementTriangles do
                 local a = vertexIndices[3 * i - 2]
                 local b = vertexIndices[3 * i - 1]
                 local c = vertexIndices[3 * i]
-                local mins = Vector(min(x[a], x[b], x[c]), min(y[a], y[b], y[c]), min(z[a], z[b], z[c]))
-                local maxs = Vector(max(x[a], x[b], x[c]), max(y[a], y[b], y[c]), max(z[a], z[b], z[c]))
-                for h in hashpairsAABB(mins, maxs, aabbMin, aabbMax) do
+                for h in hashpairsAABB(grid,
+                    min(x[a], x[b], x[c]), min(y[a], y[b], y[c]), min(z[a], z[b], z[c]),
+                    max(x[a], x[b], x[c]), max(y[a], y[b], y[c]), max(z[a], z[b], z[c])) do
                     cells[h + 1] = cells[h + 1] or {}
                     cells[h + 1][#cells[h + 1] + 1] = i
                     numHashValues = math.max(h + 1, numHashValues)
@@ -338,9 +342,14 @@ function Hash.CollectDisplacementTriangles(displacement, mins, maxs)
     if not hash then return wrap(function() end) end
     mins = mins - vector_tenth
     maxs = maxs + vector_tenth
+    local aabbMinX, aabbMinY, aabbMinZ = displacement.AABBMin:Unpack()
+    local aabbMaxX, aabbMaxY, aabbMaxZ = displacement.AABBMax:Unpack()
+    local minX, minY, minZ = mins:Unpack()
+    local maxX, maxY, maxZ = maxs:Unpack()
     return wrap(function()
         local hasSeenThisTriangle = {} ---@type table<integer, true>
-        for h in hashpairsAABB(mins, maxs, displacement.AABBMin, displacement.AABBMax) do
+        local grid = displacementGrid(aabbMinX, aabbMinY, aabbMinZ, aabbMaxX, aabbMaxY, aabbMaxZ)
+        for h in hashpairsAABB(grid, minX, minY, minZ, maxX, maxY, maxZ) do
             if h < hash.NumHashValues then
                 local first = hash.FirstTriangleIndex[h + 1]
                 for k = first, first + hash.NumTriangleIndices[h + 1] - 1 do

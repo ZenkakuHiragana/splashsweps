@@ -1,5 +1,7 @@
 
--- Bounding rectangles and boxes of vertices.
+-- Bounding rectangles and boxes of points, computed in plain numbers.
+-- The points are given as the arrays of their x, y, and z,
+-- and the results are transforms of ss.GeometryModule, of which the translation is the corner of the minimum.
 
 ---@class ss
 local ss = SplashSWEPs
@@ -9,79 +11,85 @@ local Util = ss.import "splashsweps/shared/util"
 local BoundingBox = ss.module "splashsweps/server/mapcache/boundingbox"
 
 local abs = math.abs
+local huge = math.huge
 local max = math.max
-local sqrt = math.sqrt
+local min = math.min
 local sort = table.sort
-local tableCopy = table.Copy
-local Vector = Vector
-local Matrix = Matrix
+local sqrt = math.sqrt
 
 ---Relative difference of areas regarded as the same in BoundingBox.FindMBR.
 local AREA_TOLERANCE = 1e-5
 
----Compares two vertices used by table.sort
----@param a Vector
----@param b Vector
----@return boolean
-local function VerticesComparer(a, b)
-    return Either(a.x == b.x, a.y < b.y, a.x < b.x)
-end
+---Generates a convex hull of points in 2D by the monotone chain method.
+---The points have z, which is ignored except for the distance between points.
+---@param xs number[]
+---@param ys number[]
+---@param zs number[]
+---@return integer[] # Indices of the points on the hull.
+local function GetConvex(xs, ys, zs)
+    local sorted = {} ---@type integer[]
+    for i = 1, #xs do sorted[i] = i end
+    sort(sorted, function(a, b)
+        if xs[a] == xs[b] then return ys[a] < ys[b] end
+        return xs[a] < xs[b]
+    end)
 
--- Generates a convex hull by monotone chain method
----@param source Vector[]
----@return Vector[]
-local function GetConvex(source)
-    local convex = {} ---@type Vector[]
-    local vertices2D = tableCopy(source)
-    sort(vertices2D, VerticesComparer)
-    for i = 1, #vertices2D do
-        if i > 2 then
-            local p = convex[#convex]
-            local q = convex[#convex - 1]
-            local pq = q - p
-            local pr = vertices2D[i] - p
-            local cross = pq:Cross(pr)
-            if cross.z > 0 or pq:LengthSqr() < Util.eps or pr:LengthSqr() < Util.eps then
-                convex[#convex] = nil
-            end
+    ---Tests whether the last point of the hull should be removed to add point r.
+    ---@param convex integer[]
+    ---@param r integer
+    ---@return boolean
+    local function isNotConvex(convex, r)
+        local p, q = convex[#convex], convex[#convex - 1]
+        local pqX, pqY, pqZ = xs[q] - xs[p], ys[q] - ys[p], zs[q] - zs[p]
+        local prX, prY, prZ = xs[r] - xs[p], ys[r] - ys[p], zs[r] - zs[p]
+        return pqX * prY - pqY * prX > 0
+            or pqX * pqX + pqY * pqY + pqZ * pqZ < Util.eps
+            or prX * prX + prY * prY + prZ * prZ < Util.eps
+    end
+
+    local convex = {} ---@type integer[]
+    local n = #sorted
+    for i = 1, n do
+        if i > 2 and isNotConvex(convex, sorted[i]) then
+            convex[#convex] = nil
         end
 
-        if i ~= #vertices2D then
-            convex[#convex + 1] = vertices2D[i]
+        if i ~= n then
+            convex[#convex + 1] = sorted[i]
         end
     end
 
-    for i = #vertices2D, 1, -1 do
-        if i < #vertices2D - 1 then
-            local p = convex[#convex]
-            local q = convex[#convex - 1]
-            local pq = q - p
-            local pr = vertices2D[i] - p
-            local cross = pq:Cross(pr)
-            if cross.z > 0 or pq:LengthSqr() < Util.eps or pr:LengthSqr() < Util.eps then
-                convex[#convex] = nil
-            end
+    for i = n, 1, -1 do
+        if i < n - 1 and isNotConvex(convex, sorted[i]) then
+            convex[#convex] = nil
         end
 
         if i ~= 1 then
-            convex[#convex + 1] = vertices2D[i]
+            convex[#convex + 1] = sorted[i]
         end
     end
 
     return convex
 end
 
----Calculates minimum bounding rectangle (MBR) of given vertices.
----@param vertices Vector[] Vertices respresenting the face in the world coordinate system.
----@param angle    Angle    The angle of the face in the world coordinate system. Up() should be the normal.
----@return VMatrix origin Represents the origin and angle of the MBR in the world coordinate system.
----@return Vector  size   The size of the MBR in Hammer units.
-function BoundingBox.FindMBR(vertices, angle)
-    local center = Vector()
-    for _, v in ipairs(vertices) do center:Add(v) end
-    center:Div(#vertices)
+---Calculates minimum bounding rectangle (MBR) of given points in a plane.
+---@param xs          number[] Points in the world coordinate system.
+---@param ys          number[]
+---@param zs          number[]
+---@param orientation number[] A transform of which the up column is the normal of the plane. The translation is not used.
+---@return number[] localToWorld The origin and the orientation of the MBR in the world coordinate system.
+---@return number   sizeX        The size of the MBR in Hammer units.
+---@return number   sizeY
+---@return number   sizeZ
+function BoundingBox.FindMBR(xs, ys, zs, orientation)
+    local n = #xs
+    local centerX, centerY, centerZ = 0, 0, 0
+    for i = 1, n do
+        centerX, centerY, centerZ = centerX + xs[i], centerY + ys[i], centerZ + zs[i]
+    end
+    centerX, centerY, centerZ = centerX / n, centerY / n, centerZ / n
 
-    -- Transforms vertices in the world to 2D space.
+    -- Transforms the points in the world into the plane.
     -- ```
     --   ________
     --  /        \
@@ -90,42 +98,42 @@ function BoundingBox.FindMBR(vertices, angle)
     -- |   y      |
     -- +----------+
     -- ```
-    local vertices2D = {} ---@type Vector[]
-    for i, v in ipairs(vertices) do
-        vertices2D[i] = WorldToLocal(v, angle_zero, center, angle)
+    local forwardX, forwardY, forwardZ = orientation[1], orientation[5], orientation[9]
+    local leftX,    leftY,    leftZ    = orientation[2], orientation[6], orientation[10]
+    local upX,      upY,      upZ      = orientation[3], orientation[7], orientation[11]
+    local localXs, localYs, localZs = {}, {}, {} ---@type number[], number[], number[]
+    for i = 1, n do
+        local dx, dy, dz = xs[i] - centerX, ys[i] - centerY, zs[i] - centerZ
+        localXs[i] = forwardX * dx + forwardY * dy + forwardZ * dz
+        localYs[i] = leftX    * dx + leftY    * dy + leftZ    * dz
+        localZs[i] = upX      * dx + upY      * dy + upZ      * dz
     end
 
     -- For each edge of the convex hull, finds the rectangle along the edge containing the hull.
-    -- The rotation of an edge is the matrix of which columns are
-    -- forward = (dx, dy, 0), the negated right = (-dy, dx, 0), and up = (0, 0, 1),
-    -- so its inverse maps (x, y, z) to (dx * x + dy * y, dx * y - dy * x, z).
-    -- The vertices can be off the plane by a little, so the edges are projected onto the plane
-    -- to keep the axes perpendicular; otherwise the rotation is not a rotation and breaks into angles.
-    -- They are computed in plain numbers as this runs for every pair of an edge and a vertex.
+    -- The rectangle of an edge has the axes forward = (dx, dy, 0), left = (-dy, dx, 0), and up = (0, 0, 1),
+    -- so the point (x, y, z) is at (dx * x + dy * y, dx * y - dy * x, z) in the rectangle.
+    -- The points can be off the plane by a little, so the edges are projected onto the plane
+    -- to keep the axes perpendicular; otherwise the axes are not a rotation and break into angles.
     -- Edges giving the same area within rounding errors, such as the four edges of a rectangle,
     -- keep the first one so that the result does not depend on the rounding.
-    local convex = GetConvex(vertices2D)
+    local convex = GetConvex(localXs, localYs, localZs)
     local numConvex = #convex
-    local xs, ys, zs = {}, {}, {} ---@type number[], number[], number[]
-    for i, v in ipairs(convex) do
-        xs[i], ys[i], zs[i] = v.x, v.y, v.z
-    end
-
-    local minArea = math.huge
-    local mbrDir = nil ---@type Vector?
-    local mbrMins = Util.vector_one * math.huge
-    local mbrSize = Vector()
+    local minArea = huge
+    local mbrDX, mbrDY = 1, 0
+    local mbrMinX, mbrMinY, mbrMinZ = 0, 0, 0
+    local sizeX, sizeY, sizeZ = 0, 0, 0
     for i = 1, numConvex do
-        local j = i % numConvex + 1
-        local dx, dy = xs[j] - xs[i], ys[j] - ys[i]
+        local a, b = convex[i], convex[i % numConvex + 1]
+        local dx, dy = localXs[b] - localXs[a], localYs[b] - localYs[a]
         local lengthSqr = dx * dx + dy * dy
         if lengthSqr > 0 then
             local length = sqrt(lengthSqr)
             dx, dy = dx / length, dy / length
-            local minX, minY, minZ = math.huge, math.huge, math.huge
-            local maxX, maxY, maxZ = -math.huge, -math.huge, -math.huge
+            local minX, minY, minZ = huge, huge, huge
+            local maxX, maxY, maxZ = -huge, -huge, -huge
             for k = 1, numConvex do
-                local x, y, z = xs[k], ys[k], zs[k]
+                local c = convex[k]
+                local x, y, z = localXs[c], localYs[c], localZs[c]
                 local u = dx * x + dy * y
                 local v = dx * y - dy * x
                 if u < minX then minX = u end
@@ -139,63 +147,69 @@ function BoundingBox.FindMBR(vertices, angle)
             local area = (maxX - minX) * (maxY - minY)
             if area < minArea * (1 - AREA_TOLERANCE) then
                 minArea = area
-                mbrDir = Vector(dx, dy, 0)
-                mbrMins = Vector(minX, minY, minZ)
-                mbrSize = Vector(maxX - minX, maxY - minY, maxZ - minZ)
+                mbrDX, mbrDY = dx, dy
+                mbrMinX, mbrMinY, mbrMinZ = minX, minY, minZ
+                sizeX, sizeY, sizeZ = maxX - minX, maxY - minY, maxZ - minZ
             end
         end
     end
 
-    local mbrRotation = Matrix()
-    if mbrDir then
-        mbrRotation:SetForward(mbrDir)
-        mbrRotation:SetRight(Vector(mbrDir.y, -mbrDir.x))
-        mbrRotation:SetUp(vector_up)
-    end
-
-    mbrRotation:SetTranslation(mbrRotation * mbrMins)
-
-    local localToWorld = Matrix()
-    localToWorld:SetAngles(angle)
-    localToWorld:SetTranslation(center)
-    localToWorld:Mul(mbrRotation)
-    return localToWorld, mbrSize
+    -- The axes of the rectangle in the world.
+    local rectForwardX = mbrDX * forwardX + mbrDY * leftX
+    local rectForwardY = mbrDX * forwardY + mbrDY * leftY
+    local rectForwardZ = mbrDX * forwardZ + mbrDY * leftZ
+    local rectLeftX = mbrDX * leftX - mbrDY * forwardX
+    local rectLeftY = mbrDX * leftY - mbrDY * forwardY
+    local rectLeftZ = mbrDX * leftZ - mbrDY * forwardZ
+    return {
+        rectForwardX, rectLeftX, upX,
+        centerX + rectForwardX * mbrMinX + rectLeftX * mbrMinY + upX * mbrMinZ,
+        rectForwardY, rectLeftY, upY,
+        centerY + rectForwardY * mbrMinX + rectLeftY * mbrMinY + upY * mbrMinZ,
+        rectForwardZ, rectLeftZ, upZ,
+        centerZ + rectForwardZ * mbrMinX + rectLeftZ * mbrMinY + upZ * mbrMinZ,
+    }, sizeX, sizeY, sizeZ
 end
 
----Finds the oriented minimum boundibg box from displacement positions.
----@param vertices Vector[]
----@return VMatrix origin Represents the origin and angle of the minimum OBB in the world coordinate system.
----@return Vector  size   The size of the MBR in Hammer units.
-function BoundingBox.FindMinimumOBB(vertices)
-    local mean = Vector()
-    for _, v in ipairs(vertices) do mean:Add(v) end
-    mean:Div(#vertices)
+---Finds the oriented minimum bounding box of points, along the eigenvectors of their covariance.
+---@param xs number[]
+---@param ys number[]
+---@param zs number[]
+---@return number[] localToWorld The origin and the orientation of the box in the world coordinate system.
+---@return number   sizeX        The size of the box in Hammer units.
+---@return number   sizeY
+---@return number   sizeZ
+function BoundingBox.FindMinimumOBB(xs, ys, zs)
+    local n = #xs
+    local meanX, meanY, meanZ = 0, 0, 0
+    for i = 1, n do
+        meanX, meanY, meanZ = meanX + xs[i], meanY + ys[i], meanZ + zs[i]
+    end
+    meanX, meanY, meanZ = meanX / n, meanY / n, meanZ / n
 
     -- Calculates a variance-covariance matrix
     --     [ sxx sxy szx ]
     -- S = [ sxy syy syz ]
     --     [ szx syz szz ]
-    local variance   = Vector() -- = ( sxx syy szz )
-    local covariance = Vector() -- = ( sxy syz szx )
-    for _, v in ipairs(vertices) do
-        local diff = v - mean
-        variance:Add(diff * diff)
-        covariance:Add(Vector(
-            diff.x * diff.y,
-            diff.y * diff.z,
-            diff.z * diff.x))
+    local sxx, syy, szz = 0, 0, 0
+    local sxy, syz, szx = 0, 0, 0
+    for i = 1, n do
+        local dx, dy, dz = xs[i] - meanX, ys[i] - meanY, zs[i] - meanZ
+        sxx, syy, szz = sxx + dx * dx, syy + dy * dy, szz + dz * dz
+        sxy, syz, szx = sxy + dx * dy, syz + dy * dz, szx + dz * dx
     end
 
-    -- Here I don't divide variance by #vertices as I just need eigenvectors.
+    -- Here I don't divide variance by the number of the points as I just need eigenvectors.
 
-    -- The angle components will be eigenvectors by Jacobi's algorithm.
-    local rotation = Matrix()
-    local localToWorld = Matrix()
+    -- The axes will be eigenvectors by Jacobi's algorithm, as the columns of the rotation R.
+    local r11, r12, r13 = 1, 0, 0
+    local r21, r22, r23 = 0, 1, 0
+    local r31, r32, r33 = 0, 0, 1
     for _ = 1, 20 do
-        local covarianceSqr = covariance * covariance
-        local maxCovarianceSqr = max(covarianceSqr:Unpack())
+        local sxySqr, syzSqr, szxSqr = sxy * sxy, syz * syz, szx * szx
+        local maxCovarianceSqr = max(sxySqr, syzSqr, szxSqr)
         if maxCovarianceSqr < Util.eps then break end
-        if maxCovarianceSqr == covarianceSqr.x then
+        if maxCovarianceSqr == sxySqr then
             --             [ c  -s  0 ][ xx xy xz ][  c  s  0 ]
             -- S' = RᵀSR = [ s   c  0 ][ xy yy yz ][ -s  c  0 ]
             --             [ 0   0  1 ][ xz yz zz ][  0  0  1 ]
@@ -205,26 +219,18 @@ function BoundingBox.FindMinimumOBB(vertices)
             --             [ ccxx - 2csxy + ssyy                     0   cxz - syz ]
             --           = [                   0   ssxx + 2csxy + ccyy   sxz + cyz ]
             --             [          cxz -  syz            sxz +  cyz          zz ]
-            local tau = (variance.y - variance.x) / (2 * covariance.x)
+            local tau = (syy - sxx) / (2 * sxy)
             local tan = (tau < 0 and -1 or 1) / (abs(tau) + sqrt(1 + tau * tau))
-            local cos = 1 / sqrt(1 + tan * tan)
-            local sin = cos * tan
-            local cos2, sin2 = cos * cos, sin * sin
-            local sincos2 = 2 * sin * cos * covariance.x
-            variance:SetUnpacked(
-                cos2 * variance.x + sin2 * variance.y - sincos2,
-                sin2 * variance.x + cos2 * variance.y + sincos2,
-                variance.z)
-            covariance:SetUnpacked(
-                0,
-                cos * covariance.y + sin * covariance.z,
-                cos * covariance.z - sin * covariance.y)
-            rotation:SetUnpacked(
-                cos, sin, 0, 0,
-               -sin, cos, 0, 0,
-                0,     0, 1, 0,
-                0,     0, 0, 1)
-        elseif maxCovarianceSqr == covarianceSqr.y then
+            local c = 1 / sqrt(1 + tan * tan)
+            local s = c * tan
+            local cc, ss2, cs2 = c * c, s * s, 2 * s * c * sxy
+            sxx, syy = cc * sxx + ss2 * syy - cs2, ss2 * sxx + cc * syy + cs2
+            sxy, syz, szx = 0, c * syz + s * szx, c * szx - s * syz
+            -- R = R * [ c s 0; -s c 0; 0 0 1 ]
+            r11, r12 = c * r11 - s * r12, s * r11 + c * r12
+            r21, r22 = c * r21 - s * r22, s * r21 + c * r22
+            r31, r32 = c * r31 - s * r32, s * r31 + c * r32
+        elseif maxCovarianceSqr == syzSqr then
             --             [ 1  0  0 ][ xx xy xz ][ 1  0  0 ]
             -- S' = RᵀSR = [ 0  c -s ][ xy yy yz ][ 0  c  s ]
             --             [ 0  s  c ][ xz yz zz ][ 0 -s  c ]
@@ -234,25 +240,17 @@ function BoundingBox.FindMinimumOBB(vertices)
             --             [        xx            cxy -  sxz            szy +  cxz ]
             --           = [ cxy - sxz   ccyy - 2csyz + sszz                     0 ]
             --             [ sxy + cxz                     0   ssyy + 2csyz + cczz ]
-            local tau = (variance.z - variance.y) / (2 * covariance.y)
+            local tau = (szz - syy) / (2 * syz)
             local tan = (tau < 0 and -1 or 1) / (abs(tau) + sqrt(1 + tau * tau))
-            local cos = 1 / sqrt(1 + tan * tan)
-            local sin = cos * tan
-            local cos2, sin2 = cos * cos, sin * sin
-            local sincos2 = 2 * sin * cos * covariance.y
-            variance:SetUnpacked(
-                variance.x,
-                cos2 * variance.y + sin2 * variance.z - sincos2,
-                sin2 * variance.y + cos2 * variance.z + sincos2)
-            covariance:SetUnpacked(
-                cos * covariance.x - sin * covariance.z,
-                0,
-                cos * covariance.z + sin * covariance.x)
-            rotation:SetUnpacked(
-                1,    0,   0, 0,
-                0,  cos, sin, 0,
-                0, -sin, cos, 0,
-                0,    0,   0, 1)
+            local c = 1 / sqrt(1 + tan * tan)
+            local s = c * tan
+            local cc, ss2, cs2 = c * c, s * s, 2 * s * c * syz
+            syy, szz = cc * syy + ss2 * szz - cs2, ss2 * syy + cc * szz + cs2
+            sxy, syz, szx = c * sxy - s * szx, 0, c * szx + s * sxy
+            -- R = R * [ 1 0 0; 0 c s; 0 -s c ]
+            r12, r13 = c * r12 - s * r13, s * r12 + c * r13
+            r22, r23 = c * r22 - s * r23, s * r22 + c * r23
+            r32, r33 = c * r32 - s * r33, s * r32 + c * r33
         else
             --             [ c  0 -s ][ xx xy xz ][  c  0  s ]
             -- S' = RᵀSR = [ 0  1  0 ][ xy yy yz ][  0  1  0 ]
@@ -263,28 +261,18 @@ function BoundingBox.FindMinimumOBB(vertices)
             --             [ ccxx - 2csxz + sszz   cxy - syz                     0 ]
             --           = [          cxy -  syz          yy            sxy +  cyz ]
             --             [                   0   sxy + cyz   ssxx + 2csxz + cczz ]
-            local tau = (variance.z - variance.x) / (2 * covariance.z)
+            local tau = (szz - sxx) / (2 * szx)
             local tan = (tau < 0 and -1 or 1) / (abs(tau) + sqrt(1 + tau * tau))
-            local cos = 1 / sqrt(1 + tan * tan)
-            local sin = cos * tan
-            local cos2, sin2 = cos * cos, sin * sin
-            local sincos2 = 2 * sin * cos * covariance.z
-            variance:SetUnpacked(
-                cos2 * variance.x + sin2 * variance.z - sincos2,
-                variance.y,
-                sin2 * variance.x + cos2 * variance.z + sincos2)
-            covariance:SetUnpacked(
-                cos * covariance.x - sin * covariance.y,
-                cos * covariance.y + sin * covariance.x,
-                0)
-            rotation:SetUnpacked(
-                cos, 0, sin, 0,
-                0,   1,   0, 0,
-               -sin, 0, cos, 0,
-                0,   0,   0, 1)
+            local c = 1 / sqrt(1 + tan * tan)
+            local s = c * tan
+            local cc, ss2, cs2 = c * c, s * s, 2 * s * c * szx
+            sxx, szz = cc * sxx + ss2 * szz - cs2, ss2 * sxx + cc * szz + cs2
+            sxy, syz, szx = c * sxy - s * syz, c * syz + s * sxy, 0
+            -- R = R * [ c 0 s; 0 1 0; -s 0 c ]
+            r11, r13 = c * r11 - s * r13, s * r11 + c * r13
+            r21, r23 = c * r21 - s * r23, s * r21 + c * r23
+            r31, r33 = c * r31 - s * r33, s * r31 + c * r33
         end
-
-        localToWorld:Mul(rotation)
     end
 
     -- ---Compares two vectors used by table.sort
@@ -305,19 +293,22 @@ function BoundingBox.FindMinimumOBB(vertices)
     -- localToWorld:SetForward(axes[1]:GetNormalized())
     -- localToWorld:SetRight(axes[2]:GetNormalized())
     -- localToWorld:SetUp(axes[3]:GetNormalized())
-    localToWorld:SetTranslation(mean)
-
-    local worldToLocal = localToWorld:GetInverseTR()
-    local mins = Util.vector_one * math.huge
-    local maxs = Util.vector_one * -math.huge
-    for _, v in ipairs(vertices) do
-        local pos = worldToLocal * v
-        mins:Set(Util.MinVector(mins, pos))
-        maxs:Set(Util.MaxVector(maxs, pos))
+    local minX, minY, minZ = huge, huge, huge
+    local maxX, maxY, maxZ = -huge, -huge, -huge
+    for i = 1, n do
+        local dx, dy, dz = xs[i] - meanX, ys[i] - meanY, zs[i] - meanZ
+        local x = r11 * dx + r21 * dy + r31 * dz
+        local y = r12 * dx + r22 * dy + r32 * dz
+        local z = r13 * dx + r23 * dy + r33 * dz
+        minX, minY, minZ = min(minX, x), min(minY, y), min(minZ, z)
+        maxX, maxY, maxZ = max(maxX, x), max(maxY, y), max(maxZ, z)
     end
 
-    localToWorld:Translate(mins)
-    return localToWorld, maxs - mins
+    return {
+        r11, r12, r13, meanX + r11 * minX + r12 * minY + r13 * minZ,
+        r21, r22, r23, meanY + r21 * minX + r22 * minY + r23 * minZ,
+        r31, r32, r33, meanZ + r31 * minX + r32 * minY + r33 * minZ,
+    }, maxX - minX, maxY - minY, maxZ - minZ
 end
 
 return BoundingBox

@@ -3,10 +3,11 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
 local BoundingBox   = ss.import "splashsweps/server/mapcache/boundingbox"
-local Util          = ss.import "splashsweps/shared/util"
+local Geometry      = ss.import "splashsweps/shared/geometry"
+local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
 local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
+local Util          = ss.import "splashsweps/shared/util"
 
 ---@class ss.SurfaceBuilderModule
 local SurfaceBuilder = ss.module "splashsweps/server/mapcache/surfacebuilder"
@@ -14,12 +15,13 @@ local SurfaceBuilder = ss.module "splashsweps/server/mapcache/surfacebuilder"
 local abs = math.abs
 local ceil = math.ceil
 local floor = math.floor
+local huge = math.huge
 local max = math.max
 local min = math.min
 local round = math.Round
-local Vector = Vector
-local Matrix = Matrix
+local sqrt = math.sqrt
 local MaterialCache = {} ---@type table<string, IMaterial>
+local GRID_ROUNDING_TOLERANCE = 1e-6 -- In cells
 local TextureFilterBits = bit.bor(
     SURF_SKY, SURF_NOPORTAL, SURF_TRIGGER,
     SURF_NODRAW, SURF_HINT, SURF_SKIP)
@@ -60,11 +62,13 @@ local function NormalizeTextureName(name)
     return normalized
 end
 
----Gets the string "<X>_<Y>_<Z>" from given vector (X, Y, Z).
----@param origin Vector
+---Gets the string "<X>_<Y>_<Z>" from given position (X, Y, Z).
+---@param x number
+---@param y number
+---@param z number
 ---@return string
-local function CubemapOriginKey(origin)
-    return string.format("%d_%d_%d", round(origin.x), round(origin.y), round(origin.z))
+local function CubemapOriginKey(x, y, z)
+    return string.format("%d_%d_%d", round(x), round(y), round(z))
 end
 
 ---Parses resolved cubemap texture name and returns its origin key "<X>_<Y>_<Z>".
@@ -94,14 +98,15 @@ local function BuildCubemapEntries(bsp)
     local cubemapsByOrigin = {} ---@type table<string, ss.PrecachedData.CubemapInfo>
     local mapName = game.GetMap():lower()
     for _, sample in ipairs(bsp.CUBEMAPS or {}) do
-        local origin = Vector(round(sample.origin.x), round(sample.origin.y), round(sample.origin.z))
+        local x, y, z = sample.origin:Unpack()
+        x, y, z = round(x), round(y), round(z)
         local cubemap = PrecachedData.CubemapInfo.new()
-        cubemap.Envmap = string.format("maps/%s/c%d_%d_%d", mapName, origin.x, origin.y, origin.z)
-        cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ = origin:Unpack()
-        cubemap.BoxMinX, cubemap.BoxMinY, cubemap.BoxMinZ = math.huge, math.huge, math.huge
-        cubemap.BoxMaxX, cubemap.BoxMaxY, cubemap.BoxMaxZ = -math.huge, -math.huge, -math.huge
+        cubemap.Envmap = string.format("maps/%s/c%d_%d_%d", mapName, x, y, z)
+        cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ = x, y, z
+        cubemap.BoxMinX, cubemap.BoxMinY, cubemap.BoxMinZ = huge, huge, huge
+        cubemap.BoxMaxX, cubemap.BoxMaxY, cubemap.BoxMaxZ = -huge, -huge, -huge
         cubemaps[#cubemaps + 1] = cubemap
-        cubemapsByOrigin[CubemapOriginKey(origin)] = cubemap
+        cubemapsByOrigin[CubemapOriginKey(x, y, z)] = cubemap
     end
 
     return cubemaps, cubemapsByOrigin
@@ -132,49 +137,45 @@ local function FinalizeCubemapEntries(cubemaps)
     end
 end
 
+---Returns the orientation of a face of which the up is the normal,
+---the same as normal:Angle() rotated by -90 degrees around its right:
+---the forward is the negated up of normal:Angle(), and the left is its negated right.
+---@param normalX number
+---@param normalY number
+---@param normalZ number
+---@return number[] # A transform of ss.GeometryModule with no translation.
+local function FaceOrientation(normalX, normalY, normalZ)
+    local length = Geometry.Length(normalX, normalY, normalZ)
+    local xyLength = sqrt(normalX * normalX + normalY * normalY)
+    local sinPitch, cosPitch, sinYaw, cosYaw ---@type number, number, number, number
+    if normalX == 0 and normalY == 0 then -- normal:Angle() has the pitch 270 or 90, and the yaw 0.
+        sinPitch, cosPitch, sinYaw, cosYaw = normalZ > 0 and -1 or 1, 0, 0, 1
+    else
+        sinPitch, cosPitch = -normalZ / length, xyLength / length
+        sinYaw, cosYaw = normalY / xyLength, normalX / xyLength
+    end
+
+    return {
+        -sinPitch * cosYaw, -sinYaw, normalX / length, 0,
+        -sinPitch * sinYaw,  cosYaw, normalY / length, 0,
+        -cosPitch,           0,      normalZ / length, 0,
+    }
+end
+
 ---Bakes the transform into the paint grid, and sets the sizes of the paint grid and of its rectangle in the ink map.
----@param surf ss.PrecachedData.Surface
----@param mbrMatrix VMatrix
----@param mbrSize Vector
-local function SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
-    local g = surf.WorldToLocalGrid
-    g[1], g[2], g[3], g[4], g[5], g[6], g[7], g[8], g[9], g[10], g[11], g[12] = mbrMatrix:GetInverseTR():Unpack()
-    surf.PaintGridWidth  = ceil(mbrSize.x / PaintableGrid.CELL_SIZE)
-    surf.PaintGridHeight = ceil(mbrSize.y / PaintableGrid.CELL_SIZE)
+---@param surf      ss.PrecachedData.Surface
+---@param mbr       number[] The minimum bounding rectangle from BoundingBox.FindMBR.
+---@param mbrSizeX  number
+---@param mbrSizeY  number
+local function SetTransformRelatedValues(surf, mbr, mbrSizeX, mbrSizeY)
+    local g, worldToLocal = surf.WorldToLocalGrid, Geometry.InvertRotationTranslation(mbr)
+    for i = 1, 12 do g[i] = worldToLocal[i] end
+    -- A size of exactly a multiple of the cell can be larger by rounding errors, which should not add a cell.
+    surf.PaintGridWidth  = ceil(mbrSizeX / PaintableGrid.CELL_SIZE - GRID_ROUNDING_TOLERANCE)
+    surf.PaintGridHeight = ceil(mbrSizeY / PaintableGrid.CELL_SIZE - GRID_ROUNDING_TOLERANCE)
     local margin = 2 * ss.MARGIN_HAMMER_UNITS -- Both sides
-    surf.InkMapRectangle.Width  = mbrSize.x + margin
-    surf.InkMapRectangle.Height = mbrSize.y + margin
-end
-
----Writes vertex k of the mesh of a surface into its vertex arrays.
----@param surf        ss.PrecachedData.Surface
----@param k           integer
----@param position    Vector
----@param normal      Vector
----@param tangent     Vector
----@param binormal    Vector
----@param paintOrigin Vector
-local function SetVertex(surf, k, position, normal, tangent, binormal, paintOrigin)
-    surf.PositionX[k],    surf.PositionY[k],    surf.PositionZ[k]    = position:Unpack()
-    surf.NormalX[k],      surf.NormalY[k],      surf.NormalZ[k]      = normal:Unpack()
-    surf.TangentX[k],     surf.TangentY[k],     surf.TangentZ[k]     = tangent:Unpack()
-    surf.BinormalX[k],    surf.BinormalY[k],    surf.BinormalZ[k]    = binormal:Unpack()
-    surf.PaintOriginX[k], surf.PaintOriginY[k], surf.PaintOriginZ[k] = paintOrigin:Unpack()
-end
-
----Writes triangle j of the mesh of a surface into its triangle arrays.
----@param surf             ss.PrecachedData.Surface
----@param j                integer
----@param i1               integer
----@param i2               integer
----@param i3               integer
----@param lightmapTangent  Vector
----@param lightmapBinormal Vector
-local function SetTriangle(surf, j, i1, i2, i3, lightmapTangent, lightmapBinormal)
-    local i = 3 * j
-    surf.VertexIndices[i - 2], surf.VertexIndices[i - 1], surf.VertexIndices[i] = i1, i2, i3
-    surf.LightmapTangentX[j],  surf.LightmapTangentY[j],  surf.LightmapTangentZ[j]  = lightmapTangent:Unpack()
-    surf.LightmapBinormalX[j], surf.LightmapBinormalY[j], surf.LightmapBinormalZ[j] = lightmapBinormal:Unpack()
+    surf.InkMapRectangle.Width  = mbrSizeX + margin
+    surf.InkMapRectangle.Height = mbrSizeY + margin
 end
 
 ---Sets the lengths of the vertex and the triangle arrays of a surface after they are written.
@@ -187,46 +188,70 @@ end
 
 ---Writes the AABB of a surface with the margin to construct overlapped hash table entries.
 ---@param surf ss.PrecachedData.Surface
----@param mins Vector
----@param maxs Vector
-local function SetAABB(surf, mins, maxs)
+---@param minX number
+---@param minY number
+---@param minZ number
+---@param maxX number
+---@param maxY number
+---@param maxZ number
+local function SetAABB(surf, minX, minY, minZ, maxX, maxY, maxZ)
     local margin = ss.MARGIN_HAMMER_UNITS
-    local minX, minY, minZ = mins:Unpack()
-    local maxX, maxY, maxZ = maxs:Unpack()
     surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ = minX - margin, minY - margin, minZ - margin
     surf.AABBMaxX, surf.AABBMaxY, surf.AABBMaxZ = maxX + margin, maxY + margin, maxZ + margin
 end
 
 ---Writes the minimum bounding box of a surface.
----@param surf   ss.PrecachedData.Surface
----@param matrix VMatrix The origin and the orientation of the box.
----@param size   Vector
-local function SetMBB(surf, matrix, size)
-    surf.MBBPitch,   surf.MBBYaw,     surf.MBBRoll    = matrix:GetAngles():Unpack()
-    surf.MBBOriginX, surf.MBBOriginY, surf.MBBOriginZ = matrix:GetTranslation():Unpack()
-    surf.MBBSizeX,   surf.MBBSizeY,   surf.MBBSizeZ   = size:Unpack()
+---@param surf  ss.PrecachedData.Surface
+---@param box   number[] The origin and the orientation of the box.
+---@param sizeX number
+---@param sizeY number
+---@param sizeZ number
+local function SetMBB(surf, box, sizeX, sizeY, sizeZ)
+    surf.MBBPitch,   surf.MBBYaw,     surf.MBBRoll    = Geometry.ToAngles(box)
+    surf.MBBOriginX, surf.MBBOriginY, surf.MBBOriginZ = box[4], box[8], box[12]
+    surf.MBBSizeX,   surf.MBBSizeY,   surf.MBBSizeZ   = sizeX, sizeY, sizeZ
 end
 
----Lists the vertices of each triangle in order, which counts a vertex once for each triangle sharing it.
----@param vertices      Vector[]
+---Lists the points of each triangle in order, which counts a point once for each triangle sharing it.
+---@param xs            number[]
+---@param ys            number[]
+---@param zs            number[]
 ---@param vertexIndices integer[] Three vertices of each triangle.
----@return Vector[]
-local function VerticesOfTriangles(vertices, vertexIndices)
-    local list = {} ---@type Vector[]
+---@return number[] xs
+---@return number[] ys
+---@return number[] zs
+local function PointsOfTriangles(xs, ys, zs, vertexIndices)
+    local listX, listY, listZ = {}, {}, {} ---@type number[], number[], number[]
     for i, k in ipairs(vertexIndices) do
-        list[i] = vertices[k]
+        listX[i], listY[i], listZ[i] = xs[k], ys[k], zs[k]
     end
 
-    return list
+    return listX, listY, listZ
 end
 
----@param surf          ss.PrecachedData.Surface
----@param positions     Vector[]  Positions of the vertices.
----@param paintOrigins  Vector[]  Reference points of the vertices to compute the ink UV coordinates.
----@param vertexIndices integer[] Three vertices of each triangle.
-local function CalculateTriangleComponents(surf, positions, paintOrigins, vertexIndices)
-    local WorldToLocalRotation = Matrix()
-    local DispPaintOriginRotation = Matrix()
+---Returns the orientation of a triangle as the columns of a rotation:
+---the forward along the edge t3 -> t2, the left toward t1 in the plane, and the up as the normal.
+---This is the rotation of forward:AngleEx(forward:Cross(another)).
+---@param forwardX number t2 - t3
+---@param forwardY number
+---@param forwardZ number
+---@param anotherX number t1 - t3
+---@param anotherY number
+---@param anotherZ number
+---@return number fx, number fy, number fz, number lx, number ly, number lz, number ux, number uy, number uz
+local function TriangleAxes(forwardX, forwardY, forwardZ, anotherX, anotherY, anotherZ)
+    local fx, fy, fz = Geometry.Normalize(forwardX, forwardY, forwardZ)
+    local px, py, pz = Geometry.Cross(forwardX, forwardY, forwardZ, anotherX, anotherY, anotherZ)
+    local lx, ly, lz = Geometry.Normalize(Geometry.Cross(px, py, pz, fx, fy, fz))
+    local ux, uy, uz = Geometry.Cross(fx, fy, fz, lx, ly, lz)
+    return fx, fy, fz, lx, ly, lz, ux, uy, uz
+end
+
+---@param surf ss.PrecachedData.Surface Its vertex and triangle arrays are written.
+local function CalculateTriangleComponents(surf)
+    local xs, ys, zs = surf.PositionX, surf.PositionY, surf.PositionZ
+    local oxs, oys, ozs = surf.PaintOriginX, surf.PaintOriginY, surf.PaintOriginZ
+    local vertexIndices = surf.VertexIndices
     surf.DisplacementTriangles = {}
     for i = 1, #vertexIndices, 3 do
         --                 foward = t2 - t3
@@ -243,47 +268,40 @@ local function CalculateTriangleComponents(surf, positions, paintOrigins, vertex
         local i1 = vertexIndices[i]
         local i2 = vertexIndices[i + 1]
         local i3 = vertexIndices[i + 2]
-        local t1 = positions[i1]
-        local t2 = positions[i2]
-        local t3 = positions[i3]
-        local forward = t2 - t3
-        local another = t1 - t3
-        local angle = forward:AngleEx(forward:Cross(another))
-        local e1 = angle:Forward()
-        local e2 = -angle:Right()
-        local minX = min(0, e1:Dot(another))
-        local maxX = max(e1:Dot(forward), e1:Dot(another))
-        local t1t2 = t2 - t1
-        local t1t3 = -another
-        local d1212 = t1t2:Dot(t1t2)
-        local d1213 = t1t2:Dot(t1t3)
-        local d1313 = t1t3:Dot(t1t3)
-        local denominator = d1212 * d1313 - d1213 * d1213
-        local barycentricDot1 = (d1313 * t1t2 - d1213 * t1t3) / denominator
-        local barycentricDot2 = (d1212 * t1t3 - d1213 * t1t2) / denominator
-        local t = PrecachedData.DisplacementTriangle.new()
-        t.BarycentricDot1X, t.BarycentricDot1Y, t.BarycentricDot1Z = barycentricDot1:Unpack()
-        t.BarycentricDot2X, t.BarycentricDot2Y, t.BarycentricDot2Z = barycentricDot2:Unpack()
-        t.MBBPitch, t.MBBYaw, t.MBBRoll = angle:Unpack()
-        t.MBBOriginX, t.MBBOriginY, t.MBBOriginZ = (t3 + e1 * minX):Unpack()
-        t.MBBSizeX, t.MBBSizeY = maxX - minX, e2:Dot(another)
+        local forwardX, forwardY, forwardZ = xs[i2] - xs[i3], ys[i2] - ys[i3], zs[i2] - zs[i3]
+        local anotherX, anotherY, anotherZ = xs[i1] - xs[i3], ys[i1] - ys[i3], zs[i1] - zs[i3]
+        local fx, fy, fz, lx, ly, lz, ux, uy, uz
+            = TriangleAxes(forwardX, forwardY, forwardZ, anotherX, anotherY, anotherZ)
+        local alongAnother = Geometry.Dot(fx, fy, fz, anotherX, anotherY, anotherZ)
+        local minX = min(0, alongAnother)
+        local maxX = max(Geometry.Dot(fx, fy, fz, forwardX, forwardY, forwardZ), alongAnother)
 
-        local org1 = paintOrigins[i1]
-        local org2 = paintOrigins[i2]
-        local org3 = paintOrigins[i3]
-        local orgForward = org2 - org3
-        local orgAnother = org1 - org3
-        local orgAngle = orgForward:AngleEx(orgForward:Cross(orgAnother))
-        -- SetAngles keeps the scale of the matrix with rounding errors, so the matrices are reset first.
-        DispPaintOriginRotation:Identity()
-        DispPaintOriginRotation:SetAngles(orgAngle)
-        WorldToLocalRotation:Identity()
-        WorldToLocalRotation:SetAngles(angle)
-        WorldToLocalRotation:InvertTR()
-        WorldToLocalRotation:Set(DispPaintOriginRotation * WorldToLocalRotation)
-        local e11, e12, e13, _, e21, e22, e23, _, e31, e32, e33 = WorldToLocalRotation:Unpack()
+        -- Barycentric coordinates by the dual basis of the edges t1 -> t2 and t1 -> t3.
+        local e2x, e2y, e2z = xs[i2] - xs[i1], ys[i2] - ys[i1], zs[i2] - zs[i1]
+        local e3x, e3y, e3z = -anotherX, -anotherY, -anotherZ
+        local d22 = Geometry.Dot(e2x, e2y, e2z, e2x, e2y, e2z)
+        local d23 = Geometry.Dot(e2x, e2y, e2z, e3x, e3y, e3z)
+        local d33 = Geometry.Dot(e3x, e3y, e3z, e3x, e3y, e3z)
+        local denominator = d22 * d33 - d23 * d23
+        local t = PrecachedData.DisplacementTriangle.new()
+        t.BarycentricDot1X = (d33 * e2x - d23 * e3x) / denominator
+        t.BarycentricDot1Y = (d33 * e2y - d23 * e3y) / denominator
+        t.BarycentricDot1Z = (d33 * e2z - d23 * e3z) / denominator
+        t.BarycentricDot2X = (d22 * e3x - d23 * e2x) / denominator
+        t.BarycentricDot2Y = (d22 * e3y - d23 * e2y) / denominator
+        t.BarycentricDot2Z = (d22 * e3z - d23 * e2z) / denominator
+        t.MBBPitch, t.MBBYaw, t.MBBRoll = Geometry.ToAngles { fx, lx, ux, 0, fy, ly, uy, 0, fz, lz, uz, 0 }
+        t.MBBOriginX, t.MBBOriginY, t.MBBOriginZ = xs[i3] + fx * minX, ys[i3] + fy * minX, zs[i3] + fz * minX
+        t.MBBSizeX, t.MBBSizeY = maxX - minX, Geometry.Dot(lx, ly, lz, anotherX, anotherY, anotherZ)
+
+        -- The rotation from the triangle to the triangle of the paint origins.
+        local ofx, ofy, ofz, olx, oly, olz, oux, ouy, ouz = TriangleAxes(
+            oxs[i2] - oxs[i3], oys[i2] - oys[i3], ozs[i2] - ozs[i3],
+            oxs[i1] - oxs[i3], oys[i1] - oys[i3], ozs[i1] - ozs[i3])
         local r = t.WorldToLocalGridRotation
-        r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9] = e11, e12, e13, e21, e22, e23, e31, e32, e33
+        r[1], r[2], r[3] = ofx * fx + olx * lx + oux * ux, ofx * fy + olx * ly + oux * uy, ofx * fz + olx * lz + oux * uz
+        r[4], r[5], r[6] = ofy * fx + oly * lx + ouy * ux, ofy * fy + oly * ly + ouy * uy, ofy * fz + oly * lz + ouy * uz
+        r[7], r[8], r[9] = ofz * fx + olz * lx + ouz * ux, ofz * fy + olz * ly + ouz * uy, ofz * fz + olz * lz + ouz * uz
         surf.DisplacementTriangles[#surf.DisplacementTriangles + 1] = t
     end
 
@@ -306,69 +324,62 @@ local function GetVertexBlends(dispVert, multiblend)
     return math.Clamp(m[2] * 255, 0, 255), math.Clamp(m[3] * 255, 0, 255), math.Clamp(m[4] * 255, 0, 255)
 end
 
+---Bilinear interpolation of the values at the corners (1) to (4) of a displacement, given in its figure.
+---@param c1 number
+---@param c2 number
+---@param c3 number
+---@param c4 number
+---@param u  number
+---@param v  number
+---@return number
+local function Bilerp(c1, c2, c3, c4, u, v)
+    local left = c1 + (c2 - c1) * v
+    local right = c4 + (c3 - c4) * v
+    return left + (right - left) * u
+end
+
+---Returns the lightmap tangent and binormal of a triangle: the directions in the world along which
+---the lightmap coordinates u and v increase by 1, in the plane of the triangle.
+---@param surf ss.PrecachedData.Surface Its positions and lightmap coordinates are read.
+---@param i1   integer
+---@param i2   integer
+---@param i3   integer
+---@return number sx, number sy, number sz, number tx, number ty, number tz
+local function TriangleLightmapBasis(surf, i1, i2, i3)
+    local xs, ys, zs = surf.PositionX, surf.PositionY, surf.PositionZ
+    local e1x, e1y, e1z = xs[i2] - xs[i1], ys[i2] - ys[i1], zs[i2] - zs[i1]
+    local e2x, e2y, e2z = xs[i3] - xs[i1], ys[i3] - ys[i1], zs[i3] - zs[i1]
+    local e11 = Geometry.Dot(e1x, e1y, e1z, e1x, e1y, e1z)
+    local e12 = Geometry.Dot(e1x, e1y, e1z, e2x, e2y, e2z)
+    local e22 = Geometry.Dot(e2x, e2y, e2z, e2x, e2y, e2z)
+    local det = e11 * e22 - e12 * e12
+    if abs(det) <= Util.eps then
+        return 0, 0, 0, 0, 0, 0
+    end
+
+    -- dual basis:
+    -- dot(e1, dual1) = 1, dot(e2, dual1) = 0
+    -- dot(e1, dual2) = 0, dot(e2, dual2) = 1
+    local invDet = 1 / det
+    local dual1x, dual1y, dual1z = (e1x * e22 - e2x * e12) * invDet, (e1y * e22 - e2y * e12) * invDet, (e1z * e22 - e2z * e12) * invDet
+    local dual2x, dual2y, dual2z = (e2x * e11 - e1x * e12) * invDet, (e2y * e11 - e1y * e12) * invDet, (e2z * e11 - e1z * e12) * invDet
+    local us, vs = surf.LightmapU, surf.LightmapV
+    local du1, du2 = us[i2] - us[i1], us[i3] - us[i1]
+    local dv1, dv2 = vs[i2] - vs[i1], vs[i3] - vs[i1]
+    return dual1x * du1 + dual2x * du2, dual1y * du1 + dual2y * du2, dual1z * du1 + dual2z * du2,
+           dual1x * dv1 + dual2x * dv2, dual1y * dv1 + dual2y * dv2, dual1z * dv1 + dual2z * dv2
+end
+
 ---Construct a polygon from a raw displacement data
----@param bsp ss.RawBSPResults
----@param rawFace ss.Binary.BSP.FACES
----@param vertices Vector[] The vertices of flat quadrilateral surface that will be modified in this function.
----@param texInfo ss.Binary.BSP.TEXINFO
----@param angle Angle The angle of the face in the world coordinate system. Up() should be the normal.
+---@param bsp         ss.RawBSPResults
+---@param rawFace     ss.Binary.BSP.FACES
+---@param xs          number[] The corners of the flat quadrilateral surface, which this function reorders.
+---@param ys          number[]
+---@param zs          number[]
+---@param texInfo     ss.Binary.BSP.TEXINFO
+---@param orientation number[] The orientation of the face from FaceOrientation.
 ---@return ss.PrecachedData.Surface
-local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, angle)
-    ---@param p Vector
-    ---@return Vector
-    local function GetBaseTexelUV(p)
-        return Vector(
-            p:Dot(texInfo.textureVecS) + texInfo.textureOffsetS,
-            p:Dot(texInfo.textureVecT) + texInfo.textureOffsetT)
-    end
-
-    ---@param c1 Vector
-    ---@param c2 Vector
-    ---@param c3 Vector
-    ---@param c4 Vector
-    ---@param u number
-    ---@param v number
-    ---@return Vector
-    local function Bilerp(c1, c2, c3, c4, u, v)
-        local left = c1 + (c2 - c1) * v
-        local right = c4 + (c3 - c4) * v
-        return left + (right - left) * u
-    end
-
-    ---@param p1 Vector World position 1
-    ---@param p2 Vector World position 2
-    ---@param p3 Vector World position 3
-    ---@param l1 Vector Lightmap texel position 1
-    ---@param l2 Vector Lightmap texel position 2
-    ---@param l3 Vector Lightmap texel position 3
-    ---@return Vector lightmapVecS
-    ---@return Vector lightmapVecT
-    local function BuildTriangleLightmapBasis(p1, p2, p3, l1, l2, l3)
-        local e1 = p2 - p1
-        local e2 = p3 - p1
-        local e11 = e1:Dot(e1)
-        local e12 = e1:Dot(e2)
-        local e22 = e2:Dot(e2)
-        local det = e11 * e22 - e12 * e12
-        if math.abs(det) <= Util.eps then
-            return Vector(), Vector()
-        end
-
-        -- dual basis:
-        -- dot(e1, dual1) = 1, dot(e2, dual1) = 0
-        -- dot(e1, dual2) = 0, dot(e2, dual2) = 1
-        local invDet = 1 / det
-        local dual1 = (e1 * e22 - e2 * e12) * invDet
-        local dual2 = (e2 * e11 - e1 * e12) * invDet
-        local du1 = l2.x - l1.x
-        local du2 = l3.x - l1.x
-        local dv1 = l2.y - l1.y
-        local dv2 = l3.y - l1.y
-        local lightmapVecS = dual1 * du1 + dual2 * du2
-        local lightmapVecT = dual1 * dv1 + dual2 * dv2
-        return lightmapVecS, lightmapVecT
-    end
-
+local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientation)
     -- Collect displacement info
     local surf            = PrecachedData.Surface.new()
     local rawDispInfo     = bsp.DISPINFO
@@ -379,27 +390,26 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, angle)
     local lightmapHeight  = rawFace.lightmapTextureSizeInLuxels[2]
     local dispInfo        = rawDispInfo[rawFace.dispInfo + 1]
     local power           = 2 ^ dispInfo.power + 1
+    local startX, startY, startZ = dispInfo.startPosition:Unpack()
     do
         -- dispInfo.startPosition isn't always equal to
-        -- vertices[1] so find correct one and sort them
-        local indices = {} ---@type integer[]
-        local mindist, startindex = math.huge, 0
-        for i, v in ipairs(vertices) do
-            local dist = dispInfo.startPosition:DistToSqr(v)
+        -- the first corner so find correct one and sort them
+        local mindist, startindex = huge, 0
+        for i = 1, #xs do
+            local dx, dy, dz = xs[i] - startX, ys[i] - startY, zs[i] - startZ
+            local dist = dx * dx + dy * dy + dz * dz
             if dist < mindist then
                 startindex, mindist = i, dist
             end
         end
 
+        local sortedX, sortedY, sortedZ = {}, {}, {} ---@type number[], number[], number[]
         for i = 1, 4 do
-            indices[i] = (i + startindex - 2) % 4 + 1
+            local k = (i + startindex - 2) % 4 + 1
+            sortedX[i], sortedY[i], sortedZ[i] = xs[k], ys[k], zs[k]
         end
 
-        -- Sort them using index table
-        vertices[1], vertices[2],
-        vertices[3], vertices[4]
-            = vertices[indices[1]], vertices[indices[2]],
-              vertices[indices[3]], vertices[indices[4]]
+        xs, ys, zs = sortedX, sortedY, sortedZ
     end
 
     --              u2   ___-->(3)
@@ -410,16 +420,25 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, angle)
     --    /                     |
     --   /          u1          |
     -- (1)---------------------->(4)
-    local u1 = vertices[4] - vertices[1]
-    local u2 = vertices[3] - vertices[2]
-    local v1 = vertices[2] - vertices[1]
-    local v2 = vertices[3] - vertices[4]
-    local parentNormal = u1:Cross(v1):GetNormalized()
-    local subdivisionMatrix = Matrix()
-    subdivisionMatrix:SetForward(u1)
-    subdivisionMatrix:SetRight(-v1)
-    subdivisionMatrix:SetUp(v2)
-    subdivisionMatrix:SetTranslation(dispInfo.startPosition)
+    local u1x, u1y, u1z = xs[4] - xs[1], ys[4] - ys[1], zs[4] - zs[1]
+    local u2x, u2y, u2z = xs[3] - xs[2], ys[3] - ys[2], zs[3] - zs[2]
+    local v1x, v1y, v1z = xs[2] - xs[1], ys[2] - ys[1], zs[2] - zs[1]
+    local v2x, v2y, v2z = xs[3] - xs[4], ys[3] - ys[4], zs[3] - zs[4]
+    local parentNormalX, parentNormalY, parentNormalZ
+        = Geometry.Normalize(Geometry.Cross(u1x, u1y, u1z, v1x, v1y, v1z))
+
+    ---The point at (u, v) on the quadrilateral, whose edges are stretched by scaleU along u and by scaleV along v.
+    ---@param u number
+    ---@param v number
+    ---@param scaleU number
+    ---@param scaleV number
+    ---@return number x, number y, number z
+    local function Subdivide(u, v, scaleU, scaleV)
+        local a, b, c = u * scaleU, (1 - u) * v * scaleV, u * v * scaleV
+        return startX + u1x * a + v1x * b + v2x * c,
+               startY + u1y * a + v1y * b + v2y * c,
+               startZ + u1z * a + v1z * b + v2z * c
+    end
 
     -- Here we track accumulated length of edges for each direction to get proper UV coordinates.
     -- ^ v
@@ -440,48 +459,40 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, angle)
     local lengthIntegratedU = {} ---@type number[]
     local lengthIntegratedV = {} ---@type number[]
 
-    local aabbMax     = Util.vector_one * -math.huge
-    local aabbMin     = Util.vector_one * math.huge
-    local deformed    = {} ---@type Vector[]
-    local subdivision = {} ---@type Vector[]
-    local paintorigin = {} ---@type Vector[]
-    local triangles   = {} ---@type integer[] Indices of triangle mesh
-    local bumpmapuv   = {} ---@type Vector[]
-    local lightmapuv  = {} ---@type Vector[]  Fractional values used in lightmap sampling
-    local bumpmapCorners = {
-        GetBaseTexelUV(vertices[1]),
-        GetBaseTexelUV(vertices[2]),
-        GetBaseTexelUV(vertices[3]),
-        GetBaseTexelUV(vertices[4]),
-    }
-    local lightmapCorners = {
-        Vector(0.5,                 0.5),
-        Vector(0.5,                 0.5 + lightmapHeight),
-        Vector(0.5 + lightmapWidth, 0.5 + lightmapHeight),
-        Vector(0.5 + lightmapWidth, 0.5),
-    }
+    local textureSX, textureSY, textureSZ = texInfo.textureVecS:Unpack()
+    local textureTX, textureTY, textureTZ = texInfo.textureVecT:Unpack()
+    local textureOffsetS, textureOffsetT = texInfo.textureOffsetS, texInfo.textureOffsetT
+    local cornerBumpmapU, cornerBumpmapV = {}, {} ---@type number[], number[]
+    for i = 1, 4 do
+        cornerBumpmapU[i] = xs[i] * textureSX + ys[i] * textureSY + zs[i] * textureSZ + textureOffsetS
+        cornerBumpmapV[i] = xs[i] * textureTX + ys[i] * textureTY + zs[i] * textureTZ + textureOffsetT
+    end
+
+    local cornerLightmapU = { 0.5, 0.5,                  0.5 + lightmapWidth,  0.5 + lightmapWidth }
+    local cornerLightmapV = { 0.5, 0.5 + lightmapHeight, 0.5 + lightmapHeight, 0.5 }
+    local positionXs, positionYs, positionZs = surf.PositionX, surf.PositionY, surf.PositionZ -- The deformed grid points
+    local vertexIndices = surf.VertexIndices
+    local minX, minY, minZ = huge, huge, huge
+    local maxX, maxY, maxZ = -huge, -huge, -huge
     for vi = 0, power - 1 do
         for ui = 0, power - 1 do
             local i = ui + vi * power + 1
             local dispVert = rawDispVerts[dispInfo.dispVertStart + i]
             local u = ui / (power - 1)
             local v = vi / (power - 1)
-            subdivision[i] = Vector(u, (1 - u) * v, u * v)
-            subdivision[i]:Mul(subdivisionMatrix)
-            deformed[i] = subdivision[i] + dispVert.vec * dispVert.dist
-            bumpmapuv[i] = Bilerp(
-                bumpmapCorners[1], bumpmapCorners[2],
-                bumpmapCorners[3], bumpmapCorners[4], u, v)
+            local x, y, z = Subdivide(u, v, 1, 1)
+            local offsetX, offsetY, offsetZ = dispVert.vec:Unpack()
+            x, y, z = x + offsetX * dispVert.dist, y + offsetY * dispVert.dist, z + offsetZ * dispVert.dist
+            positionXs[i], positionYs[i], positionZs[i] = x, y, z
+            surf.BumpmapU[i] = Bilerp(cornerBumpmapU[1], cornerBumpmapU[2], cornerBumpmapU[3], cornerBumpmapU[4], u, v)
+            surf.BumpmapV[i] = Bilerp(cornerBumpmapV[1], cornerBumpmapV[2], cornerBumpmapV[3], cornerBumpmapV[4], u, v)
             surf.Blend2[i], surf.Blend3[i], surf.Blend4[i]
                 = GetVertexBlends(dispVert, multiblendStart and rawMultiBlend[multiblendStart + i - 1])
-            lightmapuv[i] = Bilerp(
-                lightmapCorners[1], lightmapCorners[2],
-                lightmapCorners[3], lightmapCorners[4], u, v)
-            paintorigin[i] = Vector()
+            surf.LightmapU[i] = Bilerp(cornerLightmapU[1], cornerLightmapU[2], cornerLightmapU[3], cornerLightmapU[4], u, v)
+            surf.LightmapV[i] = Bilerp(cornerLightmapV[1], cornerLightmapV[2], cornerLightmapV[3], cornerLightmapV[4], u, v)
 
             if ui > 0 then
-                local previous = deformed[i - 1]
-                local distance = deformed[i]:Distance(previous)
+                local distance = Geometry.Length(x - positionXs[i - 1], y - positionYs[i - 1], z - positionZs[i - 1])
                 totalLengthU[vi + 1] = (totalLengthU[vi + 1] or 0) + distance
                 for j = ui + vi * power, (vi + 1) * power - 1 do
                     lengthIntegratedU[j + 1] = (lengthIntegratedU[j + 1] or 0) + distance
@@ -489,8 +500,7 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, angle)
             end
 
             if vi > 0 then
-                local previous = deformed[i - power]
-                local distance = deformed[i]:Distance(previous)
+                local distance = Geometry.Length(x - positionXs[i - power], y - positionYs[i - power], z - positionZs[i - power])
                 totalLengthV[ui + 1] = (totalLengthV[ui + 1] or 0) + distance
                 for j = ui + vi * power, (power - 1) * power + ui, power do
                     lengthIntegratedV[j + 1] = (lengthIntegratedV[j + 1] or 0) + distance
@@ -502,124 +512,117 @@ local function BuildFromDisplacement(bsp, rawFace, vertices, texInfo, angle)
 
             -- Generate triangle indices from displacement mesh
             if ui < power - 1 and vi < power - 1 then
-                triangles[#triangles + 1] = i + invert + power
-                triangles[#triangles + 1] = i + 1
-                triangles[#triangles + 1] = i
-                triangles[#triangles + 1] = i - invert + 1
-                triangles[#triangles + 1] = i + power
-                triangles[#triangles + 1] = i + power + 1
+                vertexIndices[#vertexIndices + 1] = i + invert + power
+                vertexIndices[#vertexIndices + 1] = i + 1
+                vertexIndices[#vertexIndices + 1] = i
+                vertexIndices[#vertexIndices + 1] = i - invert + 1
+                vertexIndices[#vertexIndices + 1] = i + power
+                vertexIndices[#vertexIndices + 1] = i + power + 1
             end
 
             -- Set bounding box
-            aabbMax:Set(Util.MaxVector(aabbMax, deformed[i]))
-            aabbMin:Set(Util.MinVector(aabbMin, deformed[i]))
+            minX, minY, minZ = min(minX, x), min(minY, y), min(minZ, z)
+            maxX, maxY, maxZ = max(maxX, x), max(maxY, y), max(maxZ, z)
         end
     end
 
-    SetAABB(surf, aabbMin, aabbMax)
+    SetAABB(surf, minX, minY, minZ, maxX, maxY, maxZ)
 
-    local tangents     = {} ---@type Vector[]
-    local binormals    = {} ---@type Vector[]
-    local normals      = {} ---@type Vector[]
+    -- The paint origins are on the quadrilateral stretched as long as the deformed edges,
+    -- placed by the lengths of the edges, so that the paints keep their sizes on the deformed mesh.
+    local meanLengthU = (Geometry.Length(u1x, u1y, u1z) + Geometry.Length(u2x, u2y, u2z)) * 0.5
+    local meanLengthV = (Geometry.Length(v1x, v1y, v1z) + Geometry.Length(v2x, v2y, v2z)) * 0.5
+    local scaleU = max(unpack(totalLengthU)) / meanLengthU
+    local scaleV = max(unpack(totalLengthV)) / meanLengthV
+    local normalXs, normalYs, normalZs = surf.NormalX, surf.NormalY, surf.NormalZ
     local normalCounts = {} ---@type integer[]
-    local meanLengthU  = (u1:Length() + u2:Length()) * 0.5
-    local meanLengthV  = (v1:Length() + v2:Length()) * 0.5
-    local maxTotalLengthU = max(unpack(totalLengthU))
-    local maxTotalLengthV = max(unpack(totalLengthV))
-    local scaleU = maxTotalLengthU / meanLengthU
-    local scaleV = maxTotalLengthV / meanLengthV
-    local scaleUV = Vector(scaleU, scaleV, scaleV)
-    subdivisionMatrix:Scale(scaleUV)
-    for i, p in ipairs(paintorigin) do
+    for i = 1, #positionXs do
         local ui = (i - 1) % power
         local vi = floor((i - 1) / power)
         local u = (lengthIntegratedU[i] or 0) / totalLengthU[vi + 1]
         local v = (lengthIntegratedV[i] or 0) / totalLengthV[ui + 1]
-        p:SetUnpacked(u, (1 - u) * v, u * v)
-        p:Mul(subdivisionMatrix)
-        normals[i] = Vector()
+        surf.PaintOriginX[i], surf.PaintOriginY[i], surf.PaintOriginZ[i] = Subdivide(u, v, scaleU, scaleV)
+        normalXs[i], normalYs[i], normalZs[i] = 0, 0, 0
         normalCounts[i] = 0
     end
 
-    for i = 1, #triangles, 3 do
-        local i1 = triangles[i]
-        local i2 = triangles[i + 1]
-        local i3 = triangles[i + 2]
-        -- All triangles share the engine's winding (BuildTriTLtoBR/BLtoTR in builddisp.cpp),
+    for i = 1, #vertexIndices, 3 do
+        local i1 = vertexIndices[i]
+        local i2 = vertexIndices[i + 1]
+        local i3 = vertexIndices[i + 2]
+        -- All triangles share the engine's winding (BuildTriTLtoBR/BLtoTR of the engine),
         -- so this order gives the front side however the surface is folded.
-        local triNormal = (deformed[i3] - deformed[i1]):Cross(deformed[i2] - deformed[i1])
-        if triNormal:LengthSqr() > Util.eps then
-            triNormal:Normalize()
-            normals[i1]:Add(triNormal)
-            normals[i2]:Add(triNormal)
-            normals[i3]:Add(triNormal)
-            normalCounts[i1] = normalCounts[i1] + 1
-            normalCounts[i2] = normalCounts[i2] + 1
-            normalCounts[i3] = normalCounts[i3] + 1
+        local nx, ny, nz = Geometry.Cross(
+            positionXs[i3] - positionXs[i1], positionYs[i3] - positionYs[i1], positionZs[i3] - positionZs[i1],
+            positionXs[i2] - positionXs[i1], positionYs[i2] - positionYs[i1], positionZs[i2] - positionZs[i1])
+        if nx * nx + ny * ny + nz * nz > Util.eps then
+            nx, ny, nz = Geometry.Normalize(nx, ny, nz)
+            for _, k in ipairs { i1, i2, i3 } do
+                normalXs[k], normalYs[k], normalZs[k] = normalXs[k] + nx, normalYs[k] + ny, normalZs[k] + nz
+                normalCounts[k] = normalCounts[k] + 1
+            end
         end
 
-        local s, t = BuildTriangleLightmapBasis(
-            deformed[i1], deformed[i2], deformed[i3],
-            lightmapuv[i1], lightmapuv[i2], lightmapuv[i3])
-        SetTriangle(surf, (i + 2) / 3, i1, i2, i3, s, t)
+        local j = (i + 2) / 3
+        surf.LightmapTangentX[j],  surf.LightmapTangentY[j],  surf.LightmapTangentZ[j],
+        surf.LightmapBinormalX[j], surf.LightmapBinormalY[j], surf.LightmapBinormalZ[j]
+            = TriangleLightmapBasis(surf, i1, i2, i3)
     end
 
-    local textureVecSLength  = texInfo.textureVecS:Length()
-    local textureVecTLength  = texInfo.textureVecT:Length()
-    local textureVecS        = texInfo.textureVecS:GetNormalized()
-    local textureVecT        = texInfo.textureVecT:GetNormalized()
-    local shouldFlipTangentS = parentNormal:Dot(textureVecS:Cross(textureVecT)) > 0
-    for i = 1, #deformed do
+    local textureSLength = Geometry.Length(textureSX, textureSY, textureSZ)
+    local textureTLength = Geometry.Length(textureTX, textureTY, textureTZ)
+    local sX, sY, sZ = Geometry.Normalize(textureSX, textureSY, textureSZ)
+    local tX, tY, tZ = Geometry.Normalize(textureTX, textureTY, textureTZ)
+    local shouldFlipTangentS
+        = Geometry.Dot(parentNormalX, parentNormalY, parentNormalZ, Geometry.Cross(sX, sY, sZ, tX, tY, tZ)) > 0
+    for i = 1, #positionXs do
+        local nx, ny, nz = parentNormalX, parentNormalY, parentNormalZ
         if normalCounts[i] > 0 then
-            normals[i]:Div(normalCounts[i])
-            normals[i]:Normalize()
-        else
-            normals[i]:Set(parentNormal)
+            nx, ny, nz = Geometry.Normalize(normalXs[i], normalYs[i], normalZs[i])
         end
 
-        tangents[i] = normals[i]:Cross(textureVecT)
-        if tangents[i]:LengthSqr() <= Util.eps then
-            tangents[i] = Vector(textureVecS)
+        local tangentX, tangentY, tangentZ = Geometry.Cross(nx, ny, nz, tX, tY, tZ)
+        if tangentX * tangentX + tangentY * tangentY + tangentZ * tangentZ <= Util.eps then
+            tangentX, tangentY, tangentZ = sX, sY, sZ
         else
-            tangents[i]:Normalize()
+            tangentX, tangentY, tangentZ = Geometry.Normalize(tangentX, tangentY, tangentZ)
         end
 
-        binormals[i] = tangents[i]:Cross(normals[i])
-        if binormals[i]:LengthSqr() <= Util.eps then
-            binormals[i] = Vector(textureVecT)
+        local binormalX, binormalY, binormalZ = Geometry.Cross(tangentX, tangentY, tangentZ, nx, ny, nz)
+        if binormalX * binormalX + binormalY * binormalY + binormalZ * binormalZ <= Util.eps then
+            binormalX, binormalY, binormalZ = tX, tY, tZ
         else
-            binormals[i]:Normalize()
+            binormalX, binormalY, binormalZ = Geometry.Normalize(binormalX, binormalY, binormalZ)
         end
 
-        if shouldFlipTangentS then tangents[i]:Mul(-1) end
-        tangents[i]:Mul(textureVecSLength)
-        binormals[i]:Mul(textureVecTLength)
-    end
-
-    -- The vertices of the mesh are the grid points.
-    for i, p in ipairs(deformed) do
-        SetVertex(surf, i, p, normals[i], tangents[i], binormals[i], paintorigin[i])
-        surf.BumpmapU[i], surf.BumpmapV[i] = bumpmapuv[i].x, bumpmapuv[i].y
-        surf.LightmapU[i], surf.LightmapV[i] = lightmapuv[i].x, lightmapuv[i].y
+        local tangentScale = shouldFlipTangentS and -textureSLength or textureSLength
+        normalXs[i], normalYs[i], normalZs[i] = nx, ny, nz
+        surf.TangentX[i], surf.TangentY[i], surf.TangentZ[i]
+            = tangentX * tangentScale, tangentY * tangentScale, tangentZ * tangentScale
+        surf.BinormalX[i], surf.BinormalY[i], surf.BinormalZ[i]
+            = binormalX * textureTLength, binormalY * textureTLength, binormalZ * textureTLength
     end
 
     SetMeshLengths(surf)
 
-    local mbrMatrix, mbrSize = BoundingBox.FindMBR(VerticesOfTriangles(paintorigin, triangles), angle)
-    local mbbMatrix, mbbSize = BoundingBox.FindMinimumOBB(VerticesOfTriangles(deformed, triangles)) -- For the deformed mesh
+    local originXs, originYs, originZs
+        = PointsOfTriangles(surf.PaintOriginX, surf.PaintOriginY, surf.PaintOriginZ, vertexIndices)
+    local mbr, mbrSizeX, mbrSizeY = BoundingBox.FindMBR(originXs, originYs, originZs, orientation)
+    local mbb, mbbSizeX, mbbSizeY, mbbSizeZ = BoundingBox.FindMinimumOBB( -- For the deformed mesh
+        PointsOfTriangles(positionXs, positionYs, positionZs, vertexIndices))
     local aabbSizeX = surf.AABBMaxX - surf.AABBMinX
     local aabbSizeY = surf.AABBMaxY - surf.AABBMinY
     local aabbSizeZ = surf.AABBMaxZ - surf.AABBMinZ
-    if mbbSize.x * mbbSize.y * mbbSize.z < aabbSizeX * aabbSizeY * aabbSizeZ then
-        SetMBB(surf, mbbMatrix, mbbSize)
+    if mbbSizeX * mbbSizeY * mbbSizeZ < aabbSizeX * aabbSizeY * aabbSizeZ then
+        SetMBB(surf, mbb, mbbSizeX, mbbSizeY, mbbSizeZ)
     else -- The AABB is the smaller box.
         surf.MBBPitch,   surf.MBBYaw,     surf.MBBRoll    = 0, 0, 0
         surf.MBBOriginX, surf.MBBOriginY, surf.MBBOriginZ = surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ
         surf.MBBSizeX,   surf.MBBSizeY,   surf.MBBSizeZ   = aabbSizeX, aabbSizeY, aabbSizeZ
     end
 
-    SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
-    CalculateTriangleComponents(surf, deformed, paintorigin, triangles)
+    SetTransformRelatedValues(surf, mbr, mbrSizeX, mbrSizeY)
+    CalculateTriangleComponents(surf)
     return surf
 end
 
@@ -647,81 +650,89 @@ local function BuildFromBrushFace(bsp, rawFace)
     local plane     = rawPlanes[rawFace.planeNum + 1]
     local firstedge = rawFace.firstEdge + 1
     local lastedge  = rawFace.firstEdge + rawFace.numEdges
-    local normal    = plane.normal
+    local normalX, normalY, normalZ = plane.normal:Unpack()
 
     -- Collect "raw" vertex list
-    local rawVertices = {} ---@type Vector[]
+    local rawXs, rawYs, rawZs = {}, {}, {} ---@type number[], number[], number[]
     for i = firstedge, lastedge do
-        rawVertices[#rawVertices + 1] = SurfEdgeToVertex(bsp, i)
+        local k = #rawXs + 1
+        rawXs[k], rawYs[k], rawZs[k] = SurfEdgeToVertex(bsp, i):Unpack()
     end
 
-    -- Filter out colinear vertices and calculate the center
-    local filteredVertices = {} ---@type Vector[]
-    for i, current in ipairs(rawVertices) do
-        local prevIndex = (#rawVertices + i - 2) % #rawVertices + 1
-        local nextIndex = i % #rawVertices + 1
-        local before = rawVertices[prevIndex]
-        local after  = rawVertices[nextIndex]
-        local cross  = (before - current):Cross(after - current)
-        local colinear = normal:Dot(cross:GetNormalized()) > 0
-        if colinear then
-            filteredVertices[#filteredVertices + 1] = current
+    -- Filter out colinear vertices, keeping the corners where the polygon turns around the normal.
+    local xs, ys, zs = {}, {}, {} ---@type number[], number[], number[]
+    local numRaw = #rawXs
+    for i = 1, numRaw do
+        local before = (numRaw + i - 2) % numRaw + 1
+        local after = i % numRaw + 1
+        local x, y, z = rawXs[i], rawYs[i], rawZs[i]
+        local turn = Geometry.Dot(normalX, normalY, normalZ, Geometry.Normalize(Geometry.Cross(
+            rawXs[before] - x, rawYs[before] - y, rawZs[before] - z,
+            rawXs[after] - x, rawYs[after] - y, rawZs[after] - z)))
+        if turn > 0 then
+            local k = #xs + 1
+            xs[k], ys[k], zs[k] = x, y, z
         end
     end
 
     -- Check if it's valid to add to polygon list
-    if #filteredVertices < 3 then return end
+    if #xs < 3 then return end
     local isDisplacement = rawFace.dispInfo >= 0
     local isWater = bit.band(texInfo.flags, SURF_WARP) ~= 0
         or texMaterial:GetShader() == "Water"
         or surfaceProp == "water"
         or surfaceProp == "slime"
-    local angle = normal:Angle()
-    angle:RotateAroundAxis(angle:Right(), -90) -- Make sure the up vector is the normal
-    assert(normal:GetNormalized():Dot(angle:Up()) > 0.999)
-
+    local orientation = FaceOrientation(normalX, normalY, normalZ)
     if isDisplacement then
-        return BuildFromDisplacement(bsp, rawFace, filteredVertices, texInfo, angle), tobool(isWater)
-    else
-        local surf = PrecachedData.Surface.new()
-        local mbrMatrix, mbrSize = BoundingBox.FindMBR(filteredVertices, angle)
-
-        -- The vertices of the mesh are those of the polygon.
-        local aabbMax = Util.vector_one * -math.huge
-        local aabbMin = Util.vector_one * math.huge
-        for i, v in ipairs(filteredVertices) do
-            aabbMax:Set(Util.MaxVector(aabbMax, v))
-            aabbMin:Set(Util.MinVector(aabbMin, v))
-            SetVertex(surf, i, v, normal, texInfo.textureVecS, texInfo.textureVecT, v)
-            surf.BumpmapU[i] = v:Dot(texInfo.textureVecS) + texInfo.textureOffsetS
-            surf.BumpmapV[i] = v:Dot(texInfo.textureVecT) + texInfo.textureOffsetT
-            surf.Blend2[i], surf.Blend3[i], surf.Blend4[i] = 0, 0, 0
-            surf.LightmapU[i] = v:Dot(texInfo.lightmapVecS)
-                + texInfo.lightmapOffsetS
-                - rawFace.lightmapTextureMinsInLuxels[1]
-                + 0.5
-            surf.LightmapV[i] = v:Dot(texInfo.lightmapVecT)
-                + texInfo.lightmapOffsetT
-                - rawFace.lightmapTextureMinsInLuxels[2]
-                + 0.5
-        end
-
-        SetAABB(surf, aabbMin, aabbMax)
-
-        -- The triangles are a fan of the vertices.
-        for i = 2, #filteredVertices - 1 do
-            SetTriangle(surf, i - 1, 1, i, i + 1, texInfo.lightmapVecS, texInfo.lightmapVecT)
-        end
-
-        SetMeshLengths(surf)
-
-        if not isWater then
-            SetMBB(surf, mbrMatrix, mbrSize)
-            SetTransformRelatedValues(surf, mbrMatrix, mbrSize)
-        end
-
-        return surf, tobool(isWater)
+        return BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientation), tobool(isWater)
     end
+
+    local surf = PrecachedData.Surface.new()
+    local mbr, mbrSizeX, mbrSizeY, mbrSizeZ = BoundingBox.FindMBR(xs, ys, zs, orientation)
+    local textureSX, textureSY, textureSZ = texInfo.textureVecS:Unpack()
+    local textureTX, textureTY, textureTZ = texInfo.textureVecT:Unpack()
+    local lightmapSX, lightmapSY, lightmapSZ = texInfo.lightmapVecS:Unpack()
+    local lightmapTX, lightmapTY, lightmapTZ = texInfo.lightmapVecT:Unpack()
+    local lightmapOffsetS = texInfo.lightmapOffsetS - rawFace.lightmapTextureMinsInLuxels[1] + 0.5
+    local lightmapOffsetT = texInfo.lightmapOffsetT - rawFace.lightmapTextureMinsInLuxels[2] + 0.5
+
+    -- The vertices of the mesh are those of the polygon.
+    local minX, minY, minZ = huge, huge, huge
+    local maxX, maxY, maxZ = -huge, -huge, -huge
+    for i = 1, #xs do
+        local x, y, z = xs[i], ys[i], zs[i]
+        minX, minY, minZ = min(minX, x), min(minY, y), min(minZ, z)
+        maxX, maxY, maxZ = max(maxX, x), max(maxY, y), max(maxZ, z)
+        surf.PositionX[i],    surf.PositionY[i],    surf.PositionZ[i]    = x, y, z
+        surf.NormalX[i],      surf.NormalY[i],      surf.NormalZ[i]      = normalX, normalY, normalZ
+        surf.TangentX[i],     surf.TangentY[i],     surf.TangentZ[i]     = textureSX, textureSY, textureSZ
+        surf.BinormalX[i],    surf.BinormalY[i],    surf.BinormalZ[i]    = textureTX, textureTY, textureTZ
+        surf.PaintOriginX[i], surf.PaintOriginY[i], surf.PaintOriginZ[i] = x, y, z
+        surf.BumpmapU[i]  = x * textureSX  + y * textureSY  + z * textureSZ  + texInfo.textureOffsetS
+        surf.BumpmapV[i]  = x * textureTX  + y * textureTY  + z * textureTZ  + texInfo.textureOffsetT
+        surf.LightmapU[i] = x * lightmapSX + y * lightmapSY + z * lightmapSZ + lightmapOffsetS
+        surf.LightmapV[i] = x * lightmapTX + y * lightmapTY + z * lightmapTZ + lightmapOffsetT
+        surf.Blend2[i], surf.Blend3[i], surf.Blend4[i] = 0, 0, 0
+    end
+
+    SetAABB(surf, minX, minY, minZ, maxX, maxY, maxZ)
+
+    -- The triangles are a fan of the vertices.
+    for i = 2, #xs - 1 do
+        local j = i - 1
+        surf.VertexIndices[3 * j - 2], surf.VertexIndices[3 * j - 1], surf.VertexIndices[3 * j] = 1, i, i + 1
+        surf.LightmapTangentX[j],  surf.LightmapTangentY[j],  surf.LightmapTangentZ[j]  = lightmapSX, lightmapSY, lightmapSZ
+        surf.LightmapBinormalX[j], surf.LightmapBinormalY[j], surf.LightmapBinormalZ[j] = lightmapTX, lightmapTY, lightmapTZ
+    end
+
+    SetMeshLengths(surf)
+
+    if not isWater then
+        SetMBB(surf, mbr, mbrSizeX, mbrSizeY, mbrSizeZ)
+        SetTransformRelatedValues(surf, mbr, mbrSizeX, mbrSizeY)
+    end
+
+    return surf, tobool(isWater)
 end
 
 ---Extracts surfaces from LUMP_FACES of parsed BSP structures.
@@ -799,12 +810,12 @@ local STATIC_PROP_USE_LIGHTING_ORIGIN = 0x2
 
 ---Reads studiohdr_t::illumposition of the model.
 ---@param name string Path to the model.
----@return Vector # The model origin if the model cannot be opened.
+---@return number[] # x, y, and z, which are the model origin if the model cannot be opened.
 local function ReadIlluminationPosition(name)
     local f = file.Open(name, "rb", "GAME")
-    if not f then return Vector() end
+    if not f then return { 0, 0, 0 } end
     f:Seek(STUDIOHDR_ILLUMPOSITION_OFFSET)
-    local illumposition = Vector(f:ReadFloat(), f:ReadFloat(), f:ReadFloat())
+    local illumposition = { f:ReadFloat(), f:ReadFloat(), f:ReadFloat() }
     f:Close()
     return illumposition
 end
@@ -818,18 +829,23 @@ end
 ---  illumposition transformed by the prop   otherwise
 ---@param bsp           ss.RawBSPResults
 ---@param prop          ss.Binary.BSP.StaticProp
----@param illumposition Vector illumposition of the model.
+---@param illumposition number[] illumposition of the model as x, y, and z.
 ---@return integer # Index to the cubemap samples in the lump, or 0 if the map has no cubemaps.
 local function FindStaticPropCubemap(bsp, prop, illumposition)
-    local lightingOrigin = prop.lightingOrigin
+    local x, y, z = prop.lightingOrigin:Unpack()
     if bit.band(prop.flags, STATIC_PROP_USE_LIGHTING_ORIGIN) == 0 then
-        lightingOrigin = LocalToWorld(illumposition, angle_zero, prop.origin, prop.angle)
+        local pitch, yaw, roll = prop.angle:Unpack()
+        local originX, originY, originZ = prop.origin:Unpack()
+        x, y, z = Geometry.TransformPoint(Geometry.FromAngles(pitch, yaw, roll, originX, originY, originZ),
+            illumposition[1], illumposition[2], illumposition[3])
     end
 
     local nearestIndex = 0
-    local nearestDistanceSqr = math.huge
+    local nearestDistanceSqr = huge
     for i, sample in ipairs(bsp.CUBEMAPS or {}) do
-        local distanceSqr = lightingOrigin:DistToSqr(sample.origin)
+        local sampleX, sampleY, sampleZ = sample.origin:Unpack()
+        local dx, dy, dz = x - sampleX, y - sampleY, z - sampleZ
+        local distanceSqr = dx * dx + dy * dy + dz * dz
         if distanceSqr < nearestDistanceSqr then
             nearestIndex = i
             nearestDistanceSqr = distanceSqr
@@ -845,7 +861,7 @@ end
 function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
     print "Generating static prop surfaces..."
     local results = {} ---@type ss.PrecachedData.StaticProp[]
-    local illumpositions = {} ---@type table<string, Vector>
+    local illumpositions = {} ---@type table<string, number[]>
     for _, prop in ipairs(bsp.sprp.prop or {}) do
         if prop.solid > 0 then
             local modelIndex = prop.propType + 1
@@ -857,9 +873,11 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
                 local scale = prop.uniformScale or 1
                 illumpositions[name] = illumpositions[name] or ReadIlluminationPosition(name)
                 local result = PrecachedData.StaticProp.new()
+                local maxX, maxY, maxZ = info.HullMax:Unpack()
+                local minX, minY, minZ = info.HullMin:Unpack()
                 result.Pitch, result.Yaw, result.Roll = prop.angle:Unpack()
-                result.BoundsMaxX, result.BoundsMaxY, result.BoundsMaxZ = (info.HullMax * scale):Unpack()
-                result.BoundsMinX, result.BoundsMinY, result.BoundsMinZ = (info.HullMin * scale):Unpack()
+                result.BoundsMaxX, result.BoundsMaxY, result.BoundsMaxZ = maxX * scale, maxY * scale, maxZ * scale
+                result.BoundsMinX, result.BoundsMinY, result.BoundsMinZ = minX * scale, minY * scale, minZ * scale
                 result.FadeMax = prop.fadeMaxDist
                 result.FadeMin = prop.fadeMinDist
                 result.ModelIndex = modelIndex

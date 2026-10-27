@@ -213,7 +213,6 @@ function LightmapBuilder.Build(bsp, faces, rawSamples, surfaces, materialNames)
         t.FaceIndex = faceLumpIndexToSurfaceInfoIndex[i] or 0
 
         -- CheckSurfaceLighting
-        local v = Vector()
         if not power2 then
             linearToScreen = {}
         end
@@ -239,15 +238,15 @@ function LightmapBuilder.Build(bsp, faces, rawSamples, surfaces, materialNames)
                     local r, g, b, e = byte(rawSamples, ptr, ptr + 3)
                     -- ColorRGBExp32ToVector
                     -- e = bxor(e, 128) -- We don't need this anymore because the table is swapped already
-                    v:SetUnpacked( -- TexLightToLinear
-                        255 * r * power2[e + 1],
-                        255 * g * power2[e + 1],
-                        255 * b * power2[e + 1])
+                    -- TexLightToLinear
+                    local linearR = 255 * r * power2[e + 1]
+                    local linearG = 255 * g * power2[e + 1]
+                    local linearB = 255 * b * power2[e + 1]
                     -- This uses Length() in the C++ but it shouldn't matter when comparing them.
-                    local length = v:LengthSqr()
+                    local length = linearR * linearR + linearG * linearG + linearB * linearB
                     if length > maxLength then
                         maxLength = length
-                        maxR, maxG, maxB = v:Unpack()
+                        maxR, maxG, maxB = linearR, linearG, linearB
                     end
                 end
 

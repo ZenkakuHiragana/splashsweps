@@ -14,7 +14,6 @@ local istable = istable
 local max = math.max
 local min = math.min
 local rawset = rawset
-local Vector = Vector
 
 ---@param a ss.LinkedListCell
 ---@return string
@@ -498,12 +497,10 @@ function Structures.MakeRectangle(width, height, x, y, tag)
     ---@class ss.Rectangle
     ---@field left       number
     ---@field bottom     number
-    ---@field bottomleft Vector
     ---@field width      number
     ---@field height     number
     ---@field right      number
     ---@field top        number
-    ---@field topright   Vector
     ---@field istall     boolean
     ---@field rotated    boolean Width and height are transposed from the original rectangle
     ---@field tag        any
@@ -511,10 +508,8 @@ function Structures.MakeRectangle(width, height, x, y, tag)
     local meta = { __eq = REQ, __lt = RLT, __le = RLE, __tostring = RTS }
     function t:rotate()
         self.width, self.height = self.height, self.width
-        self.size = Vector(self.width, self.height)
         self.right = self.left + self.width
         self.top = self.bottom + self.height
-        self.topright = Vector(self.right, self.top)
         self.istall = not self.istall
         self.rotated = not self.rotated
     end
@@ -522,10 +517,8 @@ function Structures.MakeRectangle(width, height, x, y, tag)
     function t:place(px, py)
         self.left       = px
         self.bottom     = py
-        self.bottomleft = Vector(px, py)
         self.right      = px + self.width
         self.top        = py + self.height
-        self.topright   = Vector(px + self.width, py + self.height)
     end
 
     -- This seems required for consistent texture packing
@@ -537,13 +530,10 @@ function Structures.MakeRectangle(width, height, x, y, tag)
 
     t.left       = x
     t.bottom     = y
-    t.bottomleft = Vector(x, y)
     t.width      = width
     t.height     = height
-    t.size       = Vector(width, height)
     t.right      = x + width
     t.top        = y + height
-    t.topright   = Vector(x + width, y + height)
     t.istall     = width < height
     t.rotated    = false
     t.tag        = tag
