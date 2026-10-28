@@ -218,45 +218,29 @@ local READERS = {
     String = function(binary) return ReadString(binary) end,
 }
 
----Returns the function to read a value of a type name that is not a structure:
----a built-in type, a string padded to a fixed length like `String128`, or bytes of a length like `4`.
----@param typename string
----@return (fun(binary: ss.BinaryStringReader): any)? # nil for a structure.
-local function ReaderOf(typename)
-    if READERS[typename] then return READERS[typename] end
-    local fixedLength = tonumber(typename:match "^String(%d+)$")
-    if fixedLength then
-        return function(binary) return ReadString(binary, fixedLength) end
-    end
-
-    local length = tonumber(typename)
-    if length then
-        return function(binary) return binary:Read(length) end
-    end
-end
-
----A field of a structure definition prepared for reading.
----@class ss.BinaryReader.Field
+---A field of a structure definition, with its key and its array size interpreted.
+---@class ss.BinaryStructureField
 ---@field TypeName   string
----@field Read       (fun(binary: ss.BinaryStringReader): any)? The function to read a value, or nil to read it by TypeName.
 ---@field Key        string?  The key of the field, or nil to put the values after the previous ones by position.
 ---@field Count      integer? The number of the elements of an array of a fixed size.
 ---@field CountField string?  The key of the previous field that has the number of the elements.
 
----Fields of each structure definition prepared for reading, which are the same for every element of an array.
-local layoutOf = setmetatable({}, { __mode = "k" }) ---@type table<ss.BinaryStructureDefinition, ss.BinaryReader.Field[]>
+---Fields of each structure definition interpreted, which are the same for every element of an array.
+local layoutOf = setmetatable({}, { __mode = "k" }) ---@type table<ss.BinaryStructureDefinition, ss.BinaryStructureField[]>
 
----Returns the fields of a structure definition prepared for reading.
+---Returns the fields of a structure definition with their keys and their array sizes interpreted,
+---which Binary.Read and BinaryWriter.Write follow.
+---A field is an array if it has Count or CountField, and a single value otherwise.
 ---@param definition ss.BinaryStructureDefinition
----@return ss.BinaryReader.Field[]
-local function LayoutOf(definition)
+---@return ss.BinaryStructureField[]
+function Binary.GetLayout(definition)
     local layout = layoutOf[definition]
     if layout then return layout end
 
     layout = {}
     for i, field in ipairs(Binary.GetFields(definition)) do
         local typename, key, size = field[1], field[2], field[3]
-        local entry = { TypeName = typename, Read = ReaderOf(typename) } ---@type ss.BinaryReader.Field
+        local entry = { TypeName = typename } ---@type ss.BinaryStructureField
         if key ~= nil and key ~= "" and key ~= "nil" then
             entry.Key = key
         end
@@ -279,11 +263,11 @@ end
 
 ---Reads a value of a field.
 ---@param binary ss.BinaryStringReader
----@param field  ss.BinaryReader.Field
+---@param field  ss.BinaryStructureField
 ---@param ...    any
 ---@return any
 local function ReadField(binary, field, ...)
-    local read = field.Read
+    local read = READERS[field.TypeName]
     if read then return read(binary) end
     return Binary.Read(binary, field.TypeName, ...)
 end
@@ -296,7 +280,7 @@ end
 ---@return table
 local function ReadStructure(binary, definition, ...)
     local structure = {} ---@type table<string|integer, any>
-    for _, field in ipairs(LayoutOf(definition)) do
+    for _, field in ipairs(Binary.GetLayout(definition)) do
         local count = field.Count
         if field.CountField then
             local n = structure[field.CountField]
