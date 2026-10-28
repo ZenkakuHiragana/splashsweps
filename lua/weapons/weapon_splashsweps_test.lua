@@ -2,6 +2,7 @@
 local ss = SplashSWEPs
 if not ss then return end
 
+local Geometry      = ss.import "splashsweps/shared/geometry"
 local Hash          = ss.import "splashsweps/shared/hash"
 local InkShape      = ss.import "splashsweps/shared/inkshape"
 local InkType       = ss.import "splashsweps/shared/inktype"
@@ -112,16 +113,18 @@ end
 
 ---Draws the serverside paint grid of a surface.
 ---@param surf    ss.PaintableSurface
----@param toWorld VMatrix? Transformation from the surface's coordinate system to the world if it is a brush model.
+---@param toWorld number[]? Transform from the surface's coordinate system to the world if it is a brush model.
 local function DrawGrid(surf, toWorld)
-    local gridToWorld = surf.WorldToLocalGridMatrix:GetInverseTR()
-    if toWorld then gridToWorld = toWorld * gridToWorld end
+    local gridToWorld = Geometry.InvertRotationTranslation(surf.WorldToLocalGrid)
+    if toWorld then gridToWorld = Geometry.Multiply(toWorld, gridToWorld) end
+    local cellSize = PaintableGrid.CELL_SIZE
     for y = 0, surf.Grid.Height - 1 do
         for x = 0, surf.Grid.Width - 1 do
             local pixel = surf.Grid[y * surf.Grid.Width + x + 1] or 0
-            local xy = Vector(x + 0.5, y + 0.5, 0.1) * PaintableGrid.CELL_SIZE
+            local center = Vector(Geometry.TransformPoint(gridToWorld,
+                (x + 0.5) * cellSize, (y + 0.5) * cellSize, 0.1 * cellSize))
             local color = pixel > 0 and Color(128, 255, 128) or Color(255, 255, 255)
-            debugoverlay.Cross(gridToWorld * xy, PaintableGrid.CELL_SIZE / 2, 5, color, true)
+            debugoverlay.Cross(center, cellSize / 2, 5, color, true)
         end
     end
 end
@@ -131,31 +134,45 @@ function SWEP:SecondaryAttack()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
     self:EmitSound("Weapon_AR2.Empty")
     local tr = Owner:GetEyeTrace()
-    local pos = tr.HitPos
-    for surf in Hash.CollectSurfaces(pos - Util.vector_one, pos + Util.vector_one) do
+    local x, y, z = tr.HitPos:Unpack()
+    for surf in Hash.CollectSurfaces(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1) do
         DrawGrid(surf)
     end
 
-    for ent, modelIndex, worldToModel in Hash.CollectBrushEntities(pos - Util.vector_one, pos + Util.vector_one) do
-        local localPos = worldToModel * pos
-        for surf in Hash.CollectBrushModelSurfaces(modelIndex, localPos - Util.vector_one, localPos + Util.vector_one) do
-            DrawGrid(surf, ent:GetWorldTransformMatrix())
+    for _, modelIndex, worldToModel in Hash.CollectBrushEntities(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1) do
+        local localX, localY, localZ = Geometry.TransformPoint(worldToModel, x, y, z)
+        for surf in Hash.CollectBrushModelSurfaces(modelIndex,
+            localX - 1, localY - 1, localZ - 1, localX + 1, localY + 1, localZ + 1) do
+            DrawGrid(surf, Geometry.InvertRotationTranslation(worldToModel))
         end
     end
+end
+
+---Returns a paint of no size, which looks up the paint grids at a pose.
+---@param x     number
+---@param y     number
+---@param z     number
+---@param pitch number
+---@param yaw   number
+---@param roll  number
+---@return ss.Paint
+local function Probe(x, y, z, pitch, yaw, roll)
+    return {
+        X = x, Y = y, Z = z, Pitch = pitch, Yaw = yaw, Roll = roll,
+        RadiusX = 0, RadiusY = 0, RadiusZ = 0, Shape = 0, InkType = 0,
+    }
 end
 
 ---Checks if the ink is painted under the player and indicates it by a sound.
 ---@param self     SplatoonWeaponBase
 ---@param surfaces fun(): ss.PaintableSurface Surfaces to check.
----@param mins     Vector AABB minimum to check in the surfaces' coordinate system.
----@param maxs     Vector AABB maximum to check in the surfaces' coordinate system.
----@param pos      Vector Position to check in the surfaces' coordinate system.
----@param ang      Angle  Angles of the surface normal in the surfaces' coordinate system.
----@param worldPos Vector Position to draw debug overlay in world coordinates.
-local function CheckInk(self, surfaces, mins, maxs, pos, ang, worldPos)
+---@param probe    ss.Paint The pose to check in the surfaces' coordinate system.
+---@param worldPos Vector   Position to draw debug overlay in world coordinates.
+local function CheckInk(self, surfaces, probe, worldPos)
     for surf in surfaces do
-        for p in Paint.EnumeratePositions(surf, mins, maxs, pos, ang) do
-            local color = PaintableGrid.Read(surf, p)
+        for p in Paint.EnumeratePositions(surf, probe,
+            probe.X - 1, probe.Y - 1, probe.Z - 1, probe.X + 1, probe.Y + 1, probe.Z + 1) do
+            local color = PaintableGrid.Read(surf, p.X, p.Y, p.Z)
             debugoverlay.Box(
                 worldPos, -Util.vector_one, Util.vector_one + vector_up * 72, FrameTime() * 2,
                 color and Color(0, 255, 128, 16) or Color(255, 255, 255, 16))
@@ -174,25 +191,23 @@ function SWEP:Think()
     if not Owner:IsPlayer() then return end ---@cast Owner Player
     local tr = util.QuickTrace(Owner:GetPos(), -vector_up * 16, Owner)
     local ang = tr.HitNormal:Angle()
-    local mins = tr.HitPos - Util.vector_one
-    local maxs = tr.HitPos + Util.vector_one
     ang:RotateAroundAxis(ang:Right(), -90)
+    local x, y, z = tr.HitPos:Unpack()
     if tr.HitWorld then
-        CheckInk(self, Hash.CollectSurfaces(mins, maxs), mins, maxs, tr.HitPos, ang, tr.HitPos)
+        CheckInk(self, Hash.CollectSurfaces(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1),
+            Probe(x, y, z, ang.pitch, ang.yaw, ang.roll), tr.HitPos)
         return
     end
 
     if IsValid(tr.Entity) then
-        for ent, modelIndex, worldToModel in Hash.CollectBrushEntities(mins, maxs) do
+        for ent, modelIndex, worldToModel in Hash.CollectBrushEntities(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1) do
             if ent == tr.Entity then
-                local normalInWorld = Matrix()
-                normalInWorld:SetAngles(ang)
-                local localPos = worldToModel * tr.HitPos
-                local localAng = (worldToModel * normalInWorld):GetAngles()
-                local localMins = localPos - Util.vector_one
-                local localMaxs = localPos + Util.vector_one
-                CheckInk(self, Hash.CollectBrushModelSurfaces(modelIndex, localMins, localMaxs),
-                    localMins, localMaxs, localPos, localAng, tr.HitPos)
+                local probeToModel = Geometry.Multiply(worldToModel,
+                    Geometry.FromAngles(ang.pitch, ang.yaw, ang.roll, x, y, z))
+                local probe = Probe(probeToModel[4], probeToModel[8], probeToModel[12], Geometry.ToAngles(probeToModel))
+                CheckInk(self, Hash.CollectBrushModelSurfaces(modelIndex,
+                    probe.X - 1, probe.Y - 1, probe.Z - 1, probe.X + 1, probe.Y + 1, probe.Z + 1),
+                    probe, tr.HitPos)
                 return
             end
         end

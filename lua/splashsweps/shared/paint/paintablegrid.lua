@@ -3,6 +3,7 @@
 
 ---@class ss
 local ss = SplashSWEPs
+local Geometry = ss.import "splashsweps/shared/geometry"
 local InkShape = ss.import "splashsweps/shared/inkshape"
 local InkType  = ss.import "splashsweps/shared/inktype"
 
@@ -12,7 +13,7 @@ local PaintableGrid = ss.module "splashsweps/shared/paint/paintablegrid"
 ---Side length of a cell of paintable grids in Hammer units.
 PaintableGrid.CELL_SIZE = 12
 
-local Matrix = Matrix
+local abs   = math.abs
 local ceil  = math.ceil
 local floor = math.floor
 local min   = math.min
@@ -51,82 +52,59 @@ end
 ---```
 ---@param origin_x number The x-coordinate of the inclined rectangle in the output coordinate system.
 ---@param origin_y number The y-coordinate of the inclined rectangle in the output coordinate system.
----@param axis_x   Vector Angle:Forward() of the inclined rectangle in the output coordinate system.
----@param axis_y   Vector -Angle:Right() of the inclined rectangle in the output coordinate system.
+---@param axis_xx  number The x-coordinate of the forward of the inclined rectangle in the output coordinate system.
+---@param axis_xy  number The y-coordinate of the forward.
+---@param axis_yx  number The x-coordinate of the left of the inclined rectangle in the output coordinate system.
+---@param axis_yy  number The y-coordinate of the left.
 ---@param scale_x  number Width / 2 of the inclined rectangle.
 ---@param scale_y  number Height / 2 of the inclined rectangle.
 ---@return number x_min
 ---@return number x_max
 ---@return number y_min
 ---@return number y_max
-local function CalculateBounds(origin_x, origin_y, axis_x, axis_y, scale_x, scale_y)
-    local axis_xx, axis_xy = axis_x.x, axis_x.y
-    local axis_yx, axis_yy = axis_y.x, axis_y.y
-    local corners_x = {
-        axis_xx *  scale_x + axis_yx *  scale_y,
-        axis_xx * -scale_x + axis_yx *  scale_y,
-        axis_xx * -scale_x + axis_yx * -scale_y,
-        axis_xx *  scale_x + axis_yx * -scale_y,
-    }
-    local corners_y = {
-        axis_xy *  scale_x + axis_yy *  scale_y,
-        axis_xy * -scale_x + axis_yy *  scale_y,
-        axis_xy * -scale_x + axis_yy * -scale_y,
-        axis_xy *  scale_x + axis_yy * -scale_y,
-    }
-    local x_min = origin_x + min(corners_x[1], corners_x[2], corners_x[3], corners_x[4])
-    local x_max = origin_x + max(corners_x[1], corners_x[2], corners_x[3], corners_x[4])
-    local y_min = origin_y + min(corners_y[1], corners_y[2], corners_y[3], corners_y[4])
-    local y_max = origin_y + max(corners_y[1], corners_y[2], corners_y[3], corners_y[4])
-    return x_min, x_max, y_min, y_max
+local function CalculateBounds(origin_x, origin_y, axis_xx, axis_xy, axis_yx, axis_yy, scale_x, scale_y)
+    local extent_x = abs(axis_xx) * scale_x + abs(axis_yx) * scale_y
+    local extent_y = abs(axis_xy) * scale_x + abs(axis_yy) * scale_y
+    return origin_x - extent_x, origin_x + extent_x, origin_y - extent_y, origin_y + extent_y
 end
 
 ---Paint this surface with specified ink type and shape at given position, angle, and size.
----@param self    ss.PaintableSurface
----@param pos     Vector  The preprocessed origin of the ink.
----@param ang     Angle   The preprocessed normal and rotation of the ink in world coordinate system.
----@param radius  Vector  Scale along the angles, distance between the center and the tip.
----@param inktype integer The internal index of ink type.
----@param shape   integer The internal index of shape.
+---@param self  ss.PaintableSurface
+---@param paint ss.Paint The paint mapped onto the surface by Paint.EnumeratePositions.
 ---@return integer # Number of painted cells.
-function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
+function PaintableGrid.Write(self, paint)
     -- Caches
     local cellSize = PaintableGrid.CELL_SIZE
     local surfaceGrid = self.Grid
     local surfaceGridWidth = surfaceGrid.Width
     local surfaceGridHeight = surfaceGrid.Height
+    local inktype = paint.InkType
+    local radius_x, radius_y = paint.RadiusX, paint.RadiusY
 
     ---Total number of cells painted by this operation will be here.
     local numPaintedCells = 0
 
-    ---Represents the given position and angles in the world coordinate system.
-    local inkSystemInWorld = Matrix()
-    inkSystemInWorld:SetTranslation(pos)
-    inkSystemInWorld:SetAngles(ang)
-
-    ---Represents the given position and angles in paintable surface's coordinate system.
-    local inkSystemInSurfaceSystem = self.WorldToLocalGridMatrix * inkSystemInWorld
-    local inkOriginInSurfaceSystem = inkSystemInSurfaceSystem:GetTranslation()
-    local inkOriginInSurfaceSystemX = inkOriginInSurfaceSystem.x
-    local inkOriginInSurfaceSystemY = inkOriginInSurfaceSystem.y
+    ---Represents the paint in paintable surface's coordinate system.
+    ---Its columns are the forward, the left, the up, and the origin of the paint.
+    local inkSystemInSurfaceSystem = Geometry.Multiply(self.WorldToLocalGrid,
+        Geometry.FromAngles(paint.Pitch, paint.Yaw, paint.Roll, paint.X, paint.Y, paint.Z))
+    local inkOriginInSurfaceSystemX = inkSystemInSurfaceSystem[4]
+    local inkOriginInSurfaceSystemY = inkSystemInSurfaceSystem[8]
 
     ---Represents the origin and angle of paintable surface in target coordinate system.
-    local surfaceSystemInInkSystem  = inkSystemInSurfaceSystem:GetInverseTR()
-    local surfaceAxisXInInkSystem   = surfaceSystemInInkSystem:GetForward()
-    local surfaceAxisXInInkSystemX  = surfaceAxisXInInkSystem.x
-    local surfaceAxisXInInkSystemY  = surfaceAxisXInInkSystem.y
-    local surfaceAxisYInInkSystem   = -surfaceSystemInInkSystem:GetRight()
-    local surfaceAxisYInInkSystemX  = surfaceAxisYInInkSystem.x
-    local surfaceAxisYInInkSystemY  = surfaceAxisYInInkSystem.y
-    local surfaceOriginInInkSystem  = surfaceSystemInInkSystem:GetTranslation()
-    local surfaceOriginInInkSystemX = surfaceOriginInInkSystem.x
-    local surfaceOriginInInkSystemY = surfaceOriginInInkSystem.y
+    local surfaceSystemInInkSystem  = Geometry.InvertRotationTranslation(inkSystemInSurfaceSystem)
+    local surfaceAxisXInInkSystemX  = surfaceSystemInInkSystem[1]
+    local surfaceAxisXInInkSystemY  = surfaceSystemInInkSystem[5]
+    local surfaceAxisYInInkSystemX  = surfaceSystemInInkSystem[2]
+    local surfaceAxisYInInkSystemY  = surfaceSystemInInkSystem[6]
+    local surfaceOriginInInkSystemX = surfaceSystemInInkSystem[4]
+    local surfaceOriginInInkSystemY = surfaceSystemInInkSystem[8]
 
     ---Bounding box around the ink in paintable surface's coordinate system.
     ---
     ---```text
-    --- self.WorldToLocalGridMatrix^-1:GetTranslation()
-    ---   +---> x = self.WorldToLocalGridMatrix^-1:GetForward()
+    --- The origin of the paint grid
+    ---   +---> x
     ---   |
     ---   v      x_min
     ---   y  y_min +-------+-==---------------+
@@ -134,9 +112,9 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
     ---            |     /           ^^--__   |
     ---            |    /   mappedpos      ^^-+
     ---            |   /        +-__         /|
-    ---            |  /        /    ^^-> x = inkSystemInSurfaceSystem
-    ---            | /        v            /  |   :GetAngles():Forward()
-    ---            |+__      y            /   |
+    ---            |  /        /    ^^-> x = the forward of the paint
+    ---            | /        v            /  |
+    ---            |+__      y = the left /   |
     ---            |   ^^--__            /    |
     ---            |         ^^--__     /     |
     ---            +---------------==--+------+ y_max
@@ -144,20 +122,20 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
     ---```
     local x_min, x_max, y_min, y_max = CalculateBounds(
         inkOriginInSurfaceSystemX, inkOriginInSurfaceSystemY,
-        inkSystemInSurfaceSystem:GetForward(),
-       -inkSystemInSurfaceSystem:GetRight(),
-        radius.x, radius.y)
+        inkSystemInSurfaceSystem[1], inkSystemInSurfaceSystem[5],
+        inkSystemInSurfaceSystem[2], inkSystemInSurfaceSystem[6],
+        radius_x, radius_y)
     local indexMinX = max(floor(x_min / cellSize), 0)
     local indexMaxX = min( ceil(x_max / cellSize), surfaceGridWidth - 1)
     local indexMinY = max(floor(y_min / cellSize), 0)
     local indexMaxY = min( ceil(y_max / cellSize), surfaceGridHeight - 1)
 
     -- Caches
-    local shapeMask              = InkShape.Shapes[shape].Mask
+    local shapeMask              = InkShape.Shapes[paint.Shape].Mask
     local shapeMaskWidth         = shapeMask.Width
     local shapeMaskHeight        = shapeMask.Height
-    local oneOverShapeCellWidth  = shapeMaskWidth  / (radius.x * 2)
-    local oneOverShapeCellHeight = shapeMaskHeight / (radius.y * 2)
+    local oneOverShapeCellWidth  = shapeMaskWidth  / (radius_x * 2)
+    local oneOverShapeCellHeight = shapeMaskHeight / (radius_y * 2)
     local halfCellSize           = cellSize / 2
 
     -- These values are originally defined inside the loop (indexMinX, indexMinY --> ix, iy)
@@ -187,17 +165,20 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
     local yInInkSystemRewind
         = surfaceAxisYInInkSystemY * cellSize
         - yInInkSystemStep * (indexMaxX - indexMinX + 1)
-    local radius_x, radius_y = radius.x, radius.y
 
     -- If the size of the ink is small enough then look up multiple cells of the shape grid
     if cellSize * cellSize * oneOverShapeCellWidth * oneOverShapeCellHeight > 1 then
         local shapeIntegralImage = shapeMask.IntegralImage
+
+        -- Every cell has the same bounds in the ink system around its center.
+        local cellMinX, cellMaxX, cellMinY, cellMaxY = CalculateBounds(0, 0,
+            surfaceAxisXInInkSystemX, surfaceAxisXInInkSystemY,
+            surfaceAxisYInInkSystemX, surfaceAxisYInInkSystemY,
+            halfCellSize, halfCellSize)
         for iy = indexMinY, indexMaxY do
             for ix = indexMinX, indexMaxX do
-                x_min, x_max, y_min, y_max = CalculateBounds(
-                    xInInkSystem, yInInkSystem,
-                    surfaceAxisXInInkSystem, surfaceAxisYInInkSystem,
-                    halfCellSize, halfCellSize)
+                x_min, x_max = xInInkSystem + cellMinX, xInInkSystem + cellMaxX
+                y_min, y_max = yInInkSystem + cellMinY, yInInkSystem + cellMaxY
                 local shapeIndexMinX = floor((x_min + radius_x) * oneOverShapeCellWidth - 0.5)
                 local shapeIndexMaxX =  ceil((x_max + radius_x) * oneOverShapeCellWidth + 0.5)
                 local shapeIndexMinY = floor((y_min + radius_y) * oneOverShapeCellHeight - 0.5)
@@ -235,13 +216,14 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
                         numPaintedCells = numPaintedCells + 1
 
                         -- -- Painted cells
+                        -- local gridToWorld = Geometry.InvertRotationTranslation(self.WorldToLocalGrid)
                         -- debugoverlay.BoxAngles(
-                        --     self.WorldToLocalGridMatrix:GetInverseTR() * Vector(
+                        --     Vector(Geometry.TransformPoint(gridToWorld,
                         --         ix * cellSize + halfCellSize,
-                        --         iy * cellSize + halfCellSize),
+                        --         iy * cellSize + halfCellSize, 0)),
                         --     -Vector(halfCellSize, halfCellSize, 3),
                         --     Vector(halfCellSize, halfCellSize, 3),
-                        --     self.WorldToLocalGridMatrix:GetInverseTR():GetAngles(), 3, Color(255, 128, 255, 16))
+                        --     Angle(Geometry.ToAngles(gridToWorld)), 3, Color(255, 128, 255, 16))
                     end
                 end
                 xInInkSystem = xInInkSystem + xInInkSystemStep
@@ -261,13 +243,14 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
                     surfaceGrid[iy * surfaceGridWidth + ix + 1] = inktype
 
                     -- -- Painted cells
+                    -- local gridToWorld = Geometry.InvertRotationTranslation(self.WorldToLocalGrid)
                     -- debugoverlay.BoxAngles(
-                    --     self.WorldToLocalGridMatrix:GetInverseTR() * Vector(
+                    --     Vector(Geometry.TransformPoint(gridToWorld,
                     --         ix * cellSize + halfCellSize,
-                    --         iy * cellSize + halfCellSize),
+                    --         iy * cellSize + halfCellSize, 0)),
                     --     -Vector(halfCellSize, halfCellSize, 3),
                     --     Vector(halfCellSize, halfCellSize, 3),
-                    --     self.WorldToLocalGridMatrix:GetInverseTR():GetAngles(), 3, Color(128, 128, 255, 16))
+                    --     Angle(Geometry.ToAngles(gridToWorld)), 3, Color(128, 128, 255, 16))
                 end
                 xInInkSystem = xInInkSystem + xInInkSystemStep
                 yInInkSystem = yInInkSystem + yInInkSystemStep
@@ -281,13 +264,15 @@ function PaintableGrid.Write(self, pos, ang, radius, inktype, shape)
 end
 
 ---Reads a pixel from the grid using given position in world coordinates.
----@param self ss.PaintableSurface
----@param query Vector Preprocessed query point in world coordinates.
+---@param self   ss.PaintableSurface
+---@param queryX number Preprocessed query point in world coordinates.
+---@param queryY number
+---@param queryZ number
 ---@return ss.InkType? # The ink type painted at corresponding pixel.  nil if no ink was there.
-function PaintableGrid.Read(self, query)
-    local query2d = self.WorldToLocalGridMatrix * query
-    local x = floor(query2d.x / PaintableGrid.CELL_SIZE)
-    local y = floor(query2d.y / PaintableGrid.CELL_SIZE)
+function PaintableGrid.Read(self, queryX, queryY, queryZ)
+    local gridX, gridY = Geometry.TransformPoint(self.WorldToLocalGrid, queryX, queryY, queryZ)
+    local x = floor(gridX / PaintableGrid.CELL_SIZE)
+    local y = floor(gridY / PaintableGrid.CELL_SIZE)
     local pixel = self.Grid[y * self.Grid.Width + x + 1]
     if pixel and 0 <= x and x < self.Grid.Width and 0 <= y and y < self.Grid.Height then
         return InkType.Types[pixel]

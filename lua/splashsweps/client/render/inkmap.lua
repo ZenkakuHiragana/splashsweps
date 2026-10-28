@@ -15,21 +15,18 @@ local RenderTargets    = ss.import "splashsweps/client/render/rendertargets"
 local InkMap = ss.module "splashsweps/client/render/inkmap"
 
 ---A paint waiting to be drawn into the ink map.
----@class ss.InkMap.Paint
----@field pos    Vector              The world position to paint
----@field ang    Angle               The world angles to paint
----@field scale  Vector              X/Y/Z scale in hammer units
+---@class ss.InkMap.QueuedPaint
+---@field paint  ss.Paint            The paint in the same coordinate system as the surface
 ---@field base   ss.PaintAtlas.Range Range of $basetexture in the paint atlas
 ---@field shape  ss.PaintAtlas.Range Range of the ink shape mask in the paint atlas
 ---@field surf   number[]            UV range (minU, minV, maxU, maxV) of the surface in the ink map
 ---@field tint   ss.PaintAtlas.Range Range of $tinttexture in the paint atlas
----@field typeid integer             Index of the ink type
 ---@field detail integer             $detailblendmode of the ink type, 0 if the detail is disabled
 ---@field row1   number[]            The first row of World to UV matrix
 ---@field row2   number[]            The second row of World to UV matrix
 
 ---@class ss.InkMapModule.State
----@field Queue ss.InkMap.Paint[] Paints to draw in the next frame.
+---@field Queue ss.InkMap.QueuedPaint[] Paints to draw in the next frame.
 local state = ss.state("splashsweps/client/render/inkmap", { Queue = {} }) ---@type ss.InkMapModule.State
 
 local NUM_REGION, NUM_VERTEX = 4, 4
@@ -43,24 +40,16 @@ local MAX_QUADS = math.floor(MAX_VERTEX_SIZE_KB / (NUM_VERTEX * SIZEOF_VERTEX))
 local PaintMaterial = Material "splashsweps/shaders/drawink"
 
 ---Queues a paint onto a surface to draw it into the ink map.
----@param surf   ss.PaintableSurface The surface to paint.
----@param pos    Vector  The origin in the same coordinate system as the surface.
----@param ang    Angle   The normal and rotation in the same coordinate system as the surface.
----@param scale  Vector  Scale along the angles which is limited to 510 Hammer units because of network optimization.
----@param shape  integer The internal index of shape to paint.
----@param typeid integer The internal index of ink type.
-function InkMap.Push(surf, pos, ang, scale, shape, typeid)
-    local inkshape = InkShape.Shapes[shape]
-    local inktype = InkType.Types[typeid]
-    if not (inkshape and inktype) then return end
+---@param surf  ss.PaintableSurface The surface to paint.
+---@param paint ss.Paint The paint mapped onto the surface by Paint.EnumeratePositions.
+function InkMap.Push(surf, paint)
+    local shape, typeid = paint.Shape, paint.InkType
+    if not (InkShape.Shapes[shape] and InkType.Types[typeid]) then return end
     state.Queue[#state.Queue + 1] = {
-        pos    = pos,
-        ang    = ang,
-        scale  = scale,
+        paint  = paint,
         base   = PaintAtlas.BaseUV[typeid],
         shape  = PaintAtlas.ShapeUV[shape],
         tint   = PaintAtlas.TintUV[typeid],
-        typeid = typeid,
         detail = InkDetailAtlas.BlendModes[typeid],
         row1   = surf.WorldToUVRow1,
         row2   = surf.WorldToUVRow2,
@@ -113,7 +102,7 @@ local min                     = math.min
 local ipairs, pairs, unpack   = ipairs, pairs, unpack
 
 ---Adds a quad of a queued paint, starting a new dynamic mesh every MAX_QUADS quads.
----@param q         ss.InkMap.Paint
+---@param q         ss.InkMap.QueuedPaint
 ---@param region    integer Ink map region index
 ---@param band      integer 255 for the boundary band outside the shape edge, 0 for the paint itself
 ---@param quadIndex integer Zero-based index of this quad among all quads of the batch
@@ -127,11 +116,12 @@ local function AddQuad(q, region, band, quadIndex, numQuads, hammerUnitsToUV)
     end
 
     -- 0b0000RRCC, RR = Region, CC = Corner
+    local p = q.paint
     for i = region * NUM_VERTEX * 16, (region * NUM_VERTEX + NUM_VERTEX - 1) * 16, 16 do
-        mesh_Color(band, i, q.typeid, q.detail)
-        mesh_Normal(q.scale)
-        mesh_Position(q.pos)
-        mesh_TexCoord(0, q.ang.p, q.ang.y, q.ang.r, hammerUnitsToUV)
+        mesh_Color(band, i, p.InkType, q.detail)
+        mesh_Normal(p.RadiusX, p.RadiusY, p.RadiusZ)
+        mesh_Position(p.X, p.Y, p.Z)
+        mesh_TexCoord(0, p.Pitch, p.Yaw, p.Roll, hammerUnitsToUV)
         mesh_TexCoord(1, unpack(q.base))
         mesh_TexCoord(2, unpack(q.tint))
         mesh_TexCoord(3, unpack(q.shape))

@@ -3,13 +3,13 @@
 
 ---@class ss
 local ss = SplashSWEPs
+local Geometry      = ss.import "splashsweps/shared/geometry"
 local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
-local Util          = ss.import "splashsweps/shared/util"
 
 ---@class ss.PaintableSurfaceModule
 local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 
----Classes containing the oriented minimum bounding box.
+---Classes containing the oriented minimum bounding box, which util.IsOBBIntersectingOBB takes.
 ---@class ss.IHasMBB
 ---@field MBBAngles Angle  The angle of minimum (oriented) bounding box.
 ---@field MBBOrigin Vector The origin of minimum (oriented) bounding box.
@@ -20,10 +20,10 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---World origin
 ---  +--> x
 ---  |
----  v   WorldToLocalGridMatrix:GetInverseTR():GetTranslation()
+---  v   The origin of the paint grid
 ---  y      +--> X
 ---         |
----         v   * (Xi, Yi) = WorldToLocalGridMatrix * (xi, yi)
+---         v   * (Xi, Yi) = WorldToLocalGrid * (xi, yi)
 ---         Y
 ---```
 ---
@@ -46,14 +46,26 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---              -+----+-----------------+
 ---```
 ---@class ss.PaintableSurface : ss.IHasMBB
----@field AABBMax                Vector           AABB maximum of this surface in world coordinates.
----@field AABBMin                Vector           AABB minimum of this surface in world coordinates.
----@field Normal                 Vector           Normal vector of this surface.
+---@field AABBMinX               number           AABB minimum of this surface in world coordinates.
+---@field AABBMinY               number
+---@field AABBMinZ               number
+---@field AABBMaxX               number           AABB maximum of this surface in world coordinates.
+---@field AABBMaxY               number
+---@field AABBMaxZ               number
+---@field NormalX                number           Normal vector of this surface.
+---@field NormalY                number
+---@field NormalZ                number
 ---@field Grid                   ss.PaintableGrid Represents serverside "canvas" for this surface to manage collision detection against painted ink.
 ---@field StaticPropUnwrapIndex  integer?         Determines how this static prop surfaces are unwrapped.
 ---@field TriangleHash           ss.PrecachedData.TriangleHash? Spatial hash to look up triangles of a displacement.
 ---@field Triangles              ss.DisplacementTriangle[]? Array of triangles of a displacement.
----@field WorldToLocalGridMatrix VMatrix  The transformation matrix to convert world coordinates into local coordinates. This does not modify scales.
+---@field PositionX              number[]? Positions of the vertices of a displacement, which its triangles refer to.
+---@field PositionY              number[]?
+---@field PositionZ              number[]?
+---@field PaintOriginX           number[]? Positions on the flat surface the vertices of a displacement are mapped onto.
+---@field PaintOriginY           number[]?
+---@field PaintOriginZ           number[]?
+---@field WorldToLocalGrid       number[] The transform of ss.GeometryModule to convert world coordinates into local coordinates of the paint grid. This does not modify scales.
 ---@field WorldToUVRow1          number[] The first row of transformation matrox to convert world position into UV space without scaling.
 ---@field WorldToUVRow2          number[] The second row of transformation matrox to convert world position into UV space without scaling.
 ---@field OffsetU                number   The u-coordinate of left-top corner of this surface in UV space.
@@ -62,19 +74,24 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field UVHeight               number   The height of this surface in UV space.
 ---@field Index                  integer  The index of this surface in PaintableSurface.Surfaces used for debug purpose.
 
----Vertices and some other info of a triangle in a displacement.
+---A triangle in a displacement.
 ---@class ss.DisplacementTriangle : ss.IHasMBB
----@field [1]       Vector The positions of this triangle.
----@field [2]       Vector The positions of this triangle.
----@field [3]       Vector The positions of this triangle.
----@field [4]       Vector Paint reference position corresponding to this triangle vertex.
----@field [5]       Vector Paint reference position corresponding to this triangle vertex.
----@field [6]       Vector Paint reference position corresponding to this triangle vertex.
----@field BarycentricDot1 Vector Parameter to calculate barycentric coordinates v.
----@field BarycentricDot2 Vector Parameter to calculate barycentric coordinates w.
----@field BarycentricAdd1 number Parameter to calculate barycentric coordinates v.
----@field BarycentricAdd2 number Parameter to calculate barycentric coordinates w.
----@field WorldToLocalRotation VMatrix Rotation matrix to convert world coordinates into local coordinates.
+---@field VertexIndex1     integer The vertices of this triangle in the vertex arrays of the displacement.
+---@field VertexIndex2     integer
+---@field VertexIndex3     integer
+---@field NormalX          number  Normal vector of this triangle.
+---@field NormalY          number
+---@field NormalZ          number
+---@field BarycentricDot1X number  Parameter to calculate barycentric coordinates v.
+---@field BarycentricDot1Y number
+---@field BarycentricDot1Z number
+---@field BarycentricDot2X number  Parameter to calculate barycentric coordinates w.
+---@field BarycentricDot2Y number
+---@field BarycentricDot2Z number
+---@field BarycentricAdd1  number  Parameter to calculate barycentric coordinates v.
+---@field BarycentricAdd2  number  Parameter to calculate barycentric coordinates w.
+---The rotation of ss.GeometryModule which converts world angles into local ones to map them to the paint grid.
+---@field WorldToLocalGridRotation number[]
 
 ---@class ss.PaintableSurfaceModule.State
 ---@field Surfaces           ss.PaintableSurface[] Paintable surfaces of the world and static props.
@@ -102,50 +119,49 @@ function PaintableSurface.GetModelIndexBits()
 end
 
 ---Creates a paintable surface with an empty grid.
----@param index      integer
----@param gridWidth  integer
----@param gridHeight integer
+---@param index            integer
+---@param gridWidth        integer
+---@param gridHeight       integer
+---@param worldToLocalGrid number[]
 ---@return ss.PaintableSurface
-local function newSurface(index, gridWidth, gridHeight)
+local function newSurface(index, gridWidth, gridHeight, worldToLocalGrid)
     return {
         Index = index,
-        AABBMax = Vector(),
-        AABBMin = Vector(),
-        Normal = Vector(),
+        AABBMinX = 0,
+        AABBMinY = 0,
+        AABBMinZ = 0,
+        AABBMaxX = 0,
+        AABBMaxY = 0,
+        AABBMaxZ = 0,
+        NormalX = 0,
+        NormalY = 0,
+        NormalZ = 0,
         Grid = PaintableGrid.new(gridWidth, gridHeight),
-        WorldToLocalGridMatrix = Matrix(),
+        WorldToLocalGrid = worldToLocalGrid,
         OffsetU = 0,
         OffsetV = 0,
         UVWidth = 0,
         UVHeight = 0,
-        MBBAngles = Angle(),
-        MBBOrigin = Vector(),
-        MBBSize = Vector(),
+        MBBAngles = angle_zero,
+        MBBOrigin = vector_origin,
+        MBBSize = vector_origin,
     }
 end
 
 ---Returns barycentric coordinates (1 - u - v, u, v) from given triangle.
+---The coordinates may be outside of the triangle.
 ---@param triangle ss.DisplacementTriangle
----@param query Vector
----@return Vector barycentric The coordinates which may be outside of the triangle.
-function PaintableSurface.BarycentricCoordinates(triangle, query)
-    local u = query:Dot(triangle.BarycentricDot1) + triangle.BarycentricAdd1
-    local v = query:Dot(triangle.BarycentricDot2) + triangle.BarycentricAdd2
-    return Vector(1 - u - v, u, v)
-end
-
----Creates a Vector for each element of the arrays of x, y, and z.
----@param xs number[]
----@param ys number[]
----@param zs number[]
----@return Vector[]
-local function vectorsOf(xs, ys, zs)
-    local vectors = {} ---@type Vector[]
-    for k, x in ipairs(xs) do
-        vectors[k] = Vector(x, ys[k], zs[k])
-    end
-
-    return vectors
+---@param x number The query point.
+---@param y number
+---@param z number
+---@return number
+---@return number u
+---@return number v
+function PaintableSurface.BarycentricCoordinates(triangle, x, y, z)
+    local t = triangle
+    local u = Geometry.Dot(x, y, z, t.BarycentricDot1X, t.BarycentricDot1Y, t.BarycentricDot1Z) + t.BarycentricAdd1
+    local v = Geometry.Dot(x, y, z, t.BarycentricDot2X, t.BarycentricDot2Y, t.BarycentricDot2Z) + t.BarycentricAdd2
+    return 1 - u - v, u, v
 end
 
 ---Scale of the ink map, which only the client has.
@@ -162,53 +178,52 @@ function PaintableSurface.Setup(surfaces, numModels, inkMap)
     state.ModelIndexBits = math.max(select(2, math.frexp(numModels - 1)), 1)
     table.Empty(state.BrushModelSurfaces)
     for i, surf in ipairs(surfaces) do
-        local ps = newSurface(i, surf.PaintGridWidth, surf.PaintGridHeight)
         local g = surf.WorldToLocalGrid
-        ps.AABBMax = Vector(surf.AABBMaxX, surf.AABBMaxY, surf.AABBMaxZ)
-        ps.AABBMin = Vector(surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ)
-        ps.WorldToLocalGridMatrix:SetUnpacked(
-            g[1], g[2],  g[3],  g[4],
-            g[5], g[6],  g[7],  g[8],
-            g[9], g[10], g[11], g[12],
-            0,    0,     0,     1)
+        local ps = newSurface(i, surf.PaintGridWidth, surf.PaintGridHeight, g)
+        local mbbToWorld = Geometry.FromAngles(surf.MBBPitch, surf.MBBYaw, surf.MBBRoll, 0, 0, 0)
+        ps.AABBMinX, ps.AABBMinY, ps.AABBMinZ = surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ
+        ps.AABBMaxX, ps.AABBMaxY, ps.AABBMaxZ = surf.AABBMaxX, surf.AABBMaxY, surf.AABBMaxZ
+        ps.NormalX, ps.NormalY, ps.NormalZ = mbbToWorld[3], mbbToWorld[7], mbbToWorld[11]
         ps.MBBAngles = Angle(surf.MBBPitch, surf.MBBYaw, surf.MBBRoll)
         ps.MBBOrigin = Vector(surf.MBBOriginX, surf.MBBOriginY, surf.MBBOriginZ)
         ps.MBBSize = Vector(surf.MBBSizeX, surf.MBBSizeY, surf.MBBSizeZ)
-        ps.Normal = ps.MBBAngles:Up()
         ps.TriangleHash = surf.TriangleHash
         local triangles = surf.DisplacementTriangles
         if triangles then
-            -- The triangles share the Vectors of their vertices.
-            local positions = vectorsOf(surf.PositionX, surf.PositionY, surf.PositionZ)
-            local paintOrigins = vectorsOf(surf.PaintOriginX, surf.PaintOriginY, surf.PaintOriginZ)
+            local xs, ys, zs = surf.PositionX, surf.PositionY, surf.PositionZ
             local vertexIndices = surf.VertexIndices
+            ps.PositionX, ps.PositionY, ps.PositionZ = xs, ys, zs
+            ps.PaintOriginX, ps.PaintOriginY, ps.PaintOriginZ = surf.PaintOriginX, surf.PaintOriginY, surf.PaintOriginZ
             ps.Triangles = {}
             for j, t in ipairs(triangles) do
                 local i1, i2, i3 = vertexIndices[3 * j - 2], vertexIndices[3 * j - 1], vertexIndices[3 * j]
                 local r = t.WorldToLocalGridRotation
-                local barycentricDot1 = Vector(t.BarycentricDot1X, t.BarycentricDot1Y, t.BarycentricDot1Z)
-                local barycentricDot2 = Vector(t.BarycentricDot2X, t.BarycentricDot2Y, t.BarycentricDot2Z)
-                local worldToLocal = Matrix()
-                worldToLocal:SetUnpacked(
-                    r[1], r[2], r[3], 0,
-                    r[4], r[5], r[6], 0,
-                    r[7], r[8], r[9], 0,
-                    0,    0,    0,    1)
+                local triangleToWorld = Geometry.FromAngles(t.MBBPitch, t.MBBYaw, t.MBBRoll, 0, 0, 0)
                 ps.Triangles[j] = {
-                    positions[i1],
-                    positions[i2],
-                    positions[i3],
-                    paintOrigins[i1],
-                    paintOrigins[i2],
-                    paintOrigins[i3],
-                    BarycentricDot1      = barycentricDot1,
-                    BarycentricDot2      = barycentricDot2,
-                    BarycentricAdd1      = -positions[i1]:Dot(barycentricDot1),
-                    BarycentricAdd2      = -positions[i1]:Dot(barycentricDot2),
-                    MBBAngles            = Angle(t.MBBPitch, t.MBBYaw, t.MBBRoll),
-                    MBBOrigin            = Vector(t.MBBOriginX, t.MBBOriginY, t.MBBOriginZ),
-                    MBBSize              = Vector(t.MBBSizeX, t.MBBSizeY, 0),
-                    WorldToLocalRotation = worldToLocal,
+                    VertexIndex1     = i1,
+                    VertexIndex2     = i2,
+                    VertexIndex3     = i3,
+                    NormalX          = triangleToWorld[3],
+                    NormalY          = triangleToWorld[7],
+                    NormalZ          = triangleToWorld[11],
+                    BarycentricDot1X = t.BarycentricDot1X,
+                    BarycentricDot1Y = t.BarycentricDot1Y,
+                    BarycentricDot1Z = t.BarycentricDot1Z,
+                    BarycentricDot2X = t.BarycentricDot2X,
+                    BarycentricDot2Y = t.BarycentricDot2Y,
+                    BarycentricDot2Z = t.BarycentricDot2Z,
+                    BarycentricAdd1  = -Geometry.Dot(xs[i1], ys[i1], zs[i1],
+                        t.BarycentricDot1X, t.BarycentricDot1Y, t.BarycentricDot1Z),
+                    BarycentricAdd2  = -Geometry.Dot(xs[i1], ys[i1], zs[i1],
+                        t.BarycentricDot2X, t.BarycentricDot2Y, t.BarycentricDot2Z),
+                    MBBAngles        = Angle(t.MBBPitch, t.MBBYaw, t.MBBRoll),
+                    MBBOrigin        = Vector(t.MBBOriginX, t.MBBOriginY, t.MBBOriginZ),
+                    MBBSize          = Vector(t.MBBSizeX, t.MBBSizeY, 0),
+                    WorldToLocalGridRotation = {
+                        r[1], r[2], r[3], 0,
+                        r[4], r[5], r[6], 0,
+                        r[7], r[8], r[9], 0,
+                    },
                 }
             end
         end
@@ -239,6 +254,60 @@ function PaintableSurface.Setup(surfaces, numModels, inkMap)
     end
 end
 
+---A face of the bounding box of a static prop in the coordinates of the box,
+---with the origin, the offset in the UV space, and the forward as described in PaintableSurface.SetupStaticProps.
+---@class ss.PaintableSurface.BoxFace
+---@field NormalX   number The normal, which is the up of the face.
+---@field NormalY   number
+---@field NormalZ   number
+---@field ForwardX  number The forward of the face.
+---@field ForwardY  number
+---@field ForwardZ  number
+---@field OriginX   number The origin of the face divided by the size of the box.
+---@field OriginY   number
+---@field OriginZ   number
+---@field UVOffsetX number The offset of the face in the UV space, in the size of the box plus the margins.
+---@field UVOffsetY number
+---@field UVOffsetZ number
+
+---@param normal   number[]
+---@param forward  number[]
+---@param origin   number[]
+---@param uvOffset number[]
+---@return ss.PaintableSurface.BoxFace
+local function boxFace(normal, forward, origin, uvOffset)
+    return {
+        NormalX   = normal[1],   NormalY   = normal[2],   NormalZ   = normal[3],
+        ForwardX  = forward[1],  ForwardY  = forward[2],  ForwardZ  = forward[3],
+        OriginX   = origin[1],   OriginY   = origin[2],   OriginZ   = origin[3],
+        UVOffsetX = uvOffset[1], UVOffsetY = uvOffset[2], UVOffsetZ = uvOffset[3],
+    }
+end
+
+---The faces of the bounding box of a static prop, #1 to #6.
+local BOX_FACES = {
+    boxFace({  1,  0,  0 }, {  0, -1,  0 }, { 1, 1, 1 }, { 2, 1, 0 }),
+    boxFace({  0,  1,  0 }, {  1,  0,  0 }, { 0, 1, 1 }, { 1, 1, 0 }),
+    boxFace({  0,  0,  1 }, {  0, -1,  0 }, { 0, 1, 1 }, { 2, 1, 1 }),
+    boxFace({ -1,  0,  0 }, {  0,  1,  0 }, { 0, 0, 1 }, { 1, 0, 0 }),
+    boxFace({  0, -1,  0 }, { -1,  0,  0 }, { 1, 0, 1 }, { 0, 0, 0 }),
+    boxFace({  0,  0, -1 }, {  0,  1,  0 }, { 0, 0, 0 }, { 1, 0, 1 }),
+}
+
+---The rotation whose forward, left, and up are the Y, Z, and X axes, which swaps the axes of a box.
+local AXES_YZX = {
+    0, 0, 1, 0,
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+}
+
+---The rotation whose forward, left, and up are the Z, X, and Y axes, which swaps the axes of a box.
+local AXES_ZXY = {
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    1, 0, 0, 0,
+}
+
 ---Reads a list of static props and stores them for later use.
 ---
 ---Each static prop has its own oriented bounding box (OBB).
@@ -265,15 +334,15 @@ end
 ---Let `X`, `Y`, and `Z` be the basis of the OBB
 ---and `S = (sx, sy, sz)` be the size of the OBB along each basis.
 ---
----- Orientation of the coordinate system for each surface:
----  - Normal = `localNormals = { X, Y, Z, -X, -Y, -Z }`
----  - Tangent = `normalToTangent * localNormals[i]` which means the following replacement:
+---- Orientation of the coordinate system for each surface (BOX_FACES):
+---  - Normal = `{ X, Y, Z, -X, -Y, -Z }`
+---  - Forward (Tangent) = the following replacement of the normal:
 ---    - `X` -> `-Y`
 ---    - `Y` ->  `X`
 ---    - `Z` -> `-Y`
----  - Binormal = `tangent:AngleEx(normal)`
----- Origin of the coordinate system = `S * localOriginCoefficients` (element-wise multiplication)
----- Offset in UV space: `mul = S * uvOffsetCoefficients` (element-wise multiplication)
+---  - Left (Binormal) = Normal × Forward
+---- Origin of the coordinate system = `S * Origin` (element-wise multiplication)
+---- Offset in UV space: `mul = S * UVOffset` (element-wise multiplication)
 ---  - u = `mul.x + mul.y`
 ---  - v = `mul.z`
 ---
@@ -329,188 +398,115 @@ end
 ---```
 ---
 ---Each cell above additionally has `m = ss.MARGIN_HAMMER_UNITS` on both sides like the other surfaces,
----so the cell of a face with `uvOffsetCoefficients = (a, b, c)` starts at
+---so the cell of a face with `UVOffset = (a, b, c)` starts at
 ---`u = a * (sx + 2m) + b * (sy + 2m)` and `v = c * (sz + 2m)`, and its face starts at `m` inside the cell.
 ---
 ---The area of total wasted space is `2 * sx * sx`, so if `sx` is not the shortest,
 ---We swap the basis of the OBB as follows:
 ---
 ---- `sx` is the smallest: (X, Y, Z) -> (X, Y, Z)
----- `sy` is the smallest: (X, Y, Z) -> (Y, Z, X)
----- `sz` is the smallest: (X, Y, Z) -> (Z, X, Y)
+---- `sy` is the smallest: (X, Y, Z) -> (Y, Z, X) by AXES_YZX
+---- `sz` is the smallest: (X, Y, Z) -> (Z, X, Y) by AXES_ZXY
 ---@param staticPropInfo ss.PrecachedData.StaticProp[]
 ---@param inkMap ss.PaintableSurface.InkMap? Scale of the ink map to set the UV fields of the surfaces; the server has none.
 function PaintableSurface.SetupStaticProps(staticPropInfo, inkMap)
     local numSurfaces = #state.Surfaces
-    local vec = Vector
-    local localNormals = {
-        vec( 1, 0, 0), vec(0,  1, 0), vec(0, 0,  1),
-        vec(-1, 0, 0), vec(0, -1, 0), vec(0, 0, -1),
-    }
-    -- [  0  1   0 ]
-    -- [ -1  0  -1 ] * localNormals = (X, Y, Z) -> (-Y, X, -Y)
-    -- [  0  0   0 ]
-    local localForwards = {
-        localNormals[5], localNormals[1], localNormals[5],
-        localNormals[2], localNormals[4], localNormals[2],
-    }
-    -- Matrix(X, Y, Z) * xyzTyzx = (Y, Z, X)
-    local xyzTyzx = Matrix {
-        { 0, 0, 1, 0 },
-        { 1, 0, 0, 0 },
-        { 0, 1, 0, 0 },
-        { 0, 0, 0, 1 },
-    }
-    -- xyzTzxy = xyzTyzx * xyzTyzx
-    -- xyzTzxy * Vector(X, Y, Z) = (Y, Z, X)
-    local xyzTzxy = xyzTyzx:GetTransposed()
-    local faceLocalOriginCoefficients = {
-        vec(1, 1, 1), vec(0, 1, 1), vec(0, 1, 1),
-        vec(0, 0, 1), vec(1, 0, 1), vec(0, 0, 0),
-    }
-    local uvOffsetCoefficients = {
-        vec(2, 1, 0), vec(1, 1, 0), vec(2, 1, 1),
-        vec(1, 0, 0), vec(0, 0, 0), vec(1, 0, 1),
-    }
     local marginPerSide = ss.MARGIN_HAMMER_UNITS
-    local bothSidesMargin = Util.vector_one * 2 * marginPerSide
-    local worldTmodel = Matrix()
-    local absoluteuvRlocaluv = Matrix()
-    local modelUVOriginInAbsoluteUV = Vector()
-    local worldToUV = Matrix()
     for i, prop in ipairs(staticPropInfo or {}) do
-        local boundsMin = Vector(prop.BoundsMinX, prop.BoundsMinY, prop.BoundsMinZ)
-        local boundingBoxSize = Vector(prop.BoundsMaxX, prop.BoundsMaxY, prop.BoundsMaxZ) - boundsMin
-        worldTmodel:SetAngles(Angle(prop.Pitch, prop.Yaw, prop.Roll))
-        worldTmodel:SetTranslation(Vector(prop.PositionX, prop.PositionY, prop.PositionZ))
-        worldTmodel:SetTranslation(worldTmodel * boundsMin)
+        -- The box has its origin at the minimum of the bounds, and its axes can be swapped by the unwrap index.
+        local sizeX = prop.BoundsMaxX - prop.BoundsMinX
+        local sizeY = prop.BoundsMaxY - prop.BoundsMinY
+        local sizeZ = prop.BoundsMaxZ - prop.BoundsMinZ
+        local boxToWorld = Geometry.FromAngles(
+            prop.Pitch, prop.Yaw, prop.Roll, prop.PositionX, prop.PositionY, prop.PositionZ)
+        boxToWorld[4], boxToWorld[8], boxToWorld[12] = Geometry.TransformPoint(
+            boxToWorld, prop.BoundsMinX, prop.BoundsMinY, prop.BoundsMinZ)
         if prop.UnwrapIndex == 2 then
-            worldTmodel:Mul(xyzTyzx)
-            boundingBoxSize:Mul(xyzTzxy) -- xyzTyzx:GetTransposed()
+            boxToWorld = Geometry.Multiply(boxToWorld, AXES_YZX)
+            sizeX, sizeY, sizeZ = sizeY, sizeZ, sizeX
         elseif prop.UnwrapIndex == 3 then
-            worldTmodel:Mul(xyzTzxy)
-            boundingBoxSize:Mul(xyzTyzx) -- xyzTzxy:GetTransposed()
+            boxToWorld = Geometry.Multiply(boxToWorld, AXES_ZXY)
+            sizeX, sizeY, sizeZ = sizeZ, sizeX, sizeY
         end
 
-        local modelTworld = worldTmodel:GetInverseTR()
-        local aabbMin, aabbMax = Util.TransformAABB(worldTmodel, vector_origin, boundingBoxSize)
-        local uvScale ---@type number
-        local bilinearGuard ---@type number
-        local isRotated ---@type boolean
-        if inkMap then
-            local uv = prop.InkMapRectangle
-            uvScale = inkMap.HammerUnitsToUV
-            bilinearGuard = inkMap.BilinearGuard
-            isRotated = uv.IsRotated
-            if isRotated then
-                -- +--------> v
-                -- |   v'
-                -- |   ^
-                -- v   +---> u'
-                -- u    \__model local uv space
-                absoluteuvRlocaluv:SetUnpacked(
-                    0, -1, 0, 0,
-                    1,  0, 0, 0,
-                    0,  0, 1, 0,
-                    0,  0, 0, 1)
-                modelUVOriginInAbsoluteUV:SetUnpacked(
-                    uv.OffsetU + uv.Width, uv.OffsetV, 0)
-            else
-                -- +--------> v
-                -- | model local uv space
-                -- |   +---> v'
-                -- v   |
-                -- u   u'
-                absoluteuvRlocaluv:Identity()
-                modelUVOriginInAbsoluteUV:SetUnpacked(
-                    uv.OffsetU, uv.OffsetV, 0)
-            end
-        end
-        for j, faceNormalInModelSystem in ipairs(localNormals) do
+        local aabbMinX, aabbMinY, aabbMinZ, aabbMaxX, aabbMaxY, aabbMaxZ
+            = Geometry.TransformAABB(boxToWorld, 0, 0, 0, sizeX, sizeY, sizeZ)
+        local mbbAngles = Angle(Geometry.ToAngles(boxToWorld))
+        local mbbOrigin = Vector(boxToWorld[4], boxToWorld[8], boxToWorld[12])
+        local mbbSize = Vector(sizeX, sizeY, sizeZ)
+
+        -- The rectangle of the prop in the ink map, rotated by 90 degrees if IsRotated.
+        --   +--------> v                +--------> v
+        --   | model local uv space      |   v'
+        --   |   +---> v'                |   ^
+        --   v   |                       v   +---> u'
+        --   u   u'                      u    \__model local uv space
+        local rectangle = prop.InkMapRectangle
+        local isRotated = rectangle.IsRotated
+        local modelUVOriginU = rectangle.OffsetU + (isRotated and rectangle.Width or 0)
+        local modelUVOriginV = rectangle.OffsetV
+        for j, face in ipairs(BOX_FACES) do
             local index = numSurfaces + 6 * (i - 1) + j
-            local faceForwardInModelSystem = localForwards[j]
-            local faceAngleInModelSystem = faceForwardInModelSystem:AngleEx(faceNormalInModelSystem)
-            local faceOriginInModelSystem = boundingBoxSize * faceLocalOriginCoefficients[j]
-            local faceSizeInModelSystem = Vector(
-                math.abs(boundingBoxSize:Dot(faceForwardInModelSystem)),
-                math.abs(boundingBoxSize:Dot(faceAngleInModelSystem:Right())))
+            local nx, ny, nz = face.NormalX, face.NormalY, face.NormalZ
+            local fx, fy, fz = face.ForwardX, face.ForwardY, face.ForwardZ
+            local lx, ly, lz = Geometry.Cross(nx, ny, nz, fx, fy, fz)
+            local faceToBox = {
+                fx, lx, nx, face.OriginX * sizeX,
+                fy, ly, ny, face.OriginY * sizeY,
+                fz, lz, nz, face.OriginZ * sizeZ,
+            }
+            local faceToWorld = Geometry.Multiply(boxToWorld, faceToBox)
+            local faceSizeX = math.abs(Geometry.Dot(sizeX, sizeY, sizeZ, fx, fy, fz))
+            local faceSizeY = math.abs(Geometry.Dot(sizeX, sizeY, sizeZ, lx, ly, lz))
             local ps = newSurface(index,
-                math.ceil(faceSizeInModelSystem.x / PaintableGrid.CELL_SIZE),
-                math.ceil(faceSizeInModelSystem.y / PaintableGrid.CELL_SIZE))
-            ps.AABBMax = aabbMax
-            ps.AABBMin = aabbMin
-            ps.WorldToLocalGridMatrix:SetAngles(faceAngleInModelSystem)
-            ps.WorldToLocalGridMatrix:SetTranslation(faceOriginInModelSystem) -- modelTface
-            ps.WorldToLocalGridMatrix:InvertTR()                              -- faceTmodel
-            ps.WorldToLocalGridMatrix:Mul(modelTworld)                        -- faceTworld
-            ps.Normal = Vector(faceNormalInModelSystem)
-            ps.Normal:Rotate(worldTmodel:GetAngles())
+                math.ceil(faceSizeX / PaintableGrid.CELL_SIZE),
+                math.ceil(faceSizeY / PaintableGrid.CELL_SIZE),
+                Geometry.InvertRotationTranslation(faceToWorld))
+            ps.AABBMinX, ps.AABBMinY, ps.AABBMinZ = aabbMinX, aabbMinY, aabbMinZ
+            ps.AABBMaxX, ps.AABBMaxY, ps.AABBMaxZ = aabbMaxX, aabbMaxY, aabbMaxZ
+            ps.NormalX, ps.NormalY, ps.NormalZ = faceToWorld[3], faceToWorld[7], faceToWorld[11]
             ps.StaticPropUnwrapIndex = prop.UnwrapIndex
-            ps.MBBAngles = worldTmodel:GetAngles()
-            ps.MBBOrigin = worldTmodel:GetTranslation()
-            ps.MBBSize   = boundingBoxSize
+            ps.MBBAngles = mbbAngles
+            ps.MBBOrigin = mbbOrigin
+            ps.MBBSize   = mbbSize
             if inkMap then
                 -- +-------------> v
-                -- |\ <--- modelUVOriginInAbsoluteUV
+                -- |\ <--- modelUVOrigin
                 -- | +----> v'
-                -- | | \ <--- faceUVOriginInModelSystem
+                -- | | \ <--- faceUVOrigin
                 -- | V  @==> y, v" --+
                 -- | u' |            |
                 -- V    V------------+
                 -- u    x, u"
+                --
+                -- (x , y ) face local system converted from the world, the paint grid
+                -- (u , v ) absolute UV in the render target texture
+                -- (u', v') model local UV from the rectangle of the prop
+                -- (u", v") face local UV
+                -- The cell of the face in the model local UV starts at the margin inside it.
+                local localU = (sizeX + 2 * marginPerSide) * face.UVOffsetX
+                             + (sizeY + 2 * marginPerSide) * face.UVOffsetY + marginPerSide
+                local localV = (sizeZ + 2 * marginPerSide) * face.UVOffsetZ + marginPerSide
+                local grid = ps.WorldToLocalGrid
+                local faceSizeU, faceSizeV, faceUVOriginU, faceUVOriginV ---@type number, number, number, number
+                if isRotated then -- (u, v) = (-v', u') from the model local UV origin
+                    faceSizeU, faceSizeV = faceSizeY, faceSizeX
+                    faceUVOriginU, faceUVOriginV = modelUVOriginU - localV, modelUVOriginV + localU
+                    ps.WorldToUVRow1 = { -grid[5], -grid[6], -grid[7], -grid[8] + faceUVOriginU }
+                    ps.WorldToUVRow2 = {  grid[1],  grid[2],  grid[3],  grid[4] + faceUVOriginV }
+                    faceUVOriginU = faceUVOriginU - faceSizeU
+                else
+                    faceSizeU, faceSizeV = faceSizeX, faceSizeY
+                    faceUVOriginU, faceUVOriginV = modelUVOriginU + localU, modelUVOriginV + localV
+                    ps.WorldToUVRow1 = { grid[1], grid[2], grid[3], grid[4] + faceUVOriginU }
+                    ps.WorldToUVRow2 = { grid[5], grid[6], grid[7], grid[8] + faceUVOriginV }
+                end
 
-                --         modelUVOriginInAbsoluteUV
-                --         + absoluteuvRlocaluv * faceUVOrigin (in model system)
-                --                    |
-                -- +-------------> v  |    ,--- faceUVOrigin (the clip range adds the margin around it)
-                -- |\\                |   /
-                -- | \ \             /   @=====> v" ----+ (x , y )
-                -- |  \  \          /    |              |    face local system
-                -- |   \   \       /     V              |    converted from the world
-                -- |    \    \    /      u"             | (u , v )
-                -- V     \     \ /       |              |    absolute UV
-                -- u      \      \       |              |    in the render target texture
-                --         \       \     y              | (u', v')
-                --          \        \   ^              |    model local UV
-                --           \         \ |              |    from static prop UV info
-                --            \          X=====> x -----+ (u", v")
-                --            /\  v'    /                    face local UV
-                --           /  \ ^   /                      WorldToUVRow1/2 maps the world to (u, v)
-                --          /    \| / <--- faceUVOrigin (in model system)
-                --         |      *-----> u'
-                --         |
-                --      modelUVOriginInAbsoluteUV
-                local faceSizeInAbsoluteUV = absoluteuvRlocaluv * faceSizeInModelSystem
-                faceSizeInAbsoluteUV:SetUnpacked(
-                    math.abs(faceSizeInAbsoluteUV.x),
-                    math.abs(faceSizeInAbsoluteUV.y), 0)
-                local faceUVOrigin = (boundingBoxSize + bothSidesMargin) * uvOffsetCoefficients[j]
-                faceUVOrigin:SetUnpacked(
-                    faceUVOrigin.x + faceUVOrigin.y + marginPerSide,
-                    faceUVOrigin.z + marginPerSide, 0) -- in model local UV
-                faceUVOrigin:Rotate(absoluteuvRlocaluv:GetAngles())
-                faceUVOrigin:Add(modelUVOriginInAbsoluteUV) -- in absolute UV
-                worldToUV:Set(absoluteuvRlocaluv)
-                worldToUV:SetField(1, 4, faceUVOrigin.x)
-                worldToUV:SetField(2, 4, faceUVOrigin.y)
-                faceUVOrigin.x = faceUVOrigin.x - (isRotated and faceSizeInAbsoluteUV.x or 0)
-                worldToUV:Mul(ps.WorldToLocalGridMatrix) -- absoluteuvTlocaluv * faceTworld
-                ps.WorldToUVRow1 = {
-                    worldToUV:GetField(1, 1),
-                    worldToUV:GetField(1, 2),
-                    worldToUV:GetField(1, 3),
-                    worldToUV:GetField(1, 4),
-                }
-                ps.WorldToUVRow2 = {
-                    worldToUV:GetField(2, 1),
-                    worldToUV:GetField(2, 2),
-                    worldToUV:GetField(2, 3),
-                    worldToUV:GetField(2, 4),
-                }
-                ps.OffsetU  = (faceUVOrigin.x - marginPerSide) * uvScale + bilinearGuard
-                ps.OffsetV  = (faceUVOrigin.y - marginPerSide) * uvScale + bilinearGuard
-                ps.UVWidth  = (faceSizeInAbsoluteUV.x + 2 * marginPerSide) * uvScale - 2 * bilinearGuard
-                ps.UVHeight = (faceSizeInAbsoluteUV.y + 2 * marginPerSide) * uvScale - 2 * bilinearGuard
+                local scale, guard = inkMap.HammerUnitsToUV, inkMap.BilinearGuard
+                ps.OffsetU  = (faceUVOriginU - marginPerSide) * scale + guard
+                ps.OffsetV  = (faceUVOriginV - marginPerSide) * scale + guard
+                ps.UVWidth  = (faceSizeU + 2 * marginPerSide) * scale - 2 * guard
+                ps.UVHeight = (faceSizeV + 2 * marginPerSide) * scale - 2 * guard
             end
             state.Surfaces[index] = ps
         end

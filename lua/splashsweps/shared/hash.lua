@@ -46,7 +46,7 @@ local yield = coroutine.yield
 local IsOBBIntersectingOBB = util.IsOBBIntersectingOBB
 local angle_zero = angle_zero
 local vector_origin = vector_origin
-local vector_tenth = Util.vector_one * 0.1
+local QUERY_MARGIN = 0.1 -- Hammer units added around the AABB of queries
 local GRID_SIZE = 128
 local MAX_GRID_INDEX = 32768 / GRID_SIZE
 local MAX_GRID_INDEX_SQR = MAX_GRID_INDEX * MAX_GRID_INDEX
@@ -142,12 +142,26 @@ function Hash.BuildSurfaceHash(surfaces, staticProps)
     return surfaceHash
 end
 
+---Creates the Vectors of the AABB of a query with the margin, which util.IsOBBIntersectingOBB takes.
+---@param minX number
+---@param minY number
+---@param minZ number
+---@param maxX number
+---@param maxY number
+---@param maxZ number
+---@return Vector mins
+---@return Vector maxs
+local function queryBox(minX, minY, minZ, maxX, maxY, maxZ)
+    return Vector(minX - QUERY_MARGIN, minY - QUERY_MARGIN, minZ - QUERY_MARGIN),
+           Vector(maxX + QUERY_MARGIN, maxY + QUERY_MARGIN, maxZ + QUERY_MARGIN)
+end
+
 ---Tests if the minimum bounding box of the surface intersects with given AABB.
----@param s    ss.PaintableSurface
+---@param s    ss.IHasMBB
 ---@param mins Vector AABB minimum in the same coordinate system as the surface.
 ---@param maxs Vector AABB maximum in the same coordinate system as the surface.
 ---@return boolean
-local function isSurfaceIntersecting(s, mins, maxs)
+local function isIntersecting(s, mins, maxs)
     return IsOBBIntersectingOBB(
         s.MBBOrigin, s.MBBAngles, vector_origin, s.MBBSize,
         vector_origin, angle_zero, mins, maxs, Util.eps)
@@ -155,18 +169,21 @@ end
 
 ---Generator function to enumerate surfaces of the worldspawn and static props containing given AABB.
 ---Surfaces of brush entities are enumerated by Hash.CollectBrushEntities and Hash.CollectBrushModelSurfaces.
----@param mins Vector AABB minimum.
----@param maxs Vector AABB maximum.
+---@param minX number AABB minimum.
+---@param minY number
+---@param minZ number
+---@param maxX number AABB maximum.
+---@param maxY number
+---@param maxZ number
 ---@return fun(): ss.PaintableSurface
-function Hash.CollectSurfaces(mins, maxs)
-    mins = mins - vector_tenth
-    maxs = maxs + vector_tenth
+function Hash.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ)
+    local mins, maxs = queryBox(minX, minY, minZ, maxX, maxY, maxZ)
     return wrap(function()
         local hasSeenThisSurface = {} ---@type table<integer, true>
         local surfaceHash = state.SurfaceHash
-        local minX, minY, minZ = mins:Unpack()
-        local maxX, maxY, maxZ = maxs:Unpack()
-        for h in hashpairs(minX, minY, minZ, maxX, maxY, maxZ) do
+        for h in hashpairs(
+            minX - QUERY_MARGIN, minY - QUERY_MARGIN, minZ - QUERY_MARGIN,
+            maxX + QUERY_MARGIN, maxY + QUERY_MARGIN, maxZ + QUERY_MARGIN) do
             local k = state.CellIndices[h]
             local first = k and surfaceHash.FirstSurfaceIndex[k] or 1
             local last = k and first + surfaceHash.NumSurfaceIndices[k] - 1 or 0
@@ -175,7 +192,7 @@ function Hash.CollectSurfaces(mins, maxs)
                 if not hasSeenThisSurface[i] then
                     hasSeenThisSurface[i] = true
                     local s = PaintableSurface.Surfaces[i]
-                    if isSurfaceIntersecting(s, mins, maxs) then
+                    if isIntersecting(s, mins, maxs) then
                         yield(s)
                     end
                 end
@@ -186,15 +203,18 @@ end
 
 ---Generator function to enumerate surfaces of a brush model containing given AABB.
 ---@param modelIndex integer Index of the brush model obtained by Hash.CollectBrushEntities.
----@param mins       Vector  AABB minimum in the model's local coordinates.
----@param maxs       Vector  AABB maximum in the model's local coordinates.
+---@param minX       number  AABB minimum in the model's local coordinates.
+---@param minY       number
+---@param minZ       number
+---@param maxX       number  AABB maximum in the model's local coordinates.
+---@param maxY       number
+---@param maxZ       number
 ---@return fun(): ss.PaintableSurface
-function Hash.CollectBrushModelSurfaces(modelIndex, mins, maxs)
-    mins = mins - vector_tenth
-    maxs = maxs + vector_tenth
+function Hash.CollectBrushModelSurfaces(modelIndex, minX, minY, minZ, maxX, maxY, maxZ)
+    local mins, maxs = queryBox(minX, minY, minZ, maxX, maxY, maxZ)
     return wrap(function()
         for _, s in ipairs(PaintableSurface.BrushModelSurfaces[modelIndex] or {}) do
-            if isSurfaceIntersecting(s, mins, maxs) then
+            if isIntersecting(s, mins, maxs) then
                 yield(s)
             end
         end
@@ -202,17 +222,21 @@ function Hash.CollectBrushModelSurfaces(modelIndex, mins, maxs)
 end
 
 ---Generator function to enumerate brush entities with paintable surfaces near given AABB.
----@param mins Vector AABB minimum in world coordinates.
----@param maxs Vector AABB maximum in world coordinates.
----@return fun(): Entity, integer, VMatrix # The entity, its model index, and world-to-model transformation.
-function Hash.CollectBrushEntities(mins, maxs)
+---@param minX number AABB minimum in world coordinates.
+---@param minY number
+---@param minZ number
+---@param maxX number AABB maximum in world coordinates.
+---@param maxY number
+---@param maxZ number
+---@return fun(): Entity, integer, number[] # The entity, its model index, and the transform from the world to the model.
+function Hash.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
     return wrap(function()
-        for _, ent in ipairs(ents.FindInBox(mins, maxs)) do
+        for _, ent in ipairs(ents.FindInBox(Vector(minX, minY, minZ), Vector(maxX, maxY, maxZ))) do
             local n = tonumber((ent:GetModel() or ""):match "^%*(%d+)$")
             if n and PaintableSurface.BrushModelSurfaces[n + 1] then
-                local worldToModel = ent:GetWorldTransformMatrix()
-                worldToModel:InvertTR()
-                yield(ent, n + 1, worldToModel)
+                -- The first 12 of the 16 values are the transform.
+                local modelToWorld = { ent:GetWorldTransformMatrix():Unpack() }
+                yield(ent, n + 1, Geometry.InvertRotationTranslation(modelToWorld))
             end
         end
     end)
@@ -327,22 +351,25 @@ end
 
 ---Generator function to enumerate triangles containing given AABB in a displacement.
 ---@param displacement ss.PaintableSurface The displacement to search.
----@param mins Vector AABB minimum.
----@param maxs Vector AABB maximum.
----@return fun(): ss.DisplacementTriangle triangle An array of vertices.
-function Hash.CollectDisplacementTriangles(displacement, mins, maxs)
+---@param minX number AABB minimum.
+---@param minY number
+---@param minZ number
+---@param maxX number AABB maximum.
+---@param maxY number
+---@param maxZ number
+---@return fun(): ss.DisplacementTriangle
+function Hash.CollectDisplacementTriangles(displacement, minX, minY, minZ, maxX, maxY, maxZ)
     local hash = displacement.TriangleHash
     if not hash then return wrap(function() end) end
-    mins = mins - vector_tenth
-    maxs = maxs + vector_tenth
-    local aabbMinX, aabbMinY, aabbMinZ = displacement.AABBMin:Unpack()
-    local aabbMaxX, aabbMaxY, aabbMaxZ = displacement.AABBMax:Unpack()
-    local minX, minY, minZ = mins:Unpack()
-    local maxX, maxY, maxZ = maxs:Unpack()
+    local mins, maxs = queryBox(minX, minY, minZ, maxX, maxY, maxZ)
     return wrap(function()
         local hasSeenThisTriangle = {} ---@type table<integer, true>
-        local grid = displacementGrid(aabbMinX, aabbMinY, aabbMinZ, aabbMaxX, aabbMaxY, aabbMaxZ)
-        for h in hashpairsAABB(grid, minX, minY, minZ, maxX, maxY, maxZ) do
+        local grid = displacementGrid(
+            displacement.AABBMinX, displacement.AABBMinY, displacement.AABBMinZ,
+            displacement.AABBMaxX, displacement.AABBMaxY, displacement.AABBMaxZ)
+        for h in hashpairsAABB(grid,
+            minX - QUERY_MARGIN, minY - QUERY_MARGIN, minZ - QUERY_MARGIN,
+            maxX + QUERY_MARGIN, maxY + QUERY_MARGIN, maxZ + QUERY_MARGIN) do
             if h < hash.NumHashValues then
                 local first = hash.FirstTriangleIndex[h + 1]
                 for k = first, first + hash.NumTriangleIndices[h + 1] - 1 do
@@ -353,9 +380,7 @@ function Hash.CollectDisplacementTriangles(displacement, mins, maxs)
                         -- debugoverlay.BoxAngles(
                         --     t.MBBOrigin, vector_origin, t.MBBSize, t.MBBAngles,
                         --     FrameTime() * 5, Color(255, 255, 255, 8))
-                        if IsOBBIntersectingOBB(
-                            t.MBBOrigin, t.MBBAngles, vector_origin, t.MBBSize,
-                            vector_origin, angle_zero, mins, maxs, Util.eps) then
+                        if isIntersecting(t, mins, maxs) then
                             yield(t)
                         end
                     end
