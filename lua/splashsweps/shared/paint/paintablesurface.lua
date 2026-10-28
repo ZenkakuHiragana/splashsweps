@@ -15,7 +15,7 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field MBBOrigin Vector The origin of minimum (oriented) bounding box.
 ---@field MBBSize   Vector The size of minimum (oriented) bounding box in their local coordinates.
 
----This class holds information around serverside paintings and conversion to UV coordinates.
+---A surface to paint, which has a paint grid in the coordinates converted from the world by WorldToLocalGrid.
 ---```text
 ---World origin
 ---  +--> x
@@ -25,25 +25,6 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---         |
 ---         v   * (Xi, Yi) = WorldToLocalGrid * (xi, yi)
 ---         Y
----```
----
----The surface is placed in UV coordinates like this:
----
----```text
----UV origin
---- +-------------+--> V              WorldToUVMatrix
---- |             ^                     :GetInverseTR()
---- |             |                     :GetTranslation()
---- |          OffsetU                        |
---- |             |    |<----UVHeight--->|    |
---- |             v    |                 |    |
---- +<----OffsetV-+--->+--------------<==@ <--+
---- |             ^    |                 $
---- v             |    |                 v
---- U          UVWidth |                 |
----               |    |                 |
----               v    |                 |
----              -+----+-----------------+
 ---```
 ---@class ss.PaintableSurface : ss.IHasMBB
 ---@field AABBMinX              number AABB minimum of this surface in world coordinates.
@@ -66,13 +47,7 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field PaintOriginY          number[]?
 ---@field PaintOriginZ          number[]?
 ---@field WorldToLocalGrid      number[] The transform of ss.GeometryModule to convert world coordinates into local coordinates of the paint grid. This does not modify scales.
----@field WorldToUVRow1         number[] The first row of transformation matrox to convert world position into UV space without scaling.
----@field WorldToUVRow2         number[] The second row of transformation matrox to convert world position into UV space without scaling.
----@field OffsetU               number   The u-coordinate of left-top corner of this surface in UV space.
----@field OffsetV               number   The v-coordinate of left-top corner of this surface in UV space.
----@field UVWidth               number   The width of this surface in UV space.
----@field UVHeight              number   The height of this surface in UV space.
----@field Index                 integer  The index of this surface in PaintableSurface.Surfaces used for debug purpose.
+---@field Index                 integer  The index of this surface in PaintableSurface.Surfaces, which keys what other modules keep for each surface.
 
 ---A triangle in a displacement.
 ---@class ss.DisplacementTriangle : ss.IHasMBB
@@ -102,7 +77,9 @@ local state = ss.state("splashsweps/shared/paint/paintablesurface", {
     BrushModelSurfaces = {},
 }) ---@type ss.PaintableSurfaceModule.State
 
----Paintable surfaces of the world and static props.
+---Paintable surfaces of the world and static props:
+---the surfaces of the map cache in order, followed by the 6 faces of each static prop
+---in the order of the faces of PaintableSurface.GetStaticPropBox.
 PaintableSurface.Surfaces = state.Surfaces
 
 ---Paintable surfaces of brush entities, which are not registered to the spatial hash of the world
@@ -138,10 +115,6 @@ local function newSurface(index, gridWidth, gridHeight, worldToLocalGrid)
         NormalZ = 0,
         Grid = PaintableGrid.new(gridWidth, gridHeight),
         WorldToLocalGrid = worldToLocalGrid,
-        OffsetU = 0,
-        OffsetV = 0,
-        UVWidth = 0,
-        UVHeight = 0,
         MBBAngles = angle_zero,
         MBBOrigin = vector_origin,
         MBBSize = vector_origin,
@@ -164,16 +137,10 @@ function PaintableSurface.BarycentricCoordinates(triangle, x, y, z)
     return 1 - u - v, u, v
 end
 
----Scale of the ink map, which only the client has.
----@class ss.PaintableSurface.InkMap
----@field HammerUnitsToUV number Converts hammer units of the ink map rectangles into UV coordinates.
----@field BilinearGuard   number Width in UV coordinates inside the edges of each rectangle where the paints are clipped.
-
 ---Reads a surface list from a file and stores them for later use.
 ---@param surfaces  ss.PrecachedData.Surface[]?
 ---@param numModels integer Number of entries in the BSP model lump.
----@param inkMap    ss.PaintableSurface.InkMap? Scale of the ink map to set the UV fields of the surfaces; the server has none.
-function PaintableSurface.Setup(surfaces, numModels, inkMap)
+function PaintableSurface.Setup(surfaces, numModels)
     if not surfaces then return end
     state.ModelIndexBits = math.max(select(2, math.frexp(numModels - 1)), 1)
     table.Empty(state.BrushModelSurfaces)
@@ -227,25 +194,6 @@ function PaintableSurface.Setup(surfaces, numModels, inkMap)
                 }
             end
         end
-        if inkMap then
-            -- The paint grid (x, y) starts at the margin from the corner of the rectangle.
-            -- A rotated rectangle has (x, y) along (-v, u).
-            local rectangle = surf.InkMapRectangle
-            local margin = ss.MARGIN_HAMMER_UNITS
-            if rectangle.IsRotated then
-                ps.WorldToUVRow1 = {  g[5],  g[6],  g[7],  g[8] + rectangle.OffsetU + margin }
-                ps.WorldToUVRow2 = { -g[1], -g[2], -g[3], -g[4] + rectangle.OffsetV + rectangle.Height - margin }
-            else
-                ps.WorldToUVRow1 = { g[1], g[2], g[3], g[4] + rectangle.OffsetU + margin }
-                ps.WorldToUVRow2 = { g[5], g[6], g[7], g[8] + rectangle.OffsetV + margin }
-            end
-
-            local scale, guard = inkMap.HammerUnitsToUV, inkMap.BilinearGuard
-            ps.OffsetU  = rectangle.OffsetU * scale + guard
-            ps.OffsetV  = rectangle.OffsetV * scale + guard
-            ps.UVWidth  = rectangle.Width   * scale - 2 * guard
-            ps.UVHeight = rectangle.Height  * scale - 2 * guard
-        end
         state.Surfaces[i] = ps
         if surf.ModelIndex > 1 then
             state.BrushModelSurfaces[surf.ModelIndex]
@@ -255,7 +203,7 @@ function PaintableSurface.Setup(surfaces, numModels, inkMap)
 end
 
 ---A face of the bounding box of a static prop in the coordinates of the box,
----with the origin, the offset in the UV space, and the forward as described in PaintableSurface.SetupStaticProps.
+---with the origin, the offset in the UV space, and the forward as described in PaintableSurface.GetStaticPropBox.
 ---@class ss.PaintableSurface.BoxFace
 ---@field NormalX   number The normal, which is the up of the face.
 ---@field NormalY   number
@@ -308,7 +256,23 @@ local AXES_ZXY = {
     1, 0, 0, 0,
 }
 
----Reads a list of static props and stores them for later use.
+---A face of the bounding box of a static prop.
+---@class ss.PaintableSurface.StaticPropFace
+---@field BoxFace ss.PaintableSurface.BoxFace The orientation and the place in the UV space of the face.
+---@field ToWorld number[] The transform from the face to the world, whose columns are the forward, the left, the normal, and the origin.
+---@field SizeX   number   The size of the face along its forward.
+---@field SizeY   number   The size of the face along its left.
+
+---The bounding box of a static prop with its axes swapped by its unwrap index.
+---@class ss.PaintableSurface.StaticPropBox
+---@field ToWorld number[] The transform from the box, whose origin is at the minimum of the bounds, to the world.
+---@field SizeX   number
+---@field SizeY   number
+---@field SizeZ   number
+---@field Faces   ss.PaintableSurface.StaticPropFace[] The faces #1 to #6.
+
+---Returns the bounding box of a static prop and its faces,
+---which are paintable surfaces in the paint grids and in the ink map.
 ---
 ---Each static prop has its own oriented bounding box (OBB).
 ---We project the vertices of the prop onto one of the surfaces of the OBB.
@@ -407,60 +371,63 @@ local AXES_ZXY = {
 ---- `sx` is the smallest: (X, Y, Z) -> (X, Y, Z)
 ---- `sy` is the smallest: (X, Y, Z) -> (Y, Z, X) by AXES_YZX
 ---- `sz` is the smallest: (X, Y, Z) -> (Z, X, Y) by AXES_ZXY
----@param staticPropInfo ss.PrecachedData.StaticProp[]
----@param inkMap ss.PaintableSurface.InkMap? Scale of the ink map to set the UV fields of the surfaces; the server has none.
-function PaintableSurface.SetupStaticProps(staticPropInfo, inkMap)
-    local numSurfaces = #state.Surfaces
-    local marginPerSide = ss.MARGIN_HAMMER_UNITS
-    for i, prop in ipairs(staticPropInfo or {}) do
-        -- The box has its origin at the minimum of the bounds, and its axes can be swapped by the unwrap index.
-        local sizeX = prop.BoundsMaxX - prop.BoundsMinX
-        local sizeY = prop.BoundsMaxY - prop.BoundsMinY
-        local sizeZ = prop.BoundsMaxZ - prop.BoundsMinZ
-        local boxToWorld = Geometry.FromAngles(
-            prop.Pitch, prop.Yaw, prop.Roll, prop.PositionX, prop.PositionY, prop.PositionZ)
-        boxToWorld[4], boxToWorld[8], boxToWorld[12] = Geometry.TransformPoint(
-            boxToWorld, prop.BoundsMinX, prop.BoundsMinY, prop.BoundsMinZ)
-        if prop.UnwrapIndex == 2 then
-            boxToWorld = Geometry.Multiply(boxToWorld, AXES_YZX)
-            sizeX, sizeY, sizeZ = sizeY, sizeZ, sizeX
-        elseif prop.UnwrapIndex == 3 then
-            boxToWorld = Geometry.Multiply(boxToWorld, AXES_ZXY)
-            sizeX, sizeY, sizeZ = sizeZ, sizeX, sizeY
-        end
+---@param prop ss.PrecachedData.StaticProp
+---@return ss.PaintableSurface.StaticPropBox
+function PaintableSurface.GetStaticPropBox(prop)
+    local sizeX = prop.BoundsMaxX - prop.BoundsMinX
+    local sizeY = prop.BoundsMaxY - prop.BoundsMinY
+    local sizeZ = prop.BoundsMaxZ - prop.BoundsMinZ
+    local boxToWorld = Geometry.FromAngles(
+        prop.Pitch, prop.Yaw, prop.Roll, prop.PositionX, prop.PositionY, prop.PositionZ)
+    boxToWorld[4], boxToWorld[8], boxToWorld[12] = Geometry.TransformPoint(
+        boxToWorld, prop.BoundsMinX, prop.BoundsMinY, prop.BoundsMinZ)
+    if prop.UnwrapIndex == 2 then
+        boxToWorld = Geometry.Multiply(boxToWorld, AXES_YZX)
+        sizeX, sizeY, sizeZ = sizeY, sizeZ, sizeX
+    elseif prop.UnwrapIndex == 3 then
+        boxToWorld = Geometry.Multiply(boxToWorld, AXES_ZXY)
+        sizeX, sizeY, sizeZ = sizeZ, sizeX, sizeY
+    end
 
+    local faces = {} ---@type ss.PaintableSurface.StaticPropFace[]
+    for j, face in ipairs(BOX_FACES) do
+        local nx, ny, nz = face.NormalX, face.NormalY, face.NormalZ
+        local fx, fy, fz = face.ForwardX, face.ForwardY, face.ForwardZ
+        local lx, ly, lz = Geometry.Cross(nx, ny, nz, fx, fy, fz)
+        local faceToBox = {
+            fx, lx, nx, face.OriginX * sizeX,
+            fy, ly, ny, face.OriginY * sizeY,
+            fz, lz, nz, face.OriginZ * sizeZ,
+        }
+        faces[j] = {
+            BoxFace = face,
+            ToWorld = Geometry.Multiply(boxToWorld, faceToBox),
+            SizeX   = math.abs(Geometry.Dot(sizeX, sizeY, sizeZ, fx, fy, fz)),
+            SizeY   = math.abs(Geometry.Dot(sizeX, sizeY, sizeZ, lx, ly, lz)),
+        }
+    end
+
+    return { ToWorld = boxToWorld, SizeX = sizeX, SizeY = sizeY, SizeZ = sizeZ, Faces = faces }
+end
+
+---Creates the paintable surfaces of the faces of the bounding boxes of static props,
+---after the surfaces PaintableSurface.Setup creates.
+---@param staticPropInfo ss.PrecachedData.StaticProp[]?
+function PaintableSurface.SetupStaticProps(staticPropInfo)
+    local index = #state.Surfaces
+    for _, prop in ipairs(staticPropInfo or {}) do
+        local box = PaintableSurface.GetStaticPropBox(prop)
         local aabbMinX, aabbMinY, aabbMinZ, aabbMaxX, aabbMaxY, aabbMaxZ
-            = Geometry.TransformAABB(boxToWorld, 0, 0, 0, sizeX, sizeY, sizeZ)
-        local mbbAngles = Angle(Geometry.ToAngles(boxToWorld))
-        local mbbOrigin = Vector(boxToWorld[4], boxToWorld[8], boxToWorld[12])
-        local mbbSize = Vector(sizeX, sizeY, sizeZ)
-
-        -- The rectangle of the prop in the ink map, rotated by 90 degrees if IsRotated.
-        --   +--------> v                +--------> v
-        --   | model local uv space      |   v'
-        --   |   +---> v'                |   ^
-        --   v   |                       v   +---> u'
-        --   u   u'                      u    \__model local uv space
-        local rectangle = prop.InkMapRectangle
-        local isRotated = rectangle.IsRotated
-        local modelUVOriginU = rectangle.OffsetU + (isRotated and rectangle.Width or 0)
-        local modelUVOriginV = rectangle.OffsetV
-        for j, face in ipairs(BOX_FACES) do
-            local index = numSurfaces + 6 * (i - 1) + j
-            local nx, ny, nz = face.NormalX, face.NormalY, face.NormalZ
-            local fx, fy, fz = face.ForwardX, face.ForwardY, face.ForwardZ
-            local lx, ly, lz = Geometry.Cross(nx, ny, nz, fx, fy, fz)
-            local faceToBox = {
-                fx, lx, nx, face.OriginX * sizeX,
-                fy, ly, ny, face.OriginY * sizeY,
-                fz, lz, nz, face.OriginZ * sizeZ,
-            }
-            local faceToWorld = Geometry.Multiply(boxToWorld, faceToBox)
-            local faceSizeX = math.abs(Geometry.Dot(sizeX, sizeY, sizeZ, fx, fy, fz))
-            local faceSizeY = math.abs(Geometry.Dot(sizeX, sizeY, sizeZ, lx, ly, lz))
+            = Geometry.TransformAABB(box.ToWorld, 0, 0, 0, box.SizeX, box.SizeY, box.SizeZ)
+        local mbbAngles = Angle(Geometry.ToAngles(box.ToWorld))
+        local mbbOrigin = Vector(box.ToWorld[4], box.ToWorld[8], box.ToWorld[12])
+        local mbbSize = Vector(box.SizeX, box.SizeY, box.SizeZ)
+        for _, face in ipairs(box.Faces) do
+            index = index + 1
+            local faceToWorld = face.ToWorld
             local ps = newSurface(index,
-                math.ceil(faceSizeX / PaintableGrid.CELL_SIZE),
-                math.ceil(faceSizeY / PaintableGrid.CELL_SIZE),
+                math.ceil(face.SizeX / PaintableGrid.CELL_SIZE),
+                math.ceil(face.SizeY / PaintableGrid.CELL_SIZE),
                 Geometry.InvertRotationTranslation(faceToWorld))
             ps.AABBMinX, ps.AABBMinY, ps.AABBMinZ = aabbMinX, aabbMinY, aabbMinZ
             ps.AABBMaxX, ps.AABBMaxY, ps.AABBMaxZ = aabbMaxX, aabbMaxY, aabbMaxZ
@@ -469,45 +436,6 @@ function PaintableSurface.SetupStaticProps(staticPropInfo, inkMap)
             ps.MBBAngles = mbbAngles
             ps.MBBOrigin = mbbOrigin
             ps.MBBSize   = mbbSize
-            if inkMap then
-                -- +-------------> v
-                -- |\ <--- modelUVOrigin
-                -- | +----> v'
-                -- | | \ <--- faceUVOrigin
-                -- | V  @==> y, v" --+
-                -- | u' |            |
-                -- V    V------------+
-                -- u    x, u"
-                --
-                -- (x , y ) face local system converted from the world, the paint grid
-                -- (u , v ) absolute UV in the render target texture
-                -- (u', v') model local UV from the rectangle of the prop
-                -- (u", v") face local UV
-                -- The cell of the face in the model local UV starts at the margin inside it.
-                local localU = (sizeX + 2 * marginPerSide) * face.UVOffsetX
-                             + (sizeY + 2 * marginPerSide) * face.UVOffsetY + marginPerSide
-                local localV = (sizeZ + 2 * marginPerSide) * face.UVOffsetZ + marginPerSide
-                local grid = ps.WorldToLocalGrid
-                local faceSizeU, faceSizeV, faceUVOriginU, faceUVOriginV ---@type number, number, number, number
-                if isRotated then -- (u, v) = (-v', u') from the model local UV origin
-                    faceSizeU, faceSizeV = faceSizeY, faceSizeX
-                    faceUVOriginU, faceUVOriginV = modelUVOriginU - localV, modelUVOriginV + localU
-                    ps.WorldToUVRow1 = { -grid[5], -grid[6], -grid[7], -grid[8] + faceUVOriginU }
-                    ps.WorldToUVRow2 = {  grid[1],  grid[2],  grid[3],  grid[4] + faceUVOriginV }
-                    faceUVOriginU = faceUVOriginU - faceSizeU
-                else
-                    faceSizeU, faceSizeV = faceSizeX, faceSizeY
-                    faceUVOriginU, faceUVOriginV = modelUVOriginU + localU, modelUVOriginV + localV
-                    ps.WorldToUVRow1 = { grid[1], grid[2], grid[3], grid[4] + faceUVOriginU }
-                    ps.WorldToUVRow2 = { grid[5], grid[6], grid[7], grid[8] + faceUVOriginV }
-                end
-
-                local scale, guard = inkMap.HammerUnitsToUV, inkMap.BilinearGuard
-                ps.OffsetU  = (faceUVOriginU - marginPerSide) * scale + guard
-                ps.OffsetV  = (faceUVOriginV - marginPerSide) * scale + guard
-                ps.UVWidth  = (faceSizeU + 2 * marginPerSide) * scale - 2 * guard
-                ps.UVHeight = (faceSizeV + 2 * marginPerSide) * scale - 2 * guard
-            end
             state.Surfaces[index] = ps
         end
     end

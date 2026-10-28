@@ -4,6 +4,7 @@
 ---@class ss
 local ss = SplashSWEPs
 local InkDetailAtlas   = ss.import "splashsweps/client/ink/inkdetailatlas"
+local InkMapLayout     = ss.import "splashsweps/client/mapload/inkmaplayout"
 local InkShape         = ss.import "splashsweps/shared/inkshape"
 local InkType          = ss.import "splashsweps/shared/inktype"
 local PaintAtlas       = ss.import "splashsweps/client/ink/paintatlas"
@@ -19,7 +20,7 @@ local InkMap = ss.module "splashsweps/client/render/inkmap"
 ---@field paint  ss.Paint            The paint in the same coordinate system as the surface
 ---@field base   ss.PaintAtlas.Range Range of $basetexture in the paint atlas
 ---@field shape  ss.PaintAtlas.Range Range of the ink shape mask in the paint atlas
----@field surf   number[]            UV range (minU, minV, maxU, maxV) of the surface in the ink map
+---@field surf   [number, number, number, number] UV range (minU, minV, maxU, maxV) of the surface in the ink map
 ---@field tint   ss.PaintAtlas.Range Range of $tinttexture in the paint atlas
 ---@field detail integer             $detailblendmode of the ink type, 0 if the detail is disabled
 ---@field row1   number[]            The first row of World to UV matrix
@@ -45,20 +46,16 @@ local PaintMaterial = Material "splashsweps/shaders/drawink"
 function InkMap.Push(surf, paint)
     local shape, typeid = paint.Shape, paint.InkType
     if not (InkShape.Shapes[shape] and InkType.Types[typeid]) then return end
+    local placement = InkMapLayout.Placements[surf.Index]
     state.Queue[#state.Queue + 1] = {
         paint  = paint,
         base   = PaintAtlas.BaseUV[typeid],
         shape  = PaintAtlas.ShapeUV[shape],
         tint   = PaintAtlas.TintUV[typeid],
         detail = InkDetailAtlas.BlendModes[typeid],
-        row1   = surf.WorldToUVRow1,
-        row2   = surf.WorldToUVRow2,
-        surf   = {
-            surf.OffsetU,
-            surf.OffsetV,
-            surf.OffsetU + surf.UVWidth,
-            surf.OffsetV + surf.UVHeight,
-        },
+        row1   = placement.WorldToUVRow1,
+        row2   = placement.WorldToUVRow2,
+        surf   = placement.UVRange,
     }
 end
 

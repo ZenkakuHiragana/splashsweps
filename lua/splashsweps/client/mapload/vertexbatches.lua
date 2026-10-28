@@ -69,10 +69,10 @@ end
 ---@param renderBatch   ss.RenderBatch                     Render entries created from the same vertexBatches order.
 ---@param vertexBatches ss.VertexBatches.MeshVertexBatch[] Vertex batches to write one-to-one with renderBatch.
 ---@param surfaceInfo       ss.PrecachedData.SurfaceInfo   Cached BSP surface data.
----@param paintableSurfaces ss.PaintableSurface[]          Face-indexed placements in the ink map.
+---@param placements        ss.InkMapLayout.Placement[]    Face-indexed placements in the ink map.
 ---@param faceLightmaps     ss.Lightmaps.FaceLightmap[]    Face-indexed lightmap placements.
 ---@param debugMeshData     ss.VertexBatches.MeshVertex[][]? Receives the vertices written into each IMesh if given.
-function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, paintableSurfaces, faceLightmaps, debugMeshData)
+function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, placements, faceLightmaps, debugMeshData)
     local scale = surfaceInfo.HammerUnitsToUV
     for i, vertexBatch in ipairs(vertexBatches) do
         local debugVertices = debugMeshData and {} ---@type ss.VertexBatches.MeshVertex[]?
@@ -81,16 +81,16 @@ function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, pain
         for r = 1, #faceRanges, 3 do
             local faceIndex = faceRanges[r]
             local surf      = surfaceInfo.Surfaces[faceIndex]
-            local ps        = paintableSurfaces[faceIndex]
+            local placement = placements[faceIndex]
             local lightmap  = faceLightmaps[faceIndex]
             local vertexIndices = surf.VertexIndices
 
             -- The values shared by the vertices of the surface.
-            local row1, row2 = ps.WorldToUVRow1, ps.WorldToUVRow2
+            local row1, row2 = placement.WorldToUVRow1, placement.WorldToUVRow2
             local row1x, row1y, row1z, row1w = row1[1] * scale, row1[2] * scale, row1[3] * scale, row1[4] * scale
             local row2x, row2y, row2z, row2w = row2[1] * scale, row2[2] * scale, row2[3] * scale, row2[4] * scale
-            local minU, minV = ps.OffsetU, ps.OffsetV
-            local maxU, maxV = ps.OffsetU + ps.UVWidth, ps.OffsetV + ps.UVHeight
+            local range = placement.UVRange
+            local minU, minV, maxU, maxV = range[1], range[2], range[3], range[4]
             local bumpmapOffset = lightmap.BumpmapOffset
             local lightmapOffsetX, lightmapOffsetY = lightmap.OffsetX, lightmap.OffsetY
             local pageWidth, pageHeight = lightmap.PageWidth, lightmap.PageHeight

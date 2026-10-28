@@ -14,6 +14,7 @@ include "splashsweps/client/render/inkpass.lua"
 local Hash              = ss.import "splashsweps/shared/hash"
 local InkAtlases        = ss.import "splashsweps/client/ink/atlases"
 local InkMap            = ss.import "splashsweps/client/render/inkmap"
+local InkMapLayout      = ss.import "splashsweps/client/mapload/inkmaplayout"
 local InkShape          = ss.import "splashsweps/shared/inkshape"
 local InkType           = ss.import "splashsweps/shared/inktype"
 local PaintableSurface  = ss.import "splashsweps/shared/paint/paintablesurface"
@@ -44,13 +45,10 @@ local function LoadCache()
     InkType.Load()
     InkAtlases.Load()
     InkMap.Setup()
-    local inkMap = {
-        HammerUnitsToUV = surfaces.HammerUnitsToUV,
-        BilinearGuard = ss.RT_BILINEAR_GUARD_PIXELS / RenderTargets.InkMaps.InkMap:Width(),
-    }
-    PaintableSurface.Setup(surfaces.Surfaces, cache.NumModels, inkMap)
-    PaintableSurface.SetupStaticProps(cache.StaticProps, inkMap)
-    InkMesh.Setup(surfaces, lightmaps, PaintableSurface.Surfaces, cache.NumModels, cache.MaterialNames,
+    PaintableSurface.Setup(surfaces.Surfaces, cache.NumModels)
+    PaintableSurface.SetupStaticProps(cache.StaticProps)
+    InkMapLayout.Setup(surfaces.Surfaces, cache.StaticProps)
+    InkMesh.Setup(surfaces, lightmaps, InkMapLayout.Placements, cache.NumModels, cache.MaterialNames,
         CVarDebugMeshData:GetBool())
     StaticPropBuilder.Setup(cache.StaticProps, cache.StaticPropMDL, surfaces.Cubemaps)
     InkMap.ClearAll()
