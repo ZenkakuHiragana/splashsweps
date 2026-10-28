@@ -46,33 +46,33 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---              -+----+-----------------+
 ---```
 ---@class ss.PaintableSurface : ss.IHasMBB
----@field AABBMinX               number           AABB minimum of this surface in world coordinates.
----@field AABBMinY               number
----@field AABBMinZ               number
----@field AABBMaxX               number           AABB maximum of this surface in world coordinates.
----@field AABBMaxY               number
----@field AABBMaxZ               number
----@field NormalX                number           Normal vector of this surface.
----@field NormalY                number
----@field NormalZ                number
----@field Grid                   ss.PaintableGrid Represents serverside "canvas" for this surface to manage collision detection against painted ink.
----@field StaticPropUnwrapIndex  integer?         Determines how this static prop surfaces are unwrapped.
----@field TriangleHash           ss.PrecachedData.TriangleHash? Spatial hash to look up triangles of a displacement.
----@field Triangles              ss.DisplacementTriangle[]? Array of triangles of a displacement.
----@field PositionX              number[]? Positions of the vertices of a displacement, which its triangles refer to.
----@field PositionY              number[]?
----@field PositionZ              number[]?
----@field PaintOriginX           number[]? Positions on the flat surface the vertices of a displacement are mapped onto.
----@field PaintOriginY           number[]?
----@field PaintOriginZ           number[]?
----@field WorldToLocalGrid       number[] The transform of ss.GeometryModule to convert world coordinates into local coordinates of the paint grid. This does not modify scales.
----@field WorldToUVRow1          number[] The first row of transformation matrox to convert world position into UV space without scaling.
----@field WorldToUVRow2          number[] The second row of transformation matrox to convert world position into UV space without scaling.
----@field OffsetU                number   The u-coordinate of left-top corner of this surface in UV space.
----@field OffsetV                number   The v-coordinate of left-top corner of this surface in UV space.
----@field UVWidth                number   The width of this surface in UV space.
----@field UVHeight               number   The height of this surface in UV space.
----@field Index                  integer  The index of this surface in PaintableSurface.Surfaces used for debug purpose.
+---@field AABBMinX              number AABB minimum of this surface in world coordinates.
+---@field AABBMinY              number
+---@field AABBMinZ              number
+---@field AABBMaxX              number AABB maximum of this surface in world coordinates.
+---@field AABBMaxY              number
+---@field AABBMaxZ              number
+---@field NormalX               number Normal vector of this surface.
+---@field NormalY               number
+---@field NormalZ               number
+---@field Grid                  ss.PaintableGrid Represents serverside "canvas" for this surface to manage collision detection against painted ink.
+---@field StaticPropUnwrapIndex integer?         Determines how this static prop surfaces are unwrapped.
+---@field TriangleHash          ss.PrecachedData.TriangleHash? Spatial hash to look up triangles of a displacement.
+---@field Triangles             ss.DisplacementTriangle[]? Array of triangles of a displacement.
+---@field PositionX             number[]? Positions of the vertices of a displacement, which its triangles refer to.
+---@field PositionY             number[]?
+---@field PositionZ             number[]?
+---@field PaintOriginX          number[]? Positions on the flat surface the vertices of a displacement are mapped onto.
+---@field PaintOriginY          number[]?
+---@field PaintOriginZ          number[]?
+---@field WorldToLocalGrid      number[] The transform of ss.GeometryModule to convert world coordinates into local coordinates of the paint grid. This does not modify scales.
+---@field WorldToUVRow1         number[] The first row of transformation matrox to convert world position into UV space without scaling.
+---@field WorldToUVRow2         number[] The second row of transformation matrox to convert world position into UV space without scaling.
+---@field OffsetU               number   The u-coordinate of left-top corner of this surface in UV space.
+---@field OffsetV               number   The v-coordinate of left-top corner of this surface in UV space.
+---@field UVWidth               number   The width of this surface in UV space.
+---@field UVHeight              number   The height of this surface in UV space.
+---@field Index                 integer  The index of this surface in PaintableSurface.Surfaces used for debug purpose.
 
 ---A triangle in a displacement.
 ---@class ss.DisplacementTriangle : ss.IHasMBB
@@ -233,7 +233,7 @@ function PaintableSurface.Setup(surfaces, numModels, inkMap)
             local rectangle = surf.InkMapRectangle
             local margin = ss.MARGIN_HAMMER_UNITS
             if rectangle.IsRotated then
-                ps.WorldToUVRow1 = { g[5], g[6], g[7], g[8] + rectangle.OffsetU + margin }
+                ps.WorldToUVRow1 = {  g[5],  g[6],  g[7],  g[8] + rectangle.OffsetU + margin }
                 ps.WorldToUVRow2 = { -g[1], -g[2], -g[3], -g[4] + rectangle.OffsetV + rectangle.Height - margin }
             else
                 ps.WorldToUVRow1 = { g[1], g[2], g[3], g[4] + rectangle.OffsetU + margin }

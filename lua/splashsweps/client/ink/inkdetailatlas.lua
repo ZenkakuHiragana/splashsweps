@@ -12,19 +12,19 @@ local MaterialProxy  = ss.import "splashsweps/client/ink/materialproxy"
 local InkDetailAtlas = ss.module "splashsweps/client/ink/inkdetailatlas"
 
 ---@class ss.InkDetailAtlasModule.State
----@field BaseTextureNames string[]                              $basetexture of each ink type, which also provides its average height
----@field CellImages       table<integer, ITexture>              Image copied into each grid cell, nil for generated cells
----@field Slots            table<integer, integer>               Grid cell of each ink type, nil if the ink type has no detail image
+---@field BaseTextureNames string[]                   $basetexture of each ink type, which also provides its average height
+---@field CellImages       table<integer, ITexture>   Image copied into each grid cell, nil for generated cells
+---@field Slots            table<integer, integer>    Grid cell of each ink type, nil if the ink type has no detail image
 ---@field Animations       table<integer, ss.InkDetailAnimation> External frame variable and last copied frame, per animated cell
----@field CellMesh         IMesh?                                Periodic border mesh shared by all cells
----@field CellTransforms   VMatrix[]                             Placement of each cell's mesh
----@field ProxiedMaterials ss.ProxiedInkMaterial[]               Ink materials with material proxies
----@field LastInkData      table<integer, number[][]>            Last encoded inputs sent to WriteInkData
----@field GeneratedCells   table<string, integer>                Material name --> grid cell drawn by its InkDetailUpdate
----@field RenderTarget     ITexture?                             The atlas
----@field ImageSize        number                                Side length of the square image area above the ink data
----@field GridColumns      number                                Number of columns in the detail image grid
----@field BlendModes       table<integer, integer>               $detailblendmode of each ink type, 0 if the detail is disabled
+---@field CellMesh         IMesh?                     Periodic border mesh shared by all cells
+---@field CellTransforms   VMatrix[]                  Placement of each cell's mesh
+---@field ProxiedMaterials ss.ProxiedInkMaterial[]    Ink materials with material proxies
+---@field LastInkData      table<integer, number[][]> Last encoded inputs sent to WriteInkData
+---@field GeneratedCells   table<string, integer>     Material name --> grid cell drawn by its InkDetailUpdate
+---@field RenderTarget     ITexture?                  The atlas
+---@field ImageSize        number                     Side length of the square image area above the ink data
+---@field GridColumns      number                     Number of columns in the detail image grid
+---@field BlendModes       table<integer, integer>    $detailblendmode of each ink type, 0 if the detail is disabled
 -- Preparation replaces the contents, not the field names.
 local state = ss.state("splashsweps/client/ink/inkdetailatlas", {
     BaseTextureNames = {},
@@ -136,9 +136,9 @@ end
 ---@return string? detailFrameVariable
 ---@return string? updater Module name of the updater, nil if InkDetailUpdate does not draw the cell
 local function ReadDetailProxyInfo(mat)
-    local proxies          = MaterialProxy.Read("materials/" .. mat:GetName() .. ".vmt")
-    local frameVariable    = nil ---@type string?
-    local updater          = nil ---@type string?
+    local proxies       = MaterialProxy.Read("materials/" .. mat:GetName() .. ".vmt")
+    local frameVariable = nil ---@type string?
+    local updater       = nil ---@type string?
     for _, proxy in ipairs(proxies) do
         if proxy.Key == "animatedtexture" then
             local contents = proxy.Value ---@cast contents { Key: string, Value: string }[]

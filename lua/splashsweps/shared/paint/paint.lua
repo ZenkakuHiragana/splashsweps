@@ -64,11 +64,11 @@ function Paint.GetBoundingBox(paint)
 end
 
 ---Returns the paint mapped from a triangle of a displacement onto the flat surface the displacement came from.
----@param surf       ss.PaintableSurface      The displacement.
+---@param surf       ss.PaintableSurface The displacement.
 ---@param triangle   ss.DisplacementTriangle
----@param paint      ss.Paint                 The paint on the triangle.
----@param inkToWorld number[]                 The rotation of the paint.
----@param b1         number                   Barycentric coordinates of the paint in the triangle.
+---@param paint      ss.Paint The paint on the triangle.
+---@param inkToWorld number[] The rotation of the paint.
+---@param b1         number   Barycentric coordinates of the paint in the triangle.
 ---@param b2         number
 ---@param b3         number
 ---@return ss.Paint
@@ -210,13 +210,13 @@ end
 
 ---Paints the surfaces given by the generator.
 ---@param surfaces fun(): ss.PaintableSurface
----@param paint    ss.Paint The paint in the same coordinate system as the surfaces.
----@param minX     number   AABB of the paint.
----@param minY     number
----@param minZ     number
----@param maxX     number
----@param maxY     number
----@param maxZ     number
+---@param paint ss.Paint The paint in the same coordinate system as the surfaces.
+---@param minX  number   AABB of the paint.
+---@param minY  number
+---@param minZ  number
+---@param maxX  number
+---@param maxY  number
+---@param maxZ  number
 local function PaintSurfaces(surfaces, paint, minX, minY, minZ, maxX, maxY, maxZ)
     for surf in surfaces do
         for p in Paint.EnumeratePositions(surf, paint, minX, minY, minZ, maxX, maxY, maxZ) do

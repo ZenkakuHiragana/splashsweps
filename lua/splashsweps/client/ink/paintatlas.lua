@@ -120,17 +120,17 @@ end
 ---@return ss.PaintAtlas.Sources sources
 local function ReadInkTypeSources()
     local sources = { ---@class ss.PaintAtlas.Sources
-        BaseNames        = {}, ---@type string[]
-        BaseKeys         = {}, ---@type string[] $basetexture and height map source sharing an atlas cell
-        BaseCache        = {}, ---@type table<string, integer>
-        BaseRects        = {}, ---@type ss.Rectangle[]
-        BaseAlphaHeight  = {}, ---@type boolean[]
-        HeightNames      = {}, ---@type string[]
-        HeightChannels   = {}, ---@type string[]
-        TintNames        = {}, ---@type string[]
-        TintCache        = {}, ---@type table<string, integer>
-        TintRects        = {}, ---@type ss.Rectangle[]
-        ShapeRects       = {}, ---@type ss.Rectangle[]
+        BaseNames       = {}, ---@type string[]
+        BaseKeys        = {}, ---@type string[] $basetexture and height map source sharing an atlas cell
+        BaseCache       = {}, ---@type table<string, integer>
+        BaseRects       = {}, ---@type ss.Rectangle[]
+        BaseAlphaHeight = {}, ---@type boolean[]
+        HeightNames     = {}, ---@type string[]
+        HeightChannels  = {}, ---@type string[]
+        TintNames       = {}, ---@type string[]
+        TintCache       = {}, ---@type table<string, integer>
+        TintRects       = {}, ---@type ss.Rectangle[]
+        ShapeRects      = {}, ---@type ss.Rectangle[]
     }
     cp:SetTexture("$basetexture", "color/black")
     local black = cp:GetTexture "$basetexture"

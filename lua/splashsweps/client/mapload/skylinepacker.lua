@@ -5,20 +5,20 @@
 local ss = SplashSWEPs
 
 ---@class ss.SkylinePacker
----@field Wavefront integer[] Height of the skyline at each x, 1-based.
----@field MaxWidth integer
----@field MaxHeight integer
----@field MaxBlockWidth integer Width of the smallest block that has failed to fit.
+---@field Wavefront      integer[] Height of the skyline at each x, 1-based.
+---@field MaxWidth       integer
+---@field MaxHeight      integer
+---@field MaxBlockWidth  integer Width of the smallest block that has failed to fit.
 ---@field MaxBlockHeight integer Height of the smallest block that has failed to fit.
----@field MinHeight integer Height the placed blocks need, or -1 before any block is placed.
----@field SortID integer
+---@field MinHeight      integer Height the placed blocks need, or -1 before any block is placed.
+---@field SortID         integer
 local SkylinePacker = ss.module "splashsweps/client/mapload/skylinepacker"
 SkylinePacker.__index = SkylinePacker
 
 ---Finds the highest point on the skyline within a given width.
----@param self ss.SkylinePacker
+---@param self   ss.SkylinePacker
 ---@param firstX integer
----@param width integer
+---@param width  integer
 ---@return integer maxY
 ---@return integer maxYIndex
 local function GetMaxY(self, firstX, width)

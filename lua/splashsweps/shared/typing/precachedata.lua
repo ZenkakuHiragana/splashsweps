@@ -249,32 +249,32 @@ PrecachedData.TriangleHash = record("PrecachedData.TriangleHash", {
 
 ---Per-surface precached data to construct paintable surface.
 ---@class ss.PrecachedData.Surface
----@field AABBMaxX           number   Maximum component of all vertices in world coordinates, plus a margin.
----@field AABBMaxY           number
----@field AABBMaxZ           number
----@field AABBMinX           number   Minimum component of all vertices in world coordinates, minus a margin.
----@field AABBMinY           number
----@field AABBMinZ           number
+---@field AABBMaxX number   Maximum component of all vertices in world coordinates, plus a margin.
+---@field AABBMaxY number
+---@field AABBMaxZ number
+---@field AABBMinX number   Minimum component of all vertices in world coordinates, minus a margin.
+---@field AABBMinY number
+---@field AABBMinZ number
 ---3x4 matrix in row-major order, which transforms world coordinates into the serverside paint grid coordinates.
----@field WorldToLocalGrid   number[]
----@field MBBPitch           number   The angle of minimum (oriented) bounding box.
----@field MBBYaw             number
----@field MBBRoll            number
----@field MBBOriginX         number   The origin of minimum (oriented) bounding box.
----@field MBBOriginY         number
----@field MBBOriginZ         number
----@field MBBSizeX           number   The size of minimum (oriented) bounding box in its local coordinates.
----@field MBBSizeY           number
----@field MBBSizeZ           number
----@field ModelIndex         integer  Index to model lump entry.
----@field PaintGridHeight    integer  The height of this surface in the serverside paint grid.
----@field PaintGridWidth     integer  The width of this surface in the serverside paint grid.
+---@field WorldToLocalGrid number[]
+---@field MBBPitch         number   The angle of minimum (oriented) bounding box.
+---@field MBBYaw           number
+---@field MBBRoll          number
+---@field MBBOriginX       number   The origin of minimum (oriented) bounding box.
+---@field MBBOriginY       number
+---@field MBBOriginZ       number
+---@field MBBSizeX         number   The size of minimum (oriented) bounding box in its local coordinates.
+---@field MBBSizeY         number
+---@field MBBSizeZ         number
+---@field ModelIndex       integer  Index to model lump entry.
+---@field PaintGridHeight  integer  The height of this surface in the serverside paint grid.
+---@field PaintGridWidth   integer  The width of this surface in the serverside paint grid.
 ---Where the paint grid of the surface is in the ink map.
 ---The paint grid starts at the margin from the corner of the rectangle, and is rotated with the rectangle.
 ---@field InkMapRectangle ss.PrecachedData.InkMapRectangle
 ---Vertices of the mesh: the vertices of the polygon of a brush face, or the grid points of a displacement.
 ---Element k of each of the following arrays is for vertex k.
----@field NumVertices integer
+---@field NumVertices  integer
 ---@field PositionX    number[] Positions in world coordinates.
 ---@field PositionY    number[]
 ---@field PositionZ    number[]
@@ -302,7 +302,7 @@ PrecachedData.TriangleHash = record("PrecachedData.TriangleHash", {
 ---Triangles of the mesh. Triangle j has the vertices VertexIndices[3j - 2], VertexIndices[3j - 1], and VertexIndices[3j].
 ---Element j of the lightmap tangents and binormals is for triangle j.
 ---@field NumTriangles      integer
----@field NumVertexIndices  integer   Number of the triangles times 3.
+---@field NumVertexIndices  integer Number of the triangles times 3.
 ---@field VertexIndices     integer[]
 ---@field LightmapTangentX  number[]
 ---@field LightmapTangentY  number[]
@@ -513,20 +513,20 @@ PrecachedData.MinimapAreaBounds = record("PrecachedData.MinimapAreaBounds", {
 ---Precached results of the BSP which PrecachedData.WriteFile saves to <map>.dat.
 ---An array of no elements is nil when it is read from the cache file.
 ---@class ss.PrecachedData
----@field Revision            integer  mapRevision of the BSP header the cache is built from.
----@field NumMaterialNames    integer
----@field MaterialNames       string[]? List of material names used in the map ordered by the same as TEXDATA_STRING_DATA lump.
----@field NumMinimapBounds    integer
----@field MinimapBounds       ss.MinimapAreaBounds[]? Bounds of each area of the map, indexed by the area number.
----@field NumModels           integer
----@field DirectionalLight    ss.PrecachedData.DirectionalLight
----@field HashParameters      ss.PrecachedData.HashParameters
----@field NumStaticProps      integer
----@field StaticProps         ss.PrecachedData.StaticProp[]?
----@field NumStaticPropMDL    integer
----@field StaticPropMDL       string[]? List of paths to model of static props.
----@field NumWaterSurfaces    integer
----@field WaterSurfaces       ss.PrecachedData.Surface[]? Surfaces of water, which have no paint grid or placement in the ink map.
+---@field Revision         integer  mapRevision of the BSP header the cache is built from.
+---@field NumMaterialNames integer
+---@field MaterialNames    string[]? List of material names used in the map ordered by the same as TEXDATA_STRING_DATA lump.
+---@field NumMinimapBounds integer
+---@field MinimapBounds    ss.MinimapAreaBounds[]? Bounds of each area of the map, indexed by the area number.
+---@field NumModels        integer
+---@field DirectionalLight ss.PrecachedData.DirectionalLight
+---@field HashParameters   ss.PrecachedData.HashParameters
+---@field NumStaticProps   integer
+---@field StaticProps      ss.PrecachedData.StaticProp[]?
+---@field NumStaticPropMDL integer
+---@field StaticPropMDL    string[]? List of paths to model of static props.
+---@field NumWaterSurfaces integer
+---@field WaterSurfaces    ss.PrecachedData.Surface[]? Surfaces of water, which have no paint grid or placement in the ink map.
 record("PrecachedData", {
     "Long   Revision", -- mapRevision of dheader_t (int)
     "ULong  NumMaterialNames",
