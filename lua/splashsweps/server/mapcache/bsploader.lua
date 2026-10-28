@@ -967,10 +967,12 @@ local function getGameLumpStr(id)
 end
 
 ---Decompresses the LZMA data of a lump, which follows the "LZMA" id read before.
----@param lump ss.BinaryStringReader
+---A lump that cannot be decompressed to its size is an error, as the cache cannot be built without it.
+---@param lump       ss.BinaryStringReader
+---@param fileOffset integer The position of the lump in the BSP file, to tell which lump it is.
 ---@return ss.BinaryStringReader decompressed
 ---@return integer length
-local function decompress(lump)
+local function decompress(lump, fileOffset)
     local current       = lump:Tell()
     local actualSize    = Binary.Read(lump, 4)
     lump:Seek(current)
@@ -979,7 +981,14 @@ local function decompress(lump)
     local props         = Binary.Read(lump, 5)
     local contents      = Binary.Read(lump, lzmaSize)
     local formatted     = props .. actualSize .. "\0\0\0\0" .. contents
-    return Binary.NewStringReader(util.Decompress(formatted) or ""), actualSizeNum
+    local decompressed  = util.Decompress(formatted)
+    if not decompressed or #decompressed ~= actualSizeNum then
+        error(string.format(
+            "SplashSWEPs/BSP: failed to decompress the LZMA lump at %d: %d bytes into %s bytes instead of %d bytes",
+            fileOffset, lzmaSize, decompressed and tostring(#decompressed) or "no", actualSizeNum), 3)
+    end
+
+    return Binary.NewStringReader(decompressed), actualSizeNum
 end
 
 ---Reads the data of a lump, decompressing it if needed.
@@ -992,7 +1001,7 @@ local function openLump(bsp, fileOffset, fileLength)
     bsp:Seek(fileOffset)
     local lump = Binary.NewStringReader(bsp:Read(fileLength) or "")
     if Binary.Read(lump, 4) == "LZMA" then
-        return decompress(lump)
+        return decompress(lump, fileOffset)
     end
 
     lump:Seek(0)

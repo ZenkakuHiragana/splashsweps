@@ -34,33 +34,42 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---@field SortID        integer   LightmapGroup key used to find material and lightmap texture.
 ---@field TriangleCount integer   Total triangle count before splitting by MAX_TRIANGLES.
 
+---A face to sort for lightmap packing.
+---The engine sorts the faces by the enumeration ID of their materials in the material system,
+---while MaterialIndex of the lightmap info is the index to the material names of the map.
+---@class ss.Lightmaps.SortableFace
+---@field Lightmap      ss.PrecachedData.LightmapInfo
+---@field EnumerationID integer The enumeration ID of the material of the face.
+
 ---Sorts faces for lightmap packing, mimicking the engine's LightmapLess function.
----@param a ss.PrecachedData.LightmapInfo
----@param b ss.PrecachedData.LightmapInfo
+---@param a ss.Lightmaps.SortableFace
+---@param b ss.Lightmaps.SortableFace
 ---@return boolean
 local function lightmapLess(a, b)
+    local lightmapA, lightmapB = a.Lightmap, b.Lightmap
+
     -- 1. We want lightmapped surfaces to show up first
-    local hasLightmapA = tobool(a.HasLightmap)
-    local hasLightmapB = tobool(b.HasLightmap)
+    local hasLightmapA = tobool(lightmapA.HasLightmap)
+    local hasLightmapB = tobool(lightmapB.HasLightmap)
     if hasLightmapA ~= hasLightmapB then
         return hasLightmapA
     end
 
     -- 2. Then sort by material enumeration ID
-    if a.MaterialIndex ~= b.MaterialIndex then
-        return a.MaterialIndex < b.MaterialIndex
+    if a.EnumerationID ~= b.EnumerationID then
+        return a.EnumerationID < b.EnumerationID
     end
 
     -- 3. We want NON-lightstyled surfaces to show up first
-    local hasLightStylesA = a.HasLightmap and a.HasLightmap > 1 or false
-    local hasLightStylesB = b.HasLightmap and b.HasLightmap > 1 or false
+    local hasLightStylesA = lightmapA.HasLightmap and lightmapA.HasLightmap > 1 or false
+    local hasLightStylesB = lightmapB.HasLightmap and lightmapB.HasLightmap > 1 or false
     if hasLightStylesA ~= hasLightStylesB then
         return not hasLightStylesA
     end
 
     -- 4. Then sort by lightmap area for better packing... (big areas first)
-    local aArea = (a.Width or 0) * (a.Height or 0)
-    local bArea = (b.Width or 0) * (b.Height or 0)
+    local aArea = (lightmapA.Width or 0) * (lightmapA.Height or 0)
+    local bArea = (lightmapB.Width or 0) * (lightmapB.Height or 0)
     return aArea > bArea
 end
 
@@ -86,18 +95,21 @@ function Lightmaps.Pack(lightmaps, materialInfo)
     }
 
     -- Loop through sorted faces and pack them
-    local sortableFaces = RBTree.new(lightmapLess)
     local arrayIndexToEnumerationID = {} ---@type table<integer, integer>
     for enumerationID, matInfo in pairs(materialInfo) do
         arrayIndexToEnumerationID[matInfo.ArrayIndex] = enumerationID
     end
+
+    local sortableFaces = RBTree.new(lightmapLess)
     for _, t in ipairs(lightmaps) do
-        t.MaterialIndex = arrayIndexToEnumerationID[t.MaterialIndex]
-        sortableFaces:Insert(t)
+        ---@type ss.Lightmaps.SortableFace
+        local face = { Lightmap = t, EnumerationID = arrayIndexToEnumerationID[t.MaterialIndex] }
+        sortableFaces:Insert(face)
     end
 
-    for faceInfo in sortableFaces:Pairs() do ---@cast faceInfo ss.PrecachedData.LightmapInfo
-        local enumerationID = faceInfo.MaterialIndex
+    for face in sortableFaces:Pairs() do ---@cast face ss.Lightmaps.SortableFace
+        local faceInfo = face.Lightmap
+        local enumerationID = face.EnumerationID
         if faceInfo.HasLightmap > 0 then
             local width  = faceInfo.Width + 1
             local height = faceInfo.Height + 1
