@@ -1107,6 +1107,7 @@ function BSP.Load()
     local elapsed = math.Round((SysTime() - t0) * 1000, 2)
     print("Done.  Elapsed time: " .. elapsed .. " ms.")
 
+    bsp:Close()
     return t
 end
 
