@@ -244,6 +244,9 @@ Binary.struct "VTF.Header" {
     "8      padding3",     -- 7.3+
 }
 
+---The total size of the fields of VTF.Header, which the headers of versions before 7.3 are shorter than.
+local HEADER_SIZE = 80
+
 ---@class ss.Binary.VTF.ResourceEntry
 ---@field tag string
 ---@field flags integer
@@ -253,6 +256,9 @@ Binary.struct "VTF.ResourceEntry" {
     "Byte  flags",
     "ULong offset",
 }
+
+---The size of VTF.ResourceEntry.
+local RESOURCE_ENTRY_SIZE = 3 + 1 + 4
 
 ---@class ss.VTF.Image
 ---@field Width integer
@@ -433,10 +439,11 @@ end
 
 ---Returns offset to high resolution image for VTF version 7.3+
 ---@param header ss.Binary.VTF.Header
----@param vtf File
+---@param vtf ss.BinaryStringReader
 ---@return integer
 local function getHighResImageOffset73(header, vtf)
     for _ = 1, math.min(header.numResources, 32) do
+        if vtf:Tell() + RESOURCE_ENTRY_SIZE > vtf:Size() then break end
         local resource = Binary.Read(vtf, "VTF.ResourceEntry")
         if resource.tag == "\x30\x00\x00" then
             return resource.offset
@@ -451,9 +458,12 @@ end
 ---@return ss.VTF.ImageStack?
 function VTF.Read(path)
     if not path:EndsWith ".vtf" then path = path .. ".vtf" end
-    local vtf = file.Open(string.format("materials/%s", path), "rb", "GAME")
-    if not vtf then return end
+    -- Reading values past the end of the data is an error,
+    -- so the header and the resource entries are read only if they are within the data.
+    local data = file.Read(string.format("materials/%s", path), "GAME")
+    if not data or #data < HEADER_SIZE then return end
 
+    local vtf = Binary.NewStringReader(data)
     local header = Binary.Read(vtf, "VTF.Header")
     local minorVersion = header.version[2]
     if header.signature ~= "VTF\x00" then return end
@@ -467,10 +477,9 @@ function VTF.Read(path)
         and getHighResImageOffset72(header)
         or getHighResImageOffset73(header, vtf)
     if offset < header.headerSize then return end
-    if offset >= vtf:Size() then return end
+    if offset >= #data then return end
 
-    vtf:Seek(offset)
-    local buffer = vtf:Read(getTotalImageSize(header))
+    local buffer = data:sub(offset + 1, offset + getTotalImageSize(header))
     local format = header.highResImageFormat
     local maxWidth = header.width
     local maxHeight = header.height

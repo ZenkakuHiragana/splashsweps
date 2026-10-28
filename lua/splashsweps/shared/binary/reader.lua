@@ -7,10 +7,10 @@ local ss = SplashSWEPs
 ---@class ss.BinaryReader
 local Binary = ss.module "splashsweps/shared/binary/reader"
 
----Structure definition to read and write binary data in a File.
+---Structure definition to read binary data from a string reader and write it to a File.
 ---@class ss.BinaryStructureDefinition
 ---@field [integer] string
----@field Read (fun(self: ss.BinaryStructureDefinition, binary: File|ss.BinaryStringReader, ...: any): table)? Special function to read this structure.
+---@field Read (fun(self: ss.BinaryStructureDefinition, binary: ss.BinaryStringReader, ...: any): table)? Special function to read this structure.
 ---@field Write (fun(self: ss.BinaryStructureDefinition, binary: File, value: table, ...: any))? Special function to write this structure.
 ---@field Size integer? The total size of this structure.
 
@@ -37,9 +37,9 @@ function Binary.Find(typename)
     return definitions[typename]
 end
 
----Reads little-endian values from a binary string with the methods of File that Binary.Read uses.
+---Reads little-endian values from a binary string, with methods named after those of File.
 ---Each read of File is costly however small it is,
----so large data is read as one string by a single File:Read and decoded here in Lua.
+---so binary data is read as one string by a single read of the file and decoded here in Lua.
 ---@class ss.BinaryStringReader
 ---@field Data     string  The binary data.
 ---@field Position integer The position of the next byte to read, starting from 0 as File:Tell does.
@@ -154,7 +154,7 @@ function StringReader:ReadFloat()
     return sign * ldexp(mantissa + 8388608, exponent - 150)
 end
 
----Creates a reader at the beginning of the data, which Binary.Read accepts in place of File.
+---Creates a reader at the beginning of the data, which Binary.Read reads from.
 ---@param data string
 ---@return ss.BinaryStringReader
 function Binary.NewStringReader(data)
@@ -182,7 +182,7 @@ function Binary.GetFields(definition)
 end
 
 ---Reads a null-terminated string, padded to fixedLength bytes if given.
----@param binary      File|ss.BinaryStringReader
+---@param binary      ss.BinaryStringReader
 ---@param fixedLength integer?
 ---@return string
 local function ReadString(binary, fixedLength)
@@ -202,16 +202,15 @@ end
 ---Functions to read a value of the built-in types, looked up by the type name.
 ---Arrays read a value for each element, so Binary.Read looks up this table
 ---instead of joining "Read" and the type name every time, which LuaJIT 2.0 does not compile.
----Each function calls the method of the reader so that it works for both File and ss.BinaryStringReader.
----@type table<string, fun(binary: File|ss.BinaryStringReader): any>
+---@type table<string, fun(binary: ss.BinaryStringReader): any>
 local READERS = {
-    Bool   = function(binary) return binary:ReadBool() end,
-    Byte   = function(binary) return binary:ReadByte() end,
-    Float  = function(binary) return binary:ReadFloat() end,
-    Long   = function(binary) return binary:ReadLong() end,
-    Short  = function(binary) return binary:ReadShort() end,
-    ULong  = function(binary) return binary:ReadULong() end,
-    UShort = function(binary) return binary:ReadUShort() end,
+    Bool   = StringReader.ReadBool,
+    Byte   = StringReader.ReadByte,
+    Float  = StringReader.ReadFloat,
+    Long   = StringReader.ReadLong,
+    Short  = StringReader.ReadShort,
+    ULong  = StringReader.ReadULong,
+    UShort = StringReader.ReadUShort,
     SByte  = function(binary)
         local n = binary:ReadByte()
         return n - (n > 127 and 256 or 0)
@@ -222,7 +221,7 @@ local READERS = {
 ---Returns the function to read a value of a type name that is not a structure:
 ---a built-in type, a string padded to a fixed length like `String128`, or bytes of a length like `4`.
 ---@param typename string
----@return (fun(binary: File|ss.BinaryStringReader): any)? # nil for a structure or a method of File only like `Double`.
+---@return (fun(binary: ss.BinaryStringReader): any)? # nil for a structure.
 local function ReaderOf(typename)
     if READERS[typename] then return READERS[typename] end
     local fixedLength = tonumber(typename:match "^String(%d+)$")
@@ -239,7 +238,7 @@ end
 ---A field of a structure definition prepared for reading.
 ---@class ss.BinaryReader.Field
 ---@field TypeName   string
----@field Read       (fun(binary: File|ss.BinaryStringReader): any)? The function to read a value, or nil to read it by TypeName.
+---@field Read       (fun(binary: ss.BinaryStringReader): any)? The function to read a value, or nil to read it by TypeName.
 ---@field Key        string?  The key of the field, or nil to put the values after the previous ones by position.
 ---@field Count      integer? The number of the elements of an array of a fixed size.
 ---@field CountField string?  The key of the previous field that has the number of the elements.
@@ -279,7 +278,7 @@ local function LayoutOf(definition)
 end
 
 ---Reads a value of a field.
----@param binary File|ss.BinaryStringReader
+---@param binary ss.BinaryStringReader
 ---@param field  ss.BinaryReader.Field
 ---@param ...    any
 ---@return any
@@ -291,7 +290,7 @@ end
 
 ---Reads a structure by the fields of its definition.
 ---An array of no element is nil, and the values of a field without a key follow the previous ones by position.
----@param binary     File|ss.BinaryStringReader
+---@param binary     ss.BinaryStringReader
 ---@param definition ss.BinaryStructureDefinition
 ---@param ...        any
 ---@return table
@@ -331,13 +330,12 @@ local function ReadStructure(binary, definition, ...)
     return structure
 end
 
----Read a value or structure from given binary file or string reader.
+---Read a value or structure from given string reader.
 ---The offset should correctly be set before call by binary:Seek().
 ---arg should be one of the following:
----  - Number for `File:Read(%d)`
+---  - Number of bytes to read as a string, or a string of the number like `4`
 ---  - String for one of these:
----    - a call of `File:Read%s()`, e.g. `Long`, `Float`
----    - Additional built-in type: `SByte` (signed byte)
+---    - Built-in types: `Bool`, `Byte`, `SByte` (signed byte), `Short`, `UShort`, `Long`, `ULong`, and `Float`
 ---    - `String` for null-terminated string
 ---    - `String%d` for a null-terminated string but padded to `%d` bytes.
 ---    - Structure name defined by Binary.struct "T"
@@ -348,23 +346,20 @@ end
 ---    Array amount can be a field name previously defined in the same structure.
 ---    e.g. `{ "Long edgeCount", "UShort edgeIndices edgeCount" }`
 ---@generic T : table
----@param binary File|ss.BinaryStringReader
+---@param binary ss.BinaryStringReader
 ---@param arg ss.Binary.`T`
 ---@param ... any Any parameters passed to special function to read.
 ---@return ss.Binary.`T`
----@overload fun(binary: File|ss.BinaryStringReader, arg: integer):       string
----@overload fun(binary: File|ss.BinaryStringReader, arg: "Bool"):        boolean
----@overload fun(binary: File|ss.BinaryStringReader, arg: "Byte"):        integer
----@overload fun(binary: File,                       arg: "Double"):      number
----@overload fun(binary: File|ss.BinaryStringReader, arg: "Float"):       number
----@overload fun(binary: File,                       arg: "Line"):        string
----@overload fun(binary: File|ss.BinaryStringReader, arg: "Long"):        integer
----@overload fun(binary: File|ss.BinaryStringReader, arg: "Short"):       integer
----@overload fun(binary: File,                       arg: "UInt64"):      integer
----@overload fun(binary: File|ss.BinaryStringReader, arg: "ULong"):       integer
----@overload fun(binary: File|ss.BinaryStringReader, arg: "UShort"):      integer
----@overload fun(binary: File|ss.BinaryStringReader, arg: "SByte"):       integer
----@overload fun(binary: File|ss.BinaryStringReader, arg: "String"):      string
+---@overload fun(binary: ss.BinaryStringReader, arg: integer):  string
+---@overload fun(binary: ss.BinaryStringReader, arg: "Bool"):   boolean
+---@overload fun(binary: ss.BinaryStringReader, arg: "Byte"):   integer
+---@overload fun(binary: ss.BinaryStringReader, arg: "Float"):  number
+---@overload fun(binary: ss.BinaryStringReader, arg: "Long"):   integer
+---@overload fun(binary: ss.BinaryStringReader, arg: "Short"):  integer
+---@overload fun(binary: ss.BinaryStringReader, arg: "ULong"):  integer
+---@overload fun(binary: ss.BinaryStringReader, arg: "UShort"): integer
+---@overload fun(binary: ss.BinaryStringReader, arg: "SByte"):  integer
+---@overload fun(binary: ss.BinaryStringReader, arg: "String"): string
 function Binary.Read(binary, arg, ...)
     local read = READERS[arg]
     if read then return read(binary) end
@@ -381,11 +376,6 @@ function Binary.Read(binary, arg, ...)
     elseif argType == "string" then ---@cast arg string
         if arg:StartsWith "String" then
             return ReadString(binary, tonumber(arg:sub(#"String" + 1)))
-        end
-
-        local method = binary["Read" .. arg] ---@type fun(self: File|ss.BinaryStringReader): any
-        if isfunction(method) then
-            return method(binary)
         elseif tonumber(arg) then
             return Binary.Read(binary, tonumber(arg))
         elseif definitions[arg] and (#definitions[arg] > 0 or definitions[arg].Read) then
