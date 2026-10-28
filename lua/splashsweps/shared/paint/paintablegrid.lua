@@ -13,24 +13,85 @@ local PaintableGrid = ss.module "splashsweps/shared/paint/paintablegrid"
 ---Side length of a cell of paintable grids in Hammer units.
 PaintableGrid.CELL_SIZE = 12
 
-local abs   = math.abs
-local ceil  = math.ceil
-local floor = math.floor
-local min   = math.min
-local max   = math.max
+local abs    = math.abs
+local band   = bit.band
+local bnot   = bit.bnot
+local bor    = bit.bor
+local ceil   = math.ceil
+local floor  = math.floor
+local lshift = bit.lshift
+local min    = math.min
+local max    = math.max
+local rshift = bit.rshift
 
 ---The serverside canvas of a paintable surface which holds the result of paintings.
+---Each cell holds the internal index of the ink type painted on it, or 0 if no ink is there.
+---
+---The cells are numbered k = y * Width + x from 0, and every 4 cells in the order of k are packed into an element,
+---as an internal index of ink types fits in 8 bits.
+---Cell k is in bits 8 * (k % 4) to 8 * (k % 4) + 7 of element floor(k / 4) + 1.
+---For example, a grid of Width = 5 and Height = 3 has 4 elements:
+---
+---```text
+---          x=0    x=1    x=2    x=3    x=4
+---    y=0 [ k=0 ][ k=1 ][ k=2 ][ k=3 ][ k=4 ]
+---    y=1 [ k=5 ][ k=6 ][ k=7 ][ k=8 ][ k=9 ]
+---    y=2 [ k=10][ k=11][ k=12][ k=13][ k=14]
+---
+---             bits 0-7   bits 8-15   bits 16-23   bits 24-31
+---    Grid[1]  k=0        k=1         k=2          k=3
+---    Grid[2]  k=4        k=5         k=6          k=7
+---    Grid[3]  k=8        k=9         k=10         k=11
+---    Grid[4]  k=12       k=13        k=14         unused, always 0
+---```
+---
+---An element can hold cells of two rows, like Grid[2].
+---With ink 3 at k=0, no ink at k=1, ink 7 at k=2, and ink 1 at k=3, Grid[1] is 0x01070003:
+---
+---```text
+---    bit 31     24 23     16 15      8 7       0
+---       +---------+---------+---------+---------+
+---       |  0x01   |  0x07   |  0x00   |  0x03   |
+---       +---------+---------+---------+---------+
+---          k=3       k=2       k=1       k=0
+---```
+---
+---The bit library works on signed 32-bit integers, so an element is negative
+---if the cell in its bits 24-31 has an internal index of 128 or more.
+---The cells are still read right, as rshift is a logical shift.
 ---@class ss.PaintableGrid
----@field [integer] integer Contains internal index of ink type for each pixel. To access specific pixel, use `index = y * Width + x`.
+---@field [integer] integer The elements of 4 packed cells, from 1 to ceil(Width * Height / 4).
 ---@field Width     integer The total columns of the grid.
 ---@field Height    integer The total rows of the grid.
 
----Creates an empty grid.
+---Creates a grid with no element, whose cells are all empty.
+---PaintableGrid.Clear fills its elements in advance so that painting does not allocate them.
 ---@param width  integer
 ---@param height integer
 ---@return ss.PaintableGrid
 function PaintableGrid.new(width, height)
     return { Width = width, Height = height }
+end
+
+---Returns the internal index of the ink type of a cell, or 0 if no ink is there,
+---from the elements laid out as ss.PaintableGrid describes.
+---An element not filled yet is taken as 4 empty cells.
+---@param grid ss.PaintableGrid
+---@param k    integer The cell y * Width + x, counting from 0.
+---@return integer
+local function getCell(grid, k)
+    return band(rshift(grid[rshift(k, 2) + 1] or 0, lshift(band(k, 3), 3)), 0xFF)
+end
+
+---Sets the internal index of the ink type of a cell, keeping the other 3 cells of its element.
+---An element not filled yet is taken as 4 empty cells.
+---@param grid    ss.PaintableGrid
+---@param k       integer The cell y * Width + x, counting from 0.
+---@param inktype integer The internal index of the ink type from 0 to 255.
+local function setCell(grid, k, inktype)
+    local i = rshift(k, 2) + 1
+    local shift = lshift(band(k, 3), 3)
+    grid[i] = bor(band(grid[i] or 0, bnot(lshift(0xFF, shift))), lshift(inktype, shift))
 end
 
 ---Calculates minimum bounding box from inclined rectangle.
@@ -212,7 +273,7 @@ function PaintableGrid.Write(self, paint)
                     --     Vector(x_max, y_max,  1),
                     --     angle, 3, Color(0, 255, 255, 8))
                     if paintedCells >= totalCells * 0.5 then -- At least 50% of the cells should be filled.
-                        surfaceGrid[iy * surfaceGridWidth + ix + 1] = inktype
+                        setCell(surfaceGrid, iy * surfaceGridWidth + ix, inktype)
                         numPaintedCells = numPaintedCells + 1
 
                         -- -- Painted cells
@@ -240,7 +301,7 @@ function PaintableGrid.Write(self, paint)
                 if  0 <= shapeIndexX and shapeIndexX < shapeMaskWidth
                 and 0 <= shapeIndexY and shapeIndexY < shapeMaskHeight
                 and shapeMask[shapeIndexY * shapeMaskWidth + shapeIndexX + 1] then
-                    surfaceGrid[iy * surfaceGridWidth + ix + 1] = inktype
+                    setCell(surfaceGrid, iy * surfaceGridWidth + ix, inktype)
 
                     -- -- Painted cells
                     -- local gridToWorld = Geometry.InvertRotationTranslation(self.WorldToLocalGrid)
@@ -273,17 +334,25 @@ function PaintableGrid.Read(self, queryX, queryY, queryZ)
     local gridX, gridY = Geometry.TransformPoint(self.WorldToLocalGrid, queryX, queryY, queryZ)
     local x = floor(gridX / PaintableGrid.CELL_SIZE)
     local y = floor(gridY / PaintableGrid.CELL_SIZE)
-    local pixel = self.Grid[y * self.Grid.Width + x + 1]
-    if pixel and 0 <= x and x < self.Grid.Width and 0 <= y and y < self.Grid.Height then
-        return InkType.Types[pixel]
+    if 0 <= x and x < self.Grid.Width and 0 <= y and y < self.Grid.Height then
+        return InkType.Types[getCell(self.Grid, y * self.Grid.Width + x)]
     end
 end
 
----Clears all painted data in the grid.
+---Reads a cell of the grid.
+---@param self ss.PaintableSurface
+---@param x    integer The column counting from 0.
+---@param y    integer The row counting from 0.
+---@return integer # The internal index of the ink type painted on the cell, or 0 if no ink is there.
+function PaintableGrid.ReadCell(self, x, y)
+    return getCell(self.Grid, y * self.Grid.Width + x)
+end
+
+---Clears all painted data in the grid by filling all its elements with 0, which also allocates them.
 ---@param self ss.PaintableSurface
 function PaintableGrid.Clear(self)
-    for i = 1, self.Grid.Width * self.Grid.Height do
-        self.Grid[i] = -1
+    for i = 1, ceil(self.Grid.Width * self.Grid.Height / 4) do
+        self.Grid[i] = 0
     end
 end
 

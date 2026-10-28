@@ -120,7 +120,7 @@ local function DrawGrid(surf, toWorld)
     local cellSize = PaintableGrid.CELL_SIZE
     for y = 0, surf.Grid.Height - 1 do
         for x = 0, surf.Grid.Width - 1 do
-            local pixel = surf.Grid[y * surf.Grid.Width + x + 1] or 0
+            local pixel = PaintableGrid.ReadCell(surf, x, y)
             local center = Vector(Geometry.TransformPoint(gridToWorld,
                 (x + 0.5) * cellSize, (y + 0.5) * cellSize, 0.1 * cellSize))
             local color = pixel > 0 and Color(128, 255, 128) or Color(255, 255, 255)
