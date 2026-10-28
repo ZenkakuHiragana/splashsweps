@@ -97,7 +97,9 @@ function Lightmaps.Pack(lightmaps, materialInfo)
     -- Loop through sorted faces and pack them
     local arrayIndexToEnumerationID = {} ---@type table<integer, integer>
     for enumerationID, matInfo in pairs(materialInfo) do
-        arrayIndexToEnumerationID[matInfo.ArrayIndex] = enumerationID
+        for _, arrayIndex in ipairs(matInfo.ArrayIndices) do
+            arrayIndexToEnumerationID[arrayIndex] = enumerationID
+        end
     end
 
     local sortableFaces = RBTree.new(lightmapLess)

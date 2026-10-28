@@ -13,14 +13,16 @@ local MapMaterials = ss.module "splashsweps/client/mapload/materials"
 ---Material metadata needed to reproduce world surface shading in inkmesh.
 ---@class ss.MapMaterials.MaterialInfo
 ---@field Material             IMaterial The source material.
----@field ArrayIndex           integer   Index to material name array which is usually game.GetMap():GetMaterials().
+---Indices to material name array which is usually game.GetMap():GetMaterials(),
+---of the materials of this enumeration ID. Several materials have the same one if they are missing.
+---@field ArrayIndices         integer[]
 ---@field NeedsBumpedLightmaps boolean   Whether the material uses 3 directional lightmaps plus the base lightmap.
 ---@field HasBaseTexture2      boolean   Indicates if the material has $basetexture2.
 ---@field HasBaseTexture3      boolean   Indicates if the material has $basetexture3.
 ---@field BaseTexture          string?   Value of $basetexture.
 ---@field Bumpmap              string?   Value of $bumpmap.
 ---@field Detail               string?   Value of $detail.
----@field BumpTextureTransform VMatrix?  Value of $bumptransform.
+---@field BumpTextureTransform VMatrix   Value of $bumptransform, or the identity if the material has none.
 ---@field BaseTextureTransform VMatrix?  Value of $basetexturetransform.
 ---@field BlendMaskTransform   VMatrix?  Value of $blendmasktransform.
 ---@field DetailBlendFactor    number?   Value of $detailblendfactor.
@@ -96,19 +98,25 @@ local function enumerateMaterials(materialsInMap, cubemapLookup)
     end
 
     ---Enumeration ID --> material information
+    ---The engine replaces missing materials with the error material, which is made by CreateMaterial.
+    ---The material dictionary sorts such materials before those from files (CMaterialDict::MaterialLessFunc),
+    ---so the error material has the enumeration ID before all materials of the map.
+    local ERROR_MATERIAL_ENUMERATION_ID = 0
     local FLAGS2_BUMPED_LIGHTMAP = 8 -- (1 << 3)
     local IdentityMatrix = Matrix()
     local materialInfo = {} ---@type table<integer, ss.MapMaterials.MaterialInfo>
     for enumerationID, name in ipairs(materialNames) do
-        if enumerationIDToArrayIndex[enumerationID] then
+        local arrayIndex = enumerationIDToArrayIndex[enumerationID]
+        if arrayIndex then
             local mat = Material(name)
-            if mat and not mat:IsError() then
+            if mat:IsError() then enumerationID = ERROR_MATERIAL_ENUMERATION_ID end
+            if not materialInfo[enumerationID] then
                 local baseTexture2 = mat:GetString "$basetexture2"
                 local baseTexture3 = mat:GetString "$basetexture3"
                 local envmap       = mat:GetString "$envmap"
                 materialInfo[enumerationID] = {
                     Material             = mat,
-                    ArrayIndex           = enumerationIDToArrayIndex[enumerationID],
+                    ArrayIndices         = {},
                     NeedsBumpedLightmaps = bit.band(mat:GetInt "$flags2", FLAGS2_BUMPED_LIGHTMAP) ~= 0,
                     HasBaseTexture2      = tobool(baseTexture2),
                     HasBaseTexture3      = tobool(baseTexture3),
@@ -116,7 +124,7 @@ local function enumerateMaterials(materialsInMap, cubemapLookup)
                     Bumpmap              = mat:GetString "$bumpmap",
                     Detail               = baseTexture2 or mat:GetString "$detail",
                     BaseTextureTransform = mat:GetMatrix "$basetexturetransform",
-                    BumpTextureTransform = mat:GetMatrix "$bumptransform",
+                    BumpTextureTransform = mat:GetMatrix "$bumptransform" or IdentityMatrix, -- None for the error material
                     BlendMaskTransform   = mat:GetMatrix "$blendmasktransform" or IdentityMatrix,
                     DetailBlendFactor    = mat:GetFloat  "$detailblendfactor",
                     DetailBlendMode      = mat:GetInt    "$detailblendmode",
@@ -127,6 +135,9 @@ local function enumerateMaterials(materialsInMap, cubemapLookup)
                           * (mat:GetVector "$color2" or Util.vector_one),
                 }
             end
+
+            local arrayIndices = materialInfo[enumerationID].ArrayIndices
+            arrayIndices[#arrayIndices + 1] = arrayIndex
         end
     end
 
