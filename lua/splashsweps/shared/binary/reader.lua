@@ -181,6 +181,156 @@ function Binary.GetFields(definition)
     return fields
 end
 
+---Reads a null-terminated string, padded to fixedLength bytes if given.
+---@param binary      File|ss.BinaryStringReader
+---@param fixedLength integer?
+---@return string
+local function ReadString(binary, fixedLength)
+    local str = ""
+    local chr = binary:Read(1)
+    local maxLength = fixedLength or 1024
+    while chr and chr ~= "\x00" and #str < maxLength + 1 do
+        str = str .. chr
+        chr = binary:Read(1)
+    end
+    for _ = 1, (fixedLength or 0) - (#str + 1) do
+        binary:Read(1)
+    end
+    return str
+end
+
+---Functions to read a value of the built-in types, looked up by the type name.
+---Arrays read a value for each element, so Binary.Read looks up this table
+---instead of joining "Read" and the type name every time, which LuaJIT 2.0 does not compile.
+---Each function calls the method of the reader so that it works for both File and ss.BinaryStringReader.
+---@type table<string, fun(binary: File|ss.BinaryStringReader): any>
+local READERS = {
+    Bool   = function(binary) return binary:ReadBool() end,
+    Byte   = function(binary) return binary:ReadByte() end,
+    Float  = function(binary) return binary:ReadFloat() end,
+    Long   = function(binary) return binary:ReadLong() end,
+    Short  = function(binary) return binary:ReadShort() end,
+    ULong  = function(binary) return binary:ReadULong() end,
+    UShort = function(binary) return binary:ReadUShort() end,
+    SByte  = function(binary)
+        local n = binary:ReadByte()
+        return n - (n > 127 and 256 or 0)
+    end,
+    String = function(binary) return ReadString(binary) end,
+}
+
+---Returns the function to read a value of a type name that is not a structure:
+---a built-in type, a string padded to a fixed length like `String128`, or bytes of a length like `4`.
+---@param typename string
+---@return (fun(binary: File|ss.BinaryStringReader): any)? # nil for a structure or a method of File only like `Double`.
+local function ReaderOf(typename)
+    if READERS[typename] then return READERS[typename] end
+    local fixedLength = tonumber(typename:match "^String(%d+)$")
+    if fixedLength then
+        return function(binary) return ReadString(binary, fixedLength) end
+    end
+
+    local length = tonumber(typename)
+    if length then
+        return function(binary) return binary:Read(length) end
+    end
+end
+
+---A field of a structure definition prepared for reading.
+---@class ss.BinaryReader.Field
+---@field TypeName   string
+---@field Read       (fun(binary: File|ss.BinaryStringReader): any)? The function to read a value, or nil to read it by TypeName.
+---@field Key        string?  The key of the field, or nil to put the values after the previous ones by position.
+---@field Count      integer? The number of the elements of an array of a fixed size.
+---@field CountField string?  The key of the previous field that has the number of the elements.
+
+---Fields of each structure definition prepared for reading, which are the same for every element of an array.
+local layoutOf = setmetatable({}, { __mode = "k" }) ---@type table<ss.BinaryStructureDefinition, ss.BinaryReader.Field[]>
+
+---Returns the fields of a structure definition prepared for reading.
+---@param definition ss.BinaryStructureDefinition
+---@return ss.BinaryReader.Field[]
+local function LayoutOf(definition)
+    local layout = layoutOf[definition]
+    if layout then return layout end
+
+    layout = {}
+    for i, field in ipairs(Binary.GetFields(definition)) do
+        local typename, key, size = field[1], field[2], field[3]
+        local entry = { TypeName = typename, Read = ReaderOf(typename) } ---@type ss.BinaryReader.Field
+        if key ~= nil and key ~= "" and key ~= "nil" then
+            entry.Key = key
+        end
+
+        if size ~= nil and size ~= "" then
+            local count = tonumber(size)
+            if not count then
+                entry.CountField = size
+            elseif count > 1 then
+                entry.Count = count
+            end
+        end
+
+        layout[i] = entry
+    end
+
+    layoutOf[definition] = layout
+    return layout
+end
+
+---Reads a value of a field.
+---@param binary File|ss.BinaryStringReader
+---@param field  ss.BinaryReader.Field
+---@param ...    any
+---@return any
+local function ReadField(binary, field, ...)
+    local read = field.Read
+    if read then return read(binary) end
+    return Binary.Read(binary, field.TypeName, ...)
+end
+
+---Reads a structure by the fields of its definition.
+---An array of no element is nil, and the values of a field without a key follow the previous ones by position.
+---@param binary     File|ss.BinaryStringReader
+---@param definition ss.BinaryStructureDefinition
+---@param ...        any
+---@return table
+local function ReadStructure(binary, definition, ...)
+    local structure = {} ---@type table<string|integer, any>
+    for _, field in ipairs(LayoutOf(definition)) do
+        local count = field.Count
+        if field.CountField then
+            local n = structure[field.CountField]
+            if not n then
+                error(string.format("SplashSWEPs/BinaryReader: the number of %s is in %s, which is not read before",
+                    field.Key or field.TypeName, field.CountField), 3)
+            end
+
+            count = tonumber(n) or 0
+        end
+
+        local key = field.Key
+        if not count then
+            structure[key or #structure + 1] = ReadField(binary, field, ...)
+        elseif key then
+            if count >= 1 then
+                local array = structure[key] or {}
+                structure[key] = array
+                for i = 1, count do
+                    array[i] = ReadField(binary, field, ...)
+                end
+            end
+        else
+            local first = #structure + 1
+            for i = 0, count - 1 do
+                structure[first + i] = ReadField(binary, field, ...)
+            end
+        end
+    end
+
+    return structure
+end
+
 ---Read a value or structure from given binary file or string reader.
 ---The offset should correctly be set before call by binary:Seek().
 ---arg should be one of the following:
@@ -216,59 +366,26 @@ end
 ---@overload fun(binary: File|ss.BinaryStringReader, arg: "SByte"):       integer
 ---@overload fun(binary: File|ss.BinaryStringReader, arg: "String"):      string
 function Binary.Read(binary, arg, ...)
-    if isnumber(arg) then ---@cast arg integer
+    local read = READERS[arg]
+    if read then return read(binary) end
+
+    local argType = type(arg)
+    if argType == "number" then ---@cast arg integer
         return binary:Read(arg)
-    elseif istable(arg) then ---@cast arg ss.BinaryStructureDefinition
+    elseif argType == "table" then ---@cast arg ss.BinaryStructureDefinition
         if arg.Read then
             return arg:Read(binary, ...)
         end
 
-        ---@type table<string|integer, boolean|number|string|table?>
-        local structure = {}
-        for _, field in ipairs(Binary.GetFields(arg)) do
-            ---@type string, integer|string?, integer|string?
-            local fieldType, fieldKey, arraySize = field[1], field[2], field[3]
-            if fieldKey == nil or fieldKey == "" or fieldKey == "nil" then fieldKey = #structure + 1 end
-            if arraySize == nil or arraySize == "" then arraySize = 1 end
-            if isstring(arraySize) and structure[arraySize] or tonumber(arraySize) > 1 then
-                arraySize = tonumber(structure[arraySize]) or tonumber(arraySize) or 0
-                for i = 1, arraySize do
-                    if isstring(fieldKey) then
-                        ---@cast fieldKey string
-                        ---@cast structure table<string, table[]>
-                        structure[fieldKey] = structure[fieldKey] or {}
-                        structure[fieldKey][i] = Binary.Read(binary, fieldType, ...)
-                    else
-                        ---@cast fieldKey integer
-                        structure[fieldKey] = Binary.Read(binary, fieldType, ...)
-                        fieldKey = fieldKey + 1
-                    end
-                end
-            else
-                structure[fieldKey] = Binary.Read(binary, fieldType, ...)
-            end
+        return ReadStructure(binary, arg, ...)
+    elseif argType == "string" then ---@cast arg string
+        if arg:StartsWith "String" then
+            return ReadString(binary, tonumber(arg:sub(#"String" + 1)))
         end
-        return structure
-    elseif isstring(arg) then ---@cast arg string
-        if arg == "SByte" then
-            local n = binary:ReadByte()
-            return n - (n > 127 and 256 or 0)
-        elseif arg:StartsWith "String" then
-            local str = ""
-            local chr = Binary.Read(binary, 1)
-            local fixedLength = tonumber(arg:sub(#"String" + 1))
-            local MAX_STRING_LENGTH = fixedLength or 1024
-            while chr and chr ~= "\x00" and #str < MAX_STRING_LENGTH + 1 do
-                str = str .. chr
-                chr = Binary.Read(binary, 1)
-            end
-            for _ = 1, (fixedLength or 0) - (#str + 1) do
-                Binary.Read(binary, 1)
-            end
-            return str
-        elseif isfunction(binary["Read" .. arg]) then
-            local read = binary["Read" .. arg] ---@type fun(self: File|ss.BinaryStringReader): any
-            return read(binary)
+
+        local method = binary["Read" .. arg] ---@type fun(self: File|ss.BinaryStringReader): any
+        if isfunction(method) then
+            return method(binary)
         elseif tonumber(arg) then
             return Binary.Read(binary, tonumber(arg))
         elseif definitions[arg] and (#definitions[arg] > 0 or definitions[arg].Read) then
