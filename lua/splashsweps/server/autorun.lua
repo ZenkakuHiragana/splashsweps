@@ -14,6 +14,7 @@ local CacheBuilder     = ss.import "splashsweps/server/mapcache/cachebuilder"
 local Hash             = ss.import "splashsweps/shared/hash"
 local InkShape         = ss.import "splashsweps/shared/inkshape"
 local InkType          = ss.import "splashsweps/shared/inktype"
+local Paint            = ss.import "splashsweps/shared/paint/paint"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
 local PrecachedData    = ss.import "splashsweps/shared/typing/precachedata"
 
@@ -41,6 +42,7 @@ end
 
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     LoadCache()
+    Paint.ClearAll()
     collectgarbage "collect"
 end)
 
