@@ -6,7 +6,7 @@ local ss = SplashSWEPs
 local Binary = ss.import "splashsweps/shared/binary/reader"
 
 ---@class ss.BSPLoader
-local BSP = ss.module "splashsweps/server/mapcache/bsploader"
+local BSP = ss.module "splashsweps/shared/mapcache/bsploader"
 
 ---Lump names. most of these are unused in this addon.
 ---@type table<integer, string>
@@ -1038,6 +1038,17 @@ local function readLump(bsp, header, structType)
     end
 
     return t
+end
+
+---Reads mapRevision of the BSP header of current map without reading the lumps.
+---@return integer? # nil if the map file cannot be opened.
+function BSP.ReadRevision()
+    local bsp = file.Open(string.format("maps/%s.bsp", game.GetMap()), "rb", "GAME")
+    if not bsp then return end
+    bsp:Seek(HEADER_SIZE - 4) -- mapRevision is the last field of the header.
+    local revision = bsp:ReadLong()
+    bsp:Close()
+    return revision
 end
 
 ---Parses the BSP structure of current map.

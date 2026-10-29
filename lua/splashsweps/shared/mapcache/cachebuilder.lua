@@ -1,17 +1,17 @@
 
--- Builds the map cache files from the BSP.
+-- Builds the map cache file from the BSP, and reads it.
 
 ---@class ss
 local ss = SplashSWEPs
-local BSP             = ss.import "splashsweps/server/mapcache/bsploader"
+local BSP             = ss.import "splashsweps/shared/mapcache/bsploader"
 local Hash            = ss.import "splashsweps/shared/hash"
-local LightmapBuilder = ss.import "splashsweps/server/mapcache/lightmapbuilder"
+local LightmapBuilder = ss.import "splashsweps/shared/mapcache/lightmapbuilder"
 local PrecachedData   = ss.import "splashsweps/shared/typing/precachedata"
-local SurfaceBuilder  = ss.import "splashsweps/server/mapcache/surfacebuilder"
-local UVBuilder       = ss.import "splashsweps/server/mapcache/uvbuilder"
+local SurfaceBuilder  = ss.import "splashsweps/shared/mapcache/surfacebuilder"
+local UVBuilder       = ss.import "splashsweps/shared/mapcache/uvbuilder"
 
 ---@class ss.CacheBuilderModule
-local CacheBuilder = ss.module "splashsweps/server/mapcache/cachebuilder"
+local CacheBuilder = ss.module "splashsweps/shared/mapcache/cachebuilder"
 
 local band = bit.band
 local huge = math.huge
@@ -201,15 +201,14 @@ local function GetStaticPropUVSize(prop)
     end
 end
 
----Parses the BSP, collect valid brush surfaces,
----and prepare paintable surfaces.
----@return ss.PrecachedData?
-function CacheBuilder.Build()
-    collectgarbage "collect"
+---Parses the BSP, collects valid brush surfaces, prepares paintable surfaces,
+---and writes them to the file without compression.
+---@param path string Path in the data folder.
+---@return boolean # false if the BSP cannot be loaded.
+local function WriteCache(path)
     local bsp = BSP.Load()
-    if not bsp then return end
+    if not bsp then return false end
     local cache = PrecachedData.new()
-    cache.Revision         = bsp.header.mapRevision
     cache.MaterialNames    = BuildMaterialNames(bsp)
     cache.NumMaterialNames = #cache.MaterialNames
     cache.MinimapBounds    = BuildMinimapBounds(bsp)
@@ -222,41 +221,52 @@ function CacheBuilder.Build()
         rectangle.Width, rectangle.Height, prop.UnwrapIndex = GetStaticPropUVSize(prop)
     end
 
-    -- The surfaces are released before the compression, which needs memory.
-    local path = string.format("splashsweps/%s_surfaces.dat", game.GetMap())
-    do
-        collectgarbage "collect"
-        local surfaceInfo, waterSurfaces = SurfaceBuilder.BuildSurfaceCache(bsp)
-        local surfaces = surfaceInfo.Surfaces ---@cast surfaces -? SurfaceInfo.new() creates the array.
-        cache.WaterSurfaces = waterSurfaces
-        cache.NumWaterSurfaces = #waterSurfaces
-
-        local rectangles = {} ---@type ss.PrecachedData.InkMapRectangle[]
-        for _, surf in ipairs(surfaces) do
-            rectangles[#rectangles + 1] = surf.InkMapRectangle
-        end
-
-        for _, prop in ipairs(cache.StaticProps) do
-            rectangles[#rectangles + 1] = prop.InkMapRectangle
-        end
-
-        surfaceInfo.HammerUnitsToUV = UVBuilder.Build(rectangles)
-        Hash.BuildDisplacementHash(surfaces)
-        surfaceInfo.LightmapsLDR = LightmapBuilder.Build(bsp, bsp.FACES, bsp.LIGHTING, surfaces, cache.MaterialNames)
-        surfaceInfo.NumLightmapsLDR = #surfaceInfo.LightmapsLDR
-        if HasMatchingHDRFaces(bsp) then
-            surfaceInfo.LightmapsHDR = LightmapBuilder.Build(bsp, bsp.FACES_HDR, bsp.LIGHTING_HDR, surfaces, cache.MaterialNames)
-            surfaceInfo.NumLightmapsHDR = #surfaceInfo.LightmapsHDR
-        end
-
-        surfaceInfo.SurfaceHash = Hash.BuildSurfaceHash(surfaces, cache.StaticProps)
-        PrecachedData.WriteFile(path, "PrecachedData.SurfaceInfo", surfaceInfo)
+    collectgarbage "collect"
+    SurfaceBuilder.BuildSurfaceCache(bsp, cache)
+    local surfaces = cache.Surfaces ---@cast surfaces -? PrecachedData.new() creates the array.
+    local rectangles = {} ---@type ss.PrecachedData.InkMapRectangle[]
+    for _, surf in ipairs(surfaces) do
+        rectangles[#rectangles + 1] = surf.InkMapRectangle
     end
 
+    for _, prop in ipairs(cache.StaticProps) do
+        rectangles[#rectangles + 1] = prop.InkMapRectangle
+    end
+
+    cache.HammerUnitsToUV = UVBuilder.Build(rectangles)
+    Hash.BuildDisplacementHash(surfaces)
+    cache.LightmapsLDR = LightmapBuilder.Build(bsp, bsp.FACES, bsp.LIGHTING, surfaces, cache.MaterialNames)
+    cache.NumLightmapsLDR = #cache.LightmapsLDR
+    if HasMatchingHDRFaces(bsp) then
+        cache.LightmapsHDR = LightmapBuilder.Build(bsp, bsp.FACES_HDR, bsp.LIGHTING_HDR, surfaces, cache.MaterialNames)
+        cache.NumLightmapsHDR = #cache.LightmapsHDR
+    end
+
+    cache.SurfaceHash = Hash.BuildSurfaceHash(surfaces, cache.StaticProps)
+    PrecachedData.WriteFile(path, bsp.header.mapRevision, cache)
+    return true
+end
+
+---Reads the map cache of the current map, building it from the BSP first
+---if the file is missing, or built by another version of the cache or from another revision of the map.
+---Each machine builds its own cache, as the server does not send it to the clients.
+---@return ss.PrecachedData? # nil if the map file cannot be read.
+function CacheBuilder.Load()
+    local path = string.format("splashsweps/%s.dat", game.GetMap())
+    local revision = BSP.ReadRevision()
+    if not revision then return end
+    local cache = PrecachedData.ReadFile(path, revision)
+    if cache then return cache end
+
+    file.CreateDir "splashsweps"
+    collectgarbage "collect"
+    if not WriteCache(path) then return end
+
+    -- WriteCache has returned, so the BSP and the cache are released before the compression, which needs memory.
     collectgarbage "collect"
     PrecachedData.CompressFile(path)
     collectgarbage "collect"
-    return cache
+    return PrecachedData.ReadFile(path, revision)
 end
 
 return CacheBuilder

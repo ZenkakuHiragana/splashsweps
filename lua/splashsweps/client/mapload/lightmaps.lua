@@ -208,17 +208,17 @@ function Lightmaps.GetPageSize(lightmapLayout, lightmapGroup)
 end
 
 ---Groups packed faces by model and SortID.
----@param surfaceInfo    ss.PrecachedData.SurfaceInfo Cached BSP surface data.
+---@param cache          ss.PrecachedData The map cache.
 ---@param lightmapLayout ss.Lightmaps.LightmapLayout Packed lightmap layout from Lightmaps.Pack.
 ---@return ss.Lightmaps.MeshGroup[][] meshGroupsByModel    Model-indexed mesh groups.
-function Lightmaps.BuildMeshGroups(surfaceInfo, lightmapLayout)
+function Lightmaps.BuildMeshGroups(cache, lightmapLayout)
     ---Model index ---> mesh groups for that model
     ---@type ss.Lightmaps.MeshGroup[][]
     local meshGroupsByModel      = {}
     local sortIDToMeshGroupIndex = {} ---@type integer[][]
     for sortID, lightmapGroup in ipairs(lightmapLayout.Groups) do
         for _, faceIndex in ipairs(lightmapGroup.FaceIndices) do
-            local surf = surfaceInfo.Surfaces[faceIndex]
+            local surf = cache.Surfaces[faceIndex]
             if not meshGroupsByModel[surf.ModelIndex] then
                 meshGroupsByModel[surf.ModelIndex] = {}
                 sortIDToMeshGroupIndex[surf.ModelIndex] = {}

@@ -11,6 +11,7 @@ include "splashsweps/shared/autorun.lua"
 include "splashsweps/client/debug_mesh.lua"
 include "splashsweps/client/render/inkpass.lua"
 
+local CacheBuilder      = ss.import "splashsweps/shared/mapcache/cachebuilder"
 local Hash              = ss.import "splashsweps/shared/hash"
 local InkAtlases        = ss.import "splashsweps/client/ink/atlases"
 local InkMap            = ss.import "splashsweps/client/render/inkmap"
@@ -19,7 +20,6 @@ local InkShape          = ss.import "splashsweps/shared/inkshape"
 local InkType           = ss.import "splashsweps/shared/inktype"
 local PaintableSurface  = ss.import "splashsweps/shared/paint/paintablesurface"
 local Players           = ss.import "splashsweps/shared/players"
-local PrecachedData     = ss.import "splashsweps/shared/typing/precachedata"
 local RenderTargets     = ss.import "splashsweps/client/render/rendertargets"
 local StaticPropBuilder = ss.import "splashsweps/client/mapload/staticpropbuilder"
 local Paint             = ss.import "splashsweps/shared/paint/paint"
@@ -29,28 +29,22 @@ local CVarDebugMeshData = CreateClientConVar("ss_debug_mesh_data", "0", false, f
     "1 keeps the vertices of the ink meshes built at map load, for debugging. It takes as much memory as the meshes.")
 
 local function LoadCache()
-    local cachePath = string.format("splashsweps/%s.dat", game.GetMap())
-    local surfacesPath = string.format("splashsweps/%s_surfaces.dat", game.GetMap())
-    local cache = PrecachedData.ReadFile(cachePath, "PrecachedData") ---@type ss.PrecachedData?
+    local cache = CacheBuilder.Load()
     if not cache then return end
 
-    local surfaces = PrecachedData.ReadFile(surfacesPath, "PrecachedData.SurfaceInfo") ---@type ss.PrecachedData.SurfaceInfo?
-    if not surfaces then return end
-
     -- The engine packs the HDR lightmaps if HDR is enabled, and the cache has them only if the faces match.
-    local lightmaps = render.GetHDREnabled() and surfaces.LightmapsHDR or surfaces.LightmapsLDR or {}
-    Hash.Setup(surfaces.SurfaceHash, cache.HashParameters)
-    RenderTargets.Setup(surfaces.HammerUnitsToUV)
+    local lightmaps = render.GetHDREnabled() and cache.LightmapsHDR or cache.LightmapsLDR or {}
+    Hash.Setup(cache.SurfaceHash, cache.HashParameters)
+    RenderTargets.Setup(cache.HammerUnitsToUV)
     InkShape.Load()
     InkType.Load()
     InkAtlases.Load()
     InkMap.Setup()
-    PaintableSurface.Setup(surfaces.Surfaces, cache.NumModels)
+    PaintableSurface.Setup(cache.Surfaces, cache.NumModels)
     PaintableSurface.SetupStaticProps(cache.StaticProps)
-    InkMapLayout.Setup(surfaces.Surfaces, cache.StaticProps)
-    InkMesh.Setup(surfaces, lightmaps, InkMapLayout.Placements, cache.NumModels, cache.MaterialNames,
-        CVarDebugMeshData:GetBool())
-    StaticPropBuilder.Setup(cache.StaticProps, cache.StaticPropMDL, surfaces.Cubemaps)
+    InkMapLayout.Setup(cache.Surfaces, cache.StaticProps)
+    InkMesh.Setup(cache, lightmaps, InkMapLayout.Placements, CVarDebugMeshData:GetBool())
+    StaticPropBuilder.Setup(cache.StaticProps, cache.StaticPropMDL, cache.Cubemaps)
     InkMap.ClearAll()
 end
 

@@ -9,7 +9,7 @@ local Geometry = ss.import "splashsweps/shared/geometry"
 local Util     = ss.import "splashsweps/shared/util"
 
 ---@class ss.BoundingBox
-local BoundingBox = ss.module "splashsweps/server/mapcache/boundingbox"
+local BoundingBox = ss.module "splashsweps/shared/mapcache/boundingbox"
 
 local abs = math.abs
 local huge = math.huge

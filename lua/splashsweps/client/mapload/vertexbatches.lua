@@ -35,15 +35,15 @@ local floor = math.floor
 
 ---Splits mesh groups into draw-sized vertex batches for mesh.Begin.
 ---A batch ends when it reaches the limit of the mesh library, even in the middle of the triangles of a surface.
----@param surfaceInfo ss.PrecachedData.SurfaceInfo Cached BSP surface data.
----@param meshGroups  ss.Lightmaps.MeshGroup[]     Mesh groups for one BSP model.
+---@param cache      ss.PrecachedData          The map cache.
+---@param meshGroups ss.Lightmaps.MeshGroup[] Mesh groups for one BSP model.
 ---@return ss.VertexBatches.MeshVertexBatch[] vertexBatches Draw-sized vertex batches.
-function VertexBatches.Build(surfaceInfo, meshGroups)
+function VertexBatches.Build(cache, meshGroups)
     local vertexBatches = {} ---@type ss.VertexBatches.MeshVertexBatch[]
     for _, meshGroup in ipairs(meshGroups) do
         local vertexBatch = nil ---@type ss.VertexBatches.MeshVertexBatch?
         for _, faceIndex in ipairs(meshGroup.FaceIndices) do
-            local numVertices = surfaceInfo.Surfaces[faceIndex].NumVertexIndices
+            local numVertices = cache.Surfaces[faceIndex].NumVertexIndices
             local first = 1
             while first <= numVertices do
                 if not vertexBatch or vertexBatch.NumVertices >= MAX_VERTICES then
@@ -68,19 +68,19 @@ end
 ---Writes the vertices of each vertex batch into the matching ink IMesh.
 ---@param renderBatch   ss.RenderBatch                     Render entries created from the same vertexBatches order.
 ---@param vertexBatches ss.VertexBatches.MeshVertexBatch[] Vertex batches to write one-to-one with renderBatch.
----@param surfaceInfo       ss.PrecachedData.SurfaceInfo   Cached BSP surface data.
+---@param cache             ss.PrecachedData               The map cache.
 ---@param placements        ss.InkMapLayout.Placement[]    Face-indexed placements in the ink map.
 ---@param faceLightmaps     ss.Lightmaps.FaceLightmap[]    Face-indexed lightmap placements.
 ---@param debugMeshData     ss.VertexBatches.MeshVertex[][]? Receives the vertices written into each IMesh if given.
-function VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, placements, faceLightmaps, debugMeshData)
-    local scale = surfaceInfo.HammerUnitsToUV
+function VertexBatches.WriteMeshes(renderBatch, vertexBatches, cache, placements, faceLightmaps, debugMeshData)
+    local scale = cache.HammerUnitsToUV
     for i, vertexBatch in ipairs(vertexBatches) do
         local debugVertices = debugMeshData and {} ---@type ss.VertexBatches.MeshVertex[]?
         local faceRanges = vertexBatch.FaceRanges
         mesh.Begin(renderBatch[i].Mesh, MATERIAL_TRIANGLES, vertexBatch.NumVertices / 3)
         for r = 1, #faceRanges, 3 do
             local faceIndex = faceRanges[r]
-            local surf      = surfaceInfo.Surfaces[faceIndex]
+            local surf      = cache.Surfaces[faceIndex]
             local placement = placements[faceIndex]
             local lightmap  = faceLightmaps[faceIndex]
             local vertexIndices = surf.VertexIndices
@@ -155,8 +155,8 @@ end
 ---The flashlight pass draws them with a single material, so the batches need no split by material.
 ---@param renderBatch   ss.RenderBatch                     Render batch to store the meshes.
 ---@param vertexBatches ss.VertexBatches.MeshVertexBatch[] Vertex batches of the model.
----@param surfaceInfo   ss.PrecachedData.SurfaceInfo       Cached BSP surface data.
-function VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches, surfaceInfo)
+---@param cache         ss.PrecachedData                   The map cache.
+function VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches, cache)
     local flashlightMaterial = Material "splashsweps/shaders/lightmappedgeneric"
     local numRemaining = 0
     for _, vertexBatch in ipairs(vertexBatches) do
@@ -168,7 +168,7 @@ function VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches, surface
     for _, vertexBatch in ipairs(vertexBatches) do
         local faceRanges = vertexBatch.FaceRanges
         for r = 1, #faceRanges, 3 do
-            local surf = surfaceInfo.Surfaces[faceRanges[r]]
+            local surf = cache.Surfaces[faceRanges[r]]
             local vertexIndices = surf.VertexIndices
             for n = faceRanges[r + 1], faceRanges[r + 2] do
                 if numInMesh == meshSize then

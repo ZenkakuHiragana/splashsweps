@@ -6,7 +6,7 @@ local ss = SplashSWEPs
 local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
 
 ---@class ss.LightmapBuilderModule
-local LightmapBuilder = ss.module "splashsweps/server/mapcache/lightmapbuilder"
+local LightmapBuilder = ss.module "splashsweps/shared/mapcache/lightmapbuilder"
 
 local band = bit.band
 local byte = string.byte
@@ -180,9 +180,9 @@ function LightmapBuilder.Build(bsp, faces, rawSamples, surfaces, materialNames)
         materialIDs[name] = i
     end
 
-    local faceLumpIndexToSurfaceInfoIndex = {} ---@type integer[]
+    local faceLumpIndexToSurfaceIndex = {} ---@type integer[]
     for i, surf in ipairs(surfaces) do
-        faceLumpIndexToSurfaceInfoIndex[surf.FaceLumpIndex] = i
+        faceLumpIndexToSurfaceIndex[surf.FaceLumpIndex] = i
     end
 
     -- Create a list of face objects with all necessary info for sorting
@@ -210,7 +210,7 @@ function LightmapBuilder.Build(bsp, faces, rawSamples, surfaces, materialNames)
         end
         t.Width = t.HasLightmap > 0 and width or 0
         t.Height = t.HasLightmap > 0 and height or 0
-        t.FaceIndex = faceLumpIndexToSurfaceInfoIndex[i] or 0
+        t.FaceIndex = faceLumpIndexToSurfaceIndex[i] or 0
 
         -- CheckSurfaceLighting
         if not power2 then

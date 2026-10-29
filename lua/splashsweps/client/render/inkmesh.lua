@@ -39,13 +39,12 @@ InkMesh.Batches = state.Batches
 InkMesh.DebugMeshData = state.DebugMeshData
 
 ---Reads through BSP models which includes the worldspawn and brush entities and constructs IMeshes from them.
----@param surfaceInfo       ss.PrecachedData.SurfaceInfo
+---@param cache             ss.PrecachedData
 ---@param lightmaps         ss.PrecachedData.LightmapInfo[] Lightmap info of the faces the engine uses, LDR or HDR.
----@param placements        ss.InkMapLayout.Placement[] Face-indexed placements of the surfaces of surfaceInfo in the ink map.
----@param numModels         integer
----@param materialNames     string[]
+---@param placements        ss.InkMapLayout.Placement[] Face-indexed placements of the surfaces of the cache in the ink map.
 ---@param keepDebugMeshData boolean Keeps the vertices in InkMesh.DebugMeshData, which takes as much memory as the meshes.
-function InkMesh.Setup(surfaceInfo, lightmaps, placements, numModels, materialNames, keepDebugMeshData)
+function InkMesh.Setup(cache, lightmaps, placements, keepDebugMeshData)
+    local numModels = cache.NumModels
     local entities = {} ---@type Entity[]
     for _, e in ipairs(ents.GetAll()) do
         local modelName = e:GetModel() or ""
@@ -68,9 +67,9 @@ function InkMesh.Setup(surfaceInfo, lightmaps, placements, numModels, materialNa
     end
 
     InkMeshMaterial.SetupWater()
-    local materialInfo      = MapMaterials.Enumerate(materialNames, surfaceInfo.Cubemaps)
+    local materialInfo      = MapMaterials.Enumerate(cache.MaterialNames, cache.Cubemaps)
     local lightmapLayout    = Lightmaps.Pack(lightmaps, materialInfo)
-    local meshGroupsByModel = Lightmaps.BuildMeshGroups(surfaceInfo, lightmapLayout)
+    local meshGroupsByModel = Lightmaps.BuildMeshGroups(cache, lightmapLayout)
     local faceLightmaps     = Lightmaps.BuildFaceLightmaps(lightmapLayout)
     UnderlaySync.WatchUnderlays(materialInfo)
     Underlay.Build(materialInfo)
@@ -78,7 +77,7 @@ function InkMesh.Setup(surfaceInfo, lightmaps, placements, numModels, materialNa
     table.Empty(state.DebugMeshData)
     local debugMeshData = keepDebugMeshData and state.DebugMeshData or nil
     for modelIndex, meshGroups in pairs(meshGroupsByModel) do
-        local vertexBatches = VertexBatches.Build(surfaceInfo, meshGroups)
+        local vertexBatches = VertexBatches.Build(cache, meshGroups)
         local renderBatch = state.Batches[modelIndex]
         for _, vertexBatch in ipairs(vertexBatches) do
             local mat = InkMeshMaterial.Create(lightmapLayout, vertexBatch.SortID)
@@ -87,8 +86,8 @@ function InkMesh.Setup(surfaceInfo, lightmaps, placements, numModels, materialNa
                 Mesh     = Mesh(mat),
             }
         end
-        VertexBatches.WriteMeshes(renderBatch, vertexBatches, surfaceInfo, placements, faceLightmaps, debugMeshData)
-        VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches, surfaceInfo)
+        VertexBatches.WriteMeshes(renderBatch, vertexBatches, cache, placements, faceLightmaps, debugMeshData)
+        VertexBatches.WriteFlashlightMeshes(renderBatch, vertexBatches, cache)
     end
 end
 

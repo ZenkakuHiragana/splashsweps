@@ -1,6 +1,6 @@
 
 -- Records of the map cache, saved by PrecachedData.WriteFile and loaded by PrecachedData.ReadFile.
--- <map>.dat is PrecachedData itself, and <map>_surfaces.dat is PrecachedData.SurfaceInfo.
+-- <map>.dat is PrecachedData itself.
 -- Each record is a binary structure of Binary.struct, which lists its fields in the order in the file.
 -- An array is preceded by the field of its length, which the code building the cache sets.
 
@@ -102,7 +102,7 @@ PrecachedData.DirectionalLight = record("PrecachedData.DirectionalLight", {
 })
 
 ---Placement of a rectangle in the ink map, which has a surface or the faces of a static prop.
----Values are in hammer units, which ss.PrecachedData.SurfaceInfo.HammerUnitsToUV converts into UV coordinates.
+---Values are in hammer units, which ss.PrecachedData.HammerUnitsToUV converts into UV coordinates.
 ---```text
 ---. +-----------------------------> v
 ---. |
@@ -157,7 +157,7 @@ PrecachedData.InkMapRectangle = record("PrecachedData.InkMapRectangle", {
 ---@field Skin         integer The skin of this prop.
 ---@field UnwrapIndex  integer Describes how the bounding box is unwrapped in UV space.  See GetStaticPropUVSize.
 ---@field InkMapRectangle ss.PrecachedData.InkMapRectangle Where the unwrapped faces of the bounding box are in the ink map.
----@field CubemapIndex integer Index to ss.PrecachedData.SurfaceInfo.Cubemaps of the cubemap the engine uses, or 0 if none.
+---@field CubemapIndex integer Index to ss.PrecachedData.Cubemaps of the cubemap the engine uses, or 0 if none.
 
 ---@type { new: fun(): ss.PrecachedData.StaticProp }
 PrecachedData.StaticProp = record("PrecachedData.StaticProp", {
@@ -445,36 +445,6 @@ PrecachedData.SurfaceHash = record("PrecachedData.SurfaceHash", {
     "ULong SurfaceIndices    TotalSurfaceIndices",
 })
 
----Paintable surfaces built from LUMP_FACES, which PrecachedData.WriteFile saves to <map>_surfaces.dat.
----An array of no elements is nil when it is read from the cache file.
----@class ss.PrecachedData.SurfaceInfo
----@field NumLightmapsLDR       integer
----@field LightmapsLDR          ss.PrecachedData.LightmapInfo[]? Made from LUMP_FACES to pack lightmaps, indexed by the face.
----@field NumLightmapsHDR       integer
----Made from LUMP_FACES_HDR in the same way, empty if the map has no HDR lighting
----or LUMP_FACES_HDR has faces other than LUMP_FACES.
----@field LightmapsHDR          ss.PrecachedData.LightmapInfo[]?
----@field NumSurfaces           integer
----@field Surfaces              ss.PrecachedData.Surface[]? Array of paintable surfaces.
----@field SurfaceHash           ss.PrecachedData.SurfaceHash Spatial hash given to Hash.Setup.
----@field HammerUnitsToUV       number Converts hammer units of the ink map rectangles into UV coordinates.
----@field NumCubemaps           integer
----@field Cubemaps              ss.PrecachedData.CubemapInfo[]? Cubemap samples and paintable face bounds using them.
-
----@type { new: fun(): ss.PrecachedData.SurfaceInfo }
-PrecachedData.SurfaceInfo = record("PrecachedData.SurfaceInfo", {
-    "ULong  NumLightmapsLDR",
-    "PrecachedData.LightmapInfo LightmapsLDR NumLightmapsLDR",
-    "ULong  NumLightmapsHDR",
-    "PrecachedData.LightmapInfo LightmapsHDR NumLightmapsHDR",
-    "ULong  NumSurfaces",
-    "PrecachedData.Surface Surfaces NumSurfaces",
-    "PrecachedData.SurfaceHash SurfaceHash",
-    "Float  HammerUnitsToUV",
-    "UShort NumCubemaps", -- MAX_MAP_CUBEMAPSAMPLES = 1024
-    "PrecachedData.CubemapInfo Cubemaps NumCubemaps",
-})
-
 ---@class ss.PrecachedData.HashParameters
 ---@field GridSizeSurface integer
 ---@field MinGridSizeDisplacement integer
@@ -513,7 +483,6 @@ PrecachedData.MinimapAreaBounds = record("PrecachedData.MinimapAreaBounds", {
 ---Precached results of the BSP which PrecachedData.WriteFile saves to <map>.dat.
 ---An array of no elements is nil when it is read from the cache file.
 ---@class ss.PrecachedData
----@field Revision         integer  mapRevision of the BSP header the cache is built from.
 ---@field NumMaterialNames integer
 ---@field MaterialNames    string[]? List of material names used in the map ordered by the same as TEXDATA_STRING_DATA lump.
 ---@field NumMinimapBounds integer
@@ -527,8 +496,19 @@ PrecachedData.MinimapAreaBounds = record("PrecachedData.MinimapAreaBounds", {
 ---@field StaticPropMDL    string[]? List of paths to model of static props.
 ---@field NumWaterSurfaces integer
 ---@field WaterSurfaces    ss.PrecachedData.Surface[]? Surfaces of water, which have no paint grid or placement in the ink map.
+---@field NumLightmapsLDR  integer
+---@field LightmapsLDR     ss.PrecachedData.LightmapInfo[]? Made from LUMP_FACES to pack lightmaps, indexed by the face.
+---@field NumLightmapsHDR  integer
+---Made from LUMP_FACES_HDR in the same way, empty if the map has no HDR lighting
+---or LUMP_FACES_HDR has faces other than LUMP_FACES.
+---@field LightmapsHDR     ss.PrecachedData.LightmapInfo[]?
+---@field NumSurfaces      integer
+---@field Surfaces         ss.PrecachedData.Surface[]? Paintable surfaces built from LUMP_FACES.
+---@field SurfaceHash      ss.PrecachedData.SurfaceHash Spatial hash given to Hash.Setup.
+---@field HammerUnitsToUV  number Converts hammer units of the ink map rectangles into UV coordinates.
+---@field NumCubemaps      integer
+---@field Cubemaps         ss.PrecachedData.CubemapInfo[]? Cubemap samples and paintable face bounds using them.
 record("PrecachedData", {
-    "Long   Revision", -- mapRevision of dheader_t (int)
     "ULong  NumMaterialNames",
     "String MaterialNames NumMaterialNames",
     "UShort NumMinimapBounds", -- The area number is 9 bits
@@ -542,18 +522,29 @@ record("PrecachedData", {
     "String StaticPropMDL NumStaticPropMDL",
     "ULong  NumWaterSurfaces",
     "PrecachedData.Surface WaterSurfaces NumWaterSurfaces",
+    "ULong  NumLightmapsLDR",
+    "PrecachedData.LightmapInfo LightmapsLDR NumLightmapsLDR",
+    "ULong  NumLightmapsHDR",
+    "PrecachedData.LightmapInfo LightmapsHDR NumLightmapsHDR",
+    "ULong  NumSurfaces",
+    "PrecachedData.Surface Surfaces NumSurfaces",
+    "PrecachedData.SurfaceHash SurfaceHash",
+    "Float  HammerUnitsToUV",
+    "UShort NumCubemaps", -- MAX_MAP_CUBEMAPSAMPLES = 1024
+    "PrecachedData.CubemapInfo Cubemaps NumCubemaps",
 }, nil, PrecachedData)
 
----Writes a record to a cache file in the data folder, after the cache version, without compression.
----PrecachedData.CompressFile compresses it afterwards,
----so that the caller can release the record before the compression needs memory.
+---Writes the map cache to a file in the data folder, after the cache version and the map revision,
+---without compression. PrecachedData.CompressFile compresses it afterwards,
+---so that the caller can release the cache before the compression needs memory.
 ---@param path     string Path in the data folder.
----@param typename string The name of the binary structure of the record.
----@param value    table
-function PrecachedData.WriteFile(path, typename, value)
+---@param revision integer mapRevision of the BSP header the cache is built from.
+---@param cache    ss.PrecachedData
+function PrecachedData.WriteFile(path, revision, cache)
     local f = file.Open(path, "wb", "DATA")
     f:WriteLong(ss.CACHE_VERSION)
-    BinaryWriter.Write(f, typename, value)
+    f:WriteLong(revision)
+    BinaryWriter.Write(f, "PrecachedData", cache)
     f:Close()
 end
 
@@ -563,16 +554,19 @@ function PrecachedData.CompressFile(path)
     file.Write(path, util.Compress(file.Read(path, "DATA")))
 end
 
----Reads a record from a cache file written by PrecachedData.WriteFile and PrecachedData.CompressFile.
----@param path     string Path in the data folder.
----@param typename string The name of the binary structure of the record.
----@return any # The record of the binary structure, or nil if the file is missing, broken, or written by another version of the cache.
-function PrecachedData.ReadFile(path, typename)
+---Reads the map cache from a file written by PrecachedData.WriteFile and PrecachedData.CompressFile.
+---It decodes the cache only if the cache version and the map revision match.
+---@param path     string  Path in the data folder.
+---@param revision integer The map revision the cache must be built from.
+---@return ss.PrecachedData? # nil if the file is missing, cannot be decompressed, is shorter than the header,
+---                          or is written by another version of the cache or for another revision. A truncated body raises an error.
+function PrecachedData.ReadFile(path, revision)
     local data = util.Decompress(file.Read(path, "DATA") or "")
-    if not data or #data < 4 then return end
+    if not data or #data < 8 then return end
     local reader = Binary.NewStringReader(data)
     if Binary.Read(reader, "Long") ~= ss.CACHE_VERSION then return end
-    return Binary.Read(reader, typename)
+    if Binary.Read(reader, "Long") ~= revision then return end
+    return Binary.Read(reader, "PrecachedData") --[[@as ss.PrecachedData]]
 end
 
 return PrecachedData

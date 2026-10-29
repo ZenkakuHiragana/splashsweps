@@ -7,7 +7,7 @@ local RectanglePacker = ss.import "splashsweps/shared/packer/packer"
 local Structures      = ss.import "splashsweps/shared/packer/structures"
 
 ---@class ss.UVBuilderModule
-local UVBuilder = ss.module "splashsweps/server/mapcache/uvbuilder"
+local UVBuilder = ss.module "splashsweps/shared/mapcache/uvbuilder"
 
 ---Places rectangles in the ink map.
 ---Each rectangle has its size before this, and gets its position and rotation, with its size swapped if rotated.

@@ -3,14 +3,14 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local BoundingBox   = ss.import "splashsweps/server/mapcache/boundingbox"
+local BoundingBox   = ss.import "splashsweps/shared/mapcache/boundingbox"
 local Geometry      = ss.import "splashsweps/shared/geometry"
 local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
 local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
 local Util          = ss.import "splashsweps/shared/util"
 
 ---@class ss.SurfaceBuilderModule
-local SurfaceBuilder = ss.module "splashsweps/server/mapcache/surfacebuilder"
+local SurfaceBuilder = ss.module "splashsweps/shared/mapcache/surfacebuilder"
 
 local abs = math.abs
 local ceil = math.ceil
@@ -728,12 +728,10 @@ end
 
 ---Extracts surfaces from LUMP_FACES of parsed BSP structures.
 ---@param bsp ss.RawBSPResults
----@return ss.PrecachedData.SurfaceInfo surf
----@return ss.PrecachedData.Surface[] water
-function SurfaceBuilder.BuildSurfaceCache(bsp)
+---@param cache ss.PrecachedData
+function SurfaceBuilder.BuildSurfaceCache(bsp, cache)
     local t0 = SysTime()
-    local surfInfo = PrecachedData.SurfaceInfo.new()
-    local surf = surfInfo.Surfaces
+    local surf = {} ---@type ss.PrecachedData.Surface[]
     local water = {} ---@type ss.PrecachedData.Surface[]
     local lump = bsp.FACES or {}
     local cubemaps, cubemapsByOrigin = BuildCubemapEntries(bsp)
@@ -743,8 +741,6 @@ function SurfaceBuilder.BuildSurfaceCache(bsp)
             faceIndexToModelIndex[j] = i
         end
     end
-    surfInfo.Cubemaps = cubemaps
-
     print "Generating inkable surfaces..."
     local validFaces  = {} ---@type boolean[] face index --> is paintable
     local faceCubemaps = {} ---@type table<integer, ss.PrecachedData.CubemapInfo>
@@ -783,14 +779,16 @@ function SurfaceBuilder.BuildSurfaceCache(bsp)
         end
     end
     FinalizeCubemapEntries(cubemaps)
-    surfInfo.NumSurfaces = #surf
-    surfInfo.NumCubemaps = #cubemaps
+    cache.Surfaces = surf
+    cache.NumSurfaces = #surf
+    cache.WaterSurfaces = water
+    cache.NumWaterSurfaces = #water
+    cache.Cubemaps = cubemaps
+    cache.NumCubemaps = #cubemaps
     print("    Generated " .. #surf .. " surfaces from " .. #lump .. " faces")
 
     local elapsed = round((SysTime() - t0) * 1000, 2)
     print("Elapsed time: " .. elapsed .. " ms.")
-
-    return surfInfo, water
 end
 
 ---studiohdr_t::illumposition follows id, version, checksum, name[64], length, and eyeposition.
