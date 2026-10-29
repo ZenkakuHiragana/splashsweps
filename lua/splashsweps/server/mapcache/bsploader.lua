@@ -168,7 +168,7 @@ Binary.struct "BSP.CDispCornerNeighbors" {
     "Byte   padding",
 }
 
----@class ss.Binary.BSP.dgamelunp_t
+---@class ss.Binary.BSP.dgamelump_t
 ---@field id         integer
 ---@field flags      integer
 ---@field version    integer
@@ -785,7 +785,7 @@ Binary.struct "BSP.CUBEMAPS" {
 
 ---@class ss.Binary.BSP.GAME_LUMP
 ---@field lumpCount integer
----@field [integer] ss.Binary.BSP.dgamelunp_t
+---@field [integer] ss.Binary.BSP.dgamelump_t
 Binary.struct "BSP.GAME_LUMP" {
     "Long                lumpCount",
     "BSP.dgamelump_t nil lumpCount",
@@ -817,7 +817,7 @@ Binary.struct "BSP.StaticPropLeaf" {
 Binary.struct "BSP.GAME_LUMP.sprp" { -- Static Props
     ---@param self ss.BinaryStructureDefinition
     ---@param binary ss.BinaryStringReader
-    ---@param header ss.Binary.BSP.dgamelunp_t
+    ---@param header ss.Binary.BSP.dgamelump_t
     ---@return ss.Binary.BSP.GAME_LUMP.sprp
     Read = function(self, binary, header)
         local names = Binary.Read(binary, "BSP.StaticPropDict")
@@ -887,7 +887,7 @@ Binary.struct "BSP.GAME_LUMP.sprp" { -- Static Props
 ---| ss.Binary.BSP.TEXINFO
 ---| ss.Binary.BSP.CDispNeighbor
 ---| ss.Binary.BSP.CDispCornerNeighbors
----| ss.Binary.BSP.dgamelunp_t
+---| ss.Binary.BSP.dgamelump_t
 ---| ss.Binary.BSP.VERTEXES
 ---| boolean
 ---| number

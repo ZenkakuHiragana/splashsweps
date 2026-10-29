@@ -38,7 +38,7 @@ InkShape.Shapes = state.Shapes
 ---The paint shader clips the paint by the same value.
 local SHAPE_MASK_EDGE = 127.5
 
----Read pixels from givem texture and stores them to the mask.
+---Reads pixels from the given texture and stores them in the mask.
 ---@param vmt IMaterial definition of the ink shape.
 ---@return ss.InkShape? # the mask to be stored to.
 local function ReadPixelsFromVTF(vmt)
