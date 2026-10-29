@@ -97,7 +97,8 @@ VS_OUTPUT main(const VS_INPUT v) {
     sincos(radians(v.worldAngles.xyz), sine, cosine);
 
     float3 worldForward = { cosine.x * cosine.y, cosine.x * sine.y, -sine.x };
-    float2 paintAxisVInInkMap = normalize(mul(float4(worldForward, 0.0), v.worldToUV)).yx;
+    // The top of the shape image faces the paint's forward, so the image V axis (downward) is its backward.
+    float2 paintAxisVInInkMap = -normalize(mul(float4(worldForward, 0.0), v.worldToUV)).yx;
     float2 paintAxisUInInkMap = { paintAxisVInInkMap.y, -paintAxisVInInkMap.x };
     float paintAngle = atan2(paintAxisUInInkMap.y, paintAxisUInInkMap.x);
     float paintRotationCode5 = floor(frac(paintAngle / TAU) * 32.0 + 0.5);

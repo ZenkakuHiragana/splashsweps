@@ -103,7 +103,7 @@ function SWEP:PrimaryAttack()
     local pos = tr.HitPos
     local normal = tr.HitNormal
     local right = normal:Cross(tr.StartPos - pos):GetNormalized()
-    local ang = right:Cross(normal):AngleEx(normal)
+    local ang = normal:Cross(right):AngleEx(normal)
     local id = InkType.FindIndex(self.InkTypes[self.InkTypeIndex])
     debugoverlay.Axis(pos, ang, 20, 5, false)
     Paint.Paint(pos, ang, Vector(radius, radius, 100),

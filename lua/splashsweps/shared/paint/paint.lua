@@ -16,6 +16,7 @@ local Paint = ss.module "splashsweps/shared/paint/paint"
 
 ---A paint: an ink shape of an ink type put at a pose.
 ---The ink shape lies on the plane of the forward and the left, facing the up.
+---The top of the shape image faces the forward, and its right faces the right (-left).
 ---@class ss.Paint
 ---@field X       number  The origin.
 ---@field Y       number
@@ -23,8 +24,8 @@ local Paint = ss.module "splashsweps/shared/paint/paint"
 ---@field Pitch   number  The angles of the forward, the left, and the up.
 ---@field Yaw     number
 ---@field Roll    number
----@field RadiusX number  Distance from the origin to the edge of the shape along the forward.
----@field RadiusY number  Distance from the origin to the edge of the shape along the left.
+---@field RadiusX number  Distance from the origin to the edge of the shape along the left (the image width / 2).
+---@field RadiusY number  Distance from the origin to the edge of the shape along the forward (the image height / 2).
 ---@field RadiusZ number  Distance from the origin to search for surfaces along the up.
 ---                       The search reaches at least half of the smaller of RadiusX and RadiusY.
 ---@field Shape   integer The internal index of the ink shape.
@@ -60,7 +61,7 @@ function Paint.GetBoundingBox(paint)
     local radiusZ = max(paint.RadiusZ, min(radiusX, radiusY) * 0.5)
     return Geometry.TransformAABB(
         Geometry.FromAngles(paint.Pitch, paint.Yaw, paint.Roll, paint.X, paint.Y, paint.Z),
-        -radiusX, -radiusY, -radiusZ, radiusX, radiusY, radiusZ)
+        -radiusY, -radiusX, -radiusZ, radiusY, radiusX, radiusZ)
 end
 
 ---Returns the paint mapped from a triangle of a displacement onto the flat surface the displacement came from.
@@ -249,8 +250,9 @@ end
 
 ---Paints an ink with given information.
 ---@param pos     Vector  The origin.
----@param ang     Angle   The normal and rotation.
----@param radius  Vector  The radii of the paint, which are limited to 510 Hammer units because of network optimization.
+---@param ang     Angle   The normal (the up) and rotation. The top of the shape image faces the forward.
+---@param radius  Vector  The radii of the paint (x: image width / 2, y: image height / 2, z: search along the up),
+---                       which are limited to 510 Hammer units because of network optimization.
 ---@param shape   integer The internal index of shape to paint.
 ---@param inktype integer The internal index of ink type.
 function Paint.Paint(pos, ang, radius, shape, inktype)

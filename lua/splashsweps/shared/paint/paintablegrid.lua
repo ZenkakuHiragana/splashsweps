@@ -185,13 +185,15 @@ function PaintableGrid.Write(self, paint)
         inkOriginInSurfaceSystemX, inkOriginInSurfaceSystemY,
         inkSystemInSurfaceSystem[1], inkSystemInSurfaceSystem[5],
         inkSystemInSurfaceSystem[2], inkSystemInSurfaceSystem[6],
-        radius_x, radius_y)
+        radius_y, radius_x)
     local indexMinX = max(floor(x_min / cellSize), 0)
     local indexMaxX = min( ceil(x_max / cellSize), surfaceGridWidth - 1)
     local indexMinY = max(floor(y_min / cellSize), 0)
     local indexMaxY = min( ceil(y_max / cellSize), surfaceGridHeight - 1)
 
     -- Caches
+    -- The top of the shape mask faces the forward and its right faces the right (-left),
+    -- so the column (index X) comes from -y in the ink system and the row (index Y) from -x.
     local shapeMask              = InkShape.Shapes[paint.Shape].Mask
     local shapeMaskWidth         = shapeMask.Width
     local shapeMaskHeight        = shapeMask.Height
@@ -240,10 +242,10 @@ function PaintableGrid.Write(self, paint)
             for ix = indexMinX, indexMaxX do
                 x_min, x_max = xInInkSystem + cellMinX, xInInkSystem + cellMaxX
                 y_min, y_max = yInInkSystem + cellMinY, yInInkSystem + cellMaxY
-                local shapeIndexMinX = floor((x_min + radius_x) * oneOverShapeCellWidth - 0.5)
-                local shapeIndexMaxX =  ceil((x_max + radius_x) * oneOverShapeCellWidth + 0.5)
-                local shapeIndexMinY = floor((y_min + radius_y) * oneOverShapeCellHeight - 0.5)
-                local shapeIndexMaxY =  ceil((y_max + radius_y) * oneOverShapeCellHeight + 0.5)
+                local shapeIndexMinX = floor((radius_x - y_max) * oneOverShapeCellWidth  - 0.5)
+                local shapeIndexMaxX =  ceil((radius_x - y_min) * oneOverShapeCellWidth  + 0.5)
+                local shapeIndexMinY = floor((radius_y - x_max) * oneOverShapeCellHeight - 0.5)
+                local shapeIndexMaxY =  ceil((radius_y - x_min) * oneOverShapeCellHeight + 0.5)
 
                 -- Check if the index range for the shape grid at least partially overlaps
                 if shapeIndexMaxX >= 0
@@ -296,8 +298,8 @@ function PaintableGrid.Write(self, paint)
     else -- Otherwise, look up the nearest one
         for iy = indexMinY, indexMaxY do
             for ix = indexMinX, indexMaxX do
-                local shapeIndexX = floor((xInInkSystem + radius_x) * oneOverShapeCellWidth + 0.5)
-                local shapeIndexY = floor((yInInkSystem + radius_y) * oneOverShapeCellHeight + 0.5)
+                local shapeIndexX = floor((radius_x - yInInkSystem) * oneOverShapeCellWidth  + 0.5)
+                local shapeIndexY = floor((radius_y - xInInkSystem) * oneOverShapeCellHeight + 0.5)
                 if  0 <= shapeIndexX and shapeIndexX < shapeMaskWidth
                 and 0 <= shapeIndexY and shapeIndexY < shapeMaskHeight
                 and shapeMask[shapeIndexY * shapeMaskWidth + shapeIndexX + 1] then
