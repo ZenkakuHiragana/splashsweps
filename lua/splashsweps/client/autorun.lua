@@ -55,6 +55,11 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     net.SendToServer()
 end)
 
+net.Receive("SplashSWEPs: Ink definitions", function()
+    InkShape.Read()
+    InkType.Read()
+end)
+
 net.Receive("SplashSWEPs: Paint", function()
     Paint.PaintWorld(Paint.Read())
 end)

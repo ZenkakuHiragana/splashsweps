@@ -137,7 +137,7 @@ local function ReadInkTypeSources()
     cp:SetTexture("$basetexture", "color/white")
     local white = cp:GetTexture "$basetexture"
     for i, inktype in ipairs(InkType.Types) do
-        local mat = Material(inktype.Identifier)
+        local mat = inktype.Material
 
         cp:SetTexture("$basetexture", mat:GetString "$basetexture" or "???")
         local base = cp:GetTexture "$basetexture"

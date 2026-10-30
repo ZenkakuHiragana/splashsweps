@@ -12,7 +12,7 @@
 - `lua/weapons/weapon_splashsweps_test.lua` is the fastest in-game smoke-test surface. It defines the spawnable `Inkling base` weapon mentioned in `README.md`.
 - The server and each client read the map cache through `CacheBuilder.Load` (`lua/splashsweps/shared/mapcache/cachebuilder.lua`) from their `autorun.lua`, and each machine builds its own `data/splashsweps/<map>.dat` when it is missing or outdated; the server does not send it. Debug map-cache issues against that file.
 - The README's cache-file note is stale: current code writes one compressed binary cache named `<map>.dat`, not `<map>.txt`.
-- Ink types are loaded by `InkType.Load()` (`lua/splashsweps/shared/inktype.lua`) from ink materials, `materials/splashsweps/inks/**/*.vmt`, not from a separate JSON content directory. Ink shapes are loaded by `InkShape.Load()` from `materials/splashsweps/inkshapes/**/*.vmt`.
+- Ink types are loaded by `InkType.Load()` (`lua/splashsweps/shared/inktype.lua`) from ink materials, `materials/splashsweps/inks/**/*.vmt`, not from a separate JSON content directory. Ink shapes are loaded by `InkShape.Load()` from `materials/splashsweps/inkshapes/**/*.vmt`. Only the server enumerates those folders; it sends the list in `PlayerInitialSpawn` (`server/autorun.lua`), and each client loads the listed VMTs it has, defining the same ink types and ink shapes in the same order at `InitPostEntity` and drawing the ones it does not have as errors (`materials/splashsweps/inkerror.vmt`, the `error` texture).
 - Shader sources live in `shaders/src/*.hlsl`; compiled `.vcs` output lives under `shaders/fxc/splashsweps/`; the matching material stubs are in `materials/splashsweps/shaders/`.
 
 ## Runtime and debugging gotchas

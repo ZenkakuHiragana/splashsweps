@@ -34,6 +34,15 @@ hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
     collectgarbage "collect"
 end)
 
+-- A net message sent here reaches the client before its InitPostEntity, where the client defines the same ink shapes and types.
+hook.Add("PlayerInitialSpawn", "SplashSWEPs: Send ink definitions", function(ply)
+    net.Start "SplashSWEPs: Ink definitions"
+    InkShape.Write()
+    InkType.Write()
+    net.Send(ply)
+end)
+
+util.AddNetworkString "SplashSWEPs: Ink definitions"
 util.AddNetworkString "SplashSWEPs: Clear all ink"
 util.AddNetworkString "SplashSWEPs: Paint"
 util.AddNetworkString "SplashSWEPs: Paint brush model"

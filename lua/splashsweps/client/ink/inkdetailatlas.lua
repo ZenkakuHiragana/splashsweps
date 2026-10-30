@@ -255,7 +255,7 @@ function InkDetailAtlas.Prepare(baseTextureNames)
     local inkDataByType    = {} ---@type number[][][]
     local blendModes       = {} ---@type table<integer, integer>
     for i, inktype in ipairs(InkType.Types) do
-        local mat = Material(inktype.Identifier)
+        local mat = inktype.Material
         local hasProxies, frameVariable, updater = ReadDetailProxyInfo(mat)
         copyMaterial:SetTexture("$basetexture", mat:GetString "$detail" or "???")
         local detail = copyMaterial:GetTexture "$basetexture"
@@ -284,6 +284,9 @@ function InkDetailAtlas.Prepare(baseTextureNames)
                 end
                 slots[i] = cache[name]
             end
+        elseif updater then
+            -- No cell to draw, but a missing updater is still the author's mistake to report.
+            ss.import(updater)
         end
 
         inkDataByType[i] = InkData.Encode(mat, slots[i], baseTextureNames[i])
