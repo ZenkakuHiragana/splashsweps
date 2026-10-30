@@ -135,14 +135,16 @@ function SWEP:SecondaryAttack()
     self:EmitSound("Weapon_AR2.Empty")
     local tr = Owner:GetEyeTrace()
     local x, y, z = tr.HitPos:Unpack()
-    for surf in Hash.CollectSurfaces(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1) do
+    for _, surf in ipairs(Hash.CollectSurfaces(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1)) do
         DrawGrid(surf)
     end
 
-    for _, modelIndex, worldToModel in Hash.CollectBrushEntities(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1) do
+    local _, modelIndices, worldToModels = Hash.CollectBrushEntities(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1)
+    for k, modelIndex in ipairs(modelIndices) do
+        local worldToModel = worldToModels[k]
         local localX, localY, localZ = Geometry.TransformPoint(worldToModel, x, y, z)
-        for surf in Hash.CollectBrushModelSurfaces(modelIndex,
-            localX - 1, localY - 1, localZ - 1, localX + 1, localY + 1, localZ + 1) do
+        for _, surf in ipairs(Hash.CollectBrushModelSurfaces(modelIndex,
+            localX - 1, localY - 1, localZ - 1, localX + 1, localY + 1, localZ + 1)) do
             DrawGrid(surf, Geometry.InvertRotationTranslation(worldToModel))
         end
     end
@@ -164,14 +166,15 @@ local function Probe(x, y, z, pitch, yaw, roll)
 end
 
 ---Checks if the ink is painted under the player and indicates it by a sound.
----@param self     SplatoonWeaponBase
----@param surfaces fun(): ss.PaintableSurface Surfaces to check.
----@param probe    ss.Paint The pose to check in the surfaces' coordinate system.
----@param worldPos Vector   Position to draw debug overlay in world coordinates.
-local function CheckInk(self, surfaces, probe, worldPos)
-    for surf in surfaces do
-        for p in Paint.EnumeratePositions(surf, probe,
-            probe.X - 1, probe.Y - 1, probe.Z - 1, probe.X + 1, probe.Y + 1, probe.Z + 1) do
+---@param self            SplatoonWeaponBase
+---@param surfaces        ss.PaintableSurface[] Surfaces to check, filtered by their normals except displacements.
+---@param probe           ss.Paint The pose to check in the surfaces' coordinate system.
+---@param probeToSurfaces number[] The transform from the probe to the surfaces' coordinate system.
+---@param worldPos        Vector   Position to draw debug overlay in world coordinates.
+local function CheckInk(self, surfaces, probe, probeToSurfaces, worldPos)
+    for _, surf in ipairs(surfaces) do
+        for _, p in ipairs(Paint.EnumeratePositions(surf, probe, probeToSurfaces,
+            probe.X - 1, probe.Y - 1, probe.Z - 1, probe.X + 1, probe.Y + 1, probe.Z + 1)) do
             local color = PaintableGrid.Read(surf, p.X, p.Y, p.Z)
             debugoverlay.Box(
                 worldPos, -Util.vector_one, Util.vector_one + vector_up * 72, FrameTime() * 2,
@@ -193,21 +196,24 @@ function SWEP:Think()
     local ang = tr.HitNormal:Angle()
     ang:RotateAroundAxis(ang:Right(), -90)
     local x, y, z = tr.HitPos:Unpack()
+    local probeToWorld = Geometry.FromAngles(ang.pitch, ang.yaw, ang.roll, x, y, z)
     if tr.HitWorld then
-        CheckInk(self, Hash.CollectSurfaces(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1),
-            Probe(x, y, z, ang.pitch, ang.yaw, ang.roll), tr.HitPos)
+        CheckInk(self, Hash.CollectSurfaces(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1,
+            probeToWorld[3], probeToWorld[7], probeToWorld[11], Paint.MAX_COS),
+            Probe(x, y, z, ang.pitch, ang.yaw, ang.roll), probeToWorld, tr.HitPos)
         return
     end
 
     if IsValid(tr.Entity) then
-        for ent, modelIndex, worldToModel in Hash.CollectBrushEntities(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1) do
+        local entities, modelIndices, worldToModels = Hash.CollectBrushEntities(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1)
+        for k, ent in ipairs(entities) do
             if ent == tr.Entity then
-                local probeToModel = Geometry.Multiply(worldToModel,
-                    Geometry.FromAngles(ang.pitch, ang.yaw, ang.roll, x, y, z))
+                local probeToModel = Geometry.Multiply(worldToModels[k], probeToWorld)
                 local probe = Probe(probeToModel[4], probeToModel[8], probeToModel[12], Geometry.ToAngles(probeToModel))
-                CheckInk(self, Hash.CollectBrushModelSurfaces(modelIndex,
-                    probe.X - 1, probe.Y - 1, probe.Z - 1, probe.X + 1, probe.Y + 1, probe.Z + 1),
-                    probe, tr.HitPos)
+                CheckInk(self, Hash.CollectBrushModelSurfaces(modelIndices[k],
+                    probe.X - 1, probe.Y - 1, probe.Z - 1, probe.X + 1, probe.Y + 1, probe.Z + 1,
+                    probeToModel[3], probeToModel[7], probeToModel[11], Paint.MAX_COS),
+                    probe, probeToModel, tr.HitPos)
                 return
             end
         end

@@ -41,8 +41,6 @@ local floor = math.floor
 local ipairs = ipairs
 local max = math.max
 local min = math.min
-local wrap = coroutine.wrap
-local yield = coroutine.yield
 local IsOBBIntersectingOBB = util.IsOBBIntersectingOBB
 local angle_zero = angle_zero
 local vector_origin = vector_origin
@@ -67,29 +65,39 @@ local function indexToHash(x, y, z)
     return x + y * MAX_GRID_INDEX + z * MAX_GRID_INDEX_SQR
 end
 
----Generator function that produces hash integers to look-up the surfaces within given AABB.
+---Returns the range of rough coordinates of the cells within given AABB,
+---which indexToHash(x, y, z) converts into the hash integers to look-up the surfaces.
 ---@param minX number AABB minimum.
 ---@param minY number
 ---@param minZ number
 ---@param maxX number AABB maximum.
 ---@param maxY number
 ---@param maxZ number
----@return fun(): number # Generator function.
-local function hashpairs(minX, minY, minZ, maxX, maxY, maxZ)
-    local x0, y0, z0 = toIndex(minX), toIndex(minY), toIndex(minZ)
-    local x1, y1, z1 = toIndex(maxX), toIndex(maxY), toIndex(maxZ)
-    return wrap(function()
-        for z = z0, z1 do
-            for y = y0, y1 do
-                for x = x0, x1 do
-                    -- local gmin = Vector(x, y, z) * GRID_SIZE - Util.vector_one * 16384
-                    -- local gmax = gmin + Util.vector_one * GRID_SIZE
-                    -- debugoverlay.Box(Vector(), gmin, gmax, FrameTime() * 20, Color(0, 255, 0, 16))
-                    yield(indexToHash(x, y, z))
-                end
+---@return integer x0, integer y0, integer z0, integer x1, integer y1, integer z1
+local function hashRange(minX, minY, minZ, maxX, maxY, maxZ)
+    return toIndex(minX), toIndex(minY), toIndex(minZ), toIndex(maxX), toIndex(maxY), toIndex(maxZ)
+end
+
+---Adds the index of a surface to the cells of the hash within given AABB.
+---@param hash table<integer, integer[]> Hash value --> indices of the surfaces.
+---@param i    integer The index of the surface.
+---@param minX number  AABB minimum.
+---@param minY number
+---@param minZ number
+---@param maxX number  AABB maximum.
+---@param maxY number
+---@param maxZ number
+local function addToHash(hash, i, minX, minY, minZ, maxX, maxY, maxZ)
+    local x0, y0, z0, x1, y1, z1 = hashRange(minX, minY, minZ, maxX, maxY, maxZ)
+    for z = z0, z1 do
+        for y = y0, y1 do
+            for x = x0, x1 do
+                local h = indexToHash(x, y, z)
+                hash[h] = hash[h] or {}
+                hash[h][#hash[h] + 1] = i
             end
         end
-    end)
+    end
 end
 
 ---Generates look-up table for spatial partitioning to find surfaces faster.
@@ -101,10 +109,7 @@ function Hash.BuildSurfaceHash(surfaces, staticProps)
     local hash = {} ---@type table<integer, integer[]>
     for i, s in ipairs(surfaces) do
         if s.ModelIndex == 1 then
-            for h in hashpairs(s.AABBMinX, s.AABBMinY, s.AABBMinZ, s.AABBMaxX, s.AABBMaxY, s.AABBMaxZ) do
-                hash[h] = hash[h] or {}
-                hash[h][#hash[h] + 1] = i
-            end
+            addToHash(hash, i, s.AABBMinX, s.AABBMinY, s.AABBMinZ, s.AABBMaxX, s.AABBMaxY, s.AABBMaxZ)
         end
     end
 
@@ -114,11 +119,10 @@ function Hash.BuildSurfaceHash(surfaces, staticProps)
             Geometry.FromAngles(s.Pitch, s.Yaw, s.Roll, s.PositionX, s.PositionY, s.PositionZ),
             s.BoundsMinX, s.BoundsMinY, s.BoundsMinZ, s.BoundsMaxX, s.BoundsMaxY, s.BoundsMaxZ)
         local margin = ss.MARGIN_HAMMER_UNITS
-        for h in hashpairs(minX - margin, minY - margin, minZ - margin, maxX + margin, maxY + margin, maxZ + margin) do
-            hash[h] = hash[h] or {}
-            for j = 1, 6 do
-                hash[h][#hash[h] + 1] = #surfaces + 6 * (i - 1) + j
-            end
+        for j = 1, 6 do
+            addToHash(hash, #surfaces + 6 * (i - 1) + j,
+                minX - margin, minY - margin, minZ - margin,
+                maxX + margin, maxY + margin, maxZ + margin)
         end
     end
 
@@ -167,41 +171,69 @@ local function isIntersecting(s, mins, maxs)
         vector_origin, angle_zero, mins, maxs, Util.eps)
 end
 
----Generator function to enumerate surfaces of the worldspawn and static props containing given AABB.
----Surfaces of brush entities are enumerated by Hash.CollectBrushEntities and Hash.CollectBrushModelSurfaces.
----@param minX number AABB minimum.
----@param minY number
----@param minZ number
----@param maxX number AABB maximum.
----@param maxY number
----@param maxZ number
----@return fun(): ss.PaintableSurface
-function Hash.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ)
+---Tests if a surface faces the direction closely enough.
+---Displacements always pass because their triangles have their own normals.
+---@param s      ss.PaintableSurface
+---@param upX    number? The unit vector to compare with the normal of the surface, required if minCos is given.
+---@param upY    number?
+---@param upZ    number?
+---@param minCos number? The minimum cosine of the angle between them, or nil to pass any surface.
+---@return boolean
+local function isFacing(s, upX, upY, upZ, minCos)
+    return not minCos or s.Triangles ~= nil
+        or upX * s.NormalX + upY * s.NormalY + upZ * s.NormalZ > minCos
+end
+
+---Returns the surfaces of the worldspawn and static props
+---whose minimum bounding boxes intersect given AABB with a small margin.
+---Surfaces of brush entities are collected by Hash.CollectBrushEntities and Hash.CollectBrushModelSurfaces.
+---If minCos is given, the surfaces except displacements are also filtered by their normals.
+---@param minX   number  AABB minimum.
+---@param minY   number
+---@param minZ   number
+---@param maxX   number  AABB maximum.
+---@param maxY   number
+---@param maxZ   number
+---@param upX    number? The unit vector the normals are compared with, required if minCos is given.
+---@param upY    number?
+---@param upZ    number?
+---@param minCos number? The minimum cosine of the angle between the normal and the vector, or nil to skip the test.
+---@return ss.PaintableSurface[]
+function Hash.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ, upX, upY, upZ, minCos)
     local mins, maxs = queryBox(minX, minY, minZ, maxX, maxY, maxZ)
-    return wrap(function()
-        local hasSeenThisSurface = {} ---@type table<integer, true>
-        local surfaceHash = state.SurfaceHash
-        for h in hashpairs(
-            minX - QUERY_MARGIN, minY - QUERY_MARGIN, minZ - QUERY_MARGIN,
-            maxX + QUERY_MARGIN, maxY + QUERY_MARGIN, maxZ + QUERY_MARGIN) do
-            local k = state.CellIndices[h]
-            local first = k and surfaceHash.FirstSurfaceIndex[k] or 1
-            local last = k and first + surfaceHash.NumSurfaceIndices[k] - 1 or 0
-            for j = first, last do
-                local i = surfaceHash.SurfaceIndices[j]
-                if not hasSeenThisSurface[i] then
-                    hasSeenThisSurface[i] = true
-                    local s = PaintableSurface.Surfaces[i]
-                    if isIntersecting(s, mins, maxs) then
-                        yield(s)
+    local result = {} ---@type ss.PaintableSurface[]
+    local hasSeenThisSurface = {} ---@type table<integer, true>
+    local surfaceHash = state.SurfaceHash
+    local cellIndices = state.CellIndices
+    local surfaces = PaintableSurface.Surfaces
+    local x0, y0, z0, x1, y1, z1 = hashRange(
+        minX - QUERY_MARGIN, minY - QUERY_MARGIN, minZ - QUERY_MARGIN,
+        maxX + QUERY_MARGIN, maxY + QUERY_MARGIN, maxZ + QUERY_MARGIN)
+    for z = z0, z1 do
+        for y = y0, y1 do
+            for x = x0, x1 do
+                local k = cellIndices[indexToHash(x, y, z)]
+                local first = k and surfaceHash.FirstSurfaceIndex[k] or 1
+                local last = k and first + surfaceHash.NumSurfaceIndices[k] - 1 or 0
+                for j = first, last do
+                    local i = surfaceHash.SurfaceIndices[j]
+                    if not hasSeenThisSurface[i] then
+                        hasSeenThisSurface[i] = true
+                        local s = surfaces[i]
+                        if isFacing(s, upX, upY, upZ, minCos) and isIntersecting(s, mins, maxs) then
+                            result[#result + 1] = s
+                        end
                     end
                 end
             end
         end
-    end)
+    end
+
+    return result
 end
 
----Generator function to enumerate surfaces of a brush model containing given AABB.
+---Returns the surfaces of a brush model whose minimum bounding boxes intersect given AABB with a small margin.
+---If minCos is given, the surfaces are also filtered by their normals.
 ---@param modelIndex integer Index of the brush model obtained by Hash.CollectBrushEntities.
 ---@param minX       number  AABB minimum in the model's local coordinates.
 ---@param minY       number
@@ -209,37 +241,54 @@ end
 ---@param maxX       number  AABB maximum in the model's local coordinates.
 ---@param maxY       number
 ---@param maxZ       number
----@return fun(): ss.PaintableSurface
-function Hash.CollectBrushModelSurfaces(modelIndex, minX, minY, minZ, maxX, maxY, maxZ)
+---@param upX        number? The unit vector the normals are compared with in the model's local coordinates, required if minCos is given.
+---@param upY        number?
+---@param upZ        number?
+---@param minCos     number? The minimum cosine of the angle between the normal and the vector, or nil to skip the test.
+---@return ss.PaintableSurface[]
+function Hash.CollectBrushModelSurfaces(modelIndex, minX, minY, minZ, maxX, maxY, maxZ, upX, upY, upZ, minCos)
+    local result = {} ---@type ss.PaintableSurface[]
+    local surfaces = PaintableSurface.BrushModelSurfaces[modelIndex]
+    if not surfaces then return result end
     local mins, maxs = queryBox(minX, minY, minZ, maxX, maxY, maxZ)
-    return wrap(function()
-        for _, s in ipairs(PaintableSurface.BrushModelSurfaces[modelIndex] or {}) do
-            if isIntersecting(s, mins, maxs) then
-                yield(s)
-            end
+    for i = 1, #surfaces do
+        local s = surfaces[i]
+        if isFacing(s, upX, upY, upZ, minCos) and isIntersecting(s, mins, maxs) then
+            result[#result + 1] = s
         end
-    end)
+    end
+
+    return result
 end
 
----Generator function to enumerate brush entities with paintable surfaces near given AABB.
+---Returns the brush entities with paintable surfaces near given AABB,
+---as the arrays of the entities, their model indices, and the transforms from the world to the models.
 ---@param minX number AABB minimum in world coordinates.
 ---@param minY number
 ---@param minZ number
 ---@param maxX number AABB maximum in world coordinates.
 ---@param maxY number
 ---@param maxZ number
----@return fun(): Entity, integer, number[] # The entity, its model index, and the transform from the world to the model.
+---@return Entity[] entities
+---@return integer[] modelIndices
+---@return number[][] worldToModels
 function Hash.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
-    return wrap(function()
-        for _, ent in ipairs(ents.FindInBox(Vector(minX, minY, minZ), Vector(maxX, maxY, maxZ))) do
-            local n = tonumber((ent:GetModel() or ""):match "^%*(%d+)$")
-            if n and PaintableSurface.BrushModelSurfaces[n + 1] then
-                -- The first 12 of the 16 values are the transform.
-                local modelToWorld = { ent:GetWorldTransformMatrix():Unpack() }
-                yield(ent, n + 1, Geometry.InvertRotationTranslation(modelToWorld))
-            end
+    local entities = {} ---@type Entity[]
+    local modelIndices = {} ---@type integer[]
+    local worldToModels = {} ---@type number[][]
+    for _, ent in ipairs(ents.FindInBox(Vector(minX, minY, minZ), Vector(maxX, maxY, maxZ))) do
+        local n = tonumber((ent:GetModel() or ""):match "^%*(%d+)$")
+        if n and PaintableSurface.BrushModelSurfaces[n + 1] then
+            -- The first 12 of the 16 values are the transform.
+            local modelToWorld = { ent:GetWorldTransformMatrix():Unpack() }
+            local k = #entities + 1
+            entities[k] = ent
+            modelIndices[k] = n + 1
+            worldToModels[k] = Geometry.InvertRotationTranslation(modelToWorld)
         end
-    end)
+    end
+
+    return entities, modelIndices, worldToModels
 end
 
 ---The grid of the spatial hash of a displacement, which divides its AABB.
@@ -280,7 +329,18 @@ local function displacementGrid(minX, minY, minZ, maxX, maxY, maxZ)
     }
 end
 
----Generator function that produces hash integers to look-up the cells of a displacement within given AABB.
+---Calculates the hash integer of a cell of a displacement from its coordinates in the grid.
+---@param grid ss.Hash.DisplacementGrid
+---@param x    integer
+---@param y    integer
+---@param z    integer
+---@return integer
+local function cellToHash(grid, x, y, z)
+    return x + y * grid.NumCellsX + z * grid.NumCellsX * grid.NumCellsY
+end
+
+---Returns the range of the coordinates of the cells of a displacement within given AABB,
+---which cellToHash converts into the hash integers to look-up the triangles.
 ---@param grid ss.Hash.DisplacementGrid
 ---@param minX number Minimum of the AABB query.
 ---@param minY number
@@ -288,24 +348,15 @@ end
 ---@param maxX number Maximum of the AABB query.
 ---@param maxY number
 ---@param maxZ number
----@return fun(): number # Generator function.
-local function hashpairsAABB(grid, minX, minY, minZ, maxX, maxY, maxZ)
+---@return integer x0, integer y0, integer z0, integer x1, integer y1, integer z1
+local function cellRangeAABB(grid, minX, minY, minZ, maxX, maxY, maxZ)
     local numX, numY, numZ = grid.NumCellsX, grid.NumCellsY, grid.NumCellsZ
-    local x0 = clamp(floor((minX - grid.MinX) / grid.CellSizeX), 0, numX - 1)
-    local y0 = clamp(floor((minY - grid.MinY) / grid.CellSizeY), 0, numY - 1)
-    local z0 = clamp(floor((minZ - grid.MinZ) / grid.CellSizeZ), 0, numZ - 1)
-    local x1 = clamp(floor((maxX - grid.MinX) / grid.CellSizeX), 0, numX - 1)
-    local y1 = clamp(floor((maxY - grid.MinY) / grid.CellSizeY), 0, numY - 1)
-    local z1 = clamp(floor((maxZ - grid.MinZ) / grid.CellSizeZ), 0, numZ - 1)
-    return wrap(function()
-        for z = z0, z1 do
-            for y = y0, y1 do
-                for x = x0, x1 do
-                    yield(x + y * numX + z * numX * numY)
-                end
-            end
-        end
-    end)
+    return clamp(floor((minX - grid.MinX) / grid.CellSizeX), 0, numX - 1),
+           clamp(floor((minY - grid.MinY) / grid.CellSizeY), 0, numY - 1),
+           clamp(floor((minZ - grid.MinZ) / grid.CellSizeZ), 0, numZ - 1),
+           clamp(floor((maxX - grid.MinX) / grid.CellSizeX), 0, numX - 1),
+           clamp(floor((maxY - grid.MinY) / grid.CellSizeY), 0, numY - 1),
+           clamp(floor((maxZ - grid.MinZ) / grid.CellSizeZ), 0, numZ - 1)
 end
 
 ---Generates look-up table for spatial partitioning to find triangles of displacement faster.
@@ -324,12 +375,18 @@ function Hash.BuildDisplacementHash(surfaces)
                 local a = vertexIndices[3 * i - 2]
                 local b = vertexIndices[3 * i - 1]
                 local c = vertexIndices[3 * i]
-                for h in hashpairsAABB(grid,
+                local x0, y0, z0, x1, y1, z1 = cellRangeAABB(grid,
                     min(x[a], x[b], x[c]), min(y[a], y[b], y[c]), min(z[a], z[b], z[c]),
-                    max(x[a], x[b], x[c]), max(y[a], y[b], y[c]), max(z[a], z[b], z[c])) do
-                    cells[h + 1] = cells[h + 1] or {}
-                    cells[h + 1][#cells[h + 1] + 1] = i
-                    numHashValues = math.max(h + 1, numHashValues)
+                    max(x[a], x[b], x[c]), max(y[a], y[b], y[c]), max(z[a], z[b], z[c]))
+                for cz = z0, z1 do
+                    for cy = y0, y1 do
+                        for cx = x0, x1 do
+                            local h = cellToHash(grid, cx, cy, cz)
+                            cells[h + 1] = cells[h + 1] or {}
+                            cells[h + 1][#cells[h + 1] + 1] = i
+                            numHashValues = math.max(h + 1, numHashValues)
+                        end
+                    end
                 end
             end
 
@@ -349,7 +406,7 @@ function Hash.BuildDisplacementHash(surfaces)
     end
 end
 
----Generator function to enumerate triangles containing given AABB in a displacement.
+---Returns the triangles of a displacement whose minimum bounding boxes intersect given AABB with a small margin.
 ---@param displacement ss.PaintableSurface The displacement to search.
 ---@param minX number AABB minimum.
 ---@param minY number
@@ -357,37 +414,46 @@ end
 ---@param maxX number AABB maximum.
 ---@param maxY number
 ---@param maxZ number
----@return fun(): ss.DisplacementTriangle
+---@return ss.DisplacementTriangle[]
 function Hash.CollectDisplacementTriangles(displacement, minX, minY, minZ, maxX, maxY, maxZ)
+    local result = {} ---@type ss.DisplacementTriangle[]
     local hash = displacement.TriangleHash
-    if not hash then return wrap(function() end) end
+    if not hash then return result end
+    local triangles = displacement.Triangles ---@cast triangles -?
     local mins, maxs = queryBox(minX, minY, minZ, maxX, maxY, maxZ)
-    return wrap(function()
-        local hasSeenThisTriangle = {} ---@type table<integer, true>
-        local grid = displacementGrid(
-            displacement.AABBMinX, displacement.AABBMinY, displacement.AABBMinZ,
-            displacement.AABBMaxX, displacement.AABBMaxY, displacement.AABBMaxZ)
-        for h in hashpairsAABB(grid,
-            minX - QUERY_MARGIN, minY - QUERY_MARGIN, minZ - QUERY_MARGIN,
-            maxX + QUERY_MARGIN, maxY + QUERY_MARGIN, maxZ + QUERY_MARGIN) do
-            if h < hash.NumHashValues then
-                local first = hash.FirstTriangleIndex[h + 1]
-                for k = first, first + hash.NumTriangleIndices[h + 1] - 1 do
-                    local i = hash.TriangleIndices[k]
-                    if not hasSeenThisTriangle[i] then
-                        hasSeenThisTriangle[i] = true
-                        local t = displacement.Triangles[i]
-                        -- debugoverlay.BoxAngles(
-                        --     t.MBBOrigin, vector_origin, t.MBBSize, t.MBBAngles,
-                        --     FrameTime() * 5, Color(255, 255, 255, 8))
-                        if isIntersecting(t, mins, maxs) then
-                            yield(t)
+    local hasSeenThisTriangle = {} ---@type table<integer, true>
+    local grid = displacementGrid(
+        displacement.AABBMinX, displacement.AABBMinY, displacement.AABBMinZ,
+        displacement.AABBMaxX, displacement.AABBMaxY, displacement.AABBMaxZ)
+    local numHashValues = hash.NumHashValues
+    local firstTriangleIndex = hash.FirstTriangleIndex ---@cast firstTriangleIndex -?
+    local numTriangleIndices = hash.NumTriangleIndices ---@cast numTriangleIndices -?
+    local triangleIndices = hash.TriangleIndices ---@cast triangleIndices -?
+    local x0, y0, z0, x1, y1, z1 = cellRangeAABB(grid,
+        minX - QUERY_MARGIN, minY - QUERY_MARGIN, minZ - QUERY_MARGIN,
+        maxX + QUERY_MARGIN, maxY + QUERY_MARGIN, maxZ + QUERY_MARGIN)
+    for z = z0, z1 do
+        for y = y0, y1 do
+            for x = x0, x1 do
+                local h = cellToHash(grid, x, y, z)
+                if h < numHashValues then
+                    local first = firstTriangleIndex[h + 1]
+                    for k = first, first + numTriangleIndices[h + 1] - 1 do
+                        local i = triangleIndices[k]
+                        if not hasSeenThisTriangle[i] then
+                            hasSeenThisTriangle[i] = true
+                            local t = triangles[i]
+                            if isIntersecting(t, mins, maxs) then
+                                result[#result + 1] = t
+                            end
                         end
                     end
                 end
             end
         end
-    end)
+    end
+
+    return result
 end
 
 return Hash

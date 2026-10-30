@@ -31,8 +31,6 @@ local Paint = ss.module "splashsweps/shared/paint/paint"
 ---@field Shape   integer The internal index of the ink shape.
 ---@field InkType integer The internal index of the ink type.
 
-local wrap = coroutine.wrap
-local yield = coroutine.yield
 local huge = math.huge
 local max = math.max
 local min = math.min
@@ -49,26 +47,36 @@ local net_SendOmit = net.SendOmit
 ---Maximum paint scale of a single drop to be networked
 local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS + 1) - 1
 
----Maximum angle difference allowed to paint.
-local MAX_COS = math.cos(math.rad(45))
-local MAX_COS_PROP = math.cos(math.rad(60))
+---The cosine of the maximum angle difference between the up of a paint and the normal of a surface to paint it.
+---The static props are painted on the faces of their bounding boxes, and the angle must be more than 54.7 degrees
+---so that a paint of any direction faces one of them.
+Paint.MAX_COS = math.cos(math.rad(60))
+
+---Returns the transform from a paint to the coordinate system it is in.
+---[ 1-Xx  2-Yx  3-Zx  4-Tx ]
+---[ 5-Xy  6-Yy  7-Zy  8-Ty ]
+---[ 9-Xz 10-Yz 11-Zz 12-Tz ]
+---@param paint ss.Paint
+---@return number[]
+local function GetTransform(paint)
+    return Geometry.FromAngles(paint.Pitch, paint.Yaw, paint.Roll, paint.X, paint.Y, paint.Z)
+end
 
 ---Gets the AABB of a paint.
----@param paint ss.Paint
+---@param paint      ss.Paint
+---@param inkToWorld number[] The transform from the paint, which Geometry.FromAngles makes from its pose.
 ---@return number minX, number minY, number minZ, number maxX, number maxY, number maxZ
-function Paint.GetBoundingBox(paint)
+function Paint.GetBoundingBox(paint, inkToWorld)
     local radiusX, radiusY = paint.RadiusX, paint.RadiusY
     local radiusZ = max(paint.RadiusZ, min(radiusX, radiusY) * 0.5)
-    return Geometry.TransformAABB(
-        Geometry.FromAngles(paint.Pitch, paint.Yaw, paint.Roll, paint.X, paint.Y, paint.Z),
-        -radiusY, -radiusX, -radiusZ, radiusY, radiusX, radiusZ)
+    return Geometry.TransformAABB(inkToWorld, -radiusY, -radiusX, -radiusZ, radiusY, radiusX, radiusZ)
 end
 
 ---Returns the paint mapped from a triangle of a displacement onto the flat surface the displacement came from.
 ---@param surf       ss.PaintableSurface The displacement.
 ---@param triangle   ss.DisplacementTriangle
 ---@param paint      ss.Paint The paint on the triangle.
----@param inkToWorld number[] The rotation of the paint.
+---@param inkToWorld number[] The transform from the paint, of which only the rotation is used.
 ---@param b1         number   Barycentric coordinates of the paint in the triangle.
 ---@param b2         number
 ---@param b3         number
@@ -99,52 +107,55 @@ end
 ---we have to map the paint to the flat surface where it came from.
 ---
 ---So this function enumerates the paints mapped onto the flat surface to handle deformed surfaces correctly.
----@param surf ss.PaintableSurface The surface to search.
----@param paint ss.Paint The paint in the same coordinate system as the surface.
----@param minX number AABB to enumerate triangles of displacement.
----@param minY number
----@param minZ number
----@param maxX number
----@param maxY number
----@param maxZ number
----@return fun(): ss.Paint # The paints ready to be written into the paint grid of the surface.
-function Paint.EnumeratePositions(surf, paint, minX, minY, minZ, maxX, maxY, maxZ)
-    return wrap(function()
-        local inkToWorld = Geometry.FromAngles(paint.Pitch, paint.Yaw, paint.Roll, 0, 0, 0)
-        local upX, upY, upZ = inkToWorld[3], inkToWorld[7], inkToWorld[11]
-        if surf.Triangles then
-            -- The score is the sum of the negative barycentric coordinates, which is closer to 0 when the paint is nearer.
-            local nearestScore = -huge
-            local nearestTriangle = nil ---@type ss.DisplacementTriangle?
-            local nearestB1, nearestB2, nearestB3 = 0, 0, 0
-            for t in Hash.CollectDisplacementTriangles(surf, minX, minY, minZ, maxX, maxY, maxZ) do
-                local b1, b2, b3 = PaintableSurface.BarycentricCoordinates(t, paint.X, paint.Y, paint.Z)
-                if b1 > 0 and b2 > 0 and b3 > 0 then
-                    if Geometry.Dot(upX, upY, upZ, t.NormalX, t.NormalY, t.NormalZ) > MAX_COS then
-                        yield(MapOntoFlatSurface(surf, t, paint, inkToWorld, b1, b2, b3))
-                        nearestScore = huge
-                        nearestTriangle = nil
-                    end
-                else
-                    local score = min(b1, 0) + min(b2, 0) + min(b3, 0)
-                    if score > nearestScore then
-                        nearestScore = score
-                        nearestTriangle = t
-                        nearestB1, nearestB2, nearestB3 = b1, b2, b3
-                    end
-                end
-            end
+---The triangles of a displacement are tested by their normals with Paint.MAX_COS here,
+---but the other surfaces are not; pass it to Hash.CollectSurfaces or Hash.CollectBrushModelSurfaces to test them.
+---@param surf       ss.PaintableSurface The surface to search.
+---@param paint      ss.Paint The paint in the same coordinate system as the surface.
+---@param inkToWorld number[] The transform from the paint, which Geometry.FromAngles makes from its pose.
+---@param minX       number   AABB to enumerate triangles of displacement.
+---@param minY       number
+---@param minZ       number
+---@param maxX       number
+---@param maxY       number
+---@param maxZ       number
+---@return ss.Paint[] # The paints ready to be written into the paint grid of the surface.
+function Paint.EnumeratePositions(surf, paint, inkToWorld, minX, minY, minZ, maxX, maxY, maxZ)
+    if not surf.Triangles then return { paint } end
 
-            -- If the paint position is outside, find the nearest triangle roughly and return it.
-            local t = nearestTriangle
-            if t and Geometry.Dot(upX, upY, upZ, t.NormalX, t.NormalY, t.NormalZ) > MAX_COS then
-                yield(MapOntoFlatSurface(surf, t, paint, inkToWorld, nearestB1, nearestB2, nearestB3))
+    local result = {} ---@type ss.Paint[]
+    local maxCos = Paint.MAX_COS
+    local upX, upY, upZ = inkToWorld[3], inkToWorld[7], inkToWorld[11]
+    -- The score is the sum of the negative barycentric coordinates, which is closer to 0 when the paint is nearer.
+    local nearestScore = -huge
+    local nearestTriangle = nil ---@type ss.DisplacementTriangle?
+    local nearestB1, nearestB2, nearestB3 = 0, 0, 0
+    local triangles = Hash.CollectDisplacementTriangles(surf, minX, minY, minZ, maxX, maxY, maxZ)
+    for i = 1, #triangles do
+        local t = triangles[i]
+        local b1, b2, b3 = PaintableSurface.BarycentricCoordinates(t, paint.X, paint.Y, paint.Z)
+        if b1 > 0 and b2 > 0 and b3 > 0 then
+            if Geometry.Dot(upX, upY, upZ, t.NormalX, t.NormalY, t.NormalZ) > maxCos then
+                result[#result + 1] = MapOntoFlatSurface(surf, t, paint, inkToWorld, b1, b2, b3)
+                nearestScore = huge
+                nearestTriangle = nil
             end
-        elseif Geometry.Dot(upX, upY, upZ, surf.NormalX, surf.NormalY, surf.NormalZ)
-            > (surf.StaticPropUnwrapIndex and MAX_COS_PROP or MAX_COS) then
-            yield(paint)
+        else
+            local score = min(b1, 0) + min(b2, 0) + min(b3, 0)
+            if score > nearestScore then
+                nearestScore = score
+                nearestTriangle = t
+                nearestB1, nearestB2, nearestB3 = b1, b2, b3
+            end
         end
-    end)
+    end
+
+    -- If the paint position is outside, find the nearest triangle roughly and return it.
+    local t = nearestTriangle
+    if t and Geometry.Dot(upX, upY, upZ, t.NormalX, t.NormalY, t.NormalZ) > maxCos then
+        result[#result + 1] = MapOntoFlatSurface(surf, t, paint, inkToWorld, nearestB1, nearestB2, nearestB3)
+    end
+
+    return result
 end
 
 ---Rounds a pose to the integers of network messages.
@@ -209,18 +220,22 @@ local function WritePaintAndSend(inktype, shape, x, y, z, pitch, yaw, roll, radi
     net_SendOmit(ss.sp and NULL or GetPredictionPlayer())
 end
 
----Paints the surfaces given by the generator.
----@param surfaces fun(): ss.PaintableSurface
----@param paint ss.Paint The paint in the same coordinate system as the surfaces.
----@param minX  number   AABB of the paint.
----@param minY  number
----@param minZ  number
----@param maxX  number
----@param maxY  number
----@param maxZ  number
-local function PaintSurfaces(surfaces, paint, minX, minY, minZ, maxX, maxY, maxZ)
-    for surf in surfaces do
-        for p in Paint.EnumeratePositions(surf, paint, minX, minY, minZ, maxX, maxY, maxZ) do
+---Paints the surfaces.
+---@param surfaces   ss.PaintableSurface[] The surfaces filtered by their normals with Paint.MAX_COS, except displacements.
+---@param paint      ss.Paint The paint in the same coordinate system as the surfaces.
+---@param inkToWorld number[] The transform from the paint.
+---@param minX       number   AABB of the paint.
+---@param minY       number
+---@param minZ       number
+---@param maxX       number
+---@param maxY       number
+---@param maxZ       number
+local function PaintSurfaces(surfaces, paint, inkToWorld, minX, minY, minZ, maxX, maxY, maxZ)
+    for i = 1, #surfaces do
+        local surf = surfaces[i]
+        local paints = Paint.EnumeratePositions(surf, paint, inkToWorld, minX, minY, minZ, maxX, maxY, maxZ)
+        for j = 1, #paints do
+            local p = paints[j]
             PaintableGrid.Write(surf, p)
             if InkMap then
                 InkMap.Push(surf, p)
@@ -229,13 +244,27 @@ local function PaintSurfaces(surfaces, paint, minX, minY, minZ, maxX, maxY, maxZ
     end
 end
 
+---Paints the worldspawn and static props with the transform and the AABB of the paint.
+---@param paint      ss.Paint
+---@param inkToWorld number[] The transform from the paint.
+---@param minX       number   AABB of the paint.
+---@param minY       number
+---@param minZ       number
+---@param maxX       number
+---@param maxY       number
+---@param maxZ       number
+local function PaintWorld(paint, inkToWorld, minX, minY, minZ, maxX, maxY, maxZ)
+    PaintSurfaces(Hash.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ,
+        inkToWorld[3], inkToWorld[7], inkToWorld[11], Paint.MAX_COS),
+        paint, inkToWorld, minX, minY, minZ, maxX, maxY, maxZ)
+end
+
 ---Paints the worldspawn and static props without networking.
 ---The paint must be already quantized by Paint.Paint.
 ---@param paint ss.Paint
 function Paint.PaintWorld(paint)
-    local minX, minY, minZ, maxX, maxY, maxZ = Paint.GetBoundingBox(paint)
-    PaintSurfaces(Hash.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ),
-        paint, minX, minY, minZ, maxX, maxY, maxZ)
+    local inkToWorld = GetTransform(paint)
+    PaintWorld(paint, inkToWorld, Paint.GetBoundingBox(paint, inkToWorld))
 end
 
 ---Paints a brush model without networking.
@@ -243,9 +272,11 @@ end
 ---@param modelIndex integer  The index of the brush model.
 ---@param paint      ss.Paint The paint in the model's local coordinates.
 function Paint.PaintBrushModel(modelIndex, paint)
-    local minX, minY, minZ, maxX, maxY, maxZ = Paint.GetBoundingBox(paint)
-    PaintSurfaces(Hash.CollectBrushModelSurfaces(modelIndex, minX, minY, minZ, maxX, maxY, maxZ),
-        paint, minX, minY, minZ, maxX, maxY, maxZ)
+    local inkToModel = GetTransform(paint)
+    local minX, minY, minZ, maxX, maxY, maxZ = Paint.GetBoundingBox(paint, inkToModel)
+    PaintSurfaces(Hash.CollectBrushModelSurfaces(modelIndex, minX, minY, minZ, maxX, maxY, maxZ,
+        inkToModel[3], inkToModel[7], inkToModel[11], Paint.MAX_COS),
+        paint, inkToModel, minX, minY, minZ, maxX, maxY, maxZ)
 end
 
 ---Paints an ink with given information.
@@ -262,7 +293,9 @@ function Paint.Paint(pos, ang, radius, shape, inktype)
     local radiusZ = Round(min(radius.z, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
     local x, y, z, pitch, yaw, roll = EncodePose(pos.x, pos.y, pos.z, ang.pitch, ang.yaw, ang.roll)
     local paint = Decode(inktype, shape, x, y, z, pitch, yaw, roll, radiusX, radiusY, radiusZ)
-    Paint.PaintWorld(paint)
+    local inkToWorld = GetTransform(paint)
+    local minX, minY, minZ, maxX, maxY, maxZ = Paint.GetBoundingBox(paint, inkToWorld)
+    PaintWorld(paint, inkToWorld, minX, minY, minZ, maxX, maxY, maxZ)
     if SERVER then
         net_Start "SplashSWEPs: Paint"
         WritePaintAndSend(inktype, shape, x, y, z, pitch, yaw, roll, radiusX, radiusY, radiusZ)
@@ -270,8 +303,9 @@ function Paint.Paint(pos, ang, radius, shape, inktype)
 
     -- Brush entities can move, so the ink is localized to their models and networked separately.
     -- The receiving clients do not search for the entities; only the predicting client does.
-    local inkToWorld = Geometry.FromAngles(paint.Pitch, paint.Yaw, paint.Roll, paint.X, paint.Y, paint.Z)
-    for _, modelIndex, worldToModel in Hash.CollectBrushEntities(Paint.GetBoundingBox(paint)) do
+    local _, modelIndices, worldToModels = Hash.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
+    for k = 1, #modelIndices do
+        local modelIndex, worldToModel = modelIndices[k], worldToModels[k]
         local inkToModel = Geometry.Multiply(worldToModel, inkToWorld)
         local localPitch, localYaw, localRoll = Geometry.ToAngles(inkToModel)
         local lx, ly, lz, lpitch, lyaw, lroll = EncodePose(

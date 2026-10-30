@@ -116,7 +116,7 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     local t = InkCheckInterval + FrameTime() * 2
     debugoverlay.Cross(nearestFrom, 10, t, Color(255, 255, 0), true)
 
-    for surf in Hash.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ) do
+    for _, surf in ipairs(Hash.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ)) do
         DrawSurfaceBounds(surf, IDENTITY, t)
         if surf.Triangles then
             local xs, ys, zs = surf.PositionX, surf.PositionY, surf.PositionZ
@@ -127,7 +127,7 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
             ---@cast oxs -?
             ---@cast oys -?
             ---@cast ozs -?
-            for tri in Hash.CollectDisplacementTriangles(surf, minX, minY, minZ, maxX, maxY, maxZ) do
+            for _, tri in ipairs(Hash.CollectDisplacementTriangles(surf, minX, minY, minZ, maxX, maxY, maxZ)) do
             -- for _, tri in ipairs(surf.Triangles) do
                 local i1, i2, i3 = tri.VertexIndex1, tri.VertexIndex2, tri.VertexIndex3
                 local d = Vector(tri.NormalX, tri.NormalY, tri.NormalZ) * 0.5
@@ -170,10 +170,12 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
     end
 
     -- Brush models have no displacements, so their surfaces are always flat.
-    for _, modelIndex, worldToModel in Hash.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ) do
+    local _, modelIndices, worldToModels = Hash.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
+    for k, modelIndex in ipairs(modelIndices) do
+        local worldToModel = worldToModels[k]
         local modelToWorld = Geometry.InvertRotationTranslation(worldToModel)
-        for surf in Hash.CollectBrushModelSurfaces(modelIndex,
-            Geometry.TransformAABB(worldToModel, minX, minY, minZ, maxX, maxY, maxZ)) do
+        for _, surf in ipairs(Hash.CollectBrushModelSurfaces(modelIndex,
+            Geometry.TransformAABB(worldToModel, minX, minY, minZ, maxX, maxY, maxZ))) do
             DrawSurfaceBounds(surf, modelToWorld, t)
             DrawNearestOnFlatSurface(surf, modelToWorld, worldToModel, nearestFrom, t)
         end
