@@ -146,7 +146,13 @@ function Hash.BuildSurfaceHash(surfaces, staticProps)
     return surfaceHash
 end
 
----Creates the Vectors of the AABB of a query with the margin, which util.IsOBBIntersectingOBB takes.
+---Vectors reused for the queries instead of creating them for each query.
+---Discarded Vectors stay in the list of userdata that the atomic step of the GC walks at once until they are swept,
+---and the step got longer when they were created for each query.
+local queryMins, queryMaxs = Vector(), Vector()
+
+---Sets the AABB of a query with the margin into the Vectors which util.IsOBBIntersectingOBB takes.
+---The Vectors are shared and overwritten by the next call, so use them before calling this again.
 ---@param minX number
 ---@param minY number
 ---@param minZ number
@@ -156,8 +162,9 @@ end
 ---@return Vector mins
 ---@return Vector maxs
 local function queryBox(minX, minY, minZ, maxX, maxY, maxZ)
-    return Vector(minX - QUERY_MARGIN, minY - QUERY_MARGIN, minZ - QUERY_MARGIN),
-           Vector(maxX + QUERY_MARGIN, maxY + QUERY_MARGIN, maxZ + QUERY_MARGIN)
+    queryMins:SetUnpacked(minX - QUERY_MARGIN, minY - QUERY_MARGIN, minZ - QUERY_MARGIN)
+    queryMaxs:SetUnpacked(maxX + QUERY_MARGIN, maxY + QUERY_MARGIN, maxZ + QUERY_MARGIN)
+    return queryMins, queryMaxs
 end
 
 ---Tests if the minimum bounding box of the surface intersects with given AABB.
@@ -261,6 +268,9 @@ function Hash.CollectBrushModelSurfaces(modelIndex, minX, minY, minZ, maxX, maxY
     return result
 end
 
+---Vectors reused for ents.FindInBox instead of creating them for each call, as the ones for the queries.
+local findMins, findMaxs = Vector(), Vector()
+
 ---Returns the brush entities with paintable surfaces near given AABB,
 ---as the arrays of the entities, their model indices, and the transforms from the world to the models.
 ---@param minX number AABB minimum in world coordinates.
@@ -276,7 +286,9 @@ function Hash.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
     local entities = {} ---@type Entity[]
     local modelIndices = {} ---@type integer[]
     local worldToModels = {} ---@type number[][]
-    for _, ent in ipairs(ents.FindInBox(Vector(minX, minY, minZ), Vector(maxX, maxY, maxZ))) do
+    findMins:SetUnpacked(minX, minY, minZ)
+    findMaxs:SetUnpacked(maxX, maxY, maxZ)
+    for _, ent in ipairs(ents.FindInBox(findMins, findMaxs)) do
         local n = tonumber((ent:GetModel() or ""):match "^%*(%d+)$")
         if n and PaintableSurface.BrushModelSurfaces[n + 1] then
             -- The first 12 of the 16 values are the transform.
