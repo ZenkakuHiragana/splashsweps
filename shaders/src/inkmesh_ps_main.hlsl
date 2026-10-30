@@ -33,6 +33,14 @@ float3x3 GetDetailProjectionBasis(const PsVertexInfo i, bool usePaintLocalDetail
     }
 }
 
+// Ink map UV to read the ink of the surface at uv.
+// The ink map holds the ink of a surface only within its range, including the margin around the surface,
+// so the ink beyond the range is read as the ink at the edge of the range.
+// The range is narrowed by a texel so that bilinear filtering does not mix in the texels outside the range.
+float2 ClampInkUV(const PsVertexInfo i, float2 uv) {
+    return clamp(uv, i.minUV + g_RTSize, i.maxUV - g_RTSize);
+}
+
 // Samples height value and ground depth, and calculates the ink normal from the height
 void FetchHeightDepthAndNormal(const PsVertexInfo i, float2 uv, inout MaterialParams params) {
     float4 s = tex2Dlod(InkMap, float4(uv + INKMAP_HEIGHT_DEPTH, 0.0, 0.0));
@@ -42,8 +50,8 @@ void FetchHeightDepthAndNormal(const PsVertexInfo i, float2 uv, inout MaterialPa
     // Forward differences of the height over deltaUV, in Hammer units per ink map UV.
     float2 deltaUV = g_RTSize * 2.0;
     float2 hxy = {
-        FetchHeight(uv + float2(deltaUV.x, 0.0)),
-        FetchHeight(uv + float2(0.0, deltaUV.y)),
+        FetchHeight(ClampInkUV(i, uv + float2(deltaUV.x, 0.0))),
+        FetchHeight(ClampInkUV(i, uv + float2(0.0, deltaUV.y))),
     };
 
     // The first two rows of inkTransform are the world gradients of ink map U and V.
@@ -200,14 +208,11 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
     float3x3 tangentSpaceInk = i.inkTransform;
     tangentSpaceInk[2] /= HEIGHT_TO_HU;
 
-    float3 boxMin      = { i.minUV, -1.0 - 1e-5 };
-    float3 boxMax      = { i.maxUV,  0.0        };
+    // The ray ends at the bottom of the height range, even beyond the surface's range of the ink map,
+    // where it reads the ink at the edge of the range (ClampInkUV).
     float3 viewDir     = mul(tangentSpaceInk, g_EyePos.xyz - worldPos);
-    float3 viewDirInv  = SAFERCP(viewDir);
-    float3 fractionMin = (boxMin - inkUV) * viewDirInv;
-    float3 fractionMax = (boxMax - inkUV) * viewDirInv;
-    float3 fractionFar = min(fractionMin, fractionMax);
-    float  fractionEnd = max(max(fractionFar.x, fractionFar.y), fractionFar.z);
+    float  viewDirInvZ = SAFERCP(viewDir.z);
+    float  fractionEnd = min((-1.0 - 1e-5 - inkUV.z) * viewDirInvZ, -inkUV.z * viewDirInvZ);
     float3 rayStart    = inkUV;
     float3 rayEnd      = inkUV + viewDir * fractionEnd;
     float  pixelPerUV  = rcp(max(min(length(ddx(inkUV.xy)), length(ddy(inkUV.xy))), 1.0e-8));
@@ -217,7 +222,7 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
     float3 previousRay;
     float3 currentRay = rayStart;
     float previousInkHeight;
-    float currentInkHeight = FetchHeight(currentRay.xy);
+    float currentInkHeight = FetchHeight(ClampInkUV(i, currentRay.xy));
     if (currentInkHeight >= 0.0) return currentRay;
     [unroll]
     for (int j = 1; j <= MAX_STEPS; j++) {
@@ -226,15 +231,15 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
         previousInkHeight = currentInkHeight;
         previousRay = currentRay;
         currentRay = lerp(rayStart, rayEnd, fraction);
-        currentInkHeight = FetchHeight(currentRay.xy);
-        if (currentInkHeight >= 0.0) return currentRay;
+        currentInkHeight = FetchHeight(ClampInkUV(i, currentRay.xy));
+        if (currentInkHeight >= 0.0) return float3(ClampInkUV(i, currentRay.xy), currentRay.z);
         if ((previousInkHeight <= previousRay.z && currentRay.z <= currentInkHeight) ||
             (previousRay.z <= previousInkHeight && currentInkHeight <= currentRay.z)) {
             float previousHeightLeft = previousRay.z - previousInkHeight;
             float currentHeightExceeds = currentInkHeight - currentRay.z;
             float parallaxRefinement = currentHeightExceeds / (previousHeightLeft + currentHeightExceeds);
             inkUV = lerp(currentRay, previousRay, parallaxRefinement);
-            return clamp(inkUV, float3(i.minUV, -1.0), float3(i.maxUV,  1.0));
+            return float3(ClampInkUV(i, inkUV.xy), clamp(inkUV.z, -1.0, 1.0));
         }
     }
     return clamp(inkUV, float3(i.minUV, -1.0), float3(i.maxUV,  1.0));
