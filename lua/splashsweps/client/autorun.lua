@@ -34,7 +34,6 @@ local function LoadCache()
 
     -- The engine packs the HDR lightmaps if HDR is enabled, and the cache has them only if the faces match.
     local lightmaps = render.GetHDREnabled() and cache.LightmapsHDR or cache.LightmapsLDR or {}
-    Hash.Setup(cache.SurfaceHash, cache.HashParameters)
     RenderTargets.Setup(cache.HammerUnitsToUV)
     InkShape.Load()
     InkType.Load()
@@ -42,6 +41,7 @@ local function LoadCache()
     InkMap.Setup()
     PaintableSurface.Setup(cache.Surfaces, cache.NumModels)
     PaintableSurface.SetupStaticProps(cache.StaticProps)
+    Hash.Setup(cache.HashParameters)
     InkMapLayout.Setup(cache.Surfaces, cache.StaticProps)
     InkMesh.Setup(cache, lightmaps, InkMapLayout.Placements, CVarDebugMeshData:GetBool())
     StaticPropBuilder.Setup(cache.StaticProps, cache.StaticPropMDL, cache.Cubemaps)

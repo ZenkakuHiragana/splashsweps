@@ -20,7 +20,7 @@ ss.MARGIN_HAMMER_UNITS = 8
 ss.RT_BILINEAR_GUARD_PIXELS = 1
 
 ---Version of generated map cache files.
-ss.CACHE_VERSION = 7
+ss.CACHE_VERSION = 8
 
 ---Indicates if this game is a single player game.
 ss.sp = game.SinglePlayer()

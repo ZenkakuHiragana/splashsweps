@@ -273,16 +273,8 @@ local function CalculateTriangleComponents(surf)
         local i2 = vertexIndices[i + 1]
         local i3 = vertexIndices[i + 2]
 
-        -- The bounding rectangle is along the edge t3 -> t2, and t1 is on its top.
-        local triangleToWorld = TriangleToWorld(xs, ys, zs, i1, i2, i3)
-        local worldToTriangle = Geometry.InvertRotationTranslation(triangleToWorld)
-        local x1, y1 = Geometry.TransformPoint(worldToTriangle, xs[i1], ys[i1], zs[i1])
-        local x2 = Geometry.TransformPoint(worldToTriangle, xs[i2], ys[i2], zs[i2])
-        local minX, maxX = min(0, x1), max(x2, x1)
+        local worldToTriangle = Geometry.InvertRotationTranslation(TriangleToWorld(xs, ys, zs, i1, i2, i3))
         local t = PrecachedData.DisplacementTriangle.new()
-        t.MBBPitch,   t.MBBYaw,     t.MBBRoll    = Geometry.ToAngles(triangleToWorld)
-        t.MBBOriginX, t.MBBOriginY, t.MBBOriginZ = Geometry.TransformPoint(triangleToWorld, minX, 0, 0)
-        t.MBBSizeX,   t.MBBSizeY                 = maxX - minX, y1
 
         -- Barycentric coordinates by the dual basis of the edges t1 -> t2 and t1 -> t3.
         t.BarycentricDot1X, t.BarycentricDot1Y, t.BarycentricDot1Z,

@@ -196,14 +196,6 @@ PrecachedData.StaticProp = record("PrecachedData.StaticProp", {
 ---@field BarycentricDot2X number Parameter to calculate barycentric coordinates w.
 ---@field BarycentricDot2Y number
 ---@field BarycentricDot2Z number
----@field MBBPitch         number The angle of minimum bounding box, which is a rectangle in the plane of the triangle.
----@field MBBYaw           number
----@field MBBRoll          number
----@field MBBOriginX       number The origin of minimum bounding box.
----@field MBBOriginY       number
----@field MBBOriginZ       number
----@field MBBSizeX         number The size of minimum bounding box in its local coordinates.
----@field MBBSizeY         number
 ---3x3 rotation matrix in row-major order,
 ---which transforms world angles into local ones to map them to the serverside paint grid.
 ---@field WorldToLocalGridRotation number[]
@@ -216,14 +208,6 @@ PrecachedData.DisplacementTriangle = record("PrecachedData.DisplacementTriangle"
     "Float BarycentricDot2X",
     "Float BarycentricDot2Y",
     "Float BarycentricDot2Z",
-    "Float MBBPitch",
-    "Float MBBYaw",
-    "Float MBBRoll",
-    "Float MBBOriginX",
-    "Float MBBOriginY",
-    "Float MBBOriginZ",
-    "Float MBBSizeX",
-    "Float MBBSizeY",
     "Float WorldToLocalGridRotation 9",
 })
 
@@ -423,40 +407,15 @@ PrecachedData.CubemapInfo = record("PrecachedData.CubemapInfo", {
     "Float  Blend",
 })
 
----Spatial hash of the paintable surfaces.
----Element k of HashValues, FirstSurfaceIndex, and NumSurfaceIndices is for the cell of hash value HashValues[k],
----which has the surfaces PaintableSurface.Surfaces[SurfaceIndices[j]]
----for j = FirstSurfaceIndex[k], ..., FirstSurfaceIndex[k] + NumSurfaceIndices[k] - 1.
----@class ss.PrecachedData.SurfaceHash
----@field NumHashValues       integer
----@field HashValues          integer[]?
----@field FirstSurfaceIndex   integer[]?
----@field NumSurfaceIndices   integer[]?
----@field TotalSurfaceIndices integer
----@field SurfaceIndices      integer[]?
-
----@type { new: fun(): ss.PrecachedData.SurfaceHash }
-PrecachedData.SurfaceHash = record("PrecachedData.SurfaceHash", {
-    "ULong NumHashValues",
-    "ULong HashValues        NumHashValues", -- 256 * 256 * 256 cells
-    "ULong FirstSurfaceIndex NumHashValues",
-    "ULong NumSurfaceIndices NumHashValues",
-    "ULong TotalSurfaceIndices",
-    "ULong SurfaceIndices    TotalSurfaceIndices",
-})
-
 ---@class ss.PrecachedData.HashParameters
----@field GridSizeSurface integer
 ---@field MinGridSizeDisplacement integer
 ---@field NumDivisionsDisplacement integer
 
 ---@type { new: fun(): ss.PrecachedData.HashParameters }
 PrecachedData.HashParameters = record("PrecachedData.HashParameters", {
-    "UShort GridSizeSurface",
     "UShort MinGridSizeDisplacement",
     "UShort NumDivisionsDisplacement",
 }, {
-    GridSizeSurface          = 128,
     MinGridSizeDisplacement  = 32,
     NumDivisionsDisplacement = 8,
 })
@@ -504,7 +463,6 @@ PrecachedData.MinimapAreaBounds = record("PrecachedData.MinimapAreaBounds", {
 ---@field LightmapsHDR     ss.PrecachedData.LightmapInfo[]?
 ---@field NumSurfaces      integer
 ---@field Surfaces         ss.PrecachedData.Surface[]? Paintable surfaces built from LUMP_FACES.
----@field SurfaceHash      ss.PrecachedData.SurfaceHash Spatial hash given to Hash.Setup.
 ---@field HammerUnitsToUV  number Converts hammer units of the ink map rectangles into UV coordinates.
 ---@field NumCubemaps      integer
 ---@field Cubemaps         ss.PrecachedData.CubemapInfo[]? Cubemap samples and paintable face bounds using them.
@@ -528,7 +486,6 @@ record("PrecachedData", {
     "PrecachedData.LightmapInfo LightmapsHDR NumLightmapsHDR",
     "ULong  NumSurfaces",
     "PrecachedData.Surface Surfaces NumSurfaces",
-    "PrecachedData.SurfaceHash SurfaceHash",
     "Float  HammerUnitsToUV",
     "UShort NumCubemaps", -- MAX_MAP_CUBEMAPSAMPLES = 1024
     "PrecachedData.CubemapInfo Cubemaps NumCubemaps",

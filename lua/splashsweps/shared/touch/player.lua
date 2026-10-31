@@ -40,8 +40,7 @@ end
 ---@param toWorld number[] Transform from the surface's coordinate system to the world.
 ---@param t       number   Duration of the overlay.
 local function DrawSurfaceBounds(surf, toWorld, t)
-    local mbbToWorld = Geometry.Multiply(toWorld, Geometry.FromAngles(
-        surf.MBBAngles.pitch, surf.MBBAngles.yaw, surf.MBBAngles.roll, surf.MBBOrigin:Unpack()))
+    local mbbToWorld = Geometry.Multiply(toWorld, Geometry.InvertRotationTranslation(surf.WorldToMBB))
     local gridToWorld = Geometry.Multiply(toWorld, Geometry.InvertRotationTranslation(surf.WorldToLocalGrid))
     local width = surf.Grid.Width * PaintableGrid.CELL_SIZE
     local height = surf.Grid.Height * PaintableGrid.CELL_SIZE
@@ -49,7 +48,8 @@ local function DrawSurfaceBounds(surf, toWorld, t)
     debugoverlay.BoxAngles(OriginOf(toWorld),
         Vector(surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ),
         Vector(surf.AABBMaxX, surf.AABBMaxY, surf.AABBMaxZ), AnglesOf(toWorld), t, color_transparent)
-    debugoverlay.BoxAngles(OriginOf(mbbToWorld) + vector_up, vector_origin, surf.MBBSize, AnglesOf(mbbToWorld), t, Color(255, 255, 160, 2))
+    debugoverlay.BoxAngles(OriginOf(mbbToWorld) + vector_up, vector_origin,
+        Vector(surf.MBBSizeX, surf.MBBSizeY, surf.MBBSizeZ), AnglesOf(mbbToWorld), t, Color(255, 255, 160, 2))
     debugoverlay.BoxAngles(OriginOf(gridToWorld), vector_origin, size, AnglesOf(gridToWorld), t, Color(0, 255, 0, 0))
 end
 
@@ -133,10 +133,6 @@ hook.Add("Move", "SplashSWEPs: Check if players are on ink", function(ply, mv)
                 local d = Vector(tri.NormalX, tri.NormalY, tri.NormalZ) * 0.5
                 local p1, p2, p3 = VertexOf(xs, ys, zs, i1) + d, VertexOf(xs, ys, zs, i2) + d, VertexOf(xs, ys, zs, i3) + d
                 local o1, o2, o3 = VertexOf(oxs, oys, ozs, i1) + d, VertexOf(oxs, oys, ozs, i2) + d, VertexOf(oxs, oys, ozs, i3) + d
-                debugoverlay.BoxAngles(
-                    tri.MBBOrigin, vector_origin,
-                    tri.MBBSize, tri.MBBAngles, t, Color(255, 255, 255, 0))
-
                 debugoverlay.Line(p1, p2, t, Color(255, 255, 0, 64))
                 debugoverlay.Line(p2, p3, t, Color(255, 255, 0, 64))
                 debugoverlay.Line(p3, p1, t, Color(255, 255, 0, 64))

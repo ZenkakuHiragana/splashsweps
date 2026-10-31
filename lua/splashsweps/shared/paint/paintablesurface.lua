@@ -9,12 +9,6 @@ local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
 ---@class ss.PaintableSurfaceModule
 local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 
----Classes containing the oriented minimum bounding box, which util.IsOBBIntersectingOBB takes.
----@class ss.IHasMBB
----@field MBBAngles Angle  The angle of minimum (oriented) bounding box.
----@field MBBOrigin Vector The origin of minimum (oriented) bounding box.
----@field MBBSize   Vector The size of minimum (oriented) bounding box in their local coordinates.
-
 ---A surface to paint, which has a paint grid in the coordinates converted from the world by WorldToLocalGrid.
 ---```text
 ---World origin
@@ -26,7 +20,7 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---         v   * (Xi, Yi) = WorldToLocalGrid * (xi, yi)
 ---         Y
 ---```
----@class ss.PaintableSurface : ss.IHasMBB
+---@class ss.PaintableSurface
 ---@field AABBMinX              number AABB minimum of this surface in world coordinates.
 ---@field AABBMinY              number
 ---@field AABBMinZ              number
@@ -47,14 +41,21 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field PaintOriginY          number[]?
 ---@field PaintOriginZ          number[]?
 ---@field WorldToLocalGrid      number[] The transform of ss.GeometryModule to convert world coordinates into local coordinates of the paint grid. This does not modify scales.
+---The transform of ss.GeometryModule to convert world coordinates into local coordinates of the minimum bounding box,
+---which is [0, MBBSizeX] x [0, MBBSizeY] x [0, MBBSizeZ] there.
+---A flat surface shares WorldToLocalGrid, and the faces of a static prop share the box of the prop.
+---@field WorldToMBB            number[]
+---@field MBBSizeX              number   The size of the minimum bounding box.
+---@field MBBSizeY              number
+---@field MBBSizeZ              number
 ---@field Index                 integer  The index of this surface in PaintableSurface.Surfaces, which keys what other modules keep for each surface.
 
 ---A triangle in a displacement.
----@class ss.DisplacementTriangle : ss.IHasMBB
+---@class ss.DisplacementTriangle
 ---@field VertexIndex1     integer The vertices of this triangle in the vertex arrays of the displacement.
 ---@field VertexIndex2     integer
 ---@field VertexIndex3     integer
----@field NormalX          number  Normal vector of this triangle.
+---@field NormalX          number  Normal vector of this triangle, (t2 - t3) x (t1 - t3) normalized for its vertices t1, t2, and t3.
 ---@field NormalY          number
 ---@field NormalZ          number
 ---@field BarycentricDot1X number  Parameter to calculate barycentric coordinates v.
@@ -115,9 +116,10 @@ local function newSurface(index, gridWidth, gridHeight, worldToLocalGrid)
         NormalZ = 0,
         Grid = PaintableGrid.new(gridWidth, gridHeight),
         WorldToLocalGrid = worldToLocalGrid,
-        MBBAngles = angle_zero,
-        MBBOrigin = vector_origin,
-        MBBSize = vector_origin,
+        WorldToMBB = worldToLocalGrid,
+        MBBSizeX = 0,
+        MBBSizeY = 0,
+        MBBSizeZ = 0,
     }
 end
 
@@ -151,12 +153,13 @@ function PaintableSurface.Setup(surfaces, numModels)
         ps.AABBMinX, ps.AABBMinY, ps.AABBMinZ = surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ
         ps.AABBMaxX, ps.AABBMaxY, ps.AABBMaxZ = surf.AABBMaxX, surf.AABBMaxY, surf.AABBMaxZ
         ps.NormalX, ps.NormalY, ps.NormalZ = mbbToWorld[3], mbbToWorld[7], mbbToWorld[11]
-        ps.MBBAngles = Angle(surf.MBBPitch, surf.MBBYaw, surf.MBBRoll)
-        ps.MBBOrigin = Vector(surf.MBBOriginX, surf.MBBOriginY, surf.MBBOriginZ)
-        ps.MBBSize = Vector(surf.MBBSizeX, surf.MBBSizeY, surf.MBBSizeZ)
-        ps.TriangleHash = surf.TriangleHash
+        ps.MBBSizeX, ps.MBBSizeY, ps.MBBSizeZ = surf.MBBSizeX, surf.MBBSizeY, surf.MBBSizeZ
         local triangles = surf.DisplacementTriangles
         if triangles then
+            -- The box of a displacement is in 3D, while its paint grid is made from its flattened shape.
+            ps.WorldToMBB = Geometry.InvertRotationTranslation(Geometry.FromAngles(
+                surf.MBBPitch, surf.MBBYaw, surf.MBBRoll, surf.MBBOriginX, surf.MBBOriginY, surf.MBBOriginZ))
+            ps.TriangleHash = surf.TriangleHash
             local xs, ys, zs = surf.PositionX, surf.PositionY, surf.PositionZ
             local vertexIndices = surf.VertexIndices
             ps.PositionX, ps.PositionY, ps.PositionZ = xs, ys, zs
@@ -165,14 +168,16 @@ function PaintableSurface.Setup(surfaces, numModels)
             for j, t in ipairs(triangles) do
                 local i1, i2, i3 = vertexIndices[3 * j - 2], vertexIndices[3 * j - 1], vertexIndices[3 * j]
                 local r = t.WorldToLocalGridRotation
-                local triangleToWorld = Geometry.FromAngles(t.MBBPitch, t.MBBYaw, t.MBBRoll, 0, 0, 0)
+                local nx, ny, nz = Geometry.Normalize(Geometry.Cross(
+                    xs[i2] - xs[i3], ys[i2] - ys[i3], zs[i2] - zs[i3],
+                    xs[i1] - xs[i3], ys[i1] - ys[i3], zs[i1] - zs[i3]))
                 ps.Triangles[j] = {
                     VertexIndex1     = i1,
                     VertexIndex2     = i2,
                     VertexIndex3     = i3,
-                    NormalX          = triangleToWorld[3],
-                    NormalY          = triangleToWorld[7],
-                    NormalZ          = triangleToWorld[11],
+                    NormalX          = nx,
+                    NormalY          = ny,
+                    NormalZ          = nz,
                     BarycentricDot1X = t.BarycentricDot1X,
                     BarycentricDot1Y = t.BarycentricDot1Y,
                     BarycentricDot1Z = t.BarycentricDot1Z,
@@ -183,9 +188,6 @@ function PaintableSurface.Setup(surfaces, numModels)
                         t.BarycentricDot1X, t.BarycentricDot1Y, t.BarycentricDot1Z),
                     BarycentricAdd2  = -Geometry.Dot(xs[i1], ys[i1], zs[i1],
                         t.BarycentricDot2X, t.BarycentricDot2Y, t.BarycentricDot2Z),
-                    MBBAngles        = Angle(t.MBBPitch, t.MBBYaw, t.MBBRoll),
-                    MBBOrigin        = Vector(t.MBBOriginX, t.MBBOriginY, t.MBBOriginZ),
-                    MBBSize          = Vector(t.MBBSizeX, t.MBBSizeY, 0),
                     WorldToLocalGridRotation = {
                         r[1], r[2], r[3], 0,
                         r[4], r[5], r[6], 0,
@@ -419,9 +421,7 @@ function PaintableSurface.SetupStaticProps(staticPropInfo)
         local box = PaintableSurface.GetStaticPropBox(prop)
         local aabbMinX, aabbMinY, aabbMinZ, aabbMaxX, aabbMaxY, aabbMaxZ
             = Geometry.TransformAABB(box.ToWorld, 0, 0, 0, box.SizeX, box.SizeY, box.SizeZ)
-        local mbbAngles = Angle(Geometry.ToAngles(box.ToWorld))
-        local mbbOrigin = Vector(box.ToWorld[4], box.ToWorld[8], box.ToWorld[12])
-        local mbbSize = Vector(box.SizeX, box.SizeY, box.SizeZ)
+        local worldToBox = Geometry.InvertRotationTranslation(box.ToWorld)
         for _, face in ipairs(box.Faces) do
             index = index + 1
             local faceToWorld = face.ToWorld
@@ -433,9 +433,8 @@ function PaintableSurface.SetupStaticProps(staticPropInfo)
             ps.AABBMaxX, ps.AABBMaxY, ps.AABBMaxZ = aabbMaxX, aabbMaxY, aabbMaxZ
             ps.NormalX, ps.NormalY, ps.NormalZ = faceToWorld[3], faceToWorld[7], faceToWorld[11]
             ps.StaticPropUnwrapIndex = prop.UnwrapIndex
-            ps.MBBAngles = mbbAngles
-            ps.MBBOrigin = mbbOrigin
-            ps.MBBSize   = mbbSize
+            ps.WorldToMBB = worldToBox
+            ps.MBBSizeX, ps.MBBSizeY, ps.MBBSizeZ = box.SizeX, box.SizeY, box.SizeZ
             state.Surfaces[index] = ps
         end
     end

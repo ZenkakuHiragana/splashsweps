@@ -242,7 +242,6 @@ local function WriteCache(path)
         cache.NumLightmapsHDR = #cache.LightmapsHDR
     end
 
-    cache.SurfaceHash = Hash.BuildSurfaceHash(surfaces, cache.StaticProps)
     PrecachedData.WriteFile(path, bsp.header.mapRevision, cache)
     return true
 end

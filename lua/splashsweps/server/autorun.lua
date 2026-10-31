@@ -21,9 +21,9 @@ local function LoadCache()
     local cache = CacheBuilder.Load()
     if not cache then return end
 
-    Hash.Setup(cache.SurfaceHash, cache.HashParameters)
     PaintableSurface.Setup(cache.Surfaces, cache.NumModels)
     PaintableSurface.SetupStaticProps(cache.StaticProps)
+    Hash.Setup(cache.HashParameters)
     InkShape.Load()
     InkType.Load()
 end
