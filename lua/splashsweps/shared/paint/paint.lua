@@ -44,8 +44,9 @@ local net_WriteInt = net.WriteInt
 ---@diagnostic disable-next-line undefined-field
 local net_SendOmit = net.SendOmit
 
----Maximum paint scale of a single drop to be networked
-local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS + 1) - 1
+---Maximum paint scale of a single drop to be networked,
+---the largest even number whose half fits in ss.MAX_INK_RADIUS_BITS bits after rounding.
+local MAX_RADIUS = math.pow(2, ss.MAX_INK_RADIUS_BITS + 1) - 2
 
 ---The cosine of the maximum angle difference between the up of a paint and the normal of a surface to paint it.
 ---The static props are painted on the faces of their bounding boxes, and the angle must be more than 54.7 degrees

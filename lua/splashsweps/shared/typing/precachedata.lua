@@ -491,10 +491,11 @@ record("PrecachedData", {
     "PrecachedData.CubemapInfo Cubemaps NumCubemaps",
 }, nil, PrecachedData)
 
----Writes the map cache to a file in the data folder, after the cache version and the map revision,
----without compression. PrecachedData.CompressFile compresses it afterwards,
----so that the caller can release the cache before the compression needs memory.
----@param path     string Path in the data folder.
+---Writes the map cache to a temporary file in the data folder, after the cache version and the map revision,
+---without compression. PrecachedData.CompressFile compresses it into the cache file afterwards,
+---so that the caller can release the cache before the compression needs memory,
+---and the cache file never holds the uncompressed data even if the game crashes in between.
+---@param path     string Path of the temporary file in the data folder.
 ---@param revision integer mapRevision of the BSP header the cache is built from.
 ---@param cache    ss.PrecachedData
 function PrecachedData.WriteFile(path, revision, cache)
@@ -505,10 +506,12 @@ function PrecachedData.WriteFile(path, revision, cache)
     f:Close()
 end
 
----Compresses a cache file written by PrecachedData.WriteFile in place.
----@param path string Path in the data folder.
-function PrecachedData.CompressFile(path)
-    file.Write(path, util.Compress(file.Read(path, "DATA")))
+---Compresses a temporary file written by PrecachedData.WriteFile into the cache file, and deletes the temporary file.
+---@param tempPath string Path of the temporary file in the data folder.
+---@param path     string Path of the cache file in the data folder.
+function PrecachedData.CompressFile(tempPath, path)
+    file.Write(path, util.Compress(file.Read(tempPath, "DATA")))
+    file.Delete(tempPath)
 end
 
 ---Reads the map cache from a file written by PrecachedData.WriteFile and PrecachedData.CompressFile.

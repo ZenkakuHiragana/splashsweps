@@ -202,8 +202,8 @@ local function GetStaticPropUVSize(prop)
 end
 
 ---Parses the BSP, collects valid brush surfaces, prepares paintable surfaces,
----and writes them to the file without compression.
----@param path string Path in the data folder.
+---and writes them to the temporary file without compression.
+---@param path string Path of the temporary file in the data folder.
 ---@return boolean # false if the BSP cannot be loaded.
 local function WriteCache(path)
     local bsp = BSP.Load()
@@ -252,6 +252,7 @@ end
 ---@return ss.PrecachedData? # nil if the map file cannot be read.
 function CacheBuilder.Load()
     local path = string.format("splashsweps/%s.dat", game.GetMap())
+    local tempPath = string.format("splashsweps/%s.tmp.dat", game.GetMap())
     local revision = BSP.ReadRevision()
     if not revision then return end
     local cache = PrecachedData.ReadFile(path, revision)
@@ -259,11 +260,11 @@ function CacheBuilder.Load()
 
     file.CreateDir "splashsweps"
     collectgarbage "collect"
-    if not WriteCache(path) then return end
+    if not WriteCache(tempPath) then return end
 
     -- WriteCache has returned, so the BSP and the cache are released before the compression, which needs memory.
     collectgarbage "collect"
-    PrecachedData.CompressFile(path)
+    PrecachedData.CompressFile(tempPath, path)
     collectgarbage "collect"
     return PrecachedData.ReadFile(path, revision)
 end
