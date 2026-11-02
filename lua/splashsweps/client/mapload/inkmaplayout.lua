@@ -35,7 +35,7 @@ local InkMapLayout = ss.module "splashsweps/client/mapload/inkmaplayout"
 
 ---@class ss.InkMapLayoutModule.State
 ---@field Placements ss.InkMapLayout.Placement[] Indexed by ss.PaintableSurface.Index.
-local state = ss.state("splashsweps/client/mapload/inkmaplayout", { Placements = {} }) ---@type ss.InkMapLayoutModule.State
+local state = ss.state("splashsweps/client/mapload/inkmaplayout", { Placements = {} })
 
 ---Where each paintable surface is in the ink map, indexed by ss.PaintableSurface.Index.
 InkMapLayout.Placements = state.Placements

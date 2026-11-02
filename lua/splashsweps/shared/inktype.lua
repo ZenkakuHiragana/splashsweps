@@ -33,7 +33,7 @@ local InkType = ss.module "splashsweps/shared/inktype"
 ---@field IdentifierToIndex table<string, integer> Conversion table from identifier string to internal index.
 ---@field NumBits           integer                Required bits to transfer an ink type index as an unsigned integer.
 ---@field Received          string[]?              Client only; identifiers the server sent in the order of the indices.
-local state = ss.state("splashsweps/shared/inktype", { Types = {}, IdentifierToIndex = {} }) ---@type ss.InkTypeModule.State
+local state = ss.state("splashsweps/shared/inktype", { Types = {}, IdentifierToIndex = {} })
 
 ---Paintable grids and the ink map store the index in 8 bits, where 0 means no ink.
 local MAX_INK_TYPES = 255

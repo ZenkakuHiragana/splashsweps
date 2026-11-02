@@ -22,7 +22,7 @@ local Hash = ss.module "splashsweps/shared/hash"
 local state = ss.state("splashsweps/shared/hash", {
     Levels = {},
     Parameters = PrecachedData.HashParameters.new(),
-}) ---@type ss.HashModule.State
+})
 
 local ceil = math.ceil
 local clamp = math.Clamp

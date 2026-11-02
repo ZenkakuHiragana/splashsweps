@@ -28,7 +28,7 @@ local InkMap = ss.module "splashsweps/client/render/inkmap"
 
 ---@class ss.InkMapModule.State
 ---@field Queue ss.InkMap.QueuedPaint[] Paints to draw in the next frame.
-local state = ss.state("splashsweps/client/render/inkmap", { Queue = {} }) ---@type ss.InkMapModule.State
+local state = ss.state("splashsweps/client/render/inkmap", { Queue = {} })
 
 local NUM_REGION, NUM_VERTEX = 4, 4
 local INDICES_REGION = 2 -- Region of the ink type IDs, the only one the boundary band of a paint updates

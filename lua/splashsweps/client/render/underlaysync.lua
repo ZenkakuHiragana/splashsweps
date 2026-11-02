@@ -28,7 +28,7 @@ local state = ss.state("splashsweps/client/render/underlaysync", {
     InkSprp = {},
     WatchList = {},
     LastSunDirection = Vector(),
-}) ---@type ss.UnderlaySyncModule.State
+})
 
 -- Ink mesh materials and ink sprp materials are registered separately,
 -- as the shader constants they share with their underlays differ:

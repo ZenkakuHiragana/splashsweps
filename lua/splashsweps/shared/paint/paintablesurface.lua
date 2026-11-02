@@ -76,7 +76,7 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 local state = ss.state("splashsweps/shared/paint/paintablesurface", {
     Surfaces = {},
     BrushModelSurfaces = {},
-}) ---@type ss.PaintableSurfaceModule.State
+})
 
 ---Paintable surfaces of the world and static props:
 ---the surfaces of the map cache in order, followed by the 6 faces of each static prop

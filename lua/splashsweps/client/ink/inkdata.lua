@@ -12,7 +12,7 @@ local InkData = ss.module "splashsweps/client/ink/inkdata"
 
 ---@class ss.InkDataModule.State
 ---@field AverageHeights table<string, number> Mean alpha of each texture's smallest stored mipmap
-local state = ss.state("splashsweps/client/ink/inkdata", { AverageHeights = {} }) ---@type ss.InkDataModule.State
+local state = ss.state("splashsweps/client/ink/inkdata", { AverageHeights = {} })
 
 ---Averages the smallest stored mipmap, including levels the engine may omit without ALL_MIPS.
 ---@param path string

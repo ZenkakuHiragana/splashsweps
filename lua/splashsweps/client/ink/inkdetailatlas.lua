@@ -38,7 +38,7 @@ local state = ss.state("splashsweps/client/ink/inkdetailatlas", {
     ImageSize = 0,
     GridColumns = 0,
     BlendModes = {},
-}) ---@type ss.InkDetailAtlasModule.State
+})
 
 ---$detailblendmode of each ink type, 0 if the detail is disabled.
 InkDetailAtlas.BlendModes = state.BlendModes

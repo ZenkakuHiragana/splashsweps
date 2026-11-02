@@ -27,7 +27,7 @@ local state = ss.state("splashsweps/client/ink/paintatlas", {
     BaseUV = {},
     TintUV = {},
     ShapeUV = {},
-}) ---@type ss.PaintAtlasModule.State
+})
 
 ---Ink type index --> range of its $basetexture in the albedo atlas, for every ink type after PaintAtlas.Allocate.
 PaintAtlas.BaseUV = state.BaseUV

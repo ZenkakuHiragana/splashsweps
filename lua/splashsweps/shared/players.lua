@@ -10,7 +10,7 @@ local Players = ss.module "splashsweps/shared/players"
 ---@class ss.PlayersModule.State
 ---@field Ready   Player[]               Players ready to network.
 ---@field Indices table<Player, integer> Lookup table equal to table.Flip(Ready).
-local state = ss.state("splashsweps/shared/players", { Ready = {}, Indices = {} }) ---@type ss.PlayersModule.State
+local state = ss.state("splashsweps/shared/players", { Ready = {}, Indices = {} })
 
 ---Players ready to network.
 Players.Ready = state.Ready

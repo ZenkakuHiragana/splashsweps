@@ -9,7 +9,7 @@ local Session = ss.module "splashsweps/client/session"
 
 ---@class ss.SessionModule.State
 ---@field IsFirstRun boolean? Cached across hot reloads; nil until material enumeration.
-local state = ss.state("splashsweps/client/session", {}) ---@type ss.SessionModule.State
+local state = ss.state("splashsweps/client/session", {})
 
 -- The path to the file where we store the calculated application start time.
 local START_TIME_FILE_PATH = "splashsweps/session-start-time.txt"

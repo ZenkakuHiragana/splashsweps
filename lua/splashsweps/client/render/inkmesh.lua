@@ -30,7 +30,7 @@ local InkMesh = ss.module "splashsweps/client/render/inkmesh"
 local state = ss.state("splashsweps/client/render/inkmesh", {
     Batches = {},
     DebugMeshData = {},
-}) ---@type ss.InkMeshModule.State
+})
 
 ---Ink meshes of each BSP model, indexed by 1-based model index.
 InkMesh.Batches = state.Batches

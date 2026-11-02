@@ -14,7 +14,7 @@ local StaticPropRenderer = ss.module "splashsweps/client/render/staticproprender
 local state = ss.state("splashsweps/client/render/staticproprenderer", {
     Queue = {},
     IsDrawing = false,
-}) ---@type ss.StaticPropRendererModule.State
+})
 
 local StaticPropLightMaterial          = Material "splashsweps/shaders/phong"
 local StaticPropFlashlightMaterial     = Material "splashsweps/shaders/vertexlitgeneric"

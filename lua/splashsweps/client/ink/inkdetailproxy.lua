@@ -51,7 +51,7 @@ local state = ss.state("splashsweps/client/ink/inkdetailproxy", {
     Requests = {},
     LastStates = {},
     LastUpdates = {},
-}) ---@type ss.InkDetailProxyModule.State
+})
 
 ---Compares all drawing inputs with the snapshot saved after the last successful cell draw.
 ---Vector, Angle, and VMatrix compare their components with ==,

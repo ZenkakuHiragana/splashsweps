@@ -38,7 +38,7 @@ local InkShape = ss.module "splashsweps/shared/inkshape"
 ---@field Lists    table<string, integer[]> Ink shape category --> list of indices to Shapes.
 ---@field NumBits  integer                  Required bits to transfer an ink shape index as an unsigned integer.
 ---@field Received ss.InkShape.Received[]?  Client only; ink shapes the server sent in the order of the indices.
-local state = ss.state("splashsweps/shared/inkshape", { Shapes = {}, Lists = {} }) ---@type ss.InkShapeModule.State
+local state = ss.state("splashsweps/shared/inkshape", { Shapes = {}, Lists = {} })
 
 ---Defined ink shapes indexed by their internal index.
 InkShape.Shapes = state.Shapes
