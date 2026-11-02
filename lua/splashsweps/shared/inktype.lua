@@ -13,13 +13,27 @@ local InkType = ss.module "splashsweps/shared/inktype"
 ---A module defining how painted ink behaves with a set of functions.
 ---The `$features` parameter of an ink material names these modules as ss.import does, separated by spaces.
 ---The modules are imported in both realms, except on a client that does not have the ink material.
+---Move runs on the server and the client predicting the player, PhysicsCollide on the server,
+---and OnEnter, OnStay, and OnExit on both realms.
+---They get the contacts with all the ink types naming the module at once.
 ---@class ss.IInkFeature
 ---Called when this type of ink is about to be painted.
 ---Return true to suppress painting.
 ---@field OnPaint? fun(pos: Vector, normal: Vector, transform: VMatrix): boolean?
----Called when some entity is touching on surface painted with this type of ink.
----Check the `normal` to determine if it's wall or ground.
----@field OnTouchEntity? fun(ent: Entity, normal: Vector)
+---Called for every command of each player, even if the player touches none of this ink.
+---Return true to suppress the engine movement.
+---@field Move? fun(ply: Player, mv: CMoveData, contacts: ss.InkContact[], vars: table<string, any>?): boolean?
+---Variables Move keeps across commands for each player, given as `vars`, by name and type of Entity:NetworkVar.
+---@field PredictedVars? table<string, "String"|"Bool"|"Float"|"Int"|"Vector"|"Angle"|"Entity">
+---Called in the PhysicsCollide callback of a physics object hitting this ink, with the contacts at the point,
+---where the same limits as in the callback apply.
+---@field PhysicsCollide? fun(ent: Entity, contacts: ss.InkContact[], data: Structure.CollisionData)
+---Called when an entity starts touching this ink.
+---@field OnEnter? fun(ent: Entity, contacts: ss.InkContact[])
+---Called at every check while an entity is touching this ink.
+---@field OnStay? fun(ent: Entity, contacts: ss.InkContact[], dt: number)
+---Called once for each OnEnter while the entity is still valid, when it stops touching this ink.
+---@field OnExit? fun(ent: Entity)
 
 ---A type of ink.
 ---@class ss.InkType
@@ -30,10 +44,15 @@ local InkType = ss.module "splashsweps/shared/inktype"
 
 ---@class ss.InkTypeModule.State
 ---@field Types             ss.InkType[]           Defined ink types indexed by their internal index.
+---@field Features          ss.IInkFeature[]       Modules named by the ink types, each once.
 ---@field IdentifierToIndex table<string, integer> Conversion table from identifier string to internal index.
 ---@field NumBits           integer                Required bits to transfer an ink type index as an unsigned integer.
 ---@field Received          string[]?              Client only; identifiers the server sent in the order of the indices.
-local state = ss.state("splashsweps/shared/inktype", { Types = {}, IdentifierToIndex = {} })
+local state = ss.state("splashsweps/shared/inktype", {
+    Types = {},
+    Features = {},
+    IdentifierToIndex = {},
+})
 
 ---Paintable grids and the ink map store the index in 8 bits, where 0 means no ink.
 local MAX_INK_TYPES = 255
@@ -43,6 +62,10 @@ local ERROR_INK_MATERIAL = "splashsweps/inkerror"
 
 ---Defined ink types indexed by their internal index.
 InkType.Types = state.Types
+
+---Modules named by the ink types, each once, in the order of the ink types and then of their `$features`.
+---Both realms have the same order, as they define the same ink types in the same order.
+InkType.Features = state.Features
 
 ---Converts ink type identifier (string) into internal index.
 ---@param identifier string
@@ -111,6 +134,15 @@ function InkType.Load()
     end
 
     state.NumBits = math.max(select(2, math.frexp(inktypeCount - 1)), 1)
+
+    table.Empty(state.Features)
+    for _, inktype in ipairs(state.Types) do
+        for _, feature in ipairs(inktype.Features) do
+            if not table.HasValue(state.Features, feature) then
+                state.Features[#state.Features + 1] = feature
+            end
+        end
+    end
 end
 
 ---Writes the identifiers of the ink types to the net message, for the client to define the same ink types.

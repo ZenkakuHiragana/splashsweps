@@ -6,6 +6,7 @@ end
 
 include "splashsweps/shared/autorun.lua"
 include "splashsweps/server/playerconnection.lua"
+include "splashsweps/server/predictedvars.lua"
 
 ---@class ss
 local ss = SplashSWEPs
@@ -16,6 +17,7 @@ local InkShape         = ss.import "splashsweps/shared/inkshape"
 local InkType          = ss.import "splashsweps/shared/inktype"
 local Paint            = ss.import "splashsweps/shared/paint/paint"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
+local PredictedVars    = ss.import "splashsweps/shared/touch/predictedvars"
 
 local function LoadCache()
     local cache = CacheBuilder.Load()
@@ -26,6 +28,7 @@ local function LoadCache()
     Hash.Setup(cache.HashParameters)
     InkShape.Load()
     InkType.Load()
+    PredictedVars.Setup()
 end
 
 hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()

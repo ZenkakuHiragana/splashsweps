@@ -139,6 +139,27 @@ function PaintableSurface.BarycentricCoordinates(triangle, x, y, z)
     return 1 - u - v, u, v
 end
 
+---Maps a point on a triangle of a displacement onto the flat surface the displacement came from,
+---where its paintable grid is.
+---@param surf     ss.PaintableSurface The displacement.
+---@param triangle ss.DisplacementTriangle
+---@param b1       number Barycentric coordinates of the point in the triangle.
+---@param b2       number
+---@param b3       number
+---@return number x
+---@return number y
+---@return number z
+function PaintableSurface.MapToPaintOrigin(surf, triangle, b1, b2, b3)
+    local i1, i2, i3 = triangle.VertexIndex1, triangle.VertexIndex2, triangle.VertexIndex3
+    local xs, ys, zs = surf.PaintOriginX, surf.PaintOriginY, surf.PaintOriginZ
+    ---@cast xs -?
+    ---@cast ys -?
+    ---@cast zs -?
+    return xs[i1] * b1 + xs[i2] * b2 + xs[i3] * b3,
+        ys[i1] * b1 + ys[i2] * b2 + ys[i3] * b3,
+        zs[i1] * b1 + zs[i2] * b2 + zs[i3] * b3
+end
+
 ---Reads a surface list from a file and stores them for later use.
 ---@param surfaces  ss.PrecachedData.Surface[]?
 ---@param numModels integer Number of entries in the BSP model lump.

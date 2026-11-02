@@ -27,3 +27,4 @@ ss.sp = game.SinglePlayer()
 
 include "splashsweps/shared/import.lua"
 include "splashsweps/shared/touch/player.lua"
+include "splashsweps/shared/touch/entity.lua"

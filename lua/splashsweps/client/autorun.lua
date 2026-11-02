@@ -10,6 +10,7 @@ local ss = SplashSWEPs
 include "splashsweps/shared/autorun.lua"
 include "splashsweps/client/debug_mesh.lua"
 include "splashsweps/client/render/inkpass.lua"
+include "splashsweps/client/predictedvars.lua"
 
 local CacheBuilder      = ss.import "splashsweps/shared/mapcache/cachebuilder"
 local Hash              = ss.import "splashsweps/shared/hash"
@@ -20,6 +21,7 @@ local InkShape          = ss.import "splashsweps/shared/inkshape"
 local InkType           = ss.import "splashsweps/shared/inktype"
 local PaintableSurface  = ss.import "splashsweps/shared/paint/paintablesurface"
 local Players           = ss.import "splashsweps/shared/players"
+local PredictedVars     = ss.import "splashsweps/shared/touch/predictedvars"
 local RenderTargets     = ss.import "splashsweps/client/render/rendertargets"
 local StaticPropBuilder = ss.import "splashsweps/client/mapload/staticpropbuilder"
 local Paint             = ss.import "splashsweps/shared/paint/paint"
@@ -37,6 +39,7 @@ local function LoadCache()
     RenderTargets.Setup(cache.HammerUnitsToUV)
     InkShape.Load()
     InkType.Load()
+    PredictedVars.Setup()
     InkAtlases.Load()
     InkMap.Setup()
     PaintableSurface.Setup(cache.Surfaces, cache.NumModels)

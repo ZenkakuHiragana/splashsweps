@@ -83,16 +83,12 @@ end
 ---@param b3         number
 ---@return ss.Paint
 local function MapOntoFlatSurface(surf, triangle, paint, inkToWorld, b1, b2, b3)
-    local i1, i2, i3 = triangle.VertexIndex1, triangle.VertexIndex2, triangle.VertexIndex3
-    local xs, ys, zs = surf.PaintOriginX, surf.PaintOriginY, surf.PaintOriginZ
-    ---@cast xs -?
-    ---@cast ys -?
-    ---@cast zs -?
+    local x, y, z = PaintableSurface.MapToPaintOrigin(surf, triangle, b1, b2, b3)
     local pitch, yaw, roll = Geometry.ToAngles(Geometry.Multiply(triangle.WorldToLocalGridRotation, inkToWorld))
     return {
-        X = xs[i1] * b1 + xs[i2] * b2 + xs[i3] * b3,
-        Y = ys[i1] * b1 + ys[i2] * b2 + ys[i3] * b3,
-        Z = zs[i1] * b1 + zs[i2] * b2 + zs[i3] * b3,
+        X = x,
+        Y = y,
+        Z = z,
         Pitch = pitch,
         Yaw = yaw,
         Roll = roll,
