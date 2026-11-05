@@ -23,10 +23,10 @@ local InkShape = ss.module "splashsweps/shared/inkshape"
 ---@class ss.InkShape
 ---@field Index       integer          The internal index used in networking.
 ---@field Identifier  string           The path of the vmt file under materials/splashsweps/inkshapes.
----@field Tag         string           The category of the ink shape, `$splashsweps_tag` of the vmt file.
+---@field Tag         string           The tag of the ink shape, `$splashsweps_tag` of the vmt file.
 ---@field Mask        ss.InkShape.Mask Mask for drawing on paintable grids.
----@field MaskTexture string?          Only used clientside; mask texture to create drawing materials.
----@field Channel     "R"|"G"|"B"|"A"? Determines which channel of MaskTexture to use.
+---@field Texture     string?          Only used clientside; the ink shape texture the paint atlas copies to draw paints.
+---@field Channel     "R"|"G"|"B"|"A"? Determines which channel of Texture to use.
 
 ---An ink shape in the list the server sends.
 ---@class ss.InkShape.Received
@@ -34,16 +34,16 @@ local InkShape = ss.module "splashsweps/shared/inkshape"
 ---@field Tag        string
 
 ---@class ss.InkShapeModule.State
----@field Shapes   ss.InkShape[]            Defined ink shapes indexed by their internal index.
----@field Lists    table<string, integer[]> Ink shape category --> list of indices to Shapes.
----@field NumBits  integer                  Required bits to transfer an ink shape index as an unsigned integer.
----@field Received ss.InkShape.Received[]?  Client only; ink shapes the server sent in the order of the indices.
-local state = ss.state("splashsweps/shared/inkshape", { Shapes = {}, Lists = {} })
+---@field Shapes       ss.InkShape[]            Defined ink shapes indexed by their internal index.
+---@field IndicesByTag table<string, integer[]> Tag --> indices to Shapes of the ink shapes with the tag.
+---@field NumBits      integer                  Required bits to transfer an ink shape index as an unsigned integer.
+---@field Received     ss.InkShape.Received[]?  Client only; ink shapes the server sent in the order of the indices.
+local state = ss.state("splashsweps/shared/inkshape", { Shapes = {}, IndicesByTag = {} })
 
 ---Defined ink shapes indexed by their internal index.
 InkShape.Shapes = state.Shapes
 
----Shape masks are signed distance fields where this value (0.5 in 0-255) is the edge.
+---Ink shape textures are signed distance fields where this value (0.5 in 0-255) is the edge.
 ---The paint shader clips the paint by the same value.
 local SHAPE_MASK_EDGE = 127.5
 
@@ -82,7 +82,7 @@ local function ReadPixelsFromVTF(vmt)
     if not path:EndsWith ".vtf" then path = path .. ".vtf" end
     if not file.Exists("materials/" .. path, "GAME") then return end
     local vtf = VTF.Read(path)
-    Util.assert(vtf, "Shape mask has invalid texture (" .. path .. ")") ---@cast vtf -?
+    Util.assert(vtf, "Ink shape has an invalid texture (" .. path .. ")") ---@cast vtf -?
 
     local VALID_CHANNELS = { R = "R", G = "G", B = "B", A = "A" }
     local channel = VALID_CHANNELS[vmt:GetString "$channel" or "R"] or "R"
@@ -95,7 +95,7 @@ local function ReadPixelsFromVTF(vmt)
         Mask = BuildMask(vtf.Images[1].Width, vtf.Images[1].Height, function(x, y)
             return VTF.ReadPixel(vtf, x, y)[key] > SHAPE_MASK_EDGE
         end),
-        MaskTexture = path,
+        Texture = path,
         Channel = channel,
     }
 
@@ -111,7 +111,7 @@ local function Define(index, identifier, tag, shape)
     shape.Index = index
     shape.Identifier = identifier
     shape.Tag = tag
-    state.Lists[tag] = table.ForceInsert(state.Lists[tag], index)
+    state.IndicesByTag[tag] = table.ForceInsert(state.IndicesByTag[tag], index)
     state.Shapes[index] = shape
 end
 
@@ -145,7 +145,7 @@ function InkShape.Load()
                     Identifier = "",
                     Tag = "",
                     Mask = BuildMask(ERROR_TEXTURE_SIZE, ERROR_TEXTURE_SIZE, function() return true end),
-                    MaskTexture = ERROR_TEXTURE,
+                    Texture = ERROR_TEXTURE,
                     Channel = "R",
                 }
             end
@@ -186,12 +186,12 @@ function InkShape.GetNumBits()
     return state.NumBits
 end
 
----Picks up random ink shape within the category of "tag" using given random seed.
+---Picks up random ink shape with the tag using given random seed.
 ---@param tag string tag to search for.
 ---@param seed? number optional random seed such as `CurTime()`.
 ---@return ss.InkShape # Randomly chosen ink shape.
 function InkShape.SelectRandom(tag, seed)
-    local indices = state.Lists[tag]
+    local indices = state.IndicesByTag[tag]
     local name = "SplashSWEPs: Select random shape"
     local i = math.min(math.floor(util.SharedRandom(name, 1, #indices + 1, seed)), #indices)
     return state.Shapes[indices[i]]

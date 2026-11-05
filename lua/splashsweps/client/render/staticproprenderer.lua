@@ -9,7 +9,7 @@ local RenderTargets = ss.import "splashsweps/client/render/rendertargets"
 local StaticPropRenderer = ss.module "splashsweps/client/render/staticproprenderer"
 
 ---@class ss.StaticPropRendererModule.State
----@field Queue     ss.PaintableCSEnt[] Static props the engine draws in the current view, whose ink is drawn with the ink meshes.
+---@field Queue     ss.StaticPropBuilder.InkModel[] Static props the engine draws in the current view, whose ink is drawn with the ink meshes.
 ---@field IsDrawing boolean             True while the ink renderer draws the queued static props.
 local state = ss.state("splashsweps/client/render/staticproprenderer", {
     Queue = {},
@@ -33,7 +33,7 @@ local StaticPropView = Matrix()
 ---  `-- prop:DrawModel()            calls StaticPropRenderer.Queue again, which draws the model this time
 ---
 ---The queue is left undrawn wherever the hook returns before drawing the ink meshes, such as the water reflection.
----@param self ss.PaintableCSEnt
+---@param self  ss.StaticPropBuilder.InkModel
 ---@param flags Enum.STUDIO
 function StaticPropRenderer.Queue(self, flags)
     if state.IsDrawing then

@@ -10,7 +10,7 @@
 ---@class ss
 local ss = SplashSWEPs
 
----@class ss.Repulsion : ss.IInkFeature
+---@class ss.RepulsionModule : ss.IInkFeature
 local Repulsion = ss.module "splashsweps/shared/inkfeature/repulsion"
 
 local DEFAULT_MIN_SPEED = 500

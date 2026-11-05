@@ -4,8 +4,8 @@
 local ss = SplashSWEPs
 local Util = ss.import "splashsweps/shared/util"
 
----@class ss.PackerStructures
-local Structures = ss.module "splashsweps/shared/packer/structures"
+---@class ss.PackerStructuresModule
+local PackerStructures = ss.module "splashsweps/shared/packer/structures"
 
 local floor = math.floor
 local ipairs = ipairs
@@ -15,45 +15,45 @@ local max = math.max
 local min = math.min
 local rawset = rawset
 
----@param a ss.LinkedListCell
+---@param a ss.PackerStructures.LinkedListCell
 ---@return string
 local function CellTs(a)    return tostring(a.value)  end
----@param a ss.LinkedListCell
----@param b ss.LinkedListCell
+---@param a ss.PackerStructures.LinkedListCell
+---@param b ss.PackerStructures.LinkedListCell
 ---@return boolean
 local function CellEq(a, b) return a.value == b.value end
----@param a ss.LinkedListCell
----@param b ss.LinkedListCell
+---@param a ss.PackerStructures.LinkedListCell
+---@param b ss.PackerStructures.LinkedListCell
 ---@return boolean
 local function CellLe(a, b) return a.value <= b.value end
----@param a ss.LinkedListCell
----@param b ss.LinkedListCell
+---@param a ss.PackerStructures.LinkedListCell
+---@param b ss.PackerStructures.LinkedListCell
 ---@return boolean
 local function CellLt(a, b) return a.value <  b.value end
 
 ---@param values any
----@return ss.LinkedList
-function Structures.LinkedList(values)
-    ---@class ss.LinkedList
+---@return ss.PackerStructures.LinkedList
+function PackerStructures.LinkedList(values)
+    ---@class ss.PackerStructures.LinkedList
     ---@field count  integer
-    ---@field first  ss.LinkedListCell?
-    ---@field last   ss.LinkedListCell?
+    ---@field first  ss.PackerStructures.LinkedListCell?
+    ---@field last   ss.PackerStructures.LinkedListCell?
     ---@field __type "SplashSWEPsLinkedList"
-    ---@field append fun(self: ss.LinkedList, value: any)
-    ---@field insert fun(self: ss.LinkedList, value: any, index: integer|ss.LinkedListCell)
-    ---@field remove fun(self: ss.LinkedList, index: integer|ss.LinkedListCell)
-    ---@overload fun(): fun(): integer?, ss.LinkedListCell?
+    ---@field append fun(self: ss.PackerStructures.LinkedList, value: any)
+    ---@field insert fun(self: ss.PackerStructures.LinkedList, value: any, index: integer|ss.PackerStructures.LinkedListCell)
+    ---@field remove fun(self: ss.PackerStructures.LinkedList, index: integer|ss.PackerStructures.LinkedListCell)
+    ---@overload fun(): fun(): integer?, ss.PackerStructures.LinkedListCell?
 
-    ---@param parent ss.LinkedList
+    ---@param parent ss.PackerStructures.LinkedList
     ---@param value any
-    ---@return ss.LinkedListCell
+    ---@return ss.PackerStructures.LinkedListCell
     local function Cell(parent, value)
-        ---@class ss.LinkedListCell
-        ---@field after  ss.LinkedListCell?
-        ---@field before ss.LinkedListCell?
-        ---@field parent ss.LinkedList
-        ---@field value  ss.RectanglePackerBaseline
-        ---@field remove fun(self: ss.LinkedListCell)
+        ---@class ss.PackerStructures.LinkedListCell
+        ---@field after  ss.PackerStructures.LinkedListCell?
+        ---@field before ss.PackerStructures.LinkedListCell?
+        ---@field parent ss.PackerStructures.LinkedList
+        ---@field value  ss.RectanglePacker.Baseline
+        ---@field remove fun(self: ss.PackerStructures.LinkedListCell)
         ---@field __type "SplashSWEPsLinkedListCell"
         return setmetatable({
             after = nil,
@@ -71,8 +71,8 @@ function Structures.LinkedList(values)
     end
 
     ---Iterate through all values in the list
-    ---@param self ss.LinkedList
-    ---@return fun(): integer?, ss.LinkedListCell?
+    ---@param self ss.PackerStructures.LinkedList
+    ---@return fun(): integer?, ss.PackerStructures.LinkedListCell?
     local function __call(self) -- iterator
         local index, current = 1, self.first
         return function()
@@ -82,16 +82,16 @@ function Structures.LinkedList(values)
             return i, v
         end
     end
-    ---@param self ss.LinkedList
+    ---@param self ss.PackerStructures.LinkedList
     ---@param key any
-    ---@return ss.LinkedListCell?
+    ---@return ss.PackerStructures.LinkedListCell?
     local function __index(self, key)
         if not isnumber(key) then return end
         for i, v in self() do
             if i == key then return v end
         end
     end
-    ---@param self ss.LinkedList
+    ---@param self ss.PackerStructures.LinkedList
     ---@param key any
     ---@param value any
     local function __newindex(self, key, value)
@@ -109,7 +109,7 @@ function Structures.LinkedList(values)
             end
         end
     end
-    ---@param self ss.LinkedList
+    ---@param self ss.PackerStructures.LinkedList
     ---@return string
     local function __tostring(self)
         local s = ""
@@ -117,7 +117,7 @@ function Structures.LinkedList(values)
         return "[" .. s .. "\n]"
     end
 
-    local t = { count = 0, first = nil, last = nil } ---@cast t ss.LinkedList
+    local t = { count = 0, first = nil, last = nil } ---@cast t ss.PackerStructures.LinkedList
     ---@param value any
     function t:append(value)
         local cell = Cell(self, value)
@@ -130,13 +130,13 @@ function Structures.LinkedList(values)
         self.count = self.count + 1
     end
     ---@param value any
-    ---@param i integer|ss.LinkedListCell
+    ---@param i     integer|ss.PackerStructures.LinkedListCell
     function t:insert(value, i) -- insert before that element
         if self.count == 0 then
             self:append(value)
             return
         elseif istable(i) and i.__type == "SplashSWEPsLinkedListCell" then
-            ---@cast i ss.LinkedListCell
+            ---@cast i ss.PackerStructures.LinkedListCell
             local before = i.before
             local cell = Cell(self, value)
             cell.after, i.before = i, cell
@@ -150,7 +150,7 @@ function Structures.LinkedList(values)
             self:insert(value, self[i])
         end
     end
-    ---@param i integer|ss.LinkedListCell
+    ---@param i integer|ss.PackerStructures.LinkedListCell
     function t:remove(i)
         if istable(i) then
             self.count = self.count - 1
@@ -172,7 +172,7 @@ function Structures.LinkedList(values)
     if values ~= nil and not istable(values) then
         t:append(values)
     elseif istable(values) then
-        if values.__type == "SplashSWEPsLinkedList" then ---@cast values ss.LinkedList
+        if values.__type == "SplashSWEPsLinkedList" then ---@cast values ss.PackerStructures.LinkedList
             for _, v in values() do t:append(Util.deepcopy(v.value)) end
         else ---@cast values table[]
             for _, v in ipairs(values) do t:append(Util.deepcopy(v)) end
@@ -188,17 +188,17 @@ function Structures.LinkedList(values)
     })
 end
 
----@return ss.AVLTree
-function Structures.MakeAVL()
+---@return ss.PackerStructures.AVLTree
+function PackerStructures.MakeAVL()
     ---@param key any
     ---@param value any
-    ---@param parent ss.AVLNode?
-    ---@return ss.AVLNode
+    ---@param parent ss.PackerStructures.AVLNode?
+    ---@return ss.PackerStructures.AVLNode
     local function Node(key, value, parent)
-        ---@class ss.AVLNode
-        ---@field left   ss.AVLNode?
-        ---@field right  ss.AVLNode?
-        ---@field parent ss.AVLNode?
+        ---@class ss.PackerStructures.AVLNode
+        ---@field left   ss.PackerStructures.AVLNode?
+        ---@field right  ss.PackerStructures.AVLNode?
+        ---@field parent ss.PackerStructures.AVLNode?
         ---@field key    any
         ---@field value  any
         ---@field bias   integer
@@ -208,7 +208,7 @@ function Structures.MakeAVL()
             key = key, value = value,
             left = nil, right = nil,
         }
-        ---@param self ss.AVLNode
+        ---@param self ss.PackerStructures.AVLNode
         ---@return string
         local function __tostring(self)
             local s = self.parent and "" or "^"
@@ -272,10 +272,10 @@ function Structures.MakeAVL()
         return setmetatable(t, { __tostring = __tostring })
     end
 
-    ---@class ss.AVLTree
-    ---@field root ss.AVLNode?
+    ---@class ss.PackerStructures.AVLTree
+    ---@field root ss.PackerStructures.AVLNode?
     local t = { root = nil }
-    ---@param self ss.AVLTree
+    ---@param self ss.PackerStructures.AVLTree
     ---@return string
     local function __tostring(self)
         if not self.root then return "*Empty AVL Tree*" end
@@ -285,7 +285,7 @@ function Structures.MakeAVL()
         return s
     end
 
-    ---@param node ss.AVLNode
+    ---@param node ss.PackerStructures.AVLNode
     function t:rotateleft(node)
         if not node.right then return end
         local grandchild = node.right.left
@@ -304,7 +304,7 @@ function Structures.MakeAVL()
         child.bias = child.bias + 1 + max(0, node.bias)
     end
 
-    ---@param node ss.AVLNode
+    ---@param node ss.PackerStructures.AVLNode
     function t:rotateright(node)
         if not node.left then return end
         local grandchild = node.left.right
@@ -323,7 +323,7 @@ function Structures.MakeAVL()
         child.bias = child.bias - (1 - min(0, node.bias))
     end
 
-    ---@param node ss.AVLNode
+    ---@param node ss.PackerStructures.AVLNode
     function t:updateinsert(node)
         while node.parent do
             if node.parent.left == node then
@@ -350,11 +350,11 @@ function Structures.MakeAVL()
         end
     end
 
-    ---@param node ss.AVLNode?
+    ---@param node ss.PackerStructures.AVLNode?
     function t:updateremove(node)
         while node and node.parent do
             if node.parent.left == node then
-                node = node.parent ---@cast node ss.AVLNode
+                node = node.parent ---@cast node ss.PackerStructures.AVLNode
                 node.bias = node.bias - 1
                 if node.bias == -1 then
                     return
@@ -366,7 +366,7 @@ function Structures.MakeAVL()
                     if bias == 0 then return end
                 end
             else
-                node = node.parent ---@cast node ss.AVLNode
+                node = node.parent ---@cast node ss.PackerStructures.AVLNode
                 node.bias = node.bias + 1
                 if node.bias == 1 then
                     return
@@ -393,28 +393,28 @@ function Structures.MakeAVL()
             node.left = new
         else
             node = node and node.left or self.root ---@cast node -?
-            while node.right do node = node.right --[[@as ss.AVLNode]] end
+            while node.right do node = node.right --[[@as ss.PackerStructures.AVLNode]] end
             node.right = new
             new.parent = node
         end
         self:updateinsert(new)
     end
 
-    ---@param key number|ss.AVLNode
+    ---@param key   number|ss.PackerStructures.AVLNode
     ---@param value integer?
-    ---@return ss.AVLTree?
+    ---@return ss.PackerStructures.AVLTree?
     function t:remove(key, value)
-        ---@type ss.AVLNode
-        local node = istable(key) and key --[[@as ss.AVLNode]] or self:lowerbound(key --[[@as number]], value)
+        ---@type ss.PackerStructures.AVLNode
+        local node = istable(key) and key --[[@as ss.PackerStructures.AVLNode]] or self:lowerbound(key --[[@as number]], value)
         if not node then return end
         if node.left then
             local rightmost = node.left ---@cast rightmost -?
-            while rightmost.right do rightmost = rightmost.right --[[@as ss.AVLNode]] end
+            while rightmost.right do rightmost = rightmost.right --[[@as ss.PackerStructures.AVLNode]] end
             node.key, node.value = rightmost.key, rightmost.value
             return self:remove(rightmost)
         elseif node.right then
             local leftmost = node.right ---@cast leftmost -?
-            while leftmost.left do leftmost = leftmost.left --[[@as ss.AVLNode]] end
+            while leftmost.left do leftmost = leftmost.left --[[@as ss.PackerStructures.AVLNode]] end
             node.key, node.value = leftmost.key, leftmost.value
             return self:remove(leftmost)
         elseif not node.parent then
@@ -433,7 +433,7 @@ function Structures.MakeAVL()
 
     ---@param key number
     ---@param value integer?
-    ---@return ss.AVLNode?
+    ---@return ss.PackerStructures.AVLNode?
     function t:lowerbound(key, value)
         local node = self.root
         local candidate = nil
@@ -455,14 +455,14 @@ function Structures.MakeAVL()
     return setmetatable(t, { __tostring = __tostring })
 end
 
----@param a ss.Rectangle
----@param b ss.Rectangle
+---@param a ss.PackerStructures.Rectangle
+---@param b ss.PackerStructures.Rectangle
 ---@return boolean
 local function REQ(a, b)
     return a.width == b.width and a.height == b.height
 end
----@param a ss.Rectangle
----@param b ss.Rectangle
+---@param a ss.PackerStructures.Rectangle
+---@param b ss.PackerStructures.Rectangle
 ---@return boolean
 local function RLT(a, b)
     if a.width == b.width then
@@ -471,13 +471,13 @@ local function RLT(a, b)
         return a.width < b.width
     end
 end
----@param a ss.Rectangle
----@param b ss.Rectangle
+---@param a ss.PackerStructures.Rectangle
+---@param b ss.PackerStructures.Rectangle
 ---@return boolean
 local function RLE(a, b)
     return RLT(a, b) or REQ(a, b)
 end
----@param a ss.Rectangle
+---@param a ss.PackerStructures.Rectangle
 ---@return string
 local function RTS(a)
     return string.format(
@@ -490,11 +490,11 @@ end
 ---@param x number?
 ---@param y number?
 ---@param tag any
----@return ss.Rectangle
-function Structures.MakeRectangle(width, height, x, y, tag)
+---@return ss.PackerStructures.Rectangle
+function PackerStructures.MakeRectangle(width, height, x, y, tag)
     assert(width >= 0 and height >= 0, string.format(
         "Attempt to make a rectangle with invalid size: (%f, %f)", width, height))
-    ---@class ss.Rectangle
+    ---@class ss.PackerStructures.Rectangle
     ---@field left       number
     ---@field bottom     number
     ---@field width      number
@@ -542,4 +542,4 @@ function Structures.MakeRectangle(width, height, x, y, tag)
     return setmetatable(t, meta)
 end
 
-return Structures
+return PackerStructures

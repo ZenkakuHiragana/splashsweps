@@ -1,5 +1,5 @@
 
--- The serverside canvas of paintable surfaces, which also tells clients what ink is where.
+-- The paintable grids of paintable surfaces, which hold what ink is where for the server and the clients.
 
 ---@class ss
 local ss = SplashSWEPs
@@ -24,7 +24,7 @@ local min    = math.min
 local max    = math.max
 local rshift = bit.rshift
 
----The serverside canvas of a paintable surface which holds the result of paintings.
+---The paintable grid of a paintable surface, which holds the result of paintings.
 ---Each cell holds the internal index of the ink type painted on it, or 0 if no ink is there.
 ---
 ---The cells are numbered k = y * Width + x from 0, and every 4 cells in the order of k are packed into an element,
@@ -147,7 +147,7 @@ function PaintableGrid.Write(self, paint)
 
     ---Represents the paint in paintable surface's coordinate system.
     ---Its columns are the forward, the left, the up, and the origin of the paint.
-    local inkSystemInSurfaceSystem = Geometry.Multiply(self.WorldToLocalGrid,
+    local inkSystemInSurfaceSystem = Geometry.Multiply(self.ToGrid,
         Geometry.FromAngles(paint.Pitch, paint.Yaw, paint.Roll, paint.X, paint.Y, paint.Z))
     local inkOriginInSurfaceSystemX = inkSystemInSurfaceSystem[4]
     local inkOriginInSurfaceSystemY = inkSystemInSurfaceSystem[8]
@@ -164,7 +164,7 @@ function PaintableGrid.Write(self, paint)
     ---Bounding box around the ink in paintable surface's coordinate system.
     ---
     ---```text
-    --- The origin of the paint grid
+    --- The origin of the paintable grid
     ---   +---> x
     ---   |
     ---   v      x_min
@@ -279,7 +279,7 @@ function PaintableGrid.Write(self, paint)
                         numPaintedCells = numPaintedCells + 1
 
                         -- -- Painted cells
-                        -- local gridToWorld = Geometry.InvertRotationTranslation(self.WorldToLocalGrid)
+                        -- local gridToWorld = Geometry.InvertRotationTranslation(self.ToGrid)
                         -- debugoverlay.BoxAngles(
                         --     Vector(Geometry.TransformPoint(gridToWorld,
                         --         ix * cellSize + halfCellSize,
@@ -306,7 +306,7 @@ function PaintableGrid.Write(self, paint)
                     setCell(surfaceGrid, iy * surfaceGridWidth + ix, inktype)
 
                     -- -- Painted cells
-                    -- local gridToWorld = Geometry.InvertRotationTranslation(self.WorldToLocalGrid)
+                    -- local gridToWorld = Geometry.InvertRotationTranslation(self.ToGrid)
                     -- debugoverlay.BoxAngles(
                     --     Vector(Geometry.TransformPoint(gridToWorld,
                     --         ix * cellSize + halfCellSize,
@@ -333,7 +333,7 @@ end
 ---@param queryZ number
 ---@return ss.InkType? # The ink type painted at corresponding pixel.  nil if no ink was there.
 function PaintableGrid.Read(self, queryX, queryY, queryZ)
-    local gridX, gridY = Geometry.TransformPoint(self.WorldToLocalGrid, queryX, queryY, queryZ)
+    local gridX, gridY = Geometry.TransformPoint(self.ToGrid, queryX, queryY, queryZ)
     local x = floor(gridX / PaintableGrid.CELL_SIZE)
     local y = floor(gridY / PaintableGrid.CELL_SIZE)
     if 0 <= x and x < self.Grid.Width and 0 <= y and y < self.Grid.Height then

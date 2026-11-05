@@ -1,9 +1,9 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local Binary = ss.import "splashsweps/shared/binary/reader"
+local BinaryStruct = ss.import "splashsweps/shared/binary/struct"
 
----@class ss.BinaryWriter
+---@class ss.BinaryWriterModule
 local BinaryWriter = ss.module "splashsweps/shared/binary/writer"
 
 ---The methods of File, which always exists in GMod.
@@ -37,7 +37,7 @@ local WRITERS = {
 
 ---Writes a value of a field.
 ---@param binary File
----@param field  ss.BinaryStructureField
+---@param field  ss.BinaryStruct.Field
 ---@param value  any
 ---@param ...    any
 local function WriteField(binary, field, value, ...)
@@ -52,12 +52,12 @@ end
 ---Writes a structure by the fields of its definition.
 ---The values of a field without a key are taken from the array indices of the value after the previous ones.
 ---@param binary     File
----@param definition ss.BinaryStructureDefinition
+---@param definition ss.BinaryStruct.Definition
 ---@param value      table
 ---@param ...        any
 local function WriteStructure(binary, definition, value, ...)
     local position = 0 -- The last array index of the value written
-    for _, field in ipairs(Binary.GetLayout(definition)) do
+    for _, field in ipairs(BinaryStruct.GetLayout(definition)) do
         local count = field.Count
         if field.CountField then
             local n = value[field.CountField]
@@ -87,7 +87,7 @@ local function WriteStructure(binary, definition, value, ...)
     end
 end
 
----Write a value or structure to given binary file in the format Binary.Read reads.
+---Write a value or structure to given binary file in the format BinaryReader.Read reads.
 ---The offset should correctly be set before call by binary:Seek().
 ---arg should be one of the following:
 ---  - Number of bytes to write a string using `File:Write(%s)`, or a string of the number like `4`
@@ -95,7 +95,7 @@ end
 ---    - Built-in types: `Bool`, `Byte`, `SByte` (signed byte), `Short`, `UShort`, `Long`, `ULong`, and `Float`
 ---    - `String` for null-terminated string
 ---    - `String%d` for a null-terminated string but padded to `%d` bytes.
----    - Structure name defined by Binary.struct "T"
+---    - Structure name defined by BinaryStruct.Define "T"
 ---  - Table representing a structure
 ---    Table containing a sequence of strings formatted as
 ---    `<type> <fieldname> <array amount (optional)>`
@@ -108,8 +108,8 @@ end
 --- including the array amount that matches the length of the array.
 ---@generic T : table
 ---@param binary File
----@param arg ss.Binary.`T`
----@param value ss.Binary.`T`
+---@param arg ss.BinaryStruct.`T`
+---@param value ss.BinaryStruct.`T`
 ---@param ... any Any parameters passed to special function to write.
 ---@overload fun(binary: File, arg: integer,  value: string)
 ---@overload fun(binary: File, arg: "Bool",   value: boolean)
@@ -133,7 +133,7 @@ function BinaryWriter.Write(binary, arg, value, ...)
         ---@cast arg integer
         ---@cast value string
         binary:Write(value:sub(1, arg))
-    elseif argType == "table" then ---@cast arg ss.BinaryStructureDefinition
+    elseif argType == "table" then ---@cast arg ss.BinaryStruct.Definition
         if arg.Write then
             arg:Write(binary, value, ...)
         else
@@ -144,8 +144,8 @@ function BinaryWriter.Write(binary, arg, value, ...)
             WriteString(binary, value, tonumber(arg:sub(#"String" + 1)))
         elseif tonumber(arg) then ---@cast value string
             binary:Write(value:sub(1, tonumber(arg)))
-        elseif Binary.Find(arg) and (#Binary.Find(arg) > 0 or Binary.Find(arg).Write) then
-            BinaryWriter.Write(binary, Binary.Find(arg), value, ...)
+        elseif BinaryStruct.Find(arg) and (#BinaryStruct.Find(arg) > 0 or BinaryStruct.Find(arg).Write) then
+            BinaryWriter.Write(binary, BinaryStruct.Find(arg), value, ...)
         else
             ErrorNoHalt(string.format(
                 "SplashSWEPs/BinaryWriter: Need a correct structure name\n"

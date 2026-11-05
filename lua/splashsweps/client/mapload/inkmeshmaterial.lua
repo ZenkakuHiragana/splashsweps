@@ -86,8 +86,8 @@ end
 
 ---Creates the ink mesh material of the surfaces of a SortID, or gets the one created for the SortID before,
 ---and registers it to UnderlaySync.
----@param lightmapLayout ss.Lightmaps.LightmapLayout SortID-indexed material and lightmap data.
----@param sortID         integer                     Lightmap/material group ID of the surfaces.
+---@param lightmapLayout ss.Lightmaps.Layout SortID-indexed material and lightmap data.
+---@param sortID         integer             Lightmap/material group ID of the surfaces.
 ---@return IMaterial
 function InkMeshMaterial.Create(lightmapLayout, sortID)
     local m = Matrix()
@@ -98,7 +98,8 @@ function InkMeshMaterial.Create(lightmapLayout, sortID)
     local page                  = lightmapGroup.LightmapPage
     local lightmapTextureName   = page and string.format("\\[lightmap%d]", page) or "white"
     local materialParams        = buildBaseInkMeshMaterialParams()
-    local hasDetail             = tobool(materialInfo.Detail)
+    local detailTexture         = materialInfo.UnderlayBlendAtlas or materialInfo.Detail
+    local hasDetail             = tobool(detailTexture)
     local detailBlendMode       = materialInfo.DetailBlendMode or 0
     local bmtstr                = materialInfo.Material:GetString "$blendmodulatetexture"
     -- Each kind of underlay has its own pixel shader.
@@ -107,7 +108,7 @@ function InkMeshMaterial.Create(lightmapLayout, sortID)
                                 or "splashsweps/inkmesh_ps30"
     materialParams["$texture3"] = materialInfo.BaseTexture or "white"
     materialParams["$texture4"] = materialInfo.Bumpmap or "null-bumpmap"
-    materialParams["$texture5"] = materialInfo.Detail or "white"
+    materialParams["$texture5"] = detailTexture or "white"
     materialParams["$texture6"] = lightmapTextureName
     materialParams["$texture7"] = cubemapInfo and cubemapInfo.Envmap or UnderlaySync.DEFAULT_ENVMAP
     materialParams["$c0_w"]     = detailBlendMode

@@ -4,11 +4,11 @@
 ---@class ss
 local ss = SplashSWEPs
 local Geometry         = ss.import "splashsweps/shared/geometry"
-local Hash             = ss.import "splashsweps/shared/hash"
 local InkShape         = ss.import "splashsweps/shared/inkshape"
 local InkType          = ss.import "splashsweps/shared/inktype"
 local PaintableGrid    = ss.import "splashsweps/shared/paint/paintablegrid"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
+local SpatialIndex     = ss.import "splashsweps/shared/spatialindex"
 local InkMap           = CLIENT and ss.import "splashsweps/client/render/inkmap" or nil
 
 ---@class ss.PaintModule
@@ -75,7 +75,7 @@ end
 
 ---Returns the paint mapped from a triangle of a displacement onto the flat surface the displacement came from.
 ---@param surf       ss.PaintableSurface The displacement.
----@param triangle   ss.DisplacementTriangle
+---@param triangle   ss.PaintableSurface.DisplacementTriangle
 ---@param paint      ss.Paint The paint on the triangle.
 ---@param inkToWorld number[] The transform from the paint, of which only the rotation is used.
 ---@param b1         number   Barycentric coordinates of the paint in the triangle.
@@ -83,8 +83,8 @@ end
 ---@param b3         number
 ---@return ss.Paint
 local function MapOntoFlatSurface(surf, triangle, paint, inkToWorld, b1, b2, b3)
-    local x, y, z = PaintableSurface.MapToPaintOrigin(surf, triangle, b1, b2, b3)
-    local pitch, yaw, roll = Geometry.ToAngles(Geometry.Multiply(triangle.WorldToLocalGridRotation, inkToWorld))
+    local x, y, z = PaintableSurface.MapToFlatSurface(surf, triangle, b1, b2, b3)
+    local pitch, yaw, roll = Geometry.ToAngles(Geometry.Multiply(triangle.ToFlatRotation, inkToWorld))
     return {
         X = x,
         Y = y,
@@ -105,7 +105,7 @@ end
 ---
 ---So this function enumerates the paints mapped onto the flat surface to handle deformed surfaces correctly.
 ---The triangles of a displacement are tested by their normals with Paint.MAX_COS here,
----but the other surfaces are not; pass it to Hash.CollectSurfaces or Hash.CollectBrushModelSurfaces to test them.
+---but the other surfaces are not; pass it to SpatialIndex.CollectSurfaces or SpatialIndex.CollectBrushModelSurfaces to test them.
 ---@param surf       ss.PaintableSurface The surface to search.
 ---@param paint      ss.Paint The paint in the same coordinate system as the surface.
 ---@param inkToWorld number[] The transform from the paint, which Geometry.FromAngles makes from its pose.
@@ -115,7 +115,7 @@ end
 ---@param maxX       number
 ---@param maxY       number
 ---@param maxZ       number
----@return ss.Paint[] # The paints ready to be written into the paint grid of the surface.
+---@return ss.Paint[] # The paints ready to be written into the paintable grid of the surface.
 function Paint.EnumeratePositions(surf, paint, inkToWorld, minX, minY, minZ, maxX, maxY, maxZ)
     if not surf.Triangles then return { paint } end
 
@@ -124,9 +124,9 @@ function Paint.EnumeratePositions(surf, paint, inkToWorld, minX, minY, minZ, max
     local upX, upY, upZ = inkToWorld[3], inkToWorld[7], inkToWorld[11]
     -- The score is the sum of the negative barycentric coordinates, which is closer to 0 when the paint is nearer.
     local nearestScore = -huge
-    local nearestTriangle = nil ---@type ss.DisplacementTriangle?
+    local nearestTriangle = nil ---@type ss.PaintableSurface.DisplacementTriangle?
     local nearestB1, nearestB2, nearestB3 = 0, 0, 0
-    local triangles = Hash.CollectDisplacementTriangles(surf, minX, minY, minZ, maxX, maxY, maxZ)
+    local triangles = SpatialIndex.CollectDisplacementTriangles(surf, minX, minY, minZ, maxX, maxY, maxZ)
     for i = 1, #triangles do
         local t = triangles[i]
         local b1, b2, b3 = PaintableSurface.BarycentricCoordinates(t, paint.X, paint.Y, paint.Z)
@@ -251,7 +251,7 @@ end
 ---@param maxY       number
 ---@param maxZ       number
 local function PaintWorld(paint, inkToWorld, minX, minY, minZ, maxX, maxY, maxZ)
-    PaintSurfaces(Hash.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ,
+    PaintSurfaces(SpatialIndex.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ,
         inkToWorld[3], inkToWorld[7], inkToWorld[11], Paint.MAX_COS),
         paint, inkToWorld, minX, minY, minZ, maxX, maxY, maxZ)
 end
@@ -271,7 +271,7 @@ end
 function Paint.PaintBrushModel(modelIndex, paint)
     local inkToModel = GetTransform(paint)
     local minX, minY, minZ, maxX, maxY, maxZ = Paint.GetBoundingBox(paint, inkToModel)
-    PaintSurfaces(Hash.CollectBrushModelSurfaces(modelIndex, minX, minY, minZ, maxX, maxY, maxZ,
+    PaintSurfaces(SpatialIndex.CollectBrushModelSurfaces(modelIndex, minX, minY, minZ, maxX, maxY, maxZ,
         inkToModel[3], inkToModel[7], inkToModel[11], Paint.MAX_COS),
         paint, inkToModel, minX, minY, minZ, maxX, maxY, maxZ)
 end
@@ -300,7 +300,7 @@ function Paint.Paint(pos, ang, radius, shape, inktype)
 
     -- Brush entities can move, so the ink is localized to their models and networked separately.
     -- The receiving clients do not search for the entities; only the predicting client does.
-    local _, modelIndices, worldToModels = Hash.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
+    local _, modelIndices, worldToModels = SpatialIndex.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
     for k = 1, #modelIndices do
         local modelIndex, worldToModel = modelIndices[k], worldToModels[k]
         local inkToModel = Geometry.Multiply(worldToModel, inkToWorld)

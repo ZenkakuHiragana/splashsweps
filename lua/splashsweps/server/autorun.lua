@@ -12,12 +12,12 @@ include "splashsweps/server/predictedvars.lua"
 local ss = SplashSWEPs
 
 local CacheBuilder     = ss.import "splashsweps/shared/mapcache/cachebuilder"
-local Hash             = ss.import "splashsweps/shared/hash"
 local InkShape         = ss.import "splashsweps/shared/inkshape"
 local InkType          = ss.import "splashsweps/shared/inktype"
 local Paint            = ss.import "splashsweps/shared/paint/paint"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
 local PredictedVars    = ss.import "splashsweps/shared/touch/predictedvars"
+local SpatialIndex     = ss.import "splashsweps/shared/spatialindex"
 
 local function LoadCache()
     local cache = CacheBuilder.Load()
@@ -25,13 +25,13 @@ local function LoadCache()
 
     PaintableSurface.Setup(cache.Surfaces, cache.NumModels)
     PaintableSurface.SetupStaticProps(cache.StaticProps)
-    Hash.Setup(cache.HashParameters)
+    SpatialIndex.Setup(cache.HashParameters)
     InkShape.Load()
     InkType.Load()
     PredictedVars.Setup()
 end
 
-hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
+hook.Add("InitPostEntity", "SplashSWEPs: Initialize", function()
     LoadCache()
     Paint.ClearAll()
     collectgarbage "collect"

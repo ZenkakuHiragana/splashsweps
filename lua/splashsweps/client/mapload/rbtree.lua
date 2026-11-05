@@ -6,24 +6,24 @@
 local ss = SplashSWEPs
 
 ---@class ss.RBTree
----@field root ss.RBTreeNode?
+---@field root     ss.RBTree.Node?
 ---@field lessFunc fun(a: any, b: any): boolean
 local RBTree = ss.module "splashsweps/client/mapload/rbtree"
 RBTree.__index = RBTree
 
 ---Indicates the color of the Red-Black tree. Red is true.
----@alias ss.RBTreeColor boolean
+---@alias ss.RBTree.Color boolean
 local RED = true
 local BLACK = false
 
----@class ss.RBTreeNode
+---@class ss.RBTree.Node
 ---@field data any
----@field left ss.RBTreeNode?
----@field right ss.RBTreeNode?
----@field parent ss.RBTreeNode?
----@field color ss.RBTreeColor
+---@field left ss.RBTree.Node?
+---@field right ss.RBTree.Node?
+---@field parent ss.RBTree.Node?
+---@field color ss.RBTree.Color
 
----@param node ss.RBTreeNode?
+---@param node ss.RBTree.Node?
 ---@return boolean
 local function isRed(node)
     if not node then return false end
@@ -32,7 +32,7 @@ end
 
 ---Rotates a node to the left.
 ---@param tree ss.RBTree
----@param node ss.RBTreeNode
+---@param node ss.RBTree.Node
 local function rotateLeft(tree, node)
     local rightChild = node.right
     if not rightChild then return end
@@ -57,7 +57,7 @@ end
 
 ---Rotates a node to the right.
 ---@param tree ss.RBTree
----@param node ss.RBTreeNode
+---@param node ss.RBTree.Node
 local function rotateRight(tree, node)
     local leftChild = node.left
     if not leftChild then return end
@@ -82,11 +82,11 @@ end
 
 ---Rebalances the tree after an insertion.
 ---@param tree ss.RBTree
----@param node ss.RBTreeNode
+---@param node ss.RBTree.Node
 local function insertRebalance(tree, node)
     local currentNode = node
     while currentNode and currentNode.parent and isRed(currentNode.parent) do
-        local parent = currentNode.parent ---@type ss.RBTreeNode
+        local parent      = currentNode.parent ---@type ss.RBTree.Node
         local grandParent = parent.parent
 
         if not grandParent then
@@ -103,7 +103,7 @@ local function insertRebalance(tree, node)
                 if currentNode == parent.right then
                     currentNode = parent
                     rotateLeft(tree, currentNode)
-                    parent = currentNode.parent ---@type ss.RBTreeNode
+                    parent = currentNode.parent ---@type ss.RBTree.Node
                     grandParent = parent.parent
                 end
 
@@ -126,7 +126,7 @@ local function insertRebalance(tree, node)
                 if currentNode == parent.left then
                     currentNode = parent
                     rotateRight(tree, currentNode)
-                    parent = currentNode.parent ---@type ss.RBTreeNode
+                    parent = currentNode.parent ---@type ss.RBTree.Node
                     grandParent = parent.parent
                 end
 
@@ -171,7 +171,7 @@ function RBTree:Insert(data)
         end
     end
 
-    ---@type ss.RBTreeNode
+    ---@type ss.RBTree.Node
     local newNode = {
         data = data,
         left = nil,
@@ -192,20 +192,20 @@ function RBTree:Insert(data)
 end
 
 ---Returns the leftmost node of the subtree.
----@param node ss.RBTreeNode?
----@return ss.RBTreeNode?
+---@param node ss.RBTree.Node?
+---@return ss.RBTree.Node?
 local function firstInorder(node)
     if not node then return nil end
     local current = node
     while current.left do
-        current = current.left ---@type ss.RBTreeNode
+        current = current.left ---@type ss.RBTree.Node
     end
     return current
 end
 
 ---Returns the node next to the given one in inorder traversal.
----@param node ss.RBTreeNode?
----@return ss.RBTreeNode?
+---@param node ss.RBTree.Node?
+---@return ss.RBTree.Node?
 local function nextInorder(node)
     if not node then return nil end
 
@@ -214,7 +214,7 @@ local function nextInorder(node)
     end
 
     local current = node
-    local parent = current.parent ---@type ss.RBTreeNode
+    local parent  = current.parent ---@type ss.RBTree.Node
     while parent and current == parent.right do
         current, parent = parent, parent.parent
     end

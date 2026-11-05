@@ -4,9 +4,9 @@
 ---@class ss
 local ss = SplashSWEPs
 local BSP             = ss.import "splashsweps/shared/mapcache/bsploader"
-local Hash            = ss.import "splashsweps/shared/hash"
 local LightmapBuilder = ss.import "splashsweps/shared/mapcache/lightmapbuilder"
-local PrecachedData   = ss.import "splashsweps/shared/typing/precachedata"
+local MapCache        = ss.import "splashsweps/shared/mapcache/mapcache"
+local SpatialIndex    = ss.import "splashsweps/shared/spatialindex"
 local SurfaceBuilder  = ss.import "splashsweps/shared/mapcache/surfacebuilder"
 local UVBuilder       = ss.import "splashsweps/shared/mapcache/uvbuilder"
 
@@ -21,8 +21,8 @@ local min = math.min
 local ipairs = ipairs
 
 ---Finds light_environment entity in the ENTITIES lump and fetches directional light info.
----@param bsp ss.RawBSPResults
----@param cache ss.PrecachedData
+---@param bsp ss.BSP.Lumps
+---@param cache ss.MapCache
 local function findLightEnvironment(bsp, cache)
     for _, entities in ipairs(bsp.ENTITIES) do
         for k in entities:gmatch "{[^}]+}" do
@@ -59,7 +59,7 @@ local function findLightEnvironment(bsp, cache)
 end
 
 ---Lists the material names of the map in the order of TEXDATA_STRING_DATA.
----@param bsp ss.RawBSPResults
+---@param bsp ss.BSP.Lumps
 ---@return string[]
 local function BuildMaterialNames(bsp)
     local names = {} ---@type string[]
@@ -72,7 +72,7 @@ end
 
 ---Tests if LUMP_FACES_HDR has the same faces as LUMP_FACES except for their lighting,
 ---so that the surfaces built from LUMP_FACES can use the lightmaps of LUMP_FACES_HDR.
----@param bsp ss.RawBSPResults
+---@param bsp ss.BSP.Lumps
 ---@return boolean
 local function HasMatchingHDRFaces(bsp)
     local faces, hdrFaces = bsp.FACES, bsp.FACES_HDR
@@ -102,16 +102,16 @@ local function HasMatchingHDRFaces(bsp)
 end
 
 ---Calculates playable areas from parsed BSP structures.
----@param bsp ss.RawBSPResults
----@return ss.MinimapAreaBounds[]
+---@param bsp ss.BSP.Lumps
+---@return ss.MapCache.MinimapAreaBounds[]
 local function BuildMinimapBounds(bsp)
-    local bounds = {} ---@type ss.MinimapAreaBounds[]
+    local bounds = {} ---@type ss.MapCache.MinimapAreaBounds[]
     for _, leaf in ipairs(bsp.LEAFS) do
         local area = band(leaf.areaAndFlags, 0x01FF)
         if area > 0 then
             local b = bounds[area]
             if not b then
-                b = PrecachedData.MinimapAreaBounds.new()
+                b = MapCache.MinimapAreaBounds.new()
                 b.MinX, b.MinY, b.MinZ = huge, huge, huge
                 b.MaxX, b.MaxY, b.MaxZ = huge_negative, huge_negative, huge_negative
                 bounds[area] = b
@@ -169,7 +169,7 @@ end
 ---.   sy | +x | +z |    sz | +y | +x |    sx | +z | +y |
 ---.      +----+----+       +----+----+       +----+----+
 ---```
----@param prop ss.PrecachedData.StaticProp
+---@param prop ss.MapCache.StaticProp
 ---@return number # w including the margins.
 ---@return number # h including the margins.
 ---@return integer # The selected pattern.
@@ -208,7 +208,7 @@ end
 local function WriteCache(path)
     local bsp = BSP.Load()
     if not bsp then return false end
-    local cache = PrecachedData.new()
+    local cache = MapCache.new()
     cache.MaterialNames    = BuildMaterialNames(bsp)
     cache.NumMaterialNames = #cache.MaterialNames
     cache.MinimapBounds    = BuildMinimapBounds(bsp)
@@ -223,8 +223,8 @@ local function WriteCache(path)
 
     collectgarbage "collect"
     SurfaceBuilder.BuildSurfaceCache(bsp, cache)
-    local surfaces = cache.Surfaces ---@cast surfaces -? PrecachedData.new() creates the array.
-    local rectangles = {} ---@type ss.PrecachedData.InkMapRectangle[]
+    local surfaces = cache.Surfaces ---@cast surfaces -? MapCache.new() creates the array.
+    local rectangles = {} ---@type ss.MapCache.InkMapRectangle[]
     for _, surf in ipairs(surfaces) do
         rectangles[#rectangles + 1] = surf.InkMapRectangle
     end
@@ -234,7 +234,7 @@ local function WriteCache(path)
     end
 
     cache.HammerUnitsToUV = UVBuilder.Build(rectangles)
-    Hash.BuildDisplacementHash(surfaces)
+    SpatialIndex.BuildDisplacementHash(surfaces)
     cache.LightmapsLDR = LightmapBuilder.Build(bsp, bsp.FACES, bsp.LIGHTING, surfaces, cache.MaterialNames)
     cache.NumLightmapsLDR = #cache.LightmapsLDR
     if HasMatchingHDRFaces(bsp) then
@@ -242,20 +242,20 @@ local function WriteCache(path)
         cache.NumLightmapsHDR = #cache.LightmapsHDR
     end
 
-    PrecachedData.WriteFile(path, bsp.header.mapRevision, cache)
+    MapCache.WriteFile(path, bsp.header.mapRevision, cache)
     return true
 end
 
 ---Reads the map cache of the current map, building it from the BSP first
 ---if the file is missing, or built by another version of the cache or from another revision of the map.
 ---Each machine builds its own cache, as the server does not send it to the clients.
----@return ss.PrecachedData? # nil if the map file cannot be read.
+---@return ss.MapCache? # nil if the map file cannot be read.
 function CacheBuilder.Load()
     local path = string.format("splashsweps/%s.dat", game.GetMap())
     local tempPath = string.format("splashsweps/%s.tmp.dat", game.GetMap())
     local revision = BSP.ReadRevision()
     if not revision then return end
-    local cache = PrecachedData.ReadFile(path, revision)
+    local cache = MapCache.ReadFile(path, revision)
     if cache then return cache end
 
     file.CreateDir "splashsweps"
@@ -264,9 +264,9 @@ function CacheBuilder.Load()
 
     -- WriteCache has returned, so the BSP and the cache are released before the compression, which needs memory.
     collectgarbage "collect"
-    PrecachedData.CompressFile(tempPath, path)
+    MapCache.CompressFile(tempPath, path)
     collectgarbage "collect"
-    return PrecachedData.ReadFile(path, revision)
+    return MapCache.ReadFile(path, revision)
 end
 
 return CacheBuilder

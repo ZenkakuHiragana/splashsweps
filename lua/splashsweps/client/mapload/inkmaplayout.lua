@@ -17,7 +17,7 @@ local InkMapLayout = ss.module "splashsweps/client/mapload/inkmaplayout"
 --- |        minV                maxV
 --- |   minU +--------------------+
 --- |        |  +--> y            |
---- |        |  |  paint grid     |
+--- |        |  |  paintable grid |
 --- |        |  v                 |
 --- |        |  x                 |
 --- |   maxU +--------------------+
@@ -25,7 +25,7 @@ local InkMapLayout = ss.module "splashsweps/client/mapload/inkmaplayout"
 --- U
 ---```
 ---
----The paint grid (x, y) starts at ss.MARGIN_HAMMER_UNITS inside the rectangle of the surface in the ink map,
+---The paintable grid (x, y) starts at ss.MARGIN_HAMMER_UNITS inside the rectangle of the surface in the ink map,
 ---and the UV range is the rectangle without the bilinear guard along its edges.
 ---A rotated rectangle has (x, y) along (-V, U).
 ---@class ss.InkMapLayout.Placement
@@ -42,8 +42,8 @@ InkMapLayout.Placements = state.Placements
 
 ---Places the paintable surfaces in the ink map,
 ---after PaintableSurface.Setup and PaintableSurface.SetupStaticProps create them.
----@param surfaces    ss.PrecachedData.Surface[]?    The surfaces given to PaintableSurface.Setup.
----@param staticProps ss.PrecachedData.StaticProp[]? The static props given to PaintableSurface.SetupStaticProps.
+---@param surfaces    ss.MapCache.Surface[]?    The surfaces given to PaintableSurface.Setup.
+---@param staticProps ss.MapCache.StaticProp[]? The static props given to PaintableSurface.SetupStaticProps.
 function InkMapLayout.Setup(surfaces, staticProps)
     table.Empty(state.Placements)
     local scale  = RenderTargets.GetHammerUnitsToUV()
@@ -69,7 +69,7 @@ function InkMapLayout.Setup(surfaces, staticProps)
     end
 
     for i, surf in ipairs(surfaces or {}) do
-        local g = PaintableSurface.Surfaces[i].WorldToLocalGrid
+        local g         = PaintableSurface.Surfaces[i].ToGrid
         local rectangle = surf.InkMapRectangle
         local row1, row2 ---@type number[], number[]
         if rectangle.IsRotated then
@@ -108,7 +108,7 @@ function InkMapLayout.Setup(surfaces, staticProps)
             -- V    V------------+
             -- u    x, u"
             --
-            -- (x , y ) face local system converted from the world, the paint grid
+            -- (x , y ) face local system converted from the world, the paintable grid
             -- (u , v ) absolute UV in the render target texture
             -- (u', v') model local UV from the rectangle of the prop
             -- (u", v") face local UV
@@ -117,7 +117,7 @@ function InkMapLayout.Setup(surfaces, staticProps)
             local localU = (box.SizeX + 2 * margin) * boxFace.UVOffsetX
                          + (box.SizeY + 2 * margin) * boxFace.UVOffsetY + margin
             local localV = (box.SizeZ + 2 * margin) * boxFace.UVOffsetZ + margin
-            local grid = PaintableSurface.Surfaces[index].WorldToLocalGrid
+            local grid   = PaintableSurface.Surfaces[index].ToGrid
             local faceSizeU, faceSizeV, faceUVOriginU, faceUVOriginV ---@type number, number, number, number
             local row1, row2 ---@type number[], number[]
             if isRotated then -- (u, v) = (-v', u') from the model local UV origin

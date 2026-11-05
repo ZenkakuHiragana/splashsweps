@@ -65,7 +65,7 @@ end
 ---Later calls, such as the ones by hot reload, return that state and ignore the given table,
 ---so fields added to the given table take effect after the Lua state restarts, e.g. a map change.
 ---LuaLS types the state as the given table, so declare the class of the state right above the local
----to type its fields, e.g. `---@class ss.Foo.State` and then `local state = ss.state(...)`,
+---to type its fields, e.g. `---@class ss.FooModule.State` and then `local state = ss.state(...)`,
 ---or annotate the local with `---@type` for a state that is not a class.
 ---@generic T: table
 ---@param name string Module name of the calling file, same as the one passed to ss.module.

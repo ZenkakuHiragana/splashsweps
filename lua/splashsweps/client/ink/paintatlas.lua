@@ -1,14 +1,14 @@
 
--- Atlases of the textures of ink types and the masks of ink shapes, which the paint shader reads.
+-- Atlases of the textures of ink types and the ink shape textures, which the paint shader reads.
 
 ---@class ss
 local ss = SplashSWEPs
-local InkShape        = ss.import "splashsweps/shared/inkshape"
-local InkType         = ss.import "splashsweps/shared/inktype"
-local RectanglePacker = ss.import "splashsweps/shared/packer/packer"
-local Structures      = ss.import "splashsweps/shared/packer/structures"
-local Util            = ss.import "splashsweps/shared/util"
-local VTF             = ss.import "splashsweps/shared/vtf/reader"
+local InkShape         = ss.import "splashsweps/shared/inkshape"
+local InkType          = ss.import "splashsweps/shared/inktype"
+local PackerStructures = ss.import "splashsweps/shared/packer/structures"
+local RectanglePacker  = ss.import "splashsweps/shared/packer/packer"
+local Util             = ss.import "splashsweps/shared/util"
+local VTF              = ss.import "splashsweps/shared/vtf/reader"
 
 ---@class ss.PaintAtlasModule
 local PaintAtlas = ss.module "splashsweps/client/ink/paintatlas"
@@ -19,10 +19,10 @@ local PaintAtlas = ss.module "splashsweps/client/ink/paintatlas"
 
 ---@class ss.PaintAtlasModule.State
 ---@field Albedo  ITexture?                           $basetexture and height maps of ink types.
----@field Tint    ITexture?                           $tinttexture of ink types in RGB and masks of ink shapes in alpha.
+---@field Tint    ITexture?                           $tinttexture of ink types in RGB and ink shape textures in alpha.
 ---@field BaseUV  table<integer, ss.PaintAtlas.Range> Ink type index --> range of its $basetexture.
 ---@field TintUV  table<integer, ss.PaintAtlas.Range> Ink type index --> range of its $tinttexture.
----@field ShapeUV table<integer, ss.PaintAtlas.Range> Ink shape index --> range of its mask.
+---@field ShapeUV table<integer, ss.PaintAtlas.Range> Ink shape index --> range of its ink shape texture.
 local state = ss.state("splashsweps/client/ink/paintatlas", {
     BaseUV = {},
     TintUV = {},
@@ -35,7 +35,7 @@ PaintAtlas.BaseUV = state.BaseUV
 ---Ink type index --> range of its $tinttexture in the tint atlas, for every ink type after PaintAtlas.Allocate.
 PaintAtlas.TintUV = state.TintUV
 
----Ink shape index --> range of its mask in the tint atlas, for every ink shape after PaintAtlas.Allocate.
+---Ink shape index --> range of its ink shape texture in the tint atlas, for every ink shape after PaintAtlas.Allocate.
 PaintAtlas.ShapeUV = state.ShapeUV
 
 local MARGIN = 2
@@ -89,7 +89,7 @@ end
 -- I couldn't make it work with surface.DrawTexturedRect for some reason;
 -- sometimes all TEXCOORD0 are (0.5, 0.5), so I use the mesh library instead.
 ---@param tex ITexture|string
----@param rect ss.Rectangle
+---@param rect ss.PackerStructures.Rectangle
 ---@param drawcolor boolean
 ---@param drawalpha boolean
 local function CopyTextureToRect(tex, rect, drawcolor, drawalpha)
@@ -123,14 +123,14 @@ local function ReadInkTypeSources()
         BaseNames       = {}, ---@type string[]
         BaseKeys        = {}, ---@type string[] $basetexture and height map source sharing an atlas cell
         BaseCache       = {}, ---@type table<string, integer>
-        BaseRects       = {}, ---@type ss.Rectangle[]
+        BaseRects       = {}, ---@type ss.PackerStructures.Rectangle[]
         BaseAlphaHeight = {}, ---@type boolean[]
         HeightNames     = {}, ---@type string[]
         HeightChannels  = {}, ---@type string[]
         TintNames       = {}, ---@type string[]
         TintCache       = {}, ---@type table<string, integer>
-        TintRects       = {}, ---@type ss.Rectangle[]
-        ShapeRects      = {}, ---@type ss.Rectangle[]
+        TintRects       = {}, ---@type ss.PackerStructures.Rectangle[]
+        ShapeRects      = {}, ---@type ss.PackerStructures.Rectangle[]
     }
     cp:SetTexture("$basetexture", "color/black")
     local black = cp:GetTexture "$basetexture"
@@ -160,7 +160,7 @@ local function ReadInkTypeSources()
         sources.TintNames[i] = tint:GetName()
         if not sources.TintCache[tint:GetName()] then
             sources.TintCache[tint:GetName()] = i
-            sources.TintRects[#sources.TintRects + 1] = Structures.MakeRectangle(
+            sources.TintRects[#sources.TintRects + 1] = PackerStructures.MakeRectangle(
                 tint:Width() + MARGIN, tint:Height() + MARGIN, 0, 0, inktype)
         end
 
@@ -187,7 +187,7 @@ local function ReadInkTypeSources()
         sources.BaseKeys[i] = baseKey
         if not sources.BaseCache[baseKey] then
             sources.BaseCache[baseKey] = i
-            sources.BaseRects[#sources.BaseRects + 1] = Structures.MakeRectangle(
+            sources.BaseRects[#sources.BaseRects + 1] = PackerStructures.MakeRectangle(
                 math.max(base:Width(),  heightSource and heightSource:Width()  or 0) + MARGIN,
                 math.max(base:Height(), heightSource and heightSource:Height() or 0) + MARGIN,
                 0, 0, inktype)
@@ -195,7 +195,7 @@ local function ReadInkTypeSources()
     end
 
     for i, shape in ipairs(InkShape.Shapes) do
-        sources.ShapeRects[i] = Structures.MakeRectangle(
+        sources.ShapeRects[i] = PackerStructures.MakeRectangle(
             shape.Mask.Width + MARGIN, shape.Mask.Height + MARGIN, 0, 0, shape)
     end
 
@@ -228,14 +228,14 @@ end
 ---@field TintPacker  ss.RectanglePacker
 ---@field ShapePacker ss.RectanglePacker
 
----Collects the textures of ink types and the masks of ink shapes, and packs them.
+---Collects the textures of ink types and the ink shape textures, and packs them.
 ---@return ss.PaintAtlas.Plan
 function PaintAtlas.Plan()
     local sources = ReadInkTypeSources()
     return {
         Sources     = sources,
         BasePacker  = RectanglePacker.new(sources.BaseRects):packall(),
-        -- Tint images and shape masks are packed separately into color and alpha,
+        -- Tint images and ink shape textures are packed separately into color and alpha,
         -- so the atlas takes the larger size of them.
         TintPacker  = RectanglePacker.new(sources.TintRects):packall(),
         ShapePacker = RectanglePacker.new(sources.ShapeRects):packall(),
@@ -243,7 +243,7 @@ function PaintAtlas.Plan()
 end
 
 ---Returns the atlas range of a packed rectangle.
----@param rect ss.Rectangle
+---@param rect ss.PackerStructures.Rectangle
 ---@param rt ITexture
 ---@param inset number Distance from the edge of the rectangle in pixels
 ---@return ss.PaintAtlas.Range
@@ -273,7 +273,7 @@ function PaintAtlas.Allocate(plan)
         local inktype = rect.tag ---@type ss.InkType
         state.TintUV[inktype.Index] = GetAtlasRange(rect, state.Tint, HALF_MARGIN + 0.5)
     end
-    -- The whole mask spans the paint quad, as PaintableGrid.Write does.
+    -- The whole ink shape texture spans the paint quad, as PaintableGrid.Write does.
     for _, rect in ipairs(plan.ShapePacker.rects) do
         local shape = rect.tag ---@type ss.InkShape
         state.ShapeUV[shape.Index] = GetAtlasRange(rect, state.Tint, HALF_MARGIN)
@@ -286,7 +286,7 @@ function PaintAtlas.Allocate(plan)
     end
 end
 
----Draws the textures and masks into the atlases.
+---Draws the textures of ink types and ink shapes into the atlases.
 ---Needs a rendering context, so call it after PaintAtlas.Allocate, from the next frame.
 ---@param plan ss.PaintAtlas.Plan
 function PaintAtlas.Draw(plan)
@@ -323,11 +323,11 @@ function PaintAtlas.Draw(plan)
         end
 
         -- Write shape atlas to the alpha channel.
-        -- The margin repeats the edge pixels for bilinear filtering at the edge of the mask.
+        -- The margin repeats the edge pixels for bilinear filtering at the edge of the ink shape texture.
         for _, rect in ipairs(plan.ShapePacker.rects) do
             local shape = rect.tag ---@type ss.InkShape
             cp:SetInt("$c0_x", CHANNEL_INDEX[shape.Channel] or 3)
-            CopyTextureToRect(shape.MaskTexture:StripExtension(), rect, false, true)
+            CopyTextureToRect(shape.Texture:StripExtension(), rect, false, true)
         end
     cam.End2D()
     render.PopRenderTarget()

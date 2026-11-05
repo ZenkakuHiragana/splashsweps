@@ -1,8 +1,9 @@
 ---@class ss
 local ss = SplashSWEPs
-local Binary = ss.import "splashsweps/shared/binary/reader"
+local BinaryReader = ss.import "splashsweps/shared/binary/reader"
+local BinaryStruct = ss.import "splashsweps/shared/binary/struct"
 
----@class ss.VTFReader
+---@class ss.VTFModule
 local VTF = ss.module "splashsweps/shared/vtf/reader"
 
 -- Parses VTF files and gives an ability to read pixel data of specified mipmap level.
@@ -194,7 +195,7 @@ local BYTES_PER_PIXEL = {
 }
 
 ---The VTF header.
----@class ss.Binary.VTF.Header
+---@class ss.BinaryStruct.VTF.Header
 ---@field signature          string,
 ---@field version            integer[]
 ---@field headerSize         integer
@@ -218,7 +219,7 @@ local BYTES_PER_PIXEL = {
 ---@field padding2           string?
 ---@field numResources       integer?
 ---@field padding3           string?
-Binary.struct "VTF.Header" {
+BinaryStruct.Define "VTF.Header" {
     "4      signature",
     "ULong  version 2",
     "ULong  headerSize",
@@ -247,11 +248,11 @@ Binary.struct "VTF.Header" {
 ---The total size of the fields of VTF.Header, which the headers of versions before 7.3 are shorter than.
 local HEADER_SIZE = 80
 
----@class ss.Binary.VTF.ResourceEntry
+---@class ss.BinaryStruct.VTF.ResourceEntry
 ---@field tag string
 ---@field flags integer
 ---@field offset integer
-Binary.struct "VTF.ResourceEntry" {
+BinaryStruct.Define "VTF.ResourceEntry" {
     "3     tag",
     "Byte  flags",
     "ULong offset",
@@ -407,7 +408,7 @@ end
 
 ---Calculates total size of the high resolution images in bytes.
 ---Volumetric or animated textures are not compatible: assuming depth == 1 and frames == 1.
----@param header ss.Binary.VTF.Header
+---@param header ss.BinaryStruct.VTF.Header
 ---@return integer
 local function getTotalImageSize(header)
     local width = header.width
@@ -422,7 +423,7 @@ local function getTotalImageSize(header)
 end
 
 ---Returns offset to high resolution image for VTF version 7.2
----@param header ss.Binary.VTF.Header
+---@param header ss.BinaryStruct.VTF.Header
 ---@return integer
 local function getHighResImageOffset72(header)
     header.numResources = 0
@@ -438,13 +439,13 @@ local function getHighResImageOffset72(header)
 end
 
 ---Returns offset to high resolution image for VTF version 7.3+
----@param header ss.Binary.VTF.Header
----@param vtf ss.BinaryStringReader
+---@param header ss.BinaryStruct.VTF.Header
+---@param vtf    ss.BinaryReader.StringReader
 ---@return integer
 local function getHighResImageOffset73(header, vtf)
     for _ = 1, math.min(header.numResources, 32) do
         if vtf:Tell() + RESOURCE_ENTRY_SIZE > vtf:Size() then break end
-        local resource = Binary.Read(vtf, "VTF.ResourceEntry")
+        local resource = BinaryReader.Read(vtf, "VTF.ResourceEntry")
         if resource.tag == "\x30\x00\x00" then
             return resource.offset
         end
@@ -463,8 +464,8 @@ function VTF.Read(path)
     local data = file.Read(string.format("materials/%s", path), "GAME")
     if not data or #data < HEADER_SIZE then return end
 
-    local vtf = Binary.NewStringReader(data)
-    local header = Binary.Read(vtf, "VTF.Header")
+    local vtf = BinaryReader.NewStringReader(data)
+    local header = BinaryReader.Read(vtf, "VTF.Header")
     local minorVersion = header.version[2]
     if header.signature ~= "VTF\x00" then return end
     if header.version[1] ~= 7 then return end

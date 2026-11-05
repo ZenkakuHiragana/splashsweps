@@ -14,31 +14,31 @@ local MAX_LIGHTMAP_HEIGHT = 256
 
 ---Stores packed lightmap information for each SortID.
 ---@class ss.Lightmaps.LightmapGroup
----@field FaceIndices    integer[] Array of index to surfaces that belong to this SortID.
----@field FaceLightmaps  Vector[]  Packed lightmap top-left positions corresponding to FaceIndices.
----@field LightmapPage   integer   Assigned lightmap page for this SortID.
----@field LightmapWidths integer[] Original lightmap width per face, before bumped-lightmap expansion.
----@field Material       ss.MapMaterials.MaterialInfo The material bound to this surface.
----@field TriangleCount  integer   Total number of triangles of this SortID.
+---@field SurfaceIndices  integer[] Indices to the surfaces of the map cache that belong to this SortID.
+---@field LightmapOffsets Vector[]  Packed lightmap top-left positions corresponding to SurfaceIndices.
+---@field LightmapPage    integer   Assigned lightmap page for this SortID.
+---@field LightmapWidths  integer[] Original lightmap width per surface, before bumped-lightmap expansion.
+---@field Material        ss.MapMaterials.MaterialInfo The material bound to this surface.
+---@field TriangleCount   integer   Total number of triangles of this SortID.
 
 ---Packed lightmap atlas description consumed by mesh grouping and render materials.
----@class ss.Lightmaps.LightmapLayout
+---@class ss.Lightmaps.Layout
 ---@field Groups ss.Lightmaps.LightmapGroup[] SortID-indexed packed lightmap/material groups.
----@field MaxLightmapIndex   integer Last allocated lightmap page index.
----@field LastLightmapWidth  integer Minimum actual width required for the last lightmap page.
----@field LastLightmapHeight integer Minimum actual height required for the last lightmap page.
+---@field LastPageIndex  integer              Last allocated lightmap page index.
+---@field LastPageWidth  integer              Minimum actual width required for the last lightmap page.
+---@field LastPageHeight integer              Minimum actual height required for the last lightmap page.
 
----Faces that share one model and one lightmap/material SortID before IMesh splitting.
+---Surfaces that share one model and one lightmap/material SortID before IMesh splitting.
 ---@class ss.Lightmaps.MeshGroup
----@field FaceIndices   integer[] BSP face indices included in this group.
----@field SortID        integer   LightmapGroup key used to find material and lightmap texture.
----@field TriangleCount integer   Total triangle count before splitting by MAX_TRIANGLES.
+---@field SurfaceIndices integer[] Indices to the surfaces of the map cache included in this group.
+---@field SortID         integer   LightmapGroup key used to find material and lightmap texture.
+---@field TriangleCount  integer   Total triangle count before splitting by MAX_TRIANGLES.
 
 ---A face to sort for lightmap packing.
 ---The engine sorts the faces by the enumeration ID of their materials in the material system,
 ---while MaterialIndex of the lightmap info is the index to the material names of the map.
 ---@class ss.Lightmaps.SortableFace
----@field Lightmap      ss.PrecachedData.LightmapInfo
+---@field Lightmap      ss.MapCache.LightmapInfo
 ---@field EnumerationID integer The enumeration ID of the material of the face.
 
 ---Sorts faces for lightmap packing, mimicking the engine's LightmapLess function.
@@ -74,17 +74,17 @@ local function lightmapLess(a, b)
 end
 
 ---Packs surface lightmaps into SortID groups that mirror Source lightmap allocation order.
----@param lightmaps    ss.PrecachedData.LightmapInfo[] Lightmap info of the faces the engine uses.
+---@param lightmaps    ss.MapCache.LightmapInfo[] Lightmap info of the faces the engine uses.
 ---@param materialInfo table<integer, ss.MapMaterials.MaterialInfo> Sparse enumeration-ID-indexed material metadata.
----@return ss.Lightmaps.LightmapLayout lightmapLayout Packed lightmap pages and SortID groups.
+---@return ss.Lightmaps.Layout lightmapLayout Packed lightmap pages and SortID groups.
 function Lightmaps.Pack(lightmaps, materialInfo)
     ---SortID --> packed lightmap group
-    ---@type ss.Lightmaps.LightmapLayout
+    ---@type ss.Lightmaps.Layout
     local lightmapLayout = {
         Groups = {},
-        MaxLightmapIndex = 0,
-        LastLightmapWidth = 0,
-        LastLightmapHeight = 0,
+        LastPageIndex = 0,
+        LastPageWidth = 0,
+        LastPageHeight = 0,
     }
 
     local numSortIDs = 0
@@ -126,12 +126,12 @@ function Lightmaps.Pack(lightmaps, materialInfo)
                 numSortIDs = numSortIDs + 1
                 packers[1].SortID = packers[1].SortID + 1
                 lightmapLayout.Groups[numSortIDs] = {
-                    FaceIndices    = {},
-                    FaceLightmaps  = {},
-                    LightmapPage   = lightmapLayout.MaxLightmapIndex,
-                    LightmapWidths = {},
-                    Material       = mat,
-                    TriangleCount  = 0,
+                    SurfaceIndices  = {},
+                    LightmapOffsets = {},
+                    LightmapPage    = lightmapLayout.LastPageIndex,
+                    LightmapWidths  = {},
+                    Material        = mat,
+                    TriangleCount   = 0,
                 }
 
                 currentMaterialID = enumerationID
@@ -152,30 +152,30 @@ function Lightmaps.Pack(lightmaps, materialInfo)
             -- Failed to fit, create a new page/packer for this material group
             if not packedSortID then
                 numSortIDs = numSortIDs + 1
-                lightmapLayout.MaxLightmapIndex = lightmapLayout.MaxLightmapIndex + 1
+                lightmapLayout.LastPageIndex = lightmapLayout.LastPageIndex + 1
                 packers[#packers + 1] = SkylinePacker.new(
                     numSortIDs, MAX_LIGHTMAP_WIDTH, MAX_LIGHTMAP_HEIGHT)
                 x, y = packers[#packers]:AddBlock(width, height)
                 packedSortID = numSortIDs
                 lightmapLayout.Groups[numSortIDs] = {
-                    FaceIndices    = {},
-                    FaceLightmaps  = {},
-                    LightmapPage   = lightmapLayout.MaxLightmapIndex,
-                    LightmapWidths = {},
-                    Material       = mat,
-                    TriangleCount  = 0,
+                    SurfaceIndices  = {},
+                    LightmapOffsets = {},
+                    LightmapPage    = lightmapLayout.LastPageIndex,
+                    LightmapWidths  = {},
+                    Material        = mat,
+                    TriangleCount   = 0,
                 }
             end
 
             ---@cast x -?
             ---@cast y -?
-            if faceInfo.FaceIndex > 0 then
-                local faceIndices    = lightmapLayout.Groups[packedSortID].FaceIndices
-                local faceLightmaps  = lightmapLayout.Groups[packedSortID].FaceLightmaps
-                local lightmapWidths = lightmapLayout.Groups[packedSortID].LightmapWidths
-                faceIndices   [#faceIndices    + 1] = faceInfo.FaceIndex
-                faceLightmaps [#faceLightmaps  + 1] = Vector(x, y)
-                lightmapWidths[#lightmapWidths + 1] = faceInfo.Width + 1
+            if faceInfo.SurfaceIndex > 0 then
+                local surfaceIndices  = lightmapLayout.Groups[packedSortID].SurfaceIndices
+                local lightmapOffsets = lightmapLayout.Groups[packedSortID].LightmapOffsets
+                local lightmapWidths  = lightmapLayout.Groups[packedSortID].LightmapWidths
+                surfaceIndices [#surfaceIndices  + 1] = faceInfo.SurfaceIndex
+                lightmapOffsets[#lightmapOffsets + 1] = Vector(x, y)
+                lightmapWidths [#lightmapWidths  + 1] = faceInfo.Width + 1
             end
         elseif not currentMaterialID and currentWhiteLightmapMaterialID ~= enumerationID then
             if not currentMaterialID and not currentWhiteLightmapMaterialID then
@@ -185,31 +185,31 @@ function Lightmaps.Pack(lightmaps, materialInfo)
         end
     end
 
-    lightmapLayout.LastLightmapWidth,
-    lightmapLayout.LastLightmapHeight
+    lightmapLayout.LastPageWidth,
+    lightmapLayout.LastPageHeight
         = packers[#packers]:GetMinimumDimensions()
     return lightmapLayout
 end
 
----Retrieves the size of lightmap page that contains given face index i in luxels.
----@param lightmapLayout ss.Lightmaps.LightmapLayout
+---Retrieves the size of the lightmap page of a lightmap group in luxels.
+---@param lightmapLayout ss.Lightmaps.Layout
 ---@param lightmapGroup  ss.Lightmaps.LightmapGroup
 ---@return integer pageWidth  The width of the page in luxels.
 ---@return integer pageHeight The height of the page in luxels.
 function Lightmaps.GetPageSize(lightmapLayout, lightmapGroup)
-    local maxLightmapIndex = lightmapLayout.MaxLightmapIndex
-    local lastPageWidth    = lightmapLayout.LastLightmapWidth
-    local lastPageHeight   = lightmapLayout.LastLightmapHeight
+    local lastPageIndex    = lightmapLayout.LastPageIndex
+    local lastPageWidth    = lightmapLayout.LastPageWidth
+    local lastPageHeight   = lightmapLayout.LastPageHeight
     local page             = lightmapGroup.LightmapPage
-    local isLastPage       = page == maxLightmapIndex
+    local isLastPage       = page == lastPageIndex
     local pageWidth        = isLastPage and lastPageWidth  or MAX_LIGHTMAP_WIDTH
     local pageHeight       = isLastPage and lastPageHeight or MAX_LIGHTMAP_HEIGHT
     return pageWidth, pageHeight
 end
 
----Groups packed faces by model and SortID.
----@param cache          ss.PrecachedData The map cache.
----@param lightmapLayout ss.Lightmaps.LightmapLayout Packed lightmap layout from Lightmaps.Pack.
+---Groups packed surfaces by model and SortID.
+---@param cache          ss.MapCache         The map cache.
+---@param lightmapLayout ss.Lightmaps.Layout Packed lightmap layout from Lightmaps.Pack.
 ---@return ss.Lightmaps.MeshGroup[][] meshGroupsByModel    Model-indexed mesh groups.
 function Lightmaps.BuildMeshGroups(cache, lightmapLayout)
     ---Model index ---> mesh groups for that model
@@ -217,8 +217,8 @@ function Lightmaps.BuildMeshGroups(cache, lightmapLayout)
     local meshGroupsByModel      = {}
     local sortIDToMeshGroupIndex = {} ---@type integer[][]
     for sortID, lightmapGroup in ipairs(lightmapLayout.Groups) do
-        for _, faceIndex in ipairs(lightmapGroup.FaceIndices) do
-            local surf = cache.Surfaces[faceIndex]
+        for _, surfaceIndex in ipairs(lightmapGroup.SurfaceIndices) do
+            local surf = cache.Surfaces[surfaceIndex]
             if not meshGroupsByModel[surf.ModelIndex] then
                 meshGroupsByModel[surf.ModelIndex] = {}
                 sortIDToMeshGroupIndex[surf.ModelIndex] = {}
@@ -228,7 +228,7 @@ function Lightmaps.BuildMeshGroups(cache, lightmapLayout)
             local meshGroupIndex = sortIDToMeshGroupIndex[surf.ModelIndex][sortID]
             if not meshGroupIndex then
                 meshGroups[#meshGroups + 1] = {
-                    FaceIndices = {},
+                    SurfaceIndices = {},
                     SortID = sortID,
                     TriangleCount = 0,
                 }
@@ -236,7 +236,7 @@ function Lightmaps.BuildMeshGroups(cache, lightmapLayout)
                 meshGroupIndex = #meshGroups
             end
             local meshGroup = meshGroups[meshGroupIndex]
-            meshGroup.FaceIndices[#meshGroup.FaceIndices + 1] = faceIndex
+            meshGroup.SurfaceIndices[#meshGroup.SurfaceIndices + 1] = surfaceIndex
             meshGroup.TriangleCount = meshGroup.TriangleCount + surf.NumVertexIndices / 3
         end
     end
@@ -248,26 +248,26 @@ function Lightmaps.BuildMeshGroups(cache, lightmapLayout)
     return meshGroupsByModel
 end
 
----Where the lightmap of a face is in its lightmap page.
+---Where the lightmap of a surface is in its lightmap page.
 ---The lightmap UV of a vertex in the page is (LightmapUV + (OffsetX, OffsetY)) / (PageWidth, PageHeight).
----@class ss.Lightmaps.FaceLightmap
----@field OffsetX       number  Left of the lightmap of the face in the page in luxels.
----@field OffsetY       number  Top of the lightmap of the face in the page in luxels.
+---@class ss.Lightmaps.SurfaceLightmap
+---@field OffsetX       number  Left of the lightmap of the surface in the page in luxels.
+---@field OffsetY       number  Top of the lightmap of the surface in the page in luxels.
 ---@field PageWidth     integer Width of the page in luxels.
 ---@field PageHeight    integer Height of the page in luxels.
 ---@field BumpmapOffset number  Lightmap U offset between bumped lightmaps, or 0 if the material has no bumped lightmaps.
 
----@param lightmapLayout ss.Lightmaps.LightmapLayout Packed lightmap layout from Lightmaps.Pack.
----@return ss.Lightmaps.FaceLightmap[] faceLightmaps Face-indexed lightmap placements.
-function Lightmaps.BuildFaceLightmaps(lightmapLayout)
-    local faceLightmaps = {} ---@type ss.Lightmaps.FaceLightmap[]
+---@param lightmapLayout ss.Lightmaps.Layout Packed lightmap layout from Lightmaps.Pack.
+---@return ss.Lightmaps.SurfaceLightmap[] surfaceLightmaps Lightmap placements indexed by the surfaces of the map cache.
+function Lightmaps.BuildSurfaceLightmaps(lightmapLayout)
+    local surfaceLightmaps = {} ---@type ss.Lightmaps.SurfaceLightmap[]
     for _, lightmapGroup in ipairs(lightmapLayout.Groups) do
         local materialInfo = lightmapGroup.Material
         local pageWidth, pageHeight = Lightmaps.GetPageSize(lightmapLayout, lightmapGroup)
-        for i, faceIndex in ipairs(lightmapGroup.FaceIndices) do
-            local lightmapCoordinates = lightmapGroup.FaceLightmaps[i]
+        for i, surfaceIndex in ipairs(lightmapGroup.SurfaceIndices) do
+            local lightmapCoordinates = lightmapGroup.LightmapOffsets[i]
             local lightmapWidth = lightmapGroup.LightmapWidths[i]
-            faceLightmaps[faceIndex] = {
+            surfaceLightmaps[surfaceIndex] = {
                 OffsetX       = lightmapCoordinates.x,
                 OffsetY       = lightmapCoordinates.y,
                 PageWidth     = pageWidth,
@@ -277,7 +277,7 @@ function Lightmaps.BuildFaceLightmaps(lightmapLayout)
         end
     end
 
-    return faceLightmaps
+    return surfaceLightmaps
 end
 
 return Lightmaps

@@ -4,7 +4,7 @@
 ---@class ss
 local ss = SplashSWEPs
 
----@class ss.Util
+---@class ss.UtilModule
 local Util = ss.module "splashsweps/shared/util"
 
 ---Utility constant number which represents really close to zero.

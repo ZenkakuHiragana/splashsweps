@@ -249,9 +249,9 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     for _, name in ipairs { "inkmesh", "inkssr_compose", "inkssr" } do
         materials[#materials + 1] = Material("splashsweps/shaders/" .. name)
     end
-    for _, batch in ipairs(InkMesh.Batches) do
-        for _, model in ipairs(batch) do
-            materials[#materials + 1] = model.Material
+    for _, modelMeshes in ipairs(InkMesh.ModelMeshes) do
+        for _, part in ipairs(modelMeshes) do
+            materials[#materials + 1] = part.Material
         end
     end
 

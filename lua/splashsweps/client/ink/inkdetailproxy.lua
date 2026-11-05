@@ -9,10 +9,10 @@ local Util = ss.import "splashsweps/shared/util"
 local InkDetailProxy = ss.module "splashsweps/client/ink/inkdetailproxy"
 
 ---Draws the shared periodic-border mesh; the caller has set the cell transform and RT.
----@alias ss.InkDetailDrawCell fun(material: IMaterial)
+---@alias ss.InkDetailProxy.DrawCell fun(material: IMaterial)
 
 ---Draws a generated cell from the state, using drawCell for the actual drawing.
----@alias ss.InkDetailDraw fun(state: table, drawCell: ss.InkDetailDrawCell)
+---@alias ss.InkDetailProxy.Draw fun(state: table, drawCell: ss.InkDetailProxy.DrawCell)
 
 ---A module drawing the detail cells of ink types whose material has the InkDetailUpdate proxy.
 ---The proxy block names the module by "updater" key, as ss.import does, e.g.
@@ -33,19 +33,19 @@ local InkDetailProxy = ss.module "splashsweps/client/ink/inkdetailproxy"
 ---The cell is drawn only if the state or Update differs from the ones it was last drawn with,
 ---so hot reloading the module redraws the cell.
 ---@class ss.IInkDetailUpdater
----@field Update fun(state: table, material: IMaterial, values: table<string, any>): ss.InkDetailDraw?
+---@field Update fun(state: table, material: IMaterial, values: table<string, any>): ss.InkDetailProxy.Draw?
 
----@class ss.InkDetailProxyInstance
----@field Values table<string, any> Key values of the proxy block
----@field State  table              Inputs of drawing, kept per material
----@field Draw   ss.InkDetailDraw?  Function returned by the updater
----@field Update fun(state: table, material: IMaterial, values: table<string, any>): ss.InkDetailDraw? Update of the updater module that returned Draw
+---@class ss.InkDetailProxy.Instance
+---@field Values table<string, any>      Key values of the proxy block
+---@field State  table                   Inputs of drawing, kept per material
+---@field Draw   ss.InkDetailProxy.Draw? Function returned by the updater
+---@field Update fun(state: table, material: IMaterial, values: table<string, any>): ss.InkDetailProxy.Draw? Update of the updater module that returned Draw
 
 ---@class ss.InkDetailProxyModule.State
----@field Updaters    table<string, ss.IInkDetailUpdater>      Material name --> updater module drawing its cell
----@field Requests    table<string, ss.InkDetailProxyInstance> Material name --> pending draw request; bind queues, atlas update consumes
----@field LastStates  table<string, table>                     Material name --> input snapshot from its last successful draw
----@field LastUpdates table<string, function>                  Material name --> Update of the updater module that last drew its cell
+---@field Updaters    table<string, ss.IInkDetailUpdater>       Material name --> updater module drawing its cell
+---@field Requests    table<string, ss.InkDetailProxy.Instance> Material name --> pending draw request; bind queues, atlas update consumes
+---@field LastStates  table<string, table>                      Material name --> input snapshot from its last successful draw
+---@field LastUpdates table<string, function>                   Material name --> Update of the updater module that last drew its cell
 local state = ss.state("splashsweps/client/ink/inkdetailproxy", {
     Updaters = {},
     Requests = {},
@@ -90,9 +90,9 @@ function InkDetailProxy.Reset(updaters)
 end
 
 ---Consumes the bind-time request queue, returning only requests with changed drawing inputs.
----@return table<string, ss.InkDetailProxyInstance> drawRequests Changed drawing requests by material name
+---@return table<string, ss.InkDetailProxy.Instance> drawRequests Changed drawing requests by material name
 function InkDetailProxy.TakeChanged()
-    local drawRequests = {} ---@type table<string, ss.InkDetailProxyInstance>
+    local drawRequests = {} ---@type table<string, ss.InkDetailProxy.Instance>
     for name, proxy in pairs(state.Requests) do
         if proxy.Update ~= state.LastUpdates[name] or not AreInputsEqual(proxy.State, state.LastStates[name]) then
             drawRequests[name] = proxy
@@ -104,7 +104,7 @@ end
 
 ---Saves the drawing inputs of a request whose cell has been drawn.
 ---@param name string Material name
----@param proxy ss.InkDetailProxyInstance
+---@param proxy ss.InkDetailProxy.Instance
 function InkDetailProxy.MarkDrawn(name, proxy)
     state.LastStates[name] = Util.deepcopy(proxy.State)
     state.LastUpdates[name] = proxy.Update
@@ -112,11 +112,11 @@ end
 
 matproxy.Add {
     name = "InkDetailUpdate",
-    ---@param self ss.InkDetailProxyInstance
+    ---@param self ss.InkDetailProxy.Instance
     init = function(self)
         self.State = {}
     end,
-    ---@param self ss.InkDetailProxyInstance
+    ---@param self     ss.InkDetailProxy.Instance
     ---@param material IMaterial
     -- Bind collects inputs and queues work; drawing runs later in the Details RT context.
     bind = function(self, material)

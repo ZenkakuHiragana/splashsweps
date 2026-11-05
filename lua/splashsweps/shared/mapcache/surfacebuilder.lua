@@ -3,11 +3,11 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local BoundingBox   = ss.import "splashsweps/shared/mapcache/boundingbox"
-local Geometry      = ss.import "splashsweps/shared/geometry"
-local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
-local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
-local Util          = ss.import "splashsweps/shared/util"
+local Geometry           = ss.import "splashsweps/shared/geometry"
+local MapCache           = ss.import "splashsweps/shared/mapcache/mapcache"
+local MinimumBoundingBox = ss.import "splashsweps/shared/mapcache/minimumboundingbox"
+local PaintableGrid      = ss.import "splashsweps/shared/paint/paintablegrid"
+local Util               = ss.import "splashsweps/shared/util"
 
 ---@class ss.SurfaceBuilderModule
 local SurfaceBuilder = ss.module "splashsweps/shared/mapcache/surfacebuilder"
@@ -26,7 +26,7 @@ local TextureFilterBits = bit.bor(
     SURF_NODRAW, SURF_HINT, SURF_SKIP)
 
 ---Index to SURFEDGES array -> actual vertex index
----@param bsp ss.RawBSPResults
+---@param bsp   ss.BSP.Lumps
 ---@param index integer
 ---@return integer
 local function SurfEdgeToVertexIndex(bsp, index)
@@ -36,9 +36,9 @@ local function SurfEdgeToVertexIndex(bsp, index)
 end
 
 ---Index to SURFEDGES array -> actual vertex
----@param bsp ss.RawBSPResults
+---@param bsp   ss.BSP.Lumps
 ---@param index integer
----@return ss.Binary.BSP.VERTEXES
+---@return ss.BinaryStruct.BSP.VERTEXES
 local function SurfEdgeToVertex(bsp, index)
     return bsp.VERTEXES[SurfEdgeToVertexIndex(bsp, index) + 1]
 end
@@ -89,16 +89,16 @@ local function ParseCubemapOriginKey(name)
     return string.format("%d_%d_%d", tonumber(x), tonumber(y), tonumber(z))
 end
 
----@param bsp ss.RawBSPResults
----@return ss.PrecachedData.CubemapInfo[] cubemaps
----@return table<string, ss.PrecachedData.CubemapInfo> cubemapsByOrigin
+---@param bsp ss.BSP.Lumps
+---@return ss.MapCache.CubemapInfo[] cubemaps
+---@return table<string, ss.MapCache.CubemapInfo> cubemapsByOrigin
 local function BuildCubemapEntries(bsp)
-    local cubemaps = {} ---@type ss.PrecachedData.CubemapInfo[]
-    local cubemapsByOrigin = {} ---@type table<string, ss.PrecachedData.CubemapInfo>
+    local cubemaps = {} ---@type ss.MapCache.CubemapInfo[]
+    local cubemapsByOrigin = {} ---@type table<string, ss.MapCache.CubemapInfo>
     local mapName = game.GetMap():lower()
     for _, sample in ipairs(bsp.CUBEMAPS or {}) do
         local x, y, z = sample.originX, sample.originY, sample.originZ
-        local cubemap = PrecachedData.CubemapInfo.new()
+        local cubemap = MapCache.CubemapInfo.new()
         cubemap.Envmap = string.format("maps/%s/c%d_%d_%d", mapName, x, y, z)
         cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ = x, y, z
         cubemap.BoxMinX, cubemap.BoxMinY, cubemap.BoxMinZ = huge, huge, huge
@@ -110,8 +110,8 @@ local function BuildCubemapEntries(bsp)
     return cubemaps, cubemapsByOrigin
 end
 
----@param cubemap ss.PrecachedData.CubemapInfo?
----@param surf ss.PrecachedData.Surface
+---@param cubemap ss.MapCache.CubemapInfo?
+---@param surf ss.MapCache.Surface
 local function AccumulateCubemapBox(cubemap, surf)
     if not cubemap then return end
     cubemap.BoxMinX = min(cubemap.BoxMinX, surf.AABBMinX)
@@ -124,7 +124,7 @@ local function AccumulateCubemapBox(cubemap, surf)
     cubemap.Blend = 1
 end
 
----@param cubemaps ss.PrecachedData.CubemapInfo[]
+---@param cubemaps ss.MapCache.CubemapInfo[]
 local function FinalizeCubemapEntries(cubemaps)
     for _, cubemap in ipairs(cubemaps) do
         if cubemap.FaceCount == 0 then
@@ -160,24 +160,24 @@ local function FaceOrientation(normalX, normalY, normalZ)
     }
 end
 
----Bakes the transform into the paint grid, and sets the sizes of the paint grid and of its rectangle in the ink map.
----@param surf      ss.PrecachedData.Surface
----@param mbr       number[] The minimum bounding rectangle from BoundingBox.FindMBR.
+---Bakes the transform into the paintable grid, and sets the sizes of the paintable grid and of its rectangle in the ink map.
+---@param surf      ss.MapCache.Surface
+---@param mbr       number[] The minimum bounding rectangle from MinimumBoundingBox.FindMBR.
 ---@param mbrSizeX  number
 ---@param mbrSizeY  number
 local function SetTransformRelatedValues(surf, mbr, mbrSizeX, mbrSizeY)
-    local g, worldToLocal = surf.WorldToLocalGrid, Geometry.InvertRotationTranslation(mbr)
+    local g, worldToLocal = surf.ToGrid, Geometry.InvertRotationTranslation(mbr)
     for i = 1, 12 do g[i] = worldToLocal[i] end
     -- A size of exactly a multiple of the cell can be larger by rounding errors, which should not add a cell.
-    surf.PaintGridWidth  = ceil(mbrSizeX / PaintableGrid.CELL_SIZE - GRID_ROUNDING_TOLERANCE)
-    surf.PaintGridHeight = ceil(mbrSizeY / PaintableGrid.CELL_SIZE - GRID_ROUNDING_TOLERANCE)
+    surf.PaintableGridWidth  = ceil(mbrSizeX / PaintableGrid.CELL_SIZE - GRID_ROUNDING_TOLERANCE)
+    surf.PaintableGridHeight = ceil(mbrSizeY / PaintableGrid.CELL_SIZE - GRID_ROUNDING_TOLERANCE)
     local margin = 2 * ss.MARGIN_HAMMER_UNITS -- Both sides
     surf.InkMapRectangle.Width  = mbrSizeX + margin
     surf.InkMapRectangle.Height = mbrSizeY + margin
 end
 
 ---Sets the lengths of the vertex and the triangle arrays of a surface after they are written.
----@param surf ss.PrecachedData.Surface
+---@param surf ss.MapCache.Surface
 local function SetMeshLengths(surf)
     surf.NumVertices      = #surf.PositionX
     surf.NumTriangles     = #surf.LightmapTangentX
@@ -185,7 +185,7 @@ local function SetMeshLengths(surf)
 end
 
 ---Writes the AABB of a surface with the margin to construct overlapped hash table entries.
----@param surf ss.PrecachedData.Surface
+---@param surf ss.MapCache.Surface
 ---@param minX number
 ---@param minY number
 ---@param minZ number
@@ -199,7 +199,7 @@ local function SetAABB(surf, minX, minY, minZ, maxX, maxY, maxZ)
 end
 
 ---Writes the minimum bounding box of a surface.
----@param surf  ss.PrecachedData.Surface
+---@param surf  ss.MapCache.Surface
 ---@param box   number[] The origin and the orientation of the box.
 ---@param sizeX number
 ---@param sizeY number
@@ -251,10 +251,10 @@ local function TriangleToWorld(xs, ys, zs, i1, i2, i3)
     }
 end
 
----@param surf ss.PrecachedData.Surface Its vertex and triangle arrays are written.
+---@param surf ss.MapCache.Surface Its vertex and triangle arrays are written.
 local function CalculateTriangleComponents(surf)
     local xs, ys, zs = surf.PositionX, surf.PositionY, surf.PositionZ
-    local oxs, oys, ozs = surf.PaintOriginX, surf.PaintOriginY, surf.PaintOriginZ
+    local oxs, oys, ozs = surf.FlatPositionX, surf.FlatPositionY, surf.FlatPositionZ
     local vertexIndices = surf.VertexIndices
     surf.DisplacementTriangles = {}
     for i = 1, #vertexIndices, 3 do
@@ -274,7 +274,7 @@ local function CalculateTriangleComponents(surf)
         local i3 = vertexIndices[i + 2]
 
         local worldToTriangle = Geometry.InvertRotationTranslation(TriangleToWorld(xs, ys, zs, i1, i2, i3))
-        local t = PrecachedData.DisplacementTriangle.new()
+        local t               = MapCache.DisplacementTriangle.new()
 
         -- Barycentric coordinates by the dual basis of the edges t1 -> t2 and t1 -> t3.
         t.BarycentricDot1X, t.BarycentricDot1Y, t.BarycentricDot1Z,
@@ -282,9 +282,9 @@ local function CalculateTriangleComponents(surf)
             xs[i2] - xs[i1], ys[i2] - ys[i1], zs[i2] - zs[i1],
             xs[i3] - xs[i1], ys[i3] - ys[i1], zs[i3] - zs[i1])
 
-        -- The rotation from the triangle to the triangle of the paint origins.
+        -- The rotation from the triangle to the triangle of the flat positions.
         local rotation = Geometry.Multiply(TriangleToWorld(oxs, oys, ozs, i1, i2, i3), worldToTriangle)
-        local r = t.WorldToLocalGridRotation
+        local r        = t.ToFlatRotation
         r[1], r[2], r[3] = rotation[1], rotation[2],  rotation[3]
         r[4], r[5], r[6] = rotation[5], rotation[6],  rotation[7]
         r[7], r[8], r[9] = rotation[9], rotation[10], rotation[11]
@@ -296,8 +296,8 @@ end
 
 ---Returns the blend factors of a vertex toward $basetexture2, 3, and 4 in the unit of the vertex color, from 0 to 255.
 ---WorldVertexTransition has only the first one, the vertex alpha, which is in this unit.
----@param dispVert   ss.Binary.BSP.DISP_VERTS
----@param multiblend ss.Binary.BSP.DISP_MULTIBLEND? Only for Lightmapped_4WayBlend.
+---@param dispVert   ss.BinaryStruct.BSP.DISP_VERTS
+---@param multiblend ss.BinaryStruct.BSP.DISP_MULTIBLEND? Only for Lightmapped_4WayBlend.
 ---@return number blend2
 ---@return number blend3
 ---@return number blend4
@@ -326,7 +326,7 @@ end
 
 ---Returns the lightmap tangent and binormal of a triangle: the gradients s and t of the lightmap coordinates
 ---in the plane of the triangle, which satisfy u(p) = u(t1) + (p - t1)・s and v(p) = v(t1) + (p - t1)・t.
----@param surf ss.PrecachedData.Surface Its positions and lightmap coordinates are read.
+---@param surf ss.MapCache.Surface Its positions and lightmap coordinates are read.
 ---@param i1   integer
 ---@param i2   integer
 ---@param i3   integer
@@ -350,17 +350,17 @@ local function TriangleLightmapBasis(surf, i1, i2, i3)
 end
 
 ---Construct a polygon from a raw displacement data
----@param bsp         ss.RawBSPResults
----@param rawFace     ss.Binary.BSP.FACES
+---@param bsp         ss.BSP.Lumps
+---@param rawFace     ss.BinaryStruct.BSP.FACES
 ---@param xs          number[] The corners of the flat quadrilateral surface, which this function reorders.
 ---@param ys          number[]
 ---@param zs          number[]
----@param texInfo     ss.Binary.BSP.TEXINFO
+---@param texInfo     ss.BinaryStruct.BSP.TEXINFO
 ---@param orientation number[] The orientation of the face from FaceOrientation.
----@return ss.PrecachedData.Surface
+---@return ss.MapCache.Surface
 local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientation)
     -- Collect displacement info
-    local surf            = PrecachedData.Surface.new()
+    local surf            = MapCache.Surface.new()
     local rawDispInfo     = bsp.DISPINFO
     local rawDispVerts    = bsp.DISP_VERTS
     local rawMultiBlend   = bsp.DISP_MULTIBLEND
@@ -510,7 +510,7 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
 
     SetAABB(surf, minX, minY, minZ, maxX, maxY, maxZ)
 
-    -- The paint origins are on the quadrilateral stretched as long as the deformed edges,
+    -- The flat positions are on the quadrilateral stretched as long as the deformed edges,
     -- placed by the lengths of the edges, so that the paints keep their sizes on the deformed mesh.
     local meanLengthU = (Geometry.Length(u1x, u1y, u1z) + Geometry.Length(u2x, u2y, u2z)) * 0.5
     local meanLengthV = (Geometry.Length(v1x, v1y, v1z) + Geometry.Length(v2x, v2y, v2z)) * 0.5
@@ -523,7 +523,7 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
         local vi = floor((i - 1) / power)
         local u = (lengthIntegratedU[i] or 0) / totalLengthU[vi + 1]
         local v = (lengthIntegratedV[i] or 0) / totalLengthV[ui + 1]
-        surf.PaintOriginX[i], surf.PaintOriginY[i], surf.PaintOriginZ[i] = Subdivide(u, v, scaleU, scaleV)
+        surf.FlatPositionX[i], surf.FlatPositionY[i], surf.FlatPositionZ[i] = Subdivide(u, v, scaleU, scaleV)
         normalXs[i], normalYs[i], normalZs[i] = 0, 0, 0
         normalCounts[i] = 0
     end
@@ -588,9 +588,9 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
     SetMeshLengths(surf)
 
     local originXs, originYs, originZs
-        = PointsOfTriangles(surf.PaintOriginX, surf.PaintOriginY, surf.PaintOriginZ, vertexIndices)
-    local mbr, mbrSizeX, mbrSizeY = BoundingBox.FindMBR(originXs, originYs, originZs, orientation)
-    local mbb, mbbSizeX, mbbSizeY, mbbSizeZ = BoundingBox.FindMinimumOBB( -- For the deformed mesh
+        = PointsOfTriangles(surf.FlatPositionX, surf.FlatPositionY, surf.FlatPositionZ, vertexIndices)
+    local mbr, mbrSizeX, mbrSizeY = MinimumBoundingBox.FindMBR(originXs, originYs, originZs, orientation)
+    local mbb, mbbSizeX, mbbSizeY, mbbSizeZ = MinimumBoundingBox.FindMinimumOBB( -- For the deformed mesh
         PointsOfTriangles(positionXs, positionYs, positionZs, vertexIndices))
     local aabbSizeX = surf.AABBMaxX - surf.AABBMinX
     local aabbSizeY = surf.AABBMaxY - surf.AABBMinY
@@ -609,9 +609,9 @@ local function BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientat
 end
 
 -- Construct a polygon from a raw face data
----@param bsp ss.RawBSPResults
----@param rawFace ss.Binary.BSP.FACES
----@return ss.PrecachedData.Surface?, boolean?
+---@param bsp     ss.BSP.Lumps
+---@param rawFace ss.BinaryStruct.BSP.FACES
+---@return ss.MapCache.Surface?, boolean?
 local function BuildFromBrushFace(bsp, rawFace)
     -- Collect texture information and see if it's valid
     local rawTexInfo   = bsp.TEXINFO
@@ -670,8 +670,8 @@ local function BuildFromBrushFace(bsp, rawFace)
         return BuildFromDisplacement(bsp, rawFace, xs, ys, zs, texInfo, orientation), tobool(isWater)
     end
 
-    local surf = PrecachedData.Surface.new()
-    local mbr, mbrSizeX, mbrSizeY, mbrSizeZ = BoundingBox.FindMBR(xs, ys, zs, orientation)
+    local surf = MapCache.Surface.new()
+    local mbr, mbrSizeX, mbrSizeY, mbrSizeZ = MinimumBoundingBox.FindMBR(xs, ys, zs, orientation)
     local textureSX, textureSY, textureSZ = texInfo.textureSX, texInfo.textureSY, texInfo.textureSZ
     local textureTX, textureTY, textureTZ = texInfo.textureTX, texInfo.textureTY, texInfo.textureTZ
     local lightmapSX, lightmapSY, lightmapSZ = texInfo.lightmapSX, texInfo.lightmapSY, texInfo.lightmapSZ
@@ -690,7 +690,7 @@ local function BuildFromBrushFace(bsp, rawFace)
         surf.NormalX[i],      surf.NormalY[i],      surf.NormalZ[i]      = normalX, normalY, normalZ
         surf.TangentX[i],     surf.TangentY[i],     surf.TangentZ[i]     = textureSX, textureSY, textureSZ
         surf.BinormalX[i],    surf.BinormalY[i],    surf.BinormalZ[i]    = textureTX, textureTY, textureTZ
-        surf.PaintOriginX[i], surf.PaintOriginY[i], surf.PaintOriginZ[i] = x, y, z
+        surf.FlatPositionX[i], surf.FlatPositionY[i], surf.FlatPositionZ[i] = x, y, z
         surf.BumpmapU[i]  = Geometry.Dot(x, y, z, textureSX,  textureSY,  textureSZ)  + texInfo.textureOffsetS
         surf.BumpmapV[i]  = Geometry.Dot(x, y, z, textureTX,  textureTY,  textureTZ)  + texInfo.textureOffsetT
         surf.LightmapU[i] = Geometry.Dot(x, y, z, lightmapSX, lightmapSY, lightmapSZ) + lightmapOffsetS
@@ -719,12 +719,12 @@ local function BuildFromBrushFace(bsp, rawFace)
 end
 
 ---Extracts surfaces from LUMP_FACES of parsed BSP structures.
----@param bsp ss.RawBSPResults
----@param cache ss.PrecachedData
+---@param bsp ss.BSP.Lumps
+---@param cache ss.MapCache
 function SurfaceBuilder.BuildSurfaceCache(bsp, cache)
     local t0 = SysTime()
-    local surf = {} ---@type ss.PrecachedData.Surface[]
-    local water = {} ---@type ss.PrecachedData.Surface[]
+    local surf = {} ---@type ss.MapCache.Surface[]
+    local water = {} ---@type ss.MapCache.Surface[]
     local lump = bsp.FACES or {}
     local cubemaps, cubemapsByOrigin = BuildCubemapEntries(bsp)
     local faceIndexToModelIndex = {} ---@type integer[]
@@ -735,7 +735,7 @@ function SurfaceBuilder.BuildSurfaceCache(bsp, cache)
     end
     print "Generating inkable surfaces..."
     local validFaces  = {} ---@type boolean[] face index --> is paintable
-    local faceCubemaps = {} ---@type table<integer, ss.PrecachedData.CubemapInfo>
+    local faceCubemaps = {} ---@type table<integer, ss.MapCache.CubemapInfo>
     for i, face in ipairs(lump) do
         local rawTexInfo = bsp.TEXINFO[face.texInfo + 1]
         if bit.band(rawTexInfo.flags, TextureFilterBits) == 0 then
@@ -808,8 +808,8 @@ end
 ---  --------------------------------------  --------------------------------------
 ---  LightingOrigin in the lump              STATIC_PROP_USE_LIGHTING_ORIGIN is set
 ---  illumposition transformed by the prop   otherwise
----@param bsp           ss.RawBSPResults
----@param prop          ss.Binary.BSP.StaticProp
+---@param bsp           ss.BSP.Lumps
+---@param prop          ss.BinaryStruct.BSP.StaticProp
 ---@param illumposition number[] illumposition of the model as x, y, and z.
 ---@return integer # Index to the cubemap samples in the lump, or 0 if the map has no cubemaps.
 local function FindStaticPropCubemap(bsp, prop, illumposition)
@@ -833,11 +833,11 @@ local function FindStaticPropCubemap(bsp, prop, illumposition)
 end
 
 ---Extracts surfaces from static props.
----@param bsp ss.RawBSPResults
----@param cache ss.PrecachedData
+---@param bsp ss.BSP.Lumps
+---@param cache ss.MapCache
 function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
     print "Generating static prop surfaces..."
-    local results = {} ---@type ss.PrecachedData.StaticProp[]
+    local results        = {} ---@type ss.MapCache.StaticProp[]
     local illumpositions = {} ---@type table<string, number[]>
     for _, prop in ipairs(bsp.sprp.prop or {}) do
         if prop.solid > 0 then
@@ -849,7 +849,7 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
             if info and surf and surf.material ~= MAT_GRATE then
                 local scale = prop.uniformScale or 1
                 illumpositions[name] = illumpositions[name] or ReadIlluminationPosition(name)
-                local result = PrecachedData.StaticProp.new()
+                local result = MapCache.StaticProp.new()
                 local maxX, maxY, maxZ = info.HullMax:Unpack()
                 local minX, minY, minZ = info.HullMin:Unpack()
                 result.Pitch, result.Yaw, result.Roll = prop.pitch, prop.yaw, prop.roll

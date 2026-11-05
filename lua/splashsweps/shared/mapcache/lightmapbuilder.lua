@@ -3,7 +3,7 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
+local MapCache = ss.import "splashsweps/shared/mapcache/mapcache"
 
 ---@class ss.LightmapBuilderModule
 local LightmapBuilder = ss.module "splashsweps/shared/mapcache/lightmapbuilder"
@@ -162,15 +162,15 @@ for i = 1, 1024 do
 end
 
 ---Generates lightmap packing information for the faces of a face lump.
----@param bsp           ss.RawBSPResults
----@param faces         ss.Binary.BSP.FACES[] LUMP_FACES, or LUMP_FACES_HDR which has the same faces.
+---@param bsp           ss.BSP.Lumps
+---@param faces         ss.BinaryStruct.BSP.FACES[] LUMP_FACES, or LUMP_FACES_HDR which has the same faces.
 ---@param rawSamples    string                LUMP_LIGHTING for LUMP_FACES, or LUMP_LIGHTING_HDR for LUMP_FACES_HDR.
----@param surfaces      ss.PrecachedData.Surface[] Paintable surfaces built from LUMP_FACES.
+---@param surfaces      ss.MapCache.Surface[] Paintable surfaces built from LUMP_FACES.
 ---@param materialNames string[] Material names in the order of TEXDATA_STRING_DATA.
----@return ss.PrecachedData.LightmapInfo[] # Indexed by the face.
+---@return ss.MapCache.LightmapInfo[] # Indexed by the face.
 function LightmapBuilder.Build(bsp, faces, rawSamples, surfaces, materialNames)
     print "    Generating lightmap info..."
-    local lightmaps = {} ---@type ss.PrecachedData.LightmapInfo[]
+    local lightmaps    = {} ---@type ss.MapCache.LightmapInfo[]
     local rawTexInfo   = bsp.TEXINFO
     local rawTexData   = bsp.TEXDATA
     local rawTexDict   = bsp.TEXDATA_STRING_TABLE
@@ -199,7 +199,7 @@ function LightmapBuilder.Build(bsp, faces, rawSamples, surfaces, materialNames)
         local nolight     = band(texInfo.flags, SURF_NOLIGHT) > 0 or
             ((width == 0 or height == 0) and lightOffset <= 0)
         local hasLightmap = not nolight
-        local t = PrecachedData.LightmapInfo.new()
+        local t           = MapCache.LightmapInfo.new()
         t.MaterialIndex = materialID
         if hasLightmap then
             if ((lightStyles[1] ~= 0 and lightStyles[1] ~= 255) or lightStyles[2] ~= 255) then
@@ -210,7 +210,7 @@ function LightmapBuilder.Build(bsp, faces, rawSamples, surfaces, materialNames)
         end
         t.Width = t.HasLightmap > 0 and width or 0
         t.Height = t.HasLightmap > 0 and height or 0
-        t.FaceIndex = faceLumpIndexToSurfaceIndex[i] or 0
+        t.SurfaceIndex = faceLumpIndexToSurfaceIndex[i] or 0
 
         -- CheckSurfaceLighting
         if not power2 then

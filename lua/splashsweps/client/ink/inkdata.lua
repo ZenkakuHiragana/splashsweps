@@ -37,10 +37,10 @@ end
 ---Reads the ink material and encodes its ink data.
 ---Lua index j corresponds to the parameter slot ID j - 1 of the shaders; image cell numbers are 1-based here.
 ---@param mat             IMaterial The ink material
----@param detailSlot      integer?  Grid cell of the detail image, nil if the ink type has none
+---@param detailCell      integer?  Grid cell of the detail image, nil if the ink type has none
 ---@param baseTextureName string    Source of the automatic height baseline
 ---@return number[][] inkData Texels of four components each, indexed by parameter slot
-function InkData.Encode(mat, detailSlot, baseTextureName)
+function InkData.Encode(mat, detailCell, baseTextureName)
     local heightbaseline = mat:GetFloat "$heightbaseline" or -1
     if heightbaseline < 0 then heightbaseline = GetAverageHeight(baseTextureName) end
     local detailtexturetransform = mat:GetMatrix "$detailtexturetransform" or Matrix()
@@ -99,7 +99,7 @@ function InkData.Encode(mat, detailSlot, baseTextureName)
             -- Image repeats per Hammer unit, log2 with 24 steps per octave from 2^-13
             (math.log(detailtransformscale.x / detailPeriodHU, 2) + 13) * 24 / 255,
             (math.log(detailtransformscale.y / detailPeriodHU, 2) + 13) * 24 / 255,
-            ((detailSlot or 1) - 1) / 255, -- Grid index of the detail image
+            ((detailCell or 1) - 1) / 255, -- Grid index of the detail image
             -- bit 0: invert; bits 1..2: source (0 = off, 1 = thickness, 2 = height, 3 = depth).
             -- bits 3..7: sqrt-encode the height limit to give small limits finer steps within five bits.
             -- The 32 decoded levels stay above zero to avoid division by zero in the shader's height weight.

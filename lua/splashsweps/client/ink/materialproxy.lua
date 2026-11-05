@@ -7,14 +7,14 @@ local ss = SplashSWEPs
 ---@class ss.MaterialProxyModule
 local MaterialProxy = ss.module "splashsweps/client/ink/materialproxy"
 
----@class ss.MaterialProxyKey
+---@class ss.MaterialProxy.Key
 ---@field Key string
----@field Value string|number|ss.MaterialProxyKey[]
+---@field Value string|number|ss.MaterialProxy.Key[]
 
 ---Finds the first named entry in an ordered KeyValues list.
----@param entries ss.MaterialProxyKey[]
+---@param entries ss.MaterialProxy.Key[]
 ---@param name string
----@return ss.MaterialProxyKey?
+---@return ss.MaterialProxy.Key?
 local function FindMaterialProxyKey(entries, name)
     for _, entry in ipairs(entries) do
         if entry.Key == name then return entry end
@@ -22,8 +22,8 @@ local function FindMaterialProxyKey(entries, name)
 end
 
 ---Merges ordered proxy keys using Source's insert/replace rules.
----@param destination ss.MaterialProxyKey[]
----@param source ss.MaterialProxyKey[]
+---@param destination  ss.MaterialProxy.Key[]
+---@param source       ss.MaterialProxy.Key[]
 ---@param existingOnly boolean
 local function MergeMaterialProxyKeys(destination, source, existingOnly)
     for _, entry in ipairs(source) do
@@ -36,8 +36,8 @@ local function MergeMaterialProxyKeys(destination, source, existingOnly)
             if istable(entry.Value) then
                 if not istable(target.Value) then target.Value = {} end
                 local targetValues, sourceValues = target.Value, entry.Value
-                    ---@cast targetValues ss.MaterialProxyKey[]
-                    ---@cast sourceValues ss.MaterialProxyKey[]
+                    ---@cast targetValues ss.MaterialProxy.Key[]
+                    ---@cast sourceValues ss.MaterialProxy.Key[]
                 MergeMaterialProxyKeys(targetValues, sourceValues, existingOnly)
             else
                 target.Value = entry.Value
@@ -49,8 +49,8 @@ local function MergeMaterialProxyKeys(destination, source, existingOnly)
             local entry = FindMaterialProxyKey(source, target.Key)
             if istable(target.Value) and entry and istable(entry.Value) then
                 local targetValues, sourceValues = target.Value, entry.Value
-                    ---@cast targetValues ss.MaterialProxyKey[]
-                    ---@cast sourceValues ss.MaterialProxyKey[]
+                    ---@cast targetValues ss.MaterialProxy.Key[]
+                    ---@cast sourceValues ss.MaterialProxy.Key[]
                 MergeMaterialProxyKeys(targetValues, sourceValues, true)
             end
         end
@@ -59,19 +59,19 @@ end
 
 ---Reads the proxy block after resolving Source's Patch include chain.
 ---@param path string
----@return ss.MaterialProxyKey[]
+---@return ss.MaterialProxy.Key[]
 function MaterialProxy.Read(path)
-    local inserts, replaces ---@type ss.MaterialProxyKey[]?, ss.MaterialProxyKey[]?
+    local inserts, replaces ---@type ss.MaterialProxy.Key[]?, ss.MaterialProxy.Key[]?
     -- Source accumulates patches from outermost to innermost, up to ten includes.
     for _ = 0, 10 do
         local vmt = file.Read(path, "GAME")
         if not vmt then return {} end
         local root = util.KeyValuesToTablePreserveOrder('"vmt" {\n' .. vmt .. '\n}')[1]
-            ---@cast root ss.MaterialProxyKey
-        local entries = root.Value ---@cast entries ss.MaterialProxyKey[]
+            ---@cast root ss.MaterialProxy.Key
+        local entries = root.Value ---@cast entries ss.MaterialProxy.Key[]
         if root.Key ~= "patch" then
             local proxies = FindMaterialProxyKey(entries, "proxies")
-            local values  = proxies and proxies.Value ---@cast values ss.MaterialProxyKey[]?
+            local values  = proxies and proxies.Value ---@cast values ss.MaterialProxy.Key[]?
             if inserts then
                 values = values or {}
                 MergeMaterialProxyKeys(values, inserts, false)
@@ -82,10 +82,10 @@ function MaterialProxy.Read(path)
         for _, action in ipairs { "insert", "replace" } do
             local section       = FindMaterialProxyKey(entries, action)
             local sectionValues = section and section.Value
-                ---@cast sectionValues ss.MaterialProxyKey[]?
+                ---@cast sectionValues ss.MaterialProxy.Key[]?
             local proxies = sectionValues and FindMaterialProxyKey(sectionValues, "proxies")
             if proxies then
-                local values = proxies.Value ---@cast values ss.MaterialProxyKey[]
+                local values = proxies.Value ---@cast values ss.MaterialProxy.Key[]
                 if action == "insert" then
                     inserts = inserts or {}
                     MergeMaterialProxyKeys(inserts, values, false)

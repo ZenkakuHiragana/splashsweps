@@ -59,9 +59,9 @@ local function getAlphaTestReference(mat)
 end
 
 ---Creates the models and the ink sprp materials of static props.
----@param staticPropInfo ss.PrecachedData.StaticProp[]
+---@param staticPropInfo ss.MapCache.StaticProp[]
 ---@param modelNames     string[]
----@param cubemaps       ss.PrecachedData.CubemapInfo[]
+---@param cubemaps       ss.MapCache.CubemapInfo[]
 function StaticPropBuilder.Setup(staticPropInfo, modelNames, cubemaps)
     local templateMaterial = Material "splashsweps/shaders/staticprop"
     local materialCache = {} ---@type table<string, IMaterial>
@@ -95,7 +95,7 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, cubemaps)
         local uv = prop.InkMapRectangle
         local modelName = modelNames[prop.ModelIndex]
         if modelName then
-            ---@class ss.PaintableCSEnt : CSEnt
+            ---@class ss.StaticPropBuilder.InkModel : CSEnt
             ---@field QueuedFlags Enum.STUDIO? Flags the engine drew this prop with in the current view.
             local mdl = ClientsideModel(modelName)
             if mdl then

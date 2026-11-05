@@ -1,7 +1,7 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local Structures = ss.import "splashsweps/shared/packer/structures"
+local PackerStructures = ss.import "splashsweps/shared/packer/structures"
 
 ---@class ss.RectanglePackerModule
 local RectanglePacker = ss.module "splashsweps/shared/packer/packer"
@@ -21,7 +21,7 @@ end
 
 ---An implementation of "A New Placement Heuristic
 ---for the Orthogonal Stock-Cutting Problem", but having two skylines.
----@param rectangles ss.Rectangle[]
+---@param rectangles ss.PackerStructures.Rectangle[]
 ---@return ss.RectanglePacker
 function RectanglePacker.new(rectangles)
     ---Baseline (or skyline) definition to manage free space.  
@@ -49,9 +49,9 @@ function RectanglePacker.new(rectangles)
     ---@param length number
     ---@param height number
     ---@param rectangle integer?
-    ---@return ss.RectanglePackerBaseline
+    ---@return ss.RectanglePacker.Baseline
     local function Baseline(offset, length, height, rectangle)
-        ---@class ss.RectanglePackerBaseline
+        ---@class ss.RectanglePacker.Baseline
         ---@field offset    number
         ---@field length    number
         ---@field height    number
@@ -69,7 +69,7 @@ function RectanglePacker.new(rectangles)
         end})
     end
 
-    ---@param rects ss.Rectangle[]
+    ---@param rects ss.PackerStructures.Rectangle[]
     local function sortinputs(rects)
         for _, r in ipairs(rects) do
             if r.istall then r:rotate() end
@@ -77,7 +77,7 @@ function RectanglePacker.new(rectangles)
         table.SortDesc(rects)
     end
 
-    ---@param rects ss.Rectangle[]
+    ---@param rects ss.PackerStructures.Rectangle[]
     ---@return integer[]
     local function generateRotatedIndices(rects)
         local rotatedIndices = {} ---@type integer[]
@@ -99,11 +99,11 @@ function RectanglePacker.new(rectangles)
     ---@class ss.RectanglePacker
     ---@field results      integer[]
     ---@field optimized    boolean[]
-    ---@field rects        ss.Rectangle[]
-    ---@field queue        ss.AVLTree
-    ---@field queueRotated ss.AVLTree
-    ---@field xbase        ss.LinkedList
-    ---@field ybase        ss.LinkedList
+    ---@field rects        ss.PackerStructures.Rectangle[]
+    ---@field queue        ss.PackerStructures.AVLTree
+    ---@field queueRotated ss.PackerStructures.AVLTree
+    ---@field xbase        ss.PackerStructures.LinkedList
+    ---@field ybase        ss.PackerStructures.LinkedList
     ---@field width        number
     ---@field height       number
     ---@field maxsize      number
@@ -113,10 +113,10 @@ function RectanglePacker.new(rectangles)
         results      = {},
         optimized    = {},
         rects        = rectangles,
-        queue        = Structures.MakeAVL(),
-        queueRotated = Structures.MakeAVL(),
-        xbase        = Structures.LinkedList(),
-        ybase        = Structures.LinkedList(),
+        queue        = PackerStructures.MakeAVL(),
+        queueRotated = PackerStructures.MakeAVL(),
+        xbase        = PackerStructures.LinkedList(),
+        ybase        = PackerStructures.LinkedList(),
     }
     ---@param self ss.RectanglePacker
     ---@param key "width"|"height"|"framesize"|"maxsize"|string
@@ -146,12 +146,12 @@ function RectanglePacker.new(rectangles)
         t.ybase:append(Baseline(0, t.rects[1].height, 0))
     end
 
-    ---@param a ss.LinkedListCell?
-    ---@param b ss.LinkedListCell?
-    ---@return ss.LinkedListCell
+    ---@param a ss.PackerStructures.LinkedListCell?
+    ---@param b ss.PackerStructures.LinkedListCell?
+    ---@return ss.PackerStructures.LinkedListCell
     local function pickLowest(a, b)
-        if not a then return b --[[@as ss.LinkedListCell]] end
-        if not b then return a --[[@as ss.LinkedListCell]] end
+        if not a then return b --[[@as ss.PackerStructures.LinkedListCell]] end
+        if not b then return a --[[@as ss.PackerStructures.LinkedListCell]] end
         local A = max(a.value.offset, a.value.height)
         local B = max(b.value.offset, b.value.height)
         return A < B and a or b
@@ -178,11 +178,11 @@ function RectanglePacker.new(rectangles)
     ---+----------------------------> x
     ---```
     ---@param prefer_y boolean
-    ---@return ss.LinkedListCell
+    ---@return ss.PackerStructures.LinkedListCell
     ---@return boolean
     ---@return boolean
     function t:getlowest(prefer_y)
-        ---@type ss.LinkedListCell?, ss.LinkedListCell? Calculated in O(N = # of baseline segments)
+        ---@type ss.PackerStructures.LinkedListCell?, ss.PackerStructures.LinkedListCell? Calculated in O(N = # of baseline segments)
         local xmin, ymin
         for _, v in self.xbase() do xmin = pickLowest(xmin, v) end
         for _, v in self.ybase() do ymin = pickLowest(ymin, v) end
@@ -221,7 +221,7 @@ function RectanglePacker.new(rectangles)
     ---                   |
     ---                   |
     ---```
-    ---@param origin ss.LinkedListCell
+    ---@param origin ss.PackerStructures.LinkedListCell
     ---@return boolean merged indicates if baseline was merged
     function t:fillline(origin)
         -- If the previous one exists,
@@ -305,7 +305,7 @@ function RectanglePacker.new(rectangles)
     end
 
     ---Find the next rectangle to be placed
-    ---@return ss.LinkedListCell
+    ---@return ss.PackerStructures.LinkedListCell
     ---@return integer
     ---@return boolean
     ---@return boolean
@@ -343,7 +343,7 @@ function RectanglePacker.new(rectangles)
     ---  |                   hy
     ---```
     ---@param ri    integer           Index of the rectangle
-    ---@param xline ss.LinkedListCell Baseline to be placed on
+    ---@param xline ss.PackerStructures.LinkedListCell Baseline to be placed on
     ---@param is_y  boolean           Is the baseline along y-axis?
     function t:placebox(ri, xline, is_y)
         local r  = self.rects[ri]
@@ -564,7 +564,7 @@ function RectanglePacker.new(rectangles)
 
     ---Find the best-fit baseline to place given rectangle index ri.
     ---@param ri integer
-    ---@return ss.LinkedListCell?
+    ---@return ss.PackerStructures.LinkedListCell?
     ---@return boolean
     function t:findbaseline(ri)
         local prefer_y = false -- Which axis do we prefer if both are considered as candidate?
@@ -592,10 +592,10 @@ function RectanglePacker.new(rectangles)
     function t:replace(is_y)
         local xbackup = self.xbase
         local ybackup = self.ybase
-        self.xbase = Structures.LinkedList(self.xbase)
-        self.ybase = Structures.LinkedList(self.ybase)
+        self.xbase = PackerStructures.LinkedList(self.xbase)
+        self.ybase = PackerStructures.LinkedList(self.ybase)
 
-        local line ---@type ss.LinkedListCell
+        local line ---@type ss.PackerStructures.LinkedListCell
         local lines = is_y and self.ybase or self.xbase
         for _, v in lines() do
             if not line then line = v end

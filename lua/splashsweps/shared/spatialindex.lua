@@ -1,27 +1,28 @@
 
--- Spatial hashing for better query performance of surfaces
+-- The spatial index of paintable surfaces, which finds the surfaces, the triangles of displacements,
+-- and the brush entities near a box: a multi-level grid of the surfaces and a spatial hash of each displacement.
 
 ---@class ss
 local ss = SplashSWEPs
 local Geometry         = ss.import "splashsweps/shared/geometry"
+local MapCache         = ss.import "splashsweps/shared/mapcache/mapcache"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
-local PrecachedData    = ss.import "splashsweps/shared/typing/precachedata"
 
----@class ss.HashModule
-local Hash = ss.module "splashsweps/shared/hash"
+---@class ss.SpatialIndexModule
+local SpatialIndex = ss.module "splashsweps/shared/spatialindex"
 
 ---A level of the grid of the world surfaces and static props, whose cells have the same size.
----@class ss.HashModule.Level
+---@class ss.SpatialIndex.Level
 ---@field CellSize number  The length of the sides of the cells.
 ---@field NumCells integer The number of the cells along each axis of the map.
 ---@field Cells    table<integer, integer[]> Hash value of a cell --> indices of the surfaces in PaintableSurface.Surfaces.
 
----@class ss.HashModule.State
----@field Levels     ss.HashModule.Level[] The levels that have surfaces, from the smallest cells.
----@field Parameters ss.PrecachedData.HashParameters
-local state = ss.state("splashsweps/shared/hash", {
+---@class ss.SpatialIndexModule.State
+---@field Levels     ss.SpatialIndex.Level[] The levels that have surfaces, from the smallest cells.
+---@field Parameters ss.MapCache.HashParameters
+local state = ss.state("splashsweps/shared/spatialindex", {
     Levels = {},
-    Parameters = PrecachedData.HashParameters.new(),
+    Parameters = MapCache.HashParameters.new(),
 })
 
 local ceil = math.ceil
@@ -71,7 +72,7 @@ end
 
 ---Returns the range of the cells of a level that given AABB overlaps.
 ---The cells at the ends of the map also contain the coordinates outside the map.
----@param level ss.HashModule.Level
+---@param level ss.SpatialIndex.Level
 ---@param minX  number
 ---@param minY  number
 ---@param minZ  number
@@ -90,7 +91,7 @@ local function cellRange(level, minX, minY, minZ, maxX, maxY, maxZ)
 end
 
 ---Returns the hash value of a cell of a level.
----@param level ss.HashModule.Level
+---@param level ss.SpatialIndex.Level
 ---@param x     integer
 ---@param y     integer
 ---@param z     integer
@@ -106,8 +107,8 @@ end
 ---The grid has levels whose cells are 128, 256, ..., 32768 hammer units long.
 ---A surface is in the cells of the level whose cells are at least half as long as the longest side of its AABB,
 ---so that it is in 27 cells at most. A static prop is in the grid once as the box of its 6 faces.
----@param parameters ss.PrecachedData.HashParameters
-function Hash.Setup(parameters)
+---@param parameters ss.MapCache.HashParameters
+function SpatialIndex.Setup(parameters)
     state.Parameters = parameters
     local isBrushModelSurface = {} ---@type table<ss.PaintableSurface, true>
     for _, list in pairs(PaintableSurface.BrushModelSurfaces) do
@@ -116,7 +117,7 @@ function Hash.Setup(parameters)
         end
     end
 
-    local levels = {} ---@type table<integer, ss.HashModule.Level>
+    local levels = {} ---@type table<integer, ss.SpatialIndex.Level>
     local surfaces = PaintableSurface.Surfaces
     local i = 1
     while i <= #surfaces do
@@ -198,7 +199,7 @@ end
 ---@param hz number
 ---@return boolean
 local function isIntersecting(s, cx, cy, cz, hx, hy, hz)
-    return Geometry.IsBoxIntersectingAABB(s.WorldToMBB, s.MBBSizeX, s.MBBSizeY, s.MBBSizeZ, cx, cy, cz, hx, hy, hz)
+    return Geometry.IsBoxIntersectingAABB(s.ToMBB, s.MBBSizeX, s.MBBSizeY, s.MBBSizeZ, cx, cy, cz, hx, hy, hz)
 end
 
 ---Tests if a surface faces the direction closely enough.
@@ -216,7 +217,7 @@ end
 
 ---Returns the surfaces of the worldspawn and static props whose minimum bounding boxes intersect given AABB with a small margin,
 ---except those whose AABBs in the grid do not.
----Surfaces of brush entities are collected by Hash.CollectBrushEntities and Hash.CollectBrushModelSurfaces.
+---Surfaces of brush entities are collected by SpatialIndex.CollectBrushEntities and SpatialIndex.CollectBrushModelSurfaces.
 ---If minCos is given, the surfaces except displacements are also filtered by their normals.
 ---@param minX   number  AABB minimum.
 ---@param minY   number
@@ -229,7 +230,7 @@ end
 ---@param upZ    number?
 ---@param minCos number? The minimum cosine of the angle between the normal and the vector, or nil to skip the test.
 ---@return ss.PaintableSurface[]
-function Hash.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ, upX, upY, upZ, minCos)
+function SpatialIndex.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ, upX, upY, upZ, minCos)
     local result = {} ---@type ss.PaintableSurface[]
     local surfaces = PaintableSurface.Surfaces
     local cx, cy, cz, hx, hy, hz = queryBox(minX, minY, minZ, maxX, maxY, maxZ)
@@ -254,7 +255,7 @@ end
 
 ---Returns the surfaces of a brush model whose minimum bounding boxes intersect given AABB with a small margin.
 ---If minCos is given, the surfaces are also filtered by their normals.
----@param modelIndex integer Index of the brush model obtained by Hash.CollectBrushEntities.
+---@param modelIndex integer Index of the brush model obtained by SpatialIndex.CollectBrushEntities.
 ---@param minX       number  AABB minimum in the model's local coordinates.
 ---@param minY       number
 ---@param minZ       number
@@ -266,7 +267,7 @@ end
 ---@param upZ        number?
 ---@param minCos     number? The minimum cosine of the angle between the normal and the vector, or nil to skip the test.
 ---@return ss.PaintableSurface[]
-function Hash.CollectBrushModelSurfaces(modelIndex, minX, minY, minZ, maxX, maxY, maxZ, upX, upY, upZ, minCos)
+function SpatialIndex.CollectBrushModelSurfaces(modelIndex, minX, minY, minZ, maxX, maxY, maxZ, upX, upY, upZ, minCos)
     local result = {} ---@type ss.PaintableSurface[]
     local surfaces = PaintableSurface.BrushModelSurfaces[modelIndex]
     if not surfaces then return result end
@@ -295,7 +296,7 @@ local findMins, findMaxs = Vector(), Vector()
 ---@return Entity[] entities
 ---@return integer[] modelIndices
 ---@return number[][] worldToModels
-function Hash.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
+function SpatialIndex.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
     local entities = {} ---@type Entity[]
     local modelIndices = {} ---@type integer[]
     local worldToModels = {} ---@type number[][]
@@ -317,7 +318,7 @@ function Hash.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
 end
 
 ---The grid of the spatial hash of a displacement, which divides its AABB.
----@class ss.Hash.DisplacementGrid
+---@class ss.SpatialIndex.DisplacementGrid
 ---@field MinX      number The AABB minimum.
 ---@field MinY      number
 ---@field MinZ      number
@@ -336,7 +337,7 @@ end
 ---@param maxX number The AABB maximum.
 ---@param maxY number
 ---@param maxZ number
----@return ss.Hash.DisplacementGrid
+---@return ss.SpatialIndex.DisplacementGrid
 local function displacementGrid(minX, minY, minZ, maxX, maxY, maxZ)
     local minCellSize = state.Parameters.MinGridSizeDisplacement
     local numDivisions = state.Parameters.NumDivisionsDisplacement
@@ -355,7 +356,7 @@ local function displacementGrid(minX, minY, minZ, maxX, maxY, maxZ)
 end
 
 ---Calculates the hash integer of a cell of a displacement from its coordinates in the grid.
----@param grid ss.Hash.DisplacementGrid
+---@param grid ss.SpatialIndex.DisplacementGrid
 ---@param x    integer
 ---@param y    integer
 ---@param z    integer
@@ -366,7 +367,7 @@ end
 
 ---Returns the range of the coordinates of the cells of a displacement within given AABB,
 ---which cellToHash converts into the hash integers to look-up the triangles.
----@param grid ss.Hash.DisplacementGrid
+---@param grid ss.SpatialIndex.DisplacementGrid
 ---@param minX number Minimum of the AABB query.
 ---@param minY number
 ---@param minZ number
@@ -385,8 +386,8 @@ local function cellRangeAABB(grid, minX, minY, minZ, maxX, maxY, maxZ)
 end
 
 ---Generates look-up table for spatial partitioning to find triangles of displacement faster.
----@param surfaces ss.PrecachedData.Surface[] The source displacement.
-function Hash.BuildDisplacementHash(surfaces)
+---@param surfaces ss.MapCache.Surface[] The source displacement.
+function SpatialIndex.BuildDisplacementHash(surfaces)
     print("Constructing spatial hash table for displacement triangles...")
     for _, surf in ipairs(surfaces) do
         if surf.NumDisplacementTriangles > 0 then
@@ -439,9 +440,9 @@ end
 ---@param maxX number AABB maximum.
 ---@param maxY number
 ---@param maxZ number
----@return ss.DisplacementTriangle[]
-function Hash.CollectDisplacementTriangles(displacement, minX, minY, minZ, maxX, maxY, maxZ)
-    local result = {} ---@type ss.DisplacementTriangle[]
+---@return ss.PaintableSurface.DisplacementTriangle[]
+function SpatialIndex.CollectDisplacementTriangles(displacement, minX, minY, minZ, maxX, maxY, maxZ)
+    local result = {} ---@type ss.PaintableSurface.DisplacementTriangle[]
     local hash = displacement.TriangleHash
     if not hash then return result end
     local triangles = displacement.Triangles ---@cast triangles -?
@@ -485,4 +486,4 @@ function Hash.CollectDisplacementTriangles(displacement, minX, minY, minZ, maxX,
     return result
 end
 
-return Hash
+return SpatialIndex

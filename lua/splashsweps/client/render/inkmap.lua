@@ -17,14 +17,12 @@ local InkMap = ss.module "splashsweps/client/render/inkmap"
 
 ---A paint waiting to be drawn into the ink map.
 ---@class ss.InkMap.QueuedPaint
----@field paint  ss.Paint            The paint in the same coordinate system as the surface
----@field base   ss.PaintAtlas.Range Range of $basetexture in the paint atlas
----@field shape  ss.PaintAtlas.Range Range of the ink shape mask in the paint atlas
----@field surf   [number, number, number, number] UV range (minU, minV, maxU, maxV) of the surface in the ink map
----@field tint   ss.PaintAtlas.Range Range of $tinttexture in the paint atlas
----@field detail integer             $detailblendmode of the ink type, 0 if the detail is disabled
----@field row1   number[]            The first row of World to UV matrix
----@field row2   number[]            The second row of World to UV matrix
+---@field Paint     ss.Paint                  The paint in the same coordinate system as the surface
+---@field Base      ss.PaintAtlas.Range       Range of $basetexture in the paint atlas
+---@field Tint      ss.PaintAtlas.Range       Range of $tinttexture in the paint atlas
+---@field Shape     ss.PaintAtlas.Range       Range of the ink shape texture in the paint atlas
+---@field Detail    integer                   $detailblendmode of the ink type, 0 if the detail is disabled
+---@field Placement ss.InkMapLayout.Placement Where the surface is in the ink map
 
 ---@class ss.InkMapModule.State
 ---@field Queue ss.InkMap.QueuedPaint[] Paints to draw in the next frame.
@@ -46,16 +44,13 @@ local PaintMaterial = Material "splashsweps/shaders/drawink"
 function InkMap.Push(surf, paint)
     local shape, typeid = paint.Shape, paint.InkType
     if not (InkShape.Shapes[shape] and InkType.Types[typeid]) then return end
-    local placement = InkMapLayout.Placements[surf.Index]
     state.Queue[#state.Queue + 1] = {
-        paint  = paint,
-        base   = PaintAtlas.BaseUV[typeid],
-        shape  = PaintAtlas.ShapeUV[shape],
-        tint   = PaintAtlas.TintUV[typeid],
-        detail = InkDetailAtlas.BlendModes[typeid],
-        row1   = placement.WorldToUVRow1,
-        row2   = placement.WorldToUVRow2,
-        surf   = placement.UVRange,
+        Paint     = paint,
+        Base      = PaintAtlas.BaseUV[typeid],
+        Tint      = PaintAtlas.TintUV[typeid],
+        Shape     = PaintAtlas.ShapeUV[shape],
+        Detail    = InkDetailAtlas.BlendModes[typeid],
+        Placement = InkMapLayout.Placements[surf.Index],
     }
 end
 
@@ -113,18 +108,18 @@ local function AddQuad(q, region, band, quadIndex, numQuads, hammerUnitsToUV)
     end
 
     -- 0b0000RRCC, RR = Region, CC = Corner
-    local p = q.paint
+    local p, placement = q.Paint, q.Placement
     for i = region * NUM_VERTEX * 16, (region * NUM_VERTEX + NUM_VERTEX - 1) * 16, 16 do
-        mesh_Color(band, i, p.InkType, q.detail)
+        mesh_Color(band, i, p.InkType, q.Detail)
         mesh_Normal(p.RadiusX, p.RadiusY, p.RadiusZ)
         mesh_Position(p.X, p.Y, p.Z)
         mesh_TexCoord(0, p.Pitch, p.Yaw, p.Roll, hammerUnitsToUV)
-        mesh_TexCoord(1, unpack(q.base))
-        mesh_TexCoord(2, unpack(q.tint))
-        mesh_TexCoord(3, unpack(q.shape))
-        mesh_TexCoord(4, unpack(q.surf))
-        mesh_TexCoord(5, unpack(q.row1))
-        mesh_TexCoord(6, unpack(q.row2))
+        mesh_TexCoord(1, unpack(q.Base))
+        mesh_TexCoord(2, unpack(q.Tint))
+        mesh_TexCoord(3, unpack(q.Shape))
+        mesh_TexCoord(4, unpack(placement.UVRange))
+        mesh_TexCoord(5, unpack(placement.WorldToUVRow1))
+        mesh_TexCoord(6, unpack(placement.WorldToUVRow2))
         mesh_AdvanceVertex()
     end
 

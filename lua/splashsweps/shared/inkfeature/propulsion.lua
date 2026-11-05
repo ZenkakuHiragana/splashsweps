@@ -8,7 +8,7 @@
 ---@class ss
 local ss = SplashSWEPs
 
----@class ss.Propulsion : ss.IInkFeature
+---@class ss.PropulsionModule : ss.IInkFeature
 local Propulsion = ss.module "splashsweps/shared/inkfeature/propulsion"
 
 local DEFAULT_MAX_SPEED = 800

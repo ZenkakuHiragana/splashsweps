@@ -8,8 +8,8 @@ local ss = SplashSWEPs
 local Geometry = ss.import "splashsweps/shared/geometry"
 local Util     = ss.import "splashsweps/shared/util"
 
----@class ss.BoundingBox
-local BoundingBox = ss.module "splashsweps/shared/mapcache/boundingbox"
+---@class ss.MinimumBoundingBoxModule
+local MinimumBoundingBox = ss.module "splashsweps/shared/mapcache/minimumboundingbox"
 
 local abs = math.abs
 local huge = math.huge
@@ -18,7 +18,7 @@ local min = math.min
 local sort = table.sort
 local sqrt = math.sqrt
 
----Relative difference of areas regarded as the same in BoundingBox.FindMBR.
+---Relative difference of areas regarded as the same in MinimumBoundingBox.FindMBR.
 local AREA_TOLERANCE = 1e-5
 
 ---Generates a convex hull of points in 2D by the monotone chain method.
@@ -83,7 +83,7 @@ end
 ---@return number   sizeX        The size of the MBR in Hammer units.
 ---@return number   sizeY
 ---@return number   sizeZ
-function BoundingBox.FindMBR(xs, ys, zs, orientation)
+function MinimumBoundingBox.FindMBR(xs, ys, zs, orientation)
     local n = #xs
     local centerX, centerY, centerZ = 0, 0, 0
     for i = 1, n do
@@ -172,7 +172,7 @@ end
 ---@return number   sizeX        The size of the box in Hammer units.
 ---@return number   sizeY
 ---@return number   sizeZ
-function BoundingBox.FindMinimumOBB(xs, ys, zs)
+function MinimumBoundingBox.FindMinimumOBB(xs, ys, zs)
     local n = #xs
     local meanX, meanY, meanZ = 0, 0, 0
     for i = 1, n do
@@ -305,4 +305,4 @@ function BoundingBox.FindMinimumOBB(xs, ys, zs)
     return boxToWorld, maxX - minX, maxY - minY, maxZ - minZ
 end
 
-return BoundingBox
+return MinimumBoundingBox

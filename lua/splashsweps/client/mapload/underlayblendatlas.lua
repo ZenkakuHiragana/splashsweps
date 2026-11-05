@@ -4,12 +4,12 @@
 ---@class ss
 local ss = SplashSWEPs
 
----@class ss.UnderlayModule
-local Underlay = ss.module "splashsweps/client/mapload/underlay"
+---@class ss.UnderlayBlendAtlasModule
+local UnderlayBlendAtlas = ss.module "splashsweps/client/mapload/underlayblendatlas"
 
 ---Creates render targets and packs textures used in WorldVertexTransition and Lightmapped_4WayBlend materials.
 ---@param mats table<integer, ss.MapMaterials.MaterialInfo> Sparse enumeration-ID-indexed materials.
-function Underlay.Build(mats)
+function UnderlayBlendAtlas.Build(mats)
     local copy = Material "pp/copy"
     for _, m in pairs(mats) do
         local mat = m.Material
@@ -73,10 +73,10 @@ function Underlay.Build(mats)
                     cam.End2D()
                     render.PopRenderTarget()
                 end)
-                m.Detail = name
+                m.UnderlayBlendAtlas = name
             end
         end
     end
 end
 
-return Underlay
+return UnderlayBlendAtlas

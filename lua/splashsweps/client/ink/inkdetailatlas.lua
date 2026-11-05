@@ -14,11 +14,11 @@ local InkDetailAtlas = ss.module "splashsweps/client/ink/inkdetailatlas"
 ---@class ss.InkDetailAtlasModule.State
 ---@field BaseTextureNames string[]                   $basetexture of each ink type, which also provides its average height
 ---@field CellImages       table<integer, ITexture>   Image copied into each grid cell, nil for generated cells
----@field Slots            table<integer, integer>    Grid cell of each ink type, nil if the ink type has no detail image
----@field Animations       table<integer, ss.InkDetailAnimation> External frame variable and last copied frame, per animated cell
+---@field DetailCells      table<integer, integer>    Grid cell of each ink type, nil if the ink type has no detail image
+---@field Animations       table<integer, ss.InkDetailAtlas.Animation> External frame variable and last copied frame, per animated cell
 ---@field CellMesh         IMesh?                     Periodic border mesh shared by all cells
 ---@field CellTransforms   VMatrix[]                  Placement of each cell's mesh
----@field ProxiedMaterials ss.ProxiedInkMaterial[]    Ink materials with material proxies
+---@field ProxiedMaterials ss.InkDetailAtlas.ProxiedMaterial[] Ink materials with material proxies
 ---@field LastInkData      table<integer, number[][]> Last encoded inputs sent to WriteInkData
 ---@field GeneratedCells   table<string, integer>     Material name --> grid cell drawn by its InkDetailUpdate
 ---@field RenderTarget     ITexture?                  The atlas
@@ -29,7 +29,7 @@ local InkDetailAtlas = ss.module "splashsweps/client/ink/inkdetailatlas"
 local state = ss.state("splashsweps/client/ink/inkdetailatlas", {
     BaseTextureNames = {},
     CellImages = {},
-    Slots = {},
+    DetailCells = {},
     Animations = {},
     CellTransforms = {},
     ProxiedMaterials = {},
@@ -48,12 +48,12 @@ local CELL_BORDER_PX       = CELL_BORDER_TOTAL_PX / 2
 local copyMaterial         = Material "splashsweps/shaders/copy"
 local detailCopyMaterial   = Material "splashsweps/shaders/copydetail"
 
----@class ss.InkDetailAnimation
+---@class ss.InkDetailAtlas.Animation
 ---@field Material IMaterial Lowest-index ink material using this texture
 ---@field FrameVariable string Material parameter controlling the frame
 ---@field Frame integer Last frame copied to the cell
 
----@class ss.ProxiedInkMaterial
+---@class ss.InkDetailAtlas.ProxiedMaterial
 ---@field Material IMaterial
 ---@field Index integer
 
@@ -68,20 +68,20 @@ end
 ---and draws generated cells by the functions returned from their updaters.
 ---The Details render target must be pushed and cam.Start2D() must be called beforehand.
 ---@param textures table<integer, ITexture> Grid cell --> detail image
----@param drawRequests table<string, ss.InkDetailProxyInstance> Material name --> changed drawing request
+---@param drawRequests table<string, ss.InkDetailProxy.Instance> Material name --> changed drawing request
 local function WriteDetailCells(textures, drawRequests)
     if not next(textures) and not next(drawRequests) then return end
     render.OverrideBlend(true,
         BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD,
         BLEND_ONE, BLEND_ZERO, BLENDFUNC_ADD)
     render.OverrideAlphaWriteEnable(true, true)
-    for slot, texture in pairs(textures) do
-        local animation = state.Animations[slot]
+    for cell, texture in pairs(textures) do
+        local animation = state.Animations[cell]
         local frame     = animation and (animation.Material:GetInt(animation.FrameVariable) or 0) or 0
         if animation then animation.Frame = frame end
         detailCopyMaterial:SetTexture("$basetexture", texture)
         detailCopyMaterial:SetInt("$frame", frame)
-        cam.PushModelMatrix(state.CellTransforms[slot])
+        cam.PushModelMatrix(state.CellTransforms[cell])
             DrawCellMesh(detailCopyMaterial)
         cam.PopModelMatrix()
     end
@@ -195,8 +195,8 @@ local function WriteAtlas(imageCells, inkDataByType)
     local drawRequests = InkDetailProxy.TakeChanged()
     if #imageCells == 0 and not next(inkDataByType) and not next(drawRequests) then return end
     local textures = {} ---@type table<integer, ITexture>
-    for _, slot in ipairs(imageCells) do
-        textures[slot] = state.CellImages[slot]
+    for _, cell in ipairs(imageCells) do
+        textures[cell] = state.CellImages[cell]
     end
 
     render.PushRenderTarget(state.RenderTarget)
@@ -213,9 +213,9 @@ local function UpdateFromMaterials()
     local inkDataByType = {} ---@type table<integer, number[][]>
     for _, entry in ipairs(state.ProxiedMaterials) do
         render.SetMaterial(entry.Material) -- Ink materials need an explicit bind to execute their proxies.
-        local slot = state.Slots[entry.Index]
+        local cell = state.DetailCells[entry.Index]
         local btstr = state.BaseTextureNames[entry.Index]
-        local inkData = InkData.Encode(entry.Material, slot, btstr)
+        local inkData = InkData.Encode(entry.Material, cell, btstr)
         local changed = false
         for j, texel in ipairs(inkData) do
             for k, value in ipairs(texel) do
@@ -227,9 +227,9 @@ local function UpdateFromMaterials()
         end
     end
     local imageCells = {} ---@type integer[]
-    for slot, animation in pairs(state.Animations) do
+    for cell, animation in pairs(state.Animations) do
         if (animation.Material:GetInt(animation.FrameVariable) or 0) ~= animation.Frame then
-            imageCells[#imageCells + 1] = slot
+            imageCells[#imageCells + 1] = cell
         end
     end
     WriteAtlas(imageCells, inkDataByType)
@@ -247,11 +247,11 @@ function InkDetailAtlas.Prepare(baseTextureNames)
     local cellImages       = {} ---@type table<integer, ITexture>
     local cache            = {} ---@type table<string, integer>
     local detailNames      = {} ---@type string[]
-    local slots            = {} ---@type table<integer, integer>
-    local animations       = {} ---@type table<integer, ss.InkDetailAnimation>
+    local detailCells      = {} ---@type table<integer, integer>
+    local animations       = {} ---@type table<integer, ss.InkDetailAtlas.Animation>
     local generatedCells   = {} ---@type table<string, integer>
     local updaters         = {} ---@type table<string, string>
-    local proxiedMaterials = {} ---@type ss.ProxiedInkMaterial[]
+    local proxiedMaterials = {} ---@type ss.InkDetailAtlas.ProxiedMaterial[]
     local inkDataByType    = {} ---@type number[][][]
     local blendModes       = {} ---@type table<integer, integer>
     for i, inktype in ipairs(InkType.Types) do
@@ -268,7 +268,7 @@ function InkDetailAtlas.Prepare(baseTextureNames)
                 cellSizeSources[#cellSizeSources + 1] = detail
                 generatedCells[inktype.Identifier] = #cellSizeSources
                 updaters[inktype.Identifier] = updater
-                slots[i] = #cellSizeSources
+                detailCells[i] = #cellSizeSources
             else
                 if not cache[name] then
                     cellSizeSources[#cellSizeSources + 1] = detail
@@ -282,14 +282,14 @@ function InkDetailAtlas.Prepare(baseTextureNames)
                         }
                     end
                 end
-                slots[i] = cache[name]
+                detailCells[i] = cache[name]
             end
         elseif updater then
             -- No cell to draw, but a missing updater is still the author's mistake to report.
             ss.import(updater)
         end
 
-        inkDataByType[i] = InkData.Encode(mat, slots[i], baseTextureNames[i])
+        inkDataByType[i] = InkData.Encode(mat, detailCells[i], baseTextureNames[i])
         if hasProxies then
             proxiedMaterials[#proxiedMaterials + 1] = {
                 Material = mat,
@@ -318,7 +318,7 @@ function InkDetailAtlas.Prepare(baseTextureNames)
     table.CopyFromTo(blendModes, state.BlendModes)
     state.BaseTextureNames = baseTextureNames
     state.CellImages = cellImages
-    state.Slots = slots
+    state.DetailCells = detailCells
     state.Animations = animations
     state.ProxiedMaterials = proxiedMaterials
     state.LastInkData = {}
@@ -327,13 +327,13 @@ function InkDetailAtlas.Prepare(baseTextureNames)
     state.CellTransforms = {}
     local cellSizePx = gridColumns > 0 and imageAreaSizePx / gridColumns or 0
     BuildWrappedCellMesh(cellSizePx)
-    for slot in ipairs(cellSizeSources) do
+    for cell in ipairs(cellSizeSources) do
         local transform = Matrix()
         transform:SetTranslation(Vector(
-            (slot - 1) % gridColumns * cellSizePx,
-            math.floor((slot - 1) / gridColumns) * cellSizePx,
+            (cell - 1) % gridColumns * cellSizePx,
+            math.floor((cell - 1) / gridColumns) * cellSizePx,
             0))
-        state.CellTransforms[slot] = transform
+        state.CellTransforms[cell] = transform
     end
     state.RenderTarget = GetRenderTargetEx(
         "splashsweps_details",

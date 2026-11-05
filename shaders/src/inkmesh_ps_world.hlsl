@@ -59,7 +59,7 @@ static const float3x3 BumpBasis = {
 };
 
 #if HAS_UNDERLAY_ATLAS
-sampler UnderlayAtlas  : register(s5); // Built by Underlay.Build
+sampler UnderlayAtlas  : register(s5); // Built by UnderlayBlendAtlas.Build
 #else
 sampler UnderlayDetail : register(s5); // $detail
 #endif
@@ -81,7 +81,7 @@ static const bool g_HasBumpedLightmap = fmod(floor(g_MaterialFlags / 1),  2.0) >
 static const bool g_Simplified        = UNDERLAY_KIND == UNDERLAY_SINGLE && fmod(floor(g_MaterialFlags / 16), 2.0) > 0.5;
 
 #if HAS_UNDERLAY_ATLAS
-// Cells of the underlay atlas built by Underlay.Build.
+// Cells of the underlay atlas built by UnderlayBlendAtlas.Build.
 // Lightmapped_4WayBlend has the third column.
 //   row 0: $detail,               $basetexture2,         $basetexture3
 //   row 1: $blendmodulatetexture, $bumpmap2 or $bumpmap, $basetexture4

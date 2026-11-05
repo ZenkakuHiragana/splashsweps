@@ -4,9 +4,9 @@
 ---@class ss
 local ss = SplashSWEPs
 local Geometry         = ss.import "splashsweps/shared/geometry"
-local Hash             = ss.import "splashsweps/shared/hash"
 local PaintableGrid    = ss.import "splashsweps/shared/paint/paintablegrid"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
+local SpatialIndex     = ss.import "splashsweps/shared/spatialindex"
 
 ---@class ss.InkContactModule
 local InkContact = ss.module "splashsweps/shared/touch/inkcontact"
@@ -43,7 +43,7 @@ end
 ---@return ss.InkContact?
 local function findFlatContact(surf, toWorld, cx, cy, cz)
     -- The local Z of the paintable grid is the distance from the surface.
-    local _, _, distance = Geometry.TransformPoint(surf.WorldToLocalGrid, cx, cy, cz)
+    local _, _, distance = Geometry.TransformPoint(surf.ToGrid, cx, cy, cz)
     if distance < 0 then return end
 
     local nx, ny, nz = surf.NormalX, surf.NormalY, surf.NormalZ
@@ -77,9 +77,9 @@ local function findDisplacementContact(surf, minX, minY, minZ, maxX, maxY, maxZ,
     ---@cast xs -?
     ---@cast ys -?
     ---@cast zs -?
-    local nearest = nil ---@type ss.DisplacementTriangle?
+    local nearest = nil ---@type ss.PaintableSurface.DisplacementTriangle?
     local nearestDistance, b1, b2, b3 = 0, 0, 0, 0
-    for _, t in ipairs(Hash.CollectDisplacementTriangles(surf, minX, minY, minZ, maxX, maxY, maxZ)) do
+    for _, t in ipairs(SpatialIndex.CollectDisplacementTriangles(surf, minX, minY, minZ, maxX, maxY, maxZ)) do
         local u1, u2, u3 = PaintableSurface.BarycentricCoordinates(t, cx, cy, cz)
         if u1 >= 0 and u2 >= 0 and u3 >= 0 then
             local i = t.VertexIndex1
@@ -91,7 +91,7 @@ local function findDisplacementContact(surf, minX, minY, minZ, maxX, maxY, maxZ,
     end
     if not nearest then return end
 
-    local inktype = PaintableGrid.Read(surf, PaintableSurface.MapToPaintOrigin(surf, nearest, b1, b2, b3))
+    local inktype = PaintableGrid.Read(surf, PaintableSurface.MapToFlatSurface(surf, nearest, b1, b2, b3))
     if not inktype then return end
 
     local normal = Vector(nearest.NormalX, nearest.NormalY, nearest.NormalZ)
@@ -119,7 +119,7 @@ function InkContact.Find(ent, mins, maxs, step)
     maxX, maxY, maxZ = maxX + MARGIN, maxY + MARGIN, maxZ + MARGIN
     local cx, cy, cz = (minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5
     local contacts = {} ---@type ss.InkContact[]
-    for _, surf in ipairs(Hash.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ)) do
+    for _, surf in ipairs(SpatialIndex.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ)) do
         if surf.Triangles then
             contacts[#contacts + 1] = findDisplacementContact(surf, minX, minY, minZ, maxX, maxY, maxZ, cx, cy, cz)
         else
@@ -128,13 +128,13 @@ function InkContact.Find(ent, mins, maxs, step)
     end
 
     -- Brush models have no displacements, so their surfaces are always flat.
-    local entities, modelIndices, worldToModels = Hash.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
+    local entities, modelIndices, worldToModels = SpatialIndex.CollectBrushEntities(minX, minY, minZ, maxX, maxY, maxZ)
     for k = 1, #entities do
         if entities[k] ~= ent then
             local worldToModel = worldToModels[k]
             local modelToWorld = Geometry.InvertRotationTranslation(worldToModel)
             local lx, ly, lz = Geometry.TransformPoint(worldToModel, cx, cy, cz)
-            for _, surf in ipairs(Hash.CollectBrushModelSurfaces(modelIndices[k],
+            for _, surf in ipairs(SpatialIndex.CollectBrushModelSurfaces(modelIndices[k],
                 Geometry.TransformAABB(worldToModel, minX, minY, minZ, maxX, maxY, maxZ))) do
                 contacts[#contacts + 1] = findFlatContact(surf, modelToWorld, lx, ly, lz)
             end

@@ -3,9 +3,9 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local PrecachedData = ss.import "splashsweps/shared/typing/precachedata"
-local Session       = ss.import "splashsweps/client/session"
-local Util          = ss.import "splashsweps/shared/util"
+local MapCache = ss.import "splashsweps/shared/mapcache/mapcache"
+local Session  = ss.import "splashsweps/client/session"
+local Util     = ss.import "splashsweps/shared/util"
 
 ---@class ss.MapMaterialsModule
 local MapMaterials = ss.module "splashsweps/client/mapload/materials"
@@ -22,6 +22,7 @@ local MapMaterials = ss.module "splashsweps/client/mapload/materials"
 ---@field BaseTexture          string?   Value of $basetexture.
 ---@field Bumpmap              string?   Value of $bumpmap.
 ---@field Detail               string?   Value of $detail.
+---@field UnderlayBlendAtlas   string?   Name of the render target UnderlayBlendAtlas.Build packs the blended textures into, nil if the material has no $basetexture2.
 ---@field BumpTextureTransform VMatrix   Value of $bumptransform, or the identity if the material has none.
 ---@field BaseTextureTransform VMatrix?  Value of $basetexturetransform.
 ---@field BlendMaskTransform   VMatrix?  Value of $blendmasktransform.
@@ -30,7 +31,7 @@ local MapMaterials = ss.module "splashsweps/client/mapload/materials"
 ---@field DetailScale          Vector?   Value of $detailscale.
 ---@field DetailTint           Vector?   Value of $detailtint.
 ---@field Color                Vector?   Value of $color.
----@field Cubemap              ss.PrecachedData.CubemapInfo? Resolved $envmap plus cubemap sample correction data.
+---@field Cubemap              ss.MapCache.CubemapInfo? Resolved $envmap plus cubemap sample correction data.
 
 ---@param name string?
 ---@return string?
@@ -40,10 +41,10 @@ local function normalizeEnvmapName(name)
     return normalized
 end
 
----@param cubemaps ss.PrecachedData.CubemapInfo[]?
----@return table<string, ss.PrecachedData.CubemapInfo>
+---@param cubemaps ss.MapCache.CubemapInfo[]?
+---@return table<string, ss.MapCache.CubemapInfo>
 local function buildCubemapLookup(cubemaps)
-    local lookup = {} ---@type table<string, ss.PrecachedData.CubemapInfo>
+    local lookup = {} ---@type table<string, ss.MapCache.CubemapInfo>
     for _, cubemap in ipairs(cubemaps or {}) do
         local name = normalizeEnvmapName(cubemap.Envmap)
         if name then lookup[name] = cubemap end
@@ -52,14 +53,14 @@ local function buildCubemapLookup(cubemaps)
 end
 
 ---@param envmap string?
----@param cubemapLookup table<string, ss.PrecachedData.CubemapInfo>
----@return ss.PrecachedData.CubemapInfo?
+---@param cubemapLookup table<string, ss.MapCache.CubemapInfo>
+---@return ss.MapCache.CubemapInfo?
 local function resolveMaterialCubemap(envmap, cubemapLookup)
     local name = normalizeEnvmapName(envmap)
     if not name then return end ---@cast envmap -?
 
     local cached = cubemapLookup[name]
-    local cubemap = PrecachedData.CubemapInfo.new()
+    local cubemap = MapCache.CubemapInfo.new()
     cubemap.Envmap = envmap
     if cached then
         cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ = cached.OriginX, cached.OriginY, cached.OriginZ
@@ -75,7 +76,7 @@ end
 ---Assigns enumeration ID to materials in the map,
 ---considering the global string table in the engine.
 ---@param materialsInMap string[]
----@param cubemapLookup table<string, ss.PrecachedData.CubemapInfo>
+---@param cubemapLookup  table<string, ss.MapCache.CubemapInfo>
 ---@return table<integer, ss.MapMaterials.MaterialInfo> materialInfo Sparse enumeration-ID-indexed materials.
 local function enumerateMaterials(materialsInMap, cubemapLookup)
     local materialNames = materialsInMap
@@ -122,7 +123,7 @@ local function enumerateMaterials(materialsInMap, cubemapLookup)
                     HasBaseTexture3      = tobool(baseTexture3),
                     BaseTexture          = mat:GetString "$basetexture",
                     Bumpmap              = mat:GetString "$bumpmap",
-                    Detail               = baseTexture2 or mat:GetString "$detail",
+                    Detail               = mat:GetString "$detail",
                     BaseTextureTransform = mat:GetMatrix "$basetexturetransform",
                     BumpTextureTransform = mat:GetMatrix "$bumptransform" or IdentityMatrix, -- None for the error material
                     BlendMaskTransform   = mat:GetMatrix "$blendmasktransform" or IdentityMatrix,
@@ -146,7 +147,7 @@ end
 
 ---Assigns enumeration ID to materials in the map and reads what the ink meshes need from them.
 ---@param materialNames string[] Materials in the map, usually game.GetMap():GetMaterials() saved in the map cache.
----@param cubemaps ss.PrecachedData.CubemapInfo[]? Cubemaps in the map.
+---@param cubemaps      ss.MapCache.CubemapInfo[]? Cubemaps in the map.
 ---@return table<integer, ss.MapMaterials.MaterialInfo> materialInfo Sparse enumeration-ID-indexed materials.
 function MapMaterials.Enumerate(materialNames, cubemaps)
     return enumerateMaterials(materialNames, buildCubemapLookup(cubemaps))

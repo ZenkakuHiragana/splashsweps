@@ -3,11 +3,11 @@ local ss = SplashSWEPs
 if not ss then return end
 
 local Geometry      = ss.import "splashsweps/shared/geometry"
-local Hash          = ss.import "splashsweps/shared/hash"
 local InkShape      = ss.import "splashsweps/shared/inkshape"
 local InkType       = ss.import "splashsweps/shared/inktype"
 local Paint         = ss.import "splashsweps/shared/paint/paint"
 local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
+local SpatialIndex  = ss.import "splashsweps/shared/spatialindex"
 local Util          = ss.import "splashsweps/shared/util"
 
 ---@class SplatoonWeaponBase : Structure.SWEP, Structure.ENT, Weapon
@@ -113,11 +113,11 @@ function SWEP:PrimaryAttack()
     self:SetNextPrimaryFire(CurTime() + self.Primary.Delay)
 end
 
----Draws the serverside paint grid of a surface.
+---Draws the paintable grid of a surface.
 ---@param surf    ss.PaintableSurface
 ---@param toWorld number[]? Transform from the surface's coordinate system to the world if it is a brush model.
 local function DrawGrid(surf, toWorld)
-    local gridToWorld = Geometry.InvertRotationTranslation(surf.WorldToLocalGrid)
+    local gridToWorld = Geometry.InvertRotationTranslation(surf.ToGrid)
     if toWorld then gridToWorld = Geometry.Multiply(toWorld, gridToWorld) end
     local cellSize = PaintableGrid.CELL_SIZE
     for y = 0, surf.Grid.Height - 1 do
@@ -137,22 +137,22 @@ function SWEP:SecondaryAttack()
     self:EmitSound("Weapon_AR2.Empty")
     local tr = Owner:GetEyeTrace()
     local x, y, z = tr.HitPos:Unpack()
-    for _, surf in ipairs(Hash.CollectSurfaces(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1)) do
+    for _, surf in ipairs(SpatialIndex.CollectSurfaces(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1)) do
         DrawGrid(surf)
     end
 
-    local _, modelIndices, worldToModels = Hash.CollectBrushEntities(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1)
+    local _, modelIndices, worldToModels = SpatialIndex.CollectBrushEntities(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1)
     for k, modelIndex in ipairs(modelIndices) do
         local worldToModel = worldToModels[k]
         local localX, localY, localZ = Geometry.TransformPoint(worldToModel, x, y, z)
-        for _, surf in ipairs(Hash.CollectBrushModelSurfaces(modelIndex,
+        for _, surf in ipairs(SpatialIndex.CollectBrushModelSurfaces(modelIndex,
             localX - 1, localY - 1, localZ - 1, localX + 1, localY + 1, localZ + 1)) do
             DrawGrid(surf, Geometry.InvertRotationTranslation(worldToModel))
         end
     end
 end
 
----Returns a paint of no size, which looks up the paint grids at a pose.
+---Returns a paint of no size, which looks up the paintable grids at a pose.
 ---@param x     number
 ---@param y     number
 ---@param z     number
@@ -200,19 +200,19 @@ function SWEP:Think()
     local x, y, z = tr.HitPos:Unpack()
     local probeToWorld = Geometry.FromAngles(ang.pitch, ang.yaw, ang.roll, x, y, z)
     if tr.HitWorld then
-        CheckInk(self, Hash.CollectSurfaces(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1,
+        CheckInk(self, SpatialIndex.CollectSurfaces(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1,
             probeToWorld[3], probeToWorld[7], probeToWorld[11], Paint.MAX_COS),
             Probe(x, y, z, ang.pitch, ang.yaw, ang.roll), probeToWorld, tr.HitPos)
         return
     end
 
     if IsValid(tr.Entity) then
-        local entities, modelIndices, worldToModels = Hash.CollectBrushEntities(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1)
+        local entities, modelIndices, worldToModels = SpatialIndex.CollectBrushEntities(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1)
         for k, ent in ipairs(entities) do
             if ent == tr.Entity then
                 local probeToModel = Geometry.Multiply(worldToModels[k], probeToWorld)
                 local probe = Probe(probeToModel[4], probeToModel[8], probeToModel[12], Geometry.ToAngles(probeToModel))
-                CheckInk(self, Hash.CollectBrushModelSurfaces(modelIndices[k],
+                CheckInk(self, SpatialIndex.CollectBrushModelSurfaces(modelIndices[k],
                     probe.X - 1, probe.Y - 1, probe.Z - 1, probe.X + 1, probe.Y + 1, probe.Z + 1,
                     probeToModel[3], probeToModel[7], probeToModel[11], Paint.MAX_COS),
                     probe, probeToModel, tr.HitPos)

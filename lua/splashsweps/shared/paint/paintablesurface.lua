@@ -9,49 +9,51 @@ local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
 ---@class ss.PaintableSurfaceModule
 local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 
----A surface to paint, which has a paint grid in the coordinates converted from the world by WorldToLocalGrid.
+---A surface to paint, which has a paintable grid in the coordinates converted from the coordinates of the surface by ToGrid.
+---The coordinates of a surface are the world coordinates, or the local coordinates of the brush model
+---for a surface of a brush model (PaintableSurface.BrushModelSurfaces).
 ---```text
----World origin
+---Origin of the coordinates of the surface
 ---  +--> x
 ---  |
----  v   The origin of the paint grid
+---  v   The origin of the paintable grid
 ---  y      +--> X
 ---         |
----         v   * (Xi, Yi) = WorldToLocalGrid * (xi, yi)
+---         v   * (Xi, Yi) = ToGrid * (xi, yi)
 ---         Y
 ---```
 ---@class ss.PaintableSurface
----@field AABBMinX              number AABB minimum of this surface in world coordinates.
+---@field AABBMinX              number AABB minimum of this surface in the coordinates of the surface.
 ---@field AABBMinY              number
 ---@field AABBMinZ              number
----@field AABBMaxX              number AABB maximum of this surface in world coordinates.
+---@field AABBMaxX              number AABB maximum of this surface in the coordinates of the surface.
 ---@field AABBMaxY              number
 ---@field AABBMaxZ              number
 ---@field NormalX               number Normal vector of this surface.
 ---@field NormalY               number
 ---@field NormalZ               number
----@field Grid                  ss.PaintableGrid Represents serverside "canvas" for this surface to manage collision detection against painted ink.
+---@field Grid                  ss.PaintableGrid The paintable grid of this surface, which holds what ink is where.
 ---@field StaticPropUnwrapIndex integer?         Determines how this static prop surfaces are unwrapped.
----@field TriangleHash          ss.PrecachedData.TriangleHash? Spatial hash to look up triangles of a displacement.
----@field Triangles             ss.DisplacementTriangle[]? Array of triangles of a displacement.
+---@field TriangleHash          ss.MapCache.TriangleHash? Spatial hash to look up triangles of a displacement.
+---@field Triangles             ss.PaintableSurface.DisplacementTriangle[]? Array of triangles of a displacement.
 ---@field PositionX             number[]? Positions of the vertices of a displacement, which its triangles refer to.
 ---@field PositionY             number[]?
 ---@field PositionZ             number[]?
----@field PaintOriginX          number[]? Positions on the flat surface the vertices of a displacement are mapped onto.
----@field PaintOriginY          number[]?
----@field PaintOriginZ          number[]?
----@field WorldToLocalGrid      number[] The transform of ss.GeometryModule to convert world coordinates into local coordinates of the paint grid. This does not modify scales.
----The transform of ss.GeometryModule to convert world coordinates into local coordinates of the minimum bounding box,
+---@field FlatPositionX         number[]? Positions on the flat surface the vertices of a displacement are mapped onto.
+---@field FlatPositionY         number[]?
+---@field FlatPositionZ         number[]?
+---@field ToGrid                number[] The transform of ss.GeometryModule to convert the coordinates of the surface into local coordinates of the paintable grid. This does not modify scales.
+---The transform of ss.GeometryModule to convert the coordinates of the surface into local coordinates of the minimum bounding box,
 ---which is [0, MBBSizeX] x [0, MBBSizeY] x [0, MBBSizeZ] there.
----A flat surface shares WorldToLocalGrid, and the faces of a static prop share the box of the prop.
----@field WorldToMBB            number[]
+---A flat surface shares ToGrid, and the faces of a static prop share the box of the prop.
+---@field ToMBB                 number[]
 ---@field MBBSizeX              number   The size of the minimum bounding box.
 ---@field MBBSizeY              number
 ---@field MBBSizeZ              number
 ---@field Index                 integer  The index of this surface in PaintableSurface.Surfaces, which keys what other modules keep for each surface.
 
 ---A triangle in a displacement.
----@class ss.DisplacementTriangle
+---@class ss.PaintableSurface.DisplacementTriangle
 ---@field VertexIndex1     integer The vertices of this triangle in the vertex arrays of the displacement.
 ---@field VertexIndex2     integer
 ---@field VertexIndex3     integer
@@ -66,8 +68,9 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field BarycentricDot2Z number
 ---@field BarycentricAdd1  number  Parameter to calculate barycentric coordinates v.
 ---@field BarycentricAdd2  number  Parameter to calculate barycentric coordinates w.
----The rotation of ss.GeometryModule which converts world angles into local ones to map them to the paint grid.
----@field WorldToLocalGridRotation number[]
+---The rotation of ss.GeometryModule from this triangle to its triangle of the flat positions,
+---which maps the angles of a paint on this triangle onto the flat surface.
+---@field ToFlatRotation   number[]
 
 ---@class ss.PaintableSurfaceModule.State
 ---@field Surfaces           ss.PaintableSurface[] Paintable surfaces of the world and static props.
@@ -83,7 +86,7 @@ local state = ss.state("splashsweps/shared/paint/paintablesurface", {
 ---in the order of the faces of PaintableSurface.GetStaticPropBox.
 PaintableSurface.Surfaces = state.Surfaces
 
----Paintable surfaces of brush entities, which are not registered to the spatial hash of the world
+---Paintable surfaces of brush entities, which are not registered to the spatial index of the world
 ---because they can move away from where the map compiler put them.
 --- `= { [model index] = { surface, ... }, ... }`
 ---where the model index is 1-based index of the BSP model lump (`*N` model name refers to N + 1),
@@ -100,9 +103,9 @@ end
 ---@param index            integer
 ---@param gridWidth        integer
 ---@param gridHeight       integer
----@param worldToLocalGrid number[]
+---@param toGrid           number[]
 ---@return ss.PaintableSurface
-local function newSurface(index, gridWidth, gridHeight, worldToLocalGrid)
+local function newSurface(index, gridWidth, gridHeight, toGrid)
     return {
         Index = index,
         AABBMinX = 0,
@@ -115,8 +118,8 @@ local function newSurface(index, gridWidth, gridHeight, worldToLocalGrid)
         NormalY = 0,
         NormalZ = 0,
         Grid = PaintableGrid.new(gridWidth, gridHeight),
-        WorldToLocalGrid = worldToLocalGrid,
-        WorldToMBB = worldToLocalGrid,
+        ToGrid = toGrid,
+        ToMBB = toGrid,
         MBBSizeX = 0,
         MBBSizeY = 0,
         MBBSizeZ = 0,
@@ -125,7 +128,7 @@ end
 
 ---Returns barycentric coordinates (1 - u - v, u, v) from given triangle.
 ---The coordinates may be outside of the triangle.
----@param triangle ss.DisplacementTriangle
+---@param triangle ss.PaintableSurface.DisplacementTriangle
 ---@param x number The query point.
 ---@param y number
 ---@param z number
@@ -142,16 +145,16 @@ end
 ---Maps a point on a triangle of a displacement onto the flat surface the displacement came from,
 ---where its paintable grid is.
 ---@param surf     ss.PaintableSurface The displacement.
----@param triangle ss.DisplacementTriangle
+---@param triangle ss.PaintableSurface.DisplacementTriangle
 ---@param b1       number Barycentric coordinates of the point in the triangle.
 ---@param b2       number
 ---@param b3       number
 ---@return number x
 ---@return number y
 ---@return number z
-function PaintableSurface.MapToPaintOrigin(surf, triangle, b1, b2, b3)
+function PaintableSurface.MapToFlatSurface(surf, triangle, b1, b2, b3)
     local i1, i2, i3 = triangle.VertexIndex1, triangle.VertexIndex2, triangle.VertexIndex3
-    local xs, ys, zs = surf.PaintOriginX, surf.PaintOriginY, surf.PaintOriginZ
+    local xs, ys, zs = surf.FlatPositionX, surf.FlatPositionY, surf.FlatPositionZ
     ---@cast xs -?
     ---@cast ys -?
     ---@cast zs -?
@@ -161,15 +164,15 @@ function PaintableSurface.MapToPaintOrigin(surf, triangle, b1, b2, b3)
 end
 
 ---Reads a surface list from a file and stores them for later use.
----@param surfaces  ss.PrecachedData.Surface[]?
+---@param surfaces  ss.MapCache.Surface[]?
 ---@param numModels integer Number of entries in the BSP model lump.
 function PaintableSurface.Setup(surfaces, numModels)
     if not surfaces then return end
     state.ModelIndexBits = math.max(select(2, math.frexp(numModels - 1)), 1)
     table.Empty(state.BrushModelSurfaces)
     for i, surf in ipairs(surfaces) do
-        local g = surf.WorldToLocalGrid
-        local ps = newSurface(i, surf.PaintGridWidth, surf.PaintGridHeight, g)
+        local g          = surf.ToGrid
+        local ps         = newSurface(i, surf.PaintableGridWidth, surf.PaintableGridHeight, g)
         local mbbToWorld = Geometry.FromAngles(surf.MBBPitch, surf.MBBYaw, surf.MBBRoll, 0, 0, 0)
         ps.AABBMinX, ps.AABBMinY, ps.AABBMinZ = surf.AABBMinX, surf.AABBMinY, surf.AABBMinZ
         ps.AABBMaxX, ps.AABBMaxY, ps.AABBMaxZ = surf.AABBMaxX, surf.AABBMaxY, surf.AABBMaxZ
@@ -177,18 +180,18 @@ function PaintableSurface.Setup(surfaces, numModels)
         ps.MBBSizeX, ps.MBBSizeY, ps.MBBSizeZ = surf.MBBSizeX, surf.MBBSizeY, surf.MBBSizeZ
         local triangles = surf.DisplacementTriangles
         if triangles then
-            -- The box of a displacement is in 3D, while its paint grid is made from its flattened shape.
-            ps.WorldToMBB = Geometry.InvertRotationTranslation(Geometry.FromAngles(
+            -- The box of a displacement is in 3D, while its paintable grid is made from its flattened shape.
+            ps.ToMBB = Geometry.InvertRotationTranslation(Geometry.FromAngles(
                 surf.MBBPitch, surf.MBBYaw, surf.MBBRoll, surf.MBBOriginX, surf.MBBOriginY, surf.MBBOriginZ))
             ps.TriangleHash = surf.TriangleHash
             local xs, ys, zs = surf.PositionX, surf.PositionY, surf.PositionZ
             local vertexIndices = surf.VertexIndices
             ps.PositionX, ps.PositionY, ps.PositionZ = xs, ys, zs
-            ps.PaintOriginX, ps.PaintOriginY, ps.PaintOriginZ = surf.PaintOriginX, surf.PaintOriginY, surf.PaintOriginZ
+            ps.FlatPositionX, ps.FlatPositionY, ps.FlatPositionZ = surf.FlatPositionX, surf.FlatPositionY, surf.FlatPositionZ
             ps.Triangles = {}
             for j, t in ipairs(triangles) do
                 local i1, i2, i3 = vertexIndices[3 * j - 2], vertexIndices[3 * j - 1], vertexIndices[3 * j]
-                local r = t.WorldToLocalGridRotation
+                local r = t.ToFlatRotation
                 local nx, ny, nz = Geometry.Normalize(Geometry.Cross(
                     xs[i2] - xs[i3], ys[i2] - ys[i3], zs[i2] - zs[i3],
                     xs[i1] - xs[i3], ys[i1] - ys[i3], zs[i1] - zs[i3]))
@@ -209,7 +212,7 @@ function PaintableSurface.Setup(surfaces, numModels)
                         t.BarycentricDot1X, t.BarycentricDot1Y, t.BarycentricDot1Z),
                     BarycentricAdd2  = -Geometry.Dot(xs[i1], ys[i1], zs[i1],
                         t.BarycentricDot2X, t.BarycentricDot2Y, t.BarycentricDot2Z),
-                    WorldToLocalGridRotation = {
+                    ToFlatRotation   = {
                         r[1], r[2], r[3], 0,
                         r[4], r[5], r[6], 0,
                         r[7], r[8], r[9], 0,
@@ -295,7 +298,7 @@ local AXES_ZXY = {
 ---@field Faces   ss.PaintableSurface.StaticPropFace[] The faces #1 to #6.
 
 ---Returns the bounding box of a static prop and its faces,
----which are paintable surfaces in the paint grids and in the ink map.
+---which are paintable surfaces in the paintable grids and in the ink map.
 ---
 ---Each static prop has its own oriented bounding box (OBB).
 ---We project the vertices of the prop onto one of the surfaces of the OBB.
@@ -394,7 +397,7 @@ local AXES_ZXY = {
 ---- `sx` is the smallest: (X, Y, Z) -> (X, Y, Z)
 ---- `sy` is the smallest: (X, Y, Z) -> (Y, Z, X) by AXES_YZX
 ---- `sz` is the smallest: (X, Y, Z) -> (Z, X, Y) by AXES_ZXY
----@param prop ss.PrecachedData.StaticProp
+---@param prop ss.MapCache.StaticProp
 ---@return ss.PaintableSurface.StaticPropBox
 function PaintableSurface.GetStaticPropBox(prop)
     local sizeX = prop.BoundsMaxX - prop.BoundsMinX
@@ -435,7 +438,7 @@ end
 
 ---Creates the paintable surfaces of the faces of the bounding boxes of static props,
 ---after the surfaces PaintableSurface.Setup creates.
----@param staticPropInfo ss.PrecachedData.StaticProp[]?
+---@param staticPropInfo ss.MapCache.StaticProp[]?
 function PaintableSurface.SetupStaticProps(staticPropInfo)
     local index = #state.Surfaces
     for _, prop in ipairs(staticPropInfo or {}) do
@@ -454,7 +457,7 @@ function PaintableSurface.SetupStaticProps(staticPropInfo)
             ps.AABBMaxX, ps.AABBMaxY, ps.AABBMaxZ = aabbMaxX, aabbMaxY, aabbMaxZ
             ps.NormalX, ps.NormalY, ps.NormalZ = faceToWorld[3], faceToWorld[7], faceToWorld[11]
             ps.StaticPropUnwrapIndex = prop.UnwrapIndex
-            ps.WorldToMBB = worldToBox
+            ps.ToMBB = worldToBox
             ps.MBBSizeX, ps.MBBSizeY, ps.MBBSizeZ = box.SizeX, box.SizeY, box.SizeZ
             state.Surfaces[index] = ps
         end

@@ -13,7 +13,7 @@ include "splashsweps/client/render/inkpass.lua"
 include "splashsweps/client/predictedvars.lua"
 
 local CacheBuilder      = ss.import "splashsweps/shared/mapcache/cachebuilder"
-local Hash              = ss.import "splashsweps/shared/hash"
+local SpatialIndex      = ss.import "splashsweps/shared/spatialindex"
 local InkAtlases        = ss.import "splashsweps/client/ink/atlases"
 local InkMap            = ss.import "splashsweps/client/render/inkmap"
 local InkMapLayout      = ss.import "splashsweps/client/mapload/inkmaplayout"
@@ -44,14 +44,14 @@ local function LoadCache()
     InkMap.Setup()
     PaintableSurface.Setup(cache.Surfaces, cache.NumModels)
     PaintableSurface.SetupStaticProps(cache.StaticProps)
-    Hash.Setup(cache.HashParameters)
+    SpatialIndex.Setup(cache.HashParameters)
     InkMapLayout.Setup(cache.Surfaces, cache.StaticProps)
     InkMesh.Setup(cache, lightmaps, InkMapLayout.Placements, CVarDebugMeshData:GetBool())
     StaticPropBuilder.Setup(cache.StaticProps, cache.StaticPropMDL, cache.Cubemaps)
     InkMap.ClearAll()
 end
 
-hook.Add("InitPostEntity", "SplashSWEPs: Initalize", function()
+hook.Add("InitPostEntity", "SplashSWEPs: Initialize", function()
     LoadCache()
     collectgarbage "collect"
     net.Start "SplashSWEPs: PlayerInitialSpawn"

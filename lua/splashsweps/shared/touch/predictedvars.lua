@@ -38,18 +38,18 @@ local TYPES = {
 }
 
 ---A variable of a module in the data table of an entity.
----@class ss.PredictedVarsModule.Var
+---@class ss.PredictedVars.Var
 ---@field Get  fun(ent: Entity, slot: integer): any The DT function to read it, such as Entity.GetDTFloat.
 ---@field Set  fun(ent: Entity, slot: integer, value: any)
 ---@field Slot integer
 
 ---Where the variables of a module are.
----@class ss.PredictedVarsModule.Layout
+---@class ss.PredictedVars.Layout
 ---@field Group integer The group of the entity having them.
----@field Vars  table<string, ss.PredictedVarsModule.Var> Variable name --> where it is.
+---@field Vars  table<string, ss.PredictedVars.Var> Variable name --> where it is.
 
 ---@class ss.PredictedVarsModule.State
----@field Layouts   table<ss.IInkFeature, ss.PredictedVarsModule.Layout> Module --> where its variables are.
+---@field Layouts   table<ss.IInkFeature, ss.PredictedVars.Layout> Module --> where its variables are.
 ---@field NumGroups integer
 ---@field Entities  table<Player, table<integer, ss.PredictedVarsEntity>> Player --> group --> the entity.
 ---@field Vars      table<Player, table<ss.IInkFeature, table<string, any>>> Player --> module --> the table given to it.
@@ -107,7 +107,7 @@ function PredictedVars.Setup()
             local group = groups[index] or { Int = PredictedVars.GROUP_SLOT + 1 }
             if fits(group) then
                 groups[index] = group
-                local vars = {} ---@type table<string, ss.PredictedVarsModule.Var>
+                local vars = {} ---@type table<string, ss.PredictedVars.Var>
                 for _, name in ipairs(names) do
                     local vartype = declared[name]
                     local slot = group[vartype] or 0
@@ -129,11 +129,11 @@ end
 
 ---Makes the table to read and write the variables of a module in an entity.
 ---@param ent  Entity
----@param vars table<string, ss.PredictedVarsModule.Var>
+---@param vars table<string, ss.PredictedVars.Var>
 ---@return table<string, any>
 local function newVars(ent, vars)
     ---@param name string
-    ---@return ss.PredictedVarsModule.Var
+    ---@return ss.PredictedVars.Var
     local function find(name)
         return vars[name] or error(string.format("SplashSWEPs: Undeclared predicted variable %q", name), 3)
     end
