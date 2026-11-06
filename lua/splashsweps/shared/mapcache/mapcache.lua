@@ -76,32 +76,6 @@ local function record(name, fields, defaults, R)
     return R
 end
 
-local function blackColor() return Color(0, 0, 0) end
-
----Components of Color, which the cache stores without the metatable of Color.
-BinaryStruct.Define "MapCache.Color" {
-    "Float r",
-    "Float g",
-    "Float b",
-    "Float a",
-}
-
----The directional light of light_environment.
----@class ss.MapCache.DirectionalLight
----@field Color    Color  The LDR color of the directional light.
----@field ColorHDR Color  The HDR color of the directional light. -1 means the same as LDR.
----@field ScaleHDR number HDR scale.
-
----@type { new: fun(): ss.MapCache.DirectionalLight }
-MapCache.DirectionalLight = record("MapCache.DirectionalLight", {
-    "MapCache.Color Color",
-    "MapCache.Color ColorHDR",
-    "Float               ScaleHDR",
-}, {
-    Color    = blackColor,
-    ColorHDR = blackColor,
-})
-
 ---Placement of a rectangle in the ink map, which has a surface or the faces of a static prop.
 ---Values are in hammer units, which ss.MapCache.HammerUnitsToUV converts into UV coordinates.
 ---```text
@@ -158,7 +132,7 @@ MapCache.InkMapRectangle = record("MapCache.InkMapRectangle", {
 ---@field Skin         integer The skin of this prop.
 ---@field ShortestAxis integer The axis of the shortest side of the bounding box, 1 to 3 for X, Y, and Z. See GetStaticPropUVSize.
 ---@field InkMapRectangle ss.MapCache.InkMapRectangle Where the unwrapped faces of the bounding box are in the ink map.
----@field CubemapIndex integer Index to ss.MapCache.Cubemaps of the cubemap the engine uses, or 0 if none.
+---@field Envmap       string  The cubemap texture the engine uses for this prop, `maps/<map>/cX_Y_Z` without ".hdr", or "" if the map has no cubemaps.
 
 ---@type { new: fun(): ss.MapCache.StaticProp }
 MapCache.StaticProp = record("MapCache.StaticProp", {
@@ -180,7 +154,7 @@ MapCache.StaticProp = record("MapCache.StaticProp", {
     "Float  Scale",
     "Byte   ShortestAxis", -- 1 to 3 for X, Y, and Z
     "Long   Skin",         -- m_Skin of StaticPropLump_t (int)
-    "UShort CubemapIndex", -- MAX_MAP_CUBEMAPSAMPLES = 1024
+    "String Envmap",
     "MapCache.InkMapRectangle InkMapRectangle",
 }, {
     FadeMin     = -1,
@@ -379,37 +353,6 @@ MapCache.LightmapInfo = record("MapCache.LightmapInfo", {
     "ULong SurfaceIndex",  -- MAX_MAP_FACES = 65536
 })
 
----Cubemap sample and the paintable face bounds that use it.
----@class ss.MapCache.CubemapInfo
----@field Envmap    string  Resolved cubemap texture name, e.g. `maps/<map>/cX_Y_Z`.
----@field OriginX   number  Cubemap sample origin in world coordinates.
----@field OriginY   number
----@field OriginZ   number
----@field BoxMinX   number  Minimum corner of paintable face bounds using this cubemap.
----@field BoxMinY   number
----@field BoxMinZ   number
----@field BoxMaxX   number  Maximum corner of paintable face bounds using this cubemap.
----@field BoxMaxY   number
----@field BoxMaxZ   number
----@field FaceCount integer Number of paintable faces accumulated into this box.
----@field Blend     number  Parallax correction blend ratio. 0 disables correction.
-
----@type { new: fun(): ss.MapCache.CubemapInfo }
-MapCache.CubemapInfo = record("MapCache.CubemapInfo", {
-    "String Envmap",
-    "Float  OriginX",
-    "Float  OriginY",
-    "Float  OriginZ",
-    "Float  BoxMinX",
-    "Float  BoxMinY",
-    "Float  BoxMinZ",
-    "Float  BoxMaxX",
-    "Float  BoxMaxY",
-    "Float  BoxMaxZ",
-    "ULong  FaceCount", -- MAX_MAP_FACES = 65536
-    "Float  Blend",
-})
-
 ---@class ss.MapCache.HashParameters
 ---@field MinGridSizeDisplacement integer
 ---@field NumDivisionsDisplacement integer
@@ -450,7 +393,6 @@ MapCache.MinimapAreaBounds = record("MapCache.MinimapAreaBounds", {
 ---@field NumMinimapBounds integer
 ---@field MinimapBounds    ss.MapCache.MinimapAreaBounds[]? Bounds of each area of the map, indexed by the area number.
 ---@field NumModels        integer
----@field DirectionalLight ss.MapCache.DirectionalLight
 ---@field HashParameters   ss.MapCache.HashParameters
 ---@field NumStaticProps   integer
 ---@field StaticProps      ss.MapCache.StaticProp[]?
@@ -467,15 +409,12 @@ MapCache.MinimapAreaBounds = record("MapCache.MinimapAreaBounds", {
 ---@field NumSurfaces      integer
 ---@field Surfaces         ss.MapCache.Surface[]? Paintable surfaces built from LUMP_FACES.
 ---@field HammerUnitsToUV  number Converts hammer units of the ink map rectangles into UV coordinates.
----@field NumCubemaps      integer
----@field Cubemaps         ss.MapCache.CubemapInfo[]? Cubemap samples and paintable face bounds using them.
 record("MapCache", {
     "ULong  NumMaterialNames",
     "String MaterialNames NumMaterialNames",
     "UShort NumMinimapBounds", -- The area number is 9 bits
     "MapCache.MinimapAreaBounds MinimapBounds NumMinimapBounds",
     "UShort NumModels", -- MAX_MAP_MODELS = 1024
-    "MapCache.DirectionalLight DirectionalLight",
     "MapCache.HashParameters HashParameters",
     "ULong  NumStaticProps",
     "MapCache.StaticProp StaticProps NumStaticProps",
@@ -490,8 +429,6 @@ record("MapCache", {
     "ULong  NumSurfaces",
     "MapCache.Surface Surfaces NumSurfaces",
     "Float  HammerUnitsToUV",
-    "UShort NumCubemaps", -- MAX_MAP_CUBEMAPSAMPLES = 1024
-    "MapCache.CubemapInfo Cubemaps NumCubemaps",
 }, nil, MapCache)
 
 ---Writes the map cache to a temporary file in the data folder, after the cache version and the map revision,

@@ -52,89 +52,6 @@ local function GetMaterial(name)
     return MaterialCache[name]
 end
 
----Converts \\ to /, strips the extension, and hdr variant
----@param name string?
----@return string?
-local function NormalizeTextureName(name)
-    if not name or name == "" then return end
-    local normalized = name:lower():gsub("\\", "/"):gsub("%.vtf$", ""):gsub("%.hdr$", "")
-    return normalized
-end
-
----Gets the string "<X>_<Y>_<Z>" from given position (X, Y, Z).
----@param x number
----@param y number
----@param z number
----@return string
-local function CubemapOriginKey(x, y, z)
-    return string.format("%d_%d_%d", round(x), round(y), round(z))
-end
-
----Parses resolved cubemap texture name and returns its origin key "<X>_<Y>_<Z>".
----@param name string?
----@return string?
-local function ParseCubemapOriginKey(name)
-    name = NormalizeTextureName(name)
-    if not name then return end
-
-    local x, y, z = name:match("/c(%-?%d+)_(%-?%d+)_(%-?%d+)$")
-    if not x then
-        x, y, z = name:match("^c(%-?%d+)_(%-?%d+)_(%-?%d+)$")
-    end
-    if not x then
-        x, y, z = name:match("_(%-?%d+)_(%-?%d+)_(%-?%d+)$")
-    end
-    if not x then return end
-
-    return string.format("%d_%d_%d", tonumber(x), tonumber(y), tonumber(z))
-end
-
----@param bsp ss.BSP.Lumps
----@return ss.MapCache.CubemapInfo[] cubemaps
----@return table<string, ss.MapCache.CubemapInfo> cubemapsByOrigin
-local function BuildCubemapEntries(bsp)
-    local cubemaps = {} ---@type ss.MapCache.CubemapInfo[]
-    local cubemapsByOrigin = {} ---@type table<string, ss.MapCache.CubemapInfo>
-    local mapName = game.GetMap():lower()
-    for _, sample in ipairs(bsp.CUBEMAPS or {}) do
-        local x, y, z = sample.originX, sample.originY, sample.originZ
-        local cubemap = MapCache.CubemapInfo.new()
-        cubemap.Envmap = string.format("maps/%s/c%d_%d_%d", mapName, x, y, z)
-        cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ = x, y, z
-        cubemap.BoxMinX, cubemap.BoxMinY, cubemap.BoxMinZ = huge, huge, huge
-        cubemap.BoxMaxX, cubemap.BoxMaxY, cubemap.BoxMaxZ = -huge, -huge, -huge
-        cubemaps[#cubemaps + 1] = cubemap
-        cubemapsByOrigin[CubemapOriginKey(x, y, z)] = cubemap
-    end
-
-    return cubemaps, cubemapsByOrigin
-end
-
----@param cubemap ss.MapCache.CubemapInfo?
----@param surf ss.MapCache.Surface
-local function AccumulateCubemapBox(cubemap, surf)
-    if not cubemap then return end
-    cubemap.BoxMinX = min(cubemap.BoxMinX, surf.AABBMinX)
-    cubemap.BoxMinY = min(cubemap.BoxMinY, surf.AABBMinY)
-    cubemap.BoxMinZ = min(cubemap.BoxMinZ, surf.AABBMinZ)
-    cubemap.BoxMaxX = max(cubemap.BoxMaxX, surf.AABBMaxX)
-    cubemap.BoxMaxY = max(cubemap.BoxMaxY, surf.AABBMaxY)
-    cubemap.BoxMaxZ = max(cubemap.BoxMaxZ, surf.AABBMaxZ)
-    cubemap.FaceCount = cubemap.FaceCount + 1
-    cubemap.Blend = 1
-end
-
----@param cubemaps ss.MapCache.CubemapInfo[]
-local function FinalizeCubemapEntries(cubemaps)
-    for _, cubemap in ipairs(cubemaps) do
-        if cubemap.FaceCount == 0 then
-            cubemap.BoxMinX, cubemap.BoxMinY, cubemap.BoxMinZ = cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ
-            cubemap.BoxMaxX, cubemap.BoxMaxY, cubemap.BoxMaxZ = cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ
-            cubemap.Blend = 0
-        end
-    end
-end
-
 ---Returns the orientation of a face of which the up is the normal,
 ---the same as normal:Angle() rotated by -90 degrees around its right:
 ---the forward is the negated up of normal:Angle(), and the left is its negated right.
@@ -726,7 +643,6 @@ function SurfaceBuilder.BuildSurfaceCache(bsp, cache)
     local surf = {} ---@type ss.MapCache.Surface[]
     local water = {} ---@type ss.MapCache.Surface[]
     local lump = bsp.FACES or {}
-    local cubemaps, cubemapsByOrigin = BuildCubemapEntries(bsp)
     local faceIndexToModelIndex = {} ---@type integer[]
     for i, mdl in ipairs(bsp.MODELS) do
         for j = mdl.firstFace + 1, mdl.firstFace + mdl.numFaces do
@@ -734,8 +650,7 @@ function SurfaceBuilder.BuildSurfaceCache(bsp, cache)
         end
     end
     print "Generating inkable surfaces..."
-    local validFaces  = {} ---@type boolean[] face index --> is paintable
-    local faceCubemaps = {} ---@type table<integer, ss.MapCache.CubemapInfo>
+    local validFaces = {} ---@type boolean[] face index --> is paintable
     for i, face in ipairs(lump) do
         local rawTexInfo = bsp.TEXINFO[face.texInfo + 1]
         if bit.band(rawTexInfo.flags, TextureFilterBits) == 0 then
@@ -748,9 +663,6 @@ function SurfaceBuilder.BuildSurfaceCache(bsp, cache)
             local surfaceData = util.GetSurfaceData(util.GetSurfaceIndex(surfaceProp)) or {}
             if surfaceData.material ~= MAT_GRATE then
                 validFaces[i] = true
-                local envmap = texMaterial:GetString "$envmap"
-                local cubemapKey = ParseCubemapOriginKey(envmap) or ParseCubemapOriginKey(texName)
-                faceCubemaps[i] = cubemapKey and cubemapsByOrigin[cubemapKey] or nil
             end
         end
     end
@@ -764,19 +676,15 @@ function SurfaceBuilder.BuildSurfaceCache(bsp, cache)
                 else
                     s.FaceLumpIndex = i
                     s.ModelIndex = faceIndexToModelIndex[i]
-                    AccumulateCubemapBox(faceCubemaps[i], s)
                     surf[#surf + 1] = s
                 end
             end
         end
     end
-    FinalizeCubemapEntries(cubemaps)
     cache.Surfaces = surf
     cache.NumSurfaces = #surf
     cache.WaterSurfaces = water
     cache.NumWaterSurfaces = #water
-    cache.Cubemaps = cubemaps
-    cache.NumCubemaps = #cubemaps
     print("    Generated " .. #surf .. " surfaces from " .. #lump .. " faces")
 
     local elapsed = round((SysTime() - t0) * 1000, 2)
@@ -811,7 +719,7 @@ end
 ---@param bsp           ss.BSP.Lumps
 ---@param prop          ss.BinaryStruct.BSP.StaticProp
 ---@param illumposition number[] illumposition of the model as x, y, and z.
----@return integer # Index to the cubemap samples in the lump, or 0 if the map has no cubemaps.
+---@return string # The name of the cubemap texture of the sample, `maps/<map>/cX_Y_Z` without ".hdr", or "" if the map has no cubemaps.
 local function FindStaticPropCubemap(bsp, prop, illumposition)
     local x, y, z = prop.lightingOriginX, prop.lightingOriginY, prop.lightingOriginZ
     if bit.band(prop.flags, STATIC_PROP_USE_LIGHTING_ORIGIN) == 0 then
@@ -819,17 +727,18 @@ local function FindStaticPropCubemap(bsp, prop, illumposition)
         x, y, z = Geometry.TransformPoint(modelToWorld, illumposition[1], illumposition[2], illumposition[3])
     end
 
-    local nearestIndex = 0
+    local nearest = nil ---@type ss.BinaryStruct.BSP.CUBEMAPS?
     local nearestDistanceSqr = huge
-    for i, sample in ipairs(bsp.CUBEMAPS or {}) do
+    for _, sample in ipairs(bsp.CUBEMAPS or {}) do
         local distanceSqr = Geometry.LengthSqr(x - sample.originX, y - sample.originY, z - sample.originZ)
         if distanceSqr < nearestDistanceSqr then
-            nearestIndex = i
+            nearest = sample
             nearestDistanceSqr = distanceSqr
         end
     end
 
-    return nearestIndex
+    if not nearest then return "" end
+    return string.format("maps/%s/c%d_%d_%d", game.GetMap():lower(), nearest.originX, nearest.originY, nearest.originZ)
 end
 
 ---Gets the dimension of the UV-unpacked rectangle for given AABB.
@@ -938,7 +847,7 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
                 result.PositionX, result.PositionY, result.PositionZ = prop.originX, prop.originY, prop.originZ
                 result.Scale = scale
                 result.Skin = prop.skin
-                result.CubemapIndex = FindStaticPropCubemap(bsp, prop, illumpositions[name])
+                result.Envmap = FindStaticPropCubemap(bsp, prop, illumpositions[name])
                 r.Width, r.Height, result.ShortestAxis = GetStaticPropUVSize(result)
                 results[#results + 1] = result
             end

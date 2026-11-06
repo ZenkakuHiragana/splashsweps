@@ -20,44 +20,6 @@ local max = math.max
 local min = math.min
 local ipairs = ipairs
 
----Finds light_environment entity in the ENTITIES lump and fetches directional light info.
----@param bsp ss.BSP.Lumps
----@param cache ss.MapCache
-local function findLightEnvironment(bsp, cache)
-    for _, entities in ipairs(bsp.ENTITIES) do
-        for k in entities:gmatch "{[^}]+}" do
-            if k:find "light_environment" then
-                local t = util.KeyValuesToTable("\"-\" " .. k)
-                if t.classname == "light_environment" then
-                    local lightScaleHDR = t._lightscalehdr
-                    local lightColor    = t._light:Split " "
-                    local lightColorHDR = t._lighthdr and t._lighthdr:Split " " or {}
-                    local nlightColor = {} ---@type number[]
-                    local nlightColorHDR = {} ---@type number[]
-                    for i = 1, 4 do
-                        nlightColor[i] = tonumber(lightColor[i])
-                        nlightColorHDR[i] = tonumber(lightColorHDR[i])
-                        if not nlightColorHDR[i] or nlightColorHDR[i] < 0 then
-                            nlightColorHDR[i] = nlightColor[i]
-                        end
-                    end
-                    print(string.format("    light_environment found:\n"
-                        .. "        lightColor    = [%s %s %s %s]\n"
-                        .. "        lightColorHDR = [%s %s %s %s]\n"
-                        .. "        lightScaleHDR = %s",
-                        lightColor[1], lightColor[2], lightColor[3], lightColor[4],
-                        lightColorHDR[1], lightColorHDR[2], lightColorHDR[3], lightColorHDR[4],
-                        lightScaleHDR))
-                    cache.DirectionalLight.Color    = Color(unpack(nlightColor))
-                    cache.DirectionalLight.ColorHDR = Color(unpack(nlightColorHDR))
-                    cache.DirectionalLight.ScaleHDR = tonumber(lightScaleHDR) or 1
-                    return
-                end
-            end
-        end
-    end
-end
-
 ---Lists the material names of the map in the order of TEXDATA_STRING_DATA.
 ---@param bsp ss.BSP.Lumps
 ---@return string[]
@@ -139,7 +101,6 @@ local function WriteCache(path)
     cache.NumMinimapBounds = #cache.MinimapBounds
     cache.NumModels        = #bsp.MODELS
     SurfaceBuilder.BuildStaticPropCache(bsp, cache)
-    findLightEnvironment(bsp, cache)
 
     collectgarbage "collect"
     SurfaceBuilder.BuildSurfaceCache(bsp, cache)

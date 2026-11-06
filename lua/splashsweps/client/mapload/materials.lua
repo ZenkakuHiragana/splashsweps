@@ -3,9 +3,8 @@
 
 ---@class ss
 local ss = SplashSWEPs
-local MapCache = ss.import "splashsweps/shared/mapcache/mapcache"
-local Session  = ss.import "splashsweps/client/session"
-local Util     = ss.import "splashsweps/shared/util"
+local Session = ss.import "splashsweps/client/session"
+local Util    = ss.import "splashsweps/shared/util"
 
 ---@class ss.MapMaterialsModule
 local MapMaterials = ss.module "splashsweps/client/mapload/materials"
@@ -31,54 +30,13 @@ local MapMaterials = ss.module "splashsweps/client/mapload/materials"
 ---@field DetailScale          Vector?   Value of $detailscale.
 ---@field DetailTint           Vector?   Value of $detailtint.
 ---@field Color                Vector?   Value of $color.
----@field Cubemap              ss.MapCache.CubemapInfo? Resolved $envmap plus cubemap sample correction data.
-
----@param name string?
----@return string?
-local function normalizeEnvmapName(name)
-    if not name or name == "" then return end
-    local normalized = name:lower():gsub("\\", "/"):gsub("%.vtf$", ""):gsub("%.hdr$", "")
-    return normalized
-end
-
----@param cubemaps ss.MapCache.CubemapInfo[]?
----@return table<string, ss.MapCache.CubemapInfo>
-local function buildCubemapLookup(cubemaps)
-    local lookup = {} ---@type table<string, ss.MapCache.CubemapInfo>
-    for _, cubemap in ipairs(cubemaps or {}) do
-        local name = normalizeEnvmapName(cubemap.Envmap)
-        if name then lookup[name] = cubemap end
-    end
-    return lookup
-end
-
----@param envmap string?
----@param cubemapLookup table<string, ss.MapCache.CubemapInfo>
----@return ss.MapCache.CubemapInfo?
-local function resolveMaterialCubemap(envmap, cubemapLookup)
-    local name = normalizeEnvmapName(envmap)
-    if not name then return end ---@cast envmap -?
-
-    local cached = cubemapLookup[name]
-    local cubemap = MapCache.CubemapInfo.new()
-    cubemap.Envmap = envmap
-    if cached then
-        cubemap.OriginX, cubemap.OriginY, cubemap.OriginZ = cached.OriginX, cached.OriginY, cached.OriginZ
-        cubemap.BoxMinX, cubemap.BoxMinY, cubemap.BoxMinZ = cached.BoxMinX, cached.BoxMinY, cached.BoxMinZ
-        cubemap.BoxMaxX, cubemap.BoxMaxY, cubemap.BoxMaxZ = cached.BoxMaxX, cached.BoxMaxY, cached.BoxMaxZ
-        cubemap.FaceCount = cached.FaceCount
-        cubemap.Blend = cached.Blend
-    end
-
-    return cubemap
-end
+---@field Envmap               string?   Value of $envmap, nil if the material has none.
 
 ---Assigns enumeration ID to materials in the map,
 ---considering the global string table in the engine.
 ---@param materialsInMap string[]
----@param cubemapLookup  table<string, ss.MapCache.CubemapInfo>
 ---@return table<integer, ss.MapMaterials.MaterialInfo> materialInfo Sparse enumeration-ID-indexed materials.
-local function enumerateMaterials(materialsInMap, cubemapLookup)
+local function enumerateMaterials(materialsInMap)
     local materialNames = materialsInMap
     local enumerationIDToArrayIndex = {} ---@type integer[]
     if not Session.IsFirstRun() then
@@ -131,7 +89,7 @@ local function enumerateMaterials(materialsInMap, cubemapLookup)
                     DetailBlendMode      = mat:GetInt    "$detailblendmode",
                     DetailScale          = mat:GetVector "$detailscale",
                     DetailTint           = baseTexture2 and Util.vector_one or mat:GetVector "$detailtint",
-                    Cubemap              = resolveMaterialCubemap(envmap, cubemapLookup),
+                    Envmap               = envmap ~= "" and envmap or nil,
                     Color = (mat:GetVector "$color" or Util.vector_one)
                           * (mat:GetVector "$color2" or Util.vector_one),
                 }
@@ -147,10 +105,9 @@ end
 
 ---Assigns enumeration ID to materials in the map and reads what the ink meshes need from them.
 ---@param materialNames string[] Materials in the map, usually game.GetMap():GetMaterials() saved in the map cache.
----@param cubemaps      ss.MapCache.CubemapInfo[]? Cubemaps in the map.
 ---@return table<integer, ss.MapMaterials.MaterialInfo> materialInfo Sparse enumeration-ID-indexed materials.
-function MapMaterials.Enumerate(materialNames, cubemaps)
-    return enumerateMaterials(materialNames, buildCubemapLookup(cubemaps))
+function MapMaterials.Enumerate(materialNames)
+    return enumerateMaterials(materialNames)
 end
 
 return MapMaterials

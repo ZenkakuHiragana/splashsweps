@@ -47,7 +47,7 @@ local function LoadCache()
     SpatialIndex.Setup(cache.HashParameters)
     InkMapLayout.Setup(cache.Surfaces, cache.StaticProps)
     InkMesh.Setup(cache, lightmaps, InkMapLayout.Placements, CVarDebugMeshData:GetBool())
-    StaticPropBuilder.Setup(cache.StaticProps, cache.StaticPropMDL, cache.Cubemaps)
+    StaticPropBuilder.Setup(cache.StaticProps, cache.StaticPropMDL)
     InkMap.ClearAll()
 end
 

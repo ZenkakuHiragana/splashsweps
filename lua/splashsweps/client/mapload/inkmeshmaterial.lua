@@ -94,7 +94,6 @@ function InkMeshMaterial.Create(lightmapLayout, sortID)
     local lightmapGroup         = lightmapLayout.Groups[sortID]
     local pageWidth, pageHeight = Lightmaps.GetPageSize(lightmapLayout, lightmapGroup)
     local materialInfo          = lightmapGroup.Material
-    local cubemapInfo           = materialInfo.Cubemap
     local page                  = lightmapGroup.LightmapPage
     local lightmapTextureName   = page and string.format("\\[lightmap%d]", page) or "white"
     local materialParams        = buildBaseInkMeshMaterialParams()
@@ -110,7 +109,7 @@ function InkMeshMaterial.Create(lightmapLayout, sortID)
     materialParams["$texture4"] = materialInfo.Bumpmap or "null-bumpmap"
     materialParams["$texture5"] = detailTexture or "white"
     materialParams["$texture6"] = lightmapTextureName
-    materialParams["$texture7"] = cubemapInfo and cubemapInfo.Envmap or UnderlaySync.DEFAULT_ENVMAP
+    materialParams["$texture7"] = materialInfo.Envmap or UnderlaySync.DEFAULT_ENVMAP
     materialParams["$c0_w"]     = detailBlendMode
     materialParams["$c1_z"]     = 2 / RenderTargets.GetHammerUnitsToUV() -- InkMap region UV -> packed-surface HU.
     materialParams["$c1_y"]     = (materialInfo.NeedsBumpedLightmaps and 1 or 0)

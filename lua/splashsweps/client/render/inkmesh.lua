@@ -67,7 +67,7 @@ function InkMesh.Setup(cache, lightmaps, placements, keepDebugMeshData)
     end
 
     InkMeshMaterial.SetupWater()
-    local materialInfo      = MapMaterials.Enumerate(cache.MaterialNames, cache.Cubemaps)
+    local materialInfo      = MapMaterials.Enumerate(cache.MaterialNames)
     local lightmapLayout    = Lightmaps.Pack(lightmaps, materialInfo)
     local meshGroupsByModel = Lightmaps.BuildMeshGroups(cache, lightmapLayout)
     local surfaceLightmaps  = Lightmaps.BuildSurfaceLightmaps(lightmapLayout)
