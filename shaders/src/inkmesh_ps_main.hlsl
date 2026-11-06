@@ -38,7 +38,7 @@ float3x3 GetDetailProjectionBasis(const PsVertexInfo i, bool usePaintLocalDetail
 // so the ink beyond the range is read as the ink at the edge of the range.
 // The range is narrowed by a texel so that bilinear filtering does not mix in the texels outside the range.
 float2 ClampInkUV(const PsVertexInfo i, float2 uv) {
-    return clamp(uv, i.minUV + g_RTSize, i.maxUV - g_RTSize);
+    return clamp(uv, i.minUV + g_RcpRTSize, i.maxUV - g_RcpRTSize);
 }
 
 // Samples height value and ground depth, and calculates the ink normal from the height
@@ -48,7 +48,7 @@ void FetchHeightDepthAndNormal(const PsVertexInfo i, float2 uv, inout MaterialPa
     params.depth  = DecodeUnorm16(s.ba);
 
     // Forward differences of the height over deltaUV, in Hammer units per ink map UV.
-    float2 deltaUV = g_RTSize * 2.0;
+    float2 deltaUV = g_RcpRTSize * 2.0;
     float2 hxy = {
         FetchHeight(ClampInkUV(i, uv + float2(deltaUV.x, 0.0))),
         FetchHeight(ClampInkUV(i, uv + float2(0.0, deltaUV.y))),
@@ -126,7 +126,7 @@ InkDetailEffect EvaluateInkDetail(const PsVertexInfo i, float3 IDs, int modeRota
         settings.uvRotationCosSin.x * scaledUV.x - settings.uvRotationCosSin.y * scaledUV.y,
         settings.uvRotationCosSin.y * scaledUV.x + settings.uvRotationCosSin.x * scaledUV.y);
     float2 repeatedUV   = frac(rotatedUV + settings.translationUV + phase);
-    float2 atlasUV      = (settings.atlasOriginPixels + repeatedUV * settings.atlasInnerSizePixels) * g_DataRTSize;
+    float2 atlasUV      = (settings.atlasOriginPixels + repeatedUV * settings.atlasInnerSizePixels) * g_RcpDataRTSize;
     float4 detailSample = tex2Dlod(InkDataDetail, float4(atlasUV, 0, 0));
 
     // Convert the sample to the value range of each mode, then apply $detailblendscale to all channels.
@@ -265,14 +265,14 @@ UVs ApplyParallaxGeometry(const PsVertexInfo i, const MaterialParams params, flo
     float3 worldOffset = parallax + refraction;
     float2 uvOffset = float2(
         dot(i.worldTransform[0], worldOffset),
-        dot(i.worldTransform[1], worldOffset)) * g_UnderlayAlbedoSize;
+        dot(i.worldTransform[1], worldOffset)) * g_RcpUnderlayAlbedoSize;
     float2 worldUVParallax = i.worldUV + uvOffset;
     uv.base     = ApplyBaseTransform(worldUVParallax);
     uv.bump     = ApplyBumpTransform(worldUVParallax);
     ApplyGeometryParallax(i, worldOffset, uvOffset, worldUVParallax, uv);
 
     float2 offset = ProjectiveUVToScreenOffset(i.worldUV, i.worldUV + uvOffset, i.clipW);
-    float2 s      = i.screenUV + offset * g_FbSize;
+    float2 s      = i.screenUV + offset * g_RcpFbSize;
     uv.edgefade   = ScreenEdgeFade(s);
     uv.screen     = saturate(s);
     uv.depth      = i.clipW + ddx(i.clipW) * offset.x + ddy(i.clipW) * offset.y;

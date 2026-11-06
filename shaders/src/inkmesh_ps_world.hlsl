@@ -68,7 +68,7 @@ sampler Lightmap       : register(s6);
 static const float3 g_SunDirection      = c0.xyz; // in world space
 static const float  g_DetailBlendMode   = c0.w;
 static const float  g_MaterialFlags     = c1.y;
-static const float2 g_LightmapSize      = c2.xy;  // One over lightmap size
+static const float2 g_RcpLightmapSize   = c2.xy;  // One over lightmap size
 static const float2 g_DetailScale       = c2.zw;
 static const float4 g_DetailTint        = { c11.w, c12.w, c13.w, 1.0 };
 static const float  g_DetailBlendFactor = c14.w;
@@ -172,14 +172,14 @@ float Blend4WayLayerParam(float layer1, float3 layers, float3 weights) {
 
 PsVertexInfo DecomposeInput(const PS_INPUT i) {
     PsVertexInfo v;
-    v.screenUV          = (i.screenPos.xy + float2(0.5, 0.5)) * g_FbSize;
+    v.screenUV          = (i.screenPos.xy + float2(0.5, 0.5)) * g_RcpFbSize;
     v.worldPos          = i.vi.worldPos_ClipW.xyz;
     v.clipZ             = i.vi.vertexBlend_ClipZ.w;
     v.clipW             = i.vi.worldPos_ClipW.w;
     v.minUV             = i.vi.surfaceClipRange.xy;
     v.maxUV             = i.vi.surfaceClipRange.zw;
     v.inkUV             = float3(i.vi.inkTangent_U.w, i.vi.inkBinormal_V.w, 0.0);
-    v.worldUV           = float2(i.vi.worldTangent_U.w, i.vi.worldBinormal_V.w) * g_UnderlayAlbedoSize;
+    v.worldUV           = float2(i.vi.worldTangent_U.w, i.vi.worldBinormal_V.w) * g_RcpUnderlayAlbedoSize;
     v.lightmapUV        = float2(i.vi.lightmapTangent_U.w, i.vi.lightmapBinormal_V.w);
     v.lightmapOffset    = float2(i.vi.worldNormal_dU.w, 0.0);
     v.worldTransform    = float3x3(i.vi.worldTangent_U.xyz,    i.vi.worldBinormal_V.xyz,    i.vi.worldNormal_dU.xyz);
@@ -348,7 +348,7 @@ void ApplyGeometryParallax(const PsVertexInfo i, float3 worldOffset, float2 uvOf
     inout UVs uv) {
     float2 lightmapOffset = float2(
         dot(i.lightmapTransform[0], worldOffset),
-        dot(i.lightmapTransform[1], worldOffset)) * g_LightmapSize;
+        dot(i.lightmapTransform[1], worldOffset)) * g_RcpLightmapSize;
     uv.detail   = ApplyDetailTransform(worldUVParallax);
     uv.lightmap = i.lightmapUV + lightmapOffset;
 

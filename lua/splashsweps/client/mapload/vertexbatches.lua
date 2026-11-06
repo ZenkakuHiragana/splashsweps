@@ -87,7 +87,7 @@ function VertexBatches.WriteMeshes(modelMeshes, vertexBatches, cache, placements
             local vertexIndices = surf.VertexIndices
 
             -- The values shared by the vertices of the surface.
-            local row1, row2 = placement.WorldToUVRow1, placement.WorldToUVRow2
+            local row1, row2 = placement.SurfaceToUVRow1, placement.SurfaceToUVRow2
             local row1x, row1y, row1z, row1w = row1[1] * scale, row1[2] * scale, row1[3] * scale, row1[4] * scale
             local row2x, row2y, row2z, row2w = row2[1] * scale, row2[2] * scale, row2[3] * scale, row2[4] * scale
             local range = placement.UVRange

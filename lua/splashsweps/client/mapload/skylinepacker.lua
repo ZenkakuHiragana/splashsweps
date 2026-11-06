@@ -20,17 +20,17 @@ SkylinePacker.__index = SkylinePacker
 ---@param firstX integer
 ---@param width  integer
 ---@return integer maxY
----@return integer maxYIndex
+---@return integer peakX
 local function GetMaxY(self, firstX, width)
     local maxY = -1
-    local maxYIndex = 0
+    local peakX = 0
     for x = firstX, firstX + width - 1 do
         if self.Wavefront[x + 1] >= maxY then
             maxY = self.Wavefront[x + 1]
-            maxYIndex = x
+            peakX = x
         end
     end
-    return maxY, maxYIndex
+    return maxY, peakX
 end
 
 ---Attempts to add a block to the image.
@@ -55,13 +55,13 @@ function SkylinePacker:AddBlock(width, height)
         if self.Wavefront[outerX + 1] == lastMaxYVal then
             outerX = outerX + 1
         else
-            local maxY, maxYIndex = GetMaxY(self, outerX, width)
+            local maxY, peakX = GetMaxY(self, outerX, width)
             lastMaxYVal = maxY
             if outerMinY > lastMaxYVal then
                 outerMinY = lastMaxYVal
                 bestX = outerX
             end
-            outerX = maxYIndex + 1
+            outerX = peakX + 1
         end
     end
 

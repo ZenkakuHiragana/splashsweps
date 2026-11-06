@@ -29,9 +29,9 @@ local InkMapLayout = ss.module "splashsweps/client/mapload/inkmaplayout"
 ---and the UV range is the rectangle without the bilinear guard along its edges.
 ---A rotated rectangle has (x, y) along (-V, U).
 ---@class ss.InkMapLayout.Placement
----@field WorldToUVRow1 number[] The first row of the transform from the world into the ink map in hammer units, which gives U.
----@field WorldToUVRow2 number[] The second row of the transform from the world into the ink map in hammer units, which gives V.
----@field UVRange       [number, number, number, number] (minU, minV, maxU, maxV) of the surface in the ink map, where the paints are drawn.
+---@field SurfaceToUVRow1 number[] The first row of the transform from the coordinates of the surface (ss.PaintableSurface) into the ink map in hammer units, which gives U.
+---@field SurfaceToUVRow2 number[] The second row of the transform from the coordinates of the surface (ss.PaintableSurface) into the ink map in hammer units, which gives V.
+---@field UVRange         [number, number, number, number] (minU, minV, maxU, maxV) of the surface in the ink map, where the paints are drawn.
 
 ---@class ss.InkMapLayoutModule.State
 ---@field Placements ss.InkMapLayout.Placement[] Indexed by ss.PaintableSurface.Index.
@@ -62,8 +62,8 @@ function InkMapLayout.Setup(surfaces, staticProps)
         local minU = offsetU * scale + guard
         local minV = offsetV * scale + guard
         state.Placements[index] = {
-            WorldToUVRow1 = row1,
-            WorldToUVRow2 = row2,
+            SurfaceToUVRow1 = row1,
+            SurfaceToUVRow2 = row2,
             UVRange = { minU, minV, minU + (width * scale - 2 * guard), minV + (height * scale - 2 * guard) },
         }
     end
@@ -96,45 +96,45 @@ function InkMapLayout.Setup(surfaces, staticProps)
         local isRotated = rectangle.IsRotated
         local modelUVOriginU = rectangle.OffsetU + (isRotated and rectangle.Width or 0)
         local modelUVOriginV = rectangle.OffsetV
-        for _, face in ipairs(box.Faces) do
+        for _, side in ipairs(box.Sides) do
             index = index + 1
 
             -- +-------------> v
             -- |\ <--- modelUVOrigin
             -- | +----> v'
-            -- | | \ <--- faceUVOrigin
+            -- | | \ <--- sideUVOrigin
             -- | V  @==> y, v" --+
             -- | u' |            |
             -- V    V------------+
             -- u    x, u"
             --
-            -- (x , y ) face local system converted from the world, the paintable grid
+            -- (x , y ) side local system converted from the world, the paintable grid
             -- (u , v ) absolute UV in the render target texture
             -- (u', v') model local UV from the rectangle of the prop
-            -- (u", v") face local UV
-            -- The cell of the face in the model local UV starts at the margin inside it.
-            local boxFace = face.BoxFace
-            local localU = (box.SizeX + 2 * margin) * boxFace.UVOffsetX
-                         + (box.SizeY + 2 * margin) * boxFace.UVOffsetY + margin
-            local localV = (box.SizeZ + 2 * margin) * boxFace.UVOffsetZ + margin
+            -- (u", v") side local UV
+            -- The cell of the side in the model local UV starts at the margin inside it.
+            local template = side.Template
+            local localU = (box.SizeX + 2 * margin) * template.UVOffsetX
+                         + (box.SizeY + 2 * margin) * template.UVOffsetY + margin
+            local localV = (box.SizeZ + 2 * margin) * template.UVOffsetZ + margin
             local grid   = PaintableSurface.Surfaces[index].ToGrid
-            local faceSizeU, faceSizeV, faceUVOriginU, faceUVOriginV ---@type number, number, number, number
+            local sideSizeU, sideSizeV, sideUVOriginU, sideUVOriginV ---@type number, number, number, number
             local row1, row2 ---@type number[], number[]
             if isRotated then -- (u, v) = (-v', u') from the model local UV origin
-                faceSizeU, faceSizeV = face.SizeY, face.SizeX
-                faceUVOriginU, faceUVOriginV = modelUVOriginU - localV, modelUVOriginV + localU
-                row1 = { -grid[5], -grid[6], -grid[7], -grid[8] + faceUVOriginU }
-                row2 = {  grid[1],  grid[2],  grid[3],  grid[4] + faceUVOriginV }
-                faceUVOriginU = faceUVOriginU - faceSizeU
+                sideSizeU, sideSizeV = side.SizeY, side.SizeX
+                sideUVOriginU, sideUVOriginV = modelUVOriginU - localV, modelUVOriginV + localU
+                row1 = { -grid[5], -grid[6], -grid[7], -grid[8] + sideUVOriginU }
+                row2 = {  grid[1],  grid[2],  grid[3],  grid[4] + sideUVOriginV }
+                sideUVOriginU = sideUVOriginU - sideSizeU
             else
-                faceSizeU, faceSizeV = face.SizeX, face.SizeY
-                faceUVOriginU, faceUVOriginV = modelUVOriginU + localU, modelUVOriginV + localV
-                row1 = { grid[1], grid[2], grid[3], grid[4] + faceUVOriginU }
-                row2 = { grid[5], grid[6], grid[7], grid[8] + faceUVOriginV }
+                sideSizeU, sideSizeV = side.SizeX, side.SizeY
+                sideUVOriginU, sideUVOriginV = modelUVOriginU + localU, modelUVOriginV + localV
+                row1 = { grid[1], grid[2], grid[3], grid[4] + sideUVOriginU }
+                row2 = { grid[5], grid[6], grid[7], grid[8] + sideUVOriginV }
             end
 
-            place(index, row1, row2, faceUVOriginU - margin, faceUVOriginV - margin,
-                faceSizeU + 2 * margin, faceSizeV + 2 * margin)
+            place(index, row1, row2, sideUVOriginU - margin, sideUVOriginV - margin,
+                sideSizeU + 2 * margin, sideSizeV + 2 * margin)
         end
     end
 end

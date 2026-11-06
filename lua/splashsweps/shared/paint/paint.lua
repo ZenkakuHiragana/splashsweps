@@ -214,7 +214,7 @@ local function WritePaintAndSend(inktype, shape, x, y, z, pitch, yaw, roll, radi
     net_WriteUInt(radiusX, ss.MAX_INK_RADIUS_BITS) -- Radius X
     net_WriteUInt(radiusY, ss.MAX_INK_RADIUS_BITS) -- Radius Y
     net_WriteUInt(radiusZ, ss.MAX_INK_RADIUS_BITS) -- Radius Z
-    net_SendOmit(ss.sp and NULL or GetPredictionPlayer())
+    net_SendOmit(game.SinglePlayer() and NULL or GetPredictionPlayer())
 end
 
 ---Paints the surfaces.

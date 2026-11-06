@@ -7,8 +7,8 @@
 local ss = SplashSWEPs
 if not ss then return end
 
-local ContactState = ss.import "splashsweps/shared/touch/contactstate"
-local InkContact   = ss.import "splashsweps/shared/touch/inkcontact"
+local ContactState = ss.import "splashsweps/shared/contact/contactstate"
+local InkContact   = ss.import "splashsweps/shared/contact/inkcontact"
 local InkType      = ss.import "splashsweps/shared/inktype"
 
 ---Seconds between the checks.
@@ -19,15 +19,15 @@ local CHECK_INTERVAL = 0.1
 ---and the contacts are those of the box around the reading point reaching the point of the collision.
 local HIT_REACH = 2
 
----@class ss.TouchEntityState
+---@class ss.EntityContactState
 ---@field Collisions     table<Entity, table<ss.IInkFeature, ss.InkContact[]>[]> Server only; the contacts of the collisions since the previous Think.
 ---@field LastCheckTime? number CurTime() of the previous check, or nil before the first one.
-local state = ss.state("splashsweps/shared/touch/entity", { Collisions = {} })
+local state = ss.state("splashsweps/shared/contact/entity", { Collisions = {} })
 
-hook.Add("Think", "SplashSWEPs: Check entities touching ink", function()
+hook.Add("Think", "SplashSWEPs: Check ink contacts of entities", function()
     if SERVER then
         for ent, collisions in pairs(state.Collisions) do
-            if IsValid(ent) and InkContact.ShouldTouch(ent) then
+            if IsValid(ent) and InkContact.ShouldCheck(ent) then
                 for _, groups in ipairs(collisions) do
                     ContactState.Enter(ent, groups)
                 end
@@ -43,7 +43,7 @@ hook.Add("Think", "SplashSWEPs: Check entities touching ink", function()
     state.LastCheckTime = now
 
     for _, ent in ents.Iterator() do
-        if (CLIENT and ent:IsDormant()) or not InkContact.ShouldTouch(ent) then
+        if (CLIENT and ent:IsDormant()) or not InkContact.ShouldCheck(ent) then
             ContactState.Stop(ent)
         else
             ContactState.Check(ent, InkContact.Find(ent, ent:WorldSpaceAABB()), now - last)
@@ -63,7 +63,7 @@ end)
 ---@param ent  Entity
 ---@param data Structure.CollisionData
 local function OnPhysicsCollide(ent, data)
-    if not InkContact.ShouldTouch(ent) then return end
+    if not InkContact.ShouldCheck(ent) then return end
 
     -- HitNormal points from the entity into what it hits.
     local center = data.HitPos - data.HitNormal * HIT_REACH

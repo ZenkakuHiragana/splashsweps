@@ -9,9 +9,9 @@ local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
 local SpatialIndex     = ss.import "splashsweps/shared/spatialindex"
 
 ---@class ss.InkContactModule
-local InkContact = ss.module "splashsweps/shared/touch/inkcontact"
+local InkContact = ss.module "splashsweps/shared/contact/inkcontact"
 
----A painted surface an entity touches.
+---A painted surface an entity is in contact with.
 ---The point is where the perpendicular from the center of the searched box meets the surface.
 ---@class ss.InkContact
 ---@field InkType  ss.InkType The ink type painted at the point.
@@ -22,14 +22,14 @@ local InkContact = ss.module "splashsweps/shared/touch/inkcontact"
 local MARGIN = 1
 
 ---Returns if an entity is a target of the checks of contacts with ink.
----The world never is. For the others, the hook `SplashSWEPs: ShouldTouchInk` returns true or false to decide,
+---The world never is. For the others, the hook `SplashSWEPs: ShouldCheckInkContact` returns true or false to decide,
 ---or nil to leave it to the default, which makes an entity a target if it is solid.
 ---The hook must return the same on the server and on the client predicting a player.
 ---@param ent Entity
 ---@return boolean
-function InkContact.ShouldTouch(ent)
+function InkContact.ShouldCheck(ent)
     if ent:IsWorld() then return false end
-    local result = hook.Run("SplashSWEPs: ShouldTouchInk", ent) ---@type boolean?
+    local result = hook.Run("SplashSWEPs: ShouldCheckInkContact", ent) ---@type boolean?
     if result ~= nil then return result end
     return ent:GetSolid() ~= SOLID_NONE and bit.band(ent:GetSolidFlags(), FSOLID_NOT_SOLID) == 0
 end

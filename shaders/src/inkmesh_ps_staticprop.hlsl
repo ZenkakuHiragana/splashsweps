@@ -55,13 +55,13 @@ static const float  g_PackedRotatedWidth = c1.y;  // Width of the packed rectang
 static const float  g_AlphaTestReference = c1.w;  // $basetexture alpha below this has no ink, 0 to draw everywhere
 static const float2 g_PackedOrigin       = c2.xy; // Origin of the packed rectangle in Hammer units
 static const float3 g_BoxSize            = c18.xyz;
-static const float  g_FaceMargin         = c18.w; // Margin of each face cell per side in Hammer units
+static const float  g_SideMargin         = c18.w; // Margin of each side cell on each edge, in Hammer units
 
-// Inset of the clip range of each face in ink map UV, as PaintableSurface.SetupStaticProps and the world ink mesh vertex shader do
+// Inset of the clip range of each side in ink map UV, as PaintableSurface.SetupStaticProps and the world ink mesh vertex shader do
 static const float RT_BILINEAR_GUARD_PIXELS = c0.x; // ss.RT_BILINEAR_GUARD_PIXELS
-static const float g_ClipGuard = 0.5 * RT_BILINEAR_GUARD_PIXELS * g_RTSize.x;
+static const float g_ClipGuard = 0.5 * RT_BILINEAR_GUARD_PIXELS * g_RcpRTSize.x;
 
-// World to the bounding box, whose origin is the minimum corner and whose axes are permuted to make the shortest side X
+// World to the bounding box, whose origin is the minimum corner and whose axes are permuted to make the shortest edge X
 static const float4 LocalTWorld[3] = { c15, c16, c17 };
 
 //  Leftover from VertexLitGeneric.
@@ -92,7 +92,7 @@ const float4 c25 : register(c25);
 static const float3 LightColors[4]    = { c20.rgb, c22.rgb, c24.rgb, float3(c20.w, c21.w, c22.w) };
 static const float3 LightPositions[4] = { c21.xyz, c23.xyz, c25.xyz, float3(c23.w, c24.w, c25.w) };
 
-// Cells of the six faces in the packed rectangle (not rotated). m = g_FaceMargin.
+// Cells of the six sides in the packed rectangle (not rotated). m = g_SideMargin.
 //            sz+2m   sx+2m
 //          +-------+-------+
 //   sx+2m  |   0   |       |
@@ -103,7 +103,7 @@ static const float3 LightPositions[4] = { c21.xyz, c23.xyz, c25.xyz, float3(c23.
 //          +-------+-------+
 //   sy+2m  |   3   |   5   |
 //          +-------+-------+
-// Selects the face of the bounding box from the mesh normal, and projects the position onto it.
+// Selects the side of the bounding box from the mesh normal, and projects the position onto it.
 void MapToInkMap(const float3 worldPos, const float3 worldNormal, inout PsVertexInfo v) {
     float3 localPos = {
         dot(float4(worldPos, 1.0), LocalTWorld[0]),
@@ -131,7 +131,7 @@ void MapToInkMap(const float3 worldPos, const float3 worldNormal, inout PsVertex
         cross(normals[2], tangents[2]), cross(normals[3], tangents[3]),
         cross(normals[4], tangents[4]), cross(normals[5], tangents[5]),
     };
-    const float3 faceOriginCoefficients[6] = {
+    const float3 sideOriginCoefficients[6] = {
         { 1, 1, 1 }, { 0, 1, 1 }, { 0, 1, 1 },
         { 0, 0, 1 }, { 1, 0, 1 }, { 0, 0, 0 },
     };
@@ -140,38 +140,38 @@ void MapToInkMap(const float3 worldPos, const float3 worldNormal, inout PsVertex
         { 1, 0, 0 }, { 0, 0, 0 }, { 1, 0, 1 },
     };
 
-    int faceIndex;
+    int sideIndex;
     if (maxAbsComponent == absLocalNormal.x) {
-        faceIndex = localNormal.x < 0 ? 3 : 0;
+        sideIndex = localNormal.x < 0 ? 3 : 0;
     } else if (maxAbsComponent == absLocalNormal.y) {
-        faceIndex = localNormal.y < 0 ? 4 : 1;
+        sideIndex = localNormal.y < 0 ? 4 : 1;
     } else {
-        faceIndex = localNormal.z < 0 ? 5 : 2;
+        sideIndex = localNormal.z < 0 ? 5 : 2;
     }
 
-    // Face UV, its world gradients, and the face size, in Hammer units
-    float3 tangent    = tangents[faceIndex];
-    float3 binormal   = binormals[faceIndex];
-    float3 faceOrigin = g_BoxSize * faceOriginCoefficients[faceIndex];
-    float2 faceUV     = { dot(localPos - faceOrigin, tangent), dot(localPos - faceOrigin, binormal) };
-    float2 faceSize   = { abs(dot(g_BoxSize, tangent)), abs(dot(g_BoxSize, binormal)) };
-    float3 faceGradU  = mul(tangent,  float3x3(LocalTWorld[0].xyz, LocalTWorld[1].xyz, LocalTWorld[2].xyz));
-    float3 faceGradV  = mul(binormal, float3x3(LocalTWorld[0].xyz, LocalTWorld[1].xyz, LocalTWorld[2].xyz));
+    // Side UV, its world gradients, and the side size, in Hammer units
+    float3 tangent    = tangents[sideIndex];
+    float3 binormal   = binormals[sideIndex];
+    float3 sideOrigin = g_BoxSize * sideOriginCoefficients[sideIndex];
+    float2 sideUV     = { dot(localPos - sideOrigin, tangent), dot(localPos - sideOrigin, binormal) };
+    float2 sideSize   = { abs(dot(g_BoxSize, tangent)), abs(dot(g_BoxSize, binormal)) };
+    float3 sideGradU  = mul(tangent,  float3x3(LocalTWorld[0].xyz, LocalTWorld[1].xyz, LocalTWorld[2].xyz));
+    float3 sideGradV  = mul(binormal, float3x3(LocalTWorld[0].xyz, LocalTWorld[1].xyz, LocalTWorld[2].xyz));
 
-    // Position of the face in the packed rectangle
-    float3 cellOffset   = (g_BoxSize + 2.0 * g_FaceMargin) * uvOffsetCoefficients[faceIndex];
-    float2 faceUVOrigin = float2(cellOffset.x + cellOffset.y, cellOffset.z) + g_FaceMargin;
-    float2 localUV      = faceUVOrigin + faceUV;
-    float2 localMin     = faceUVOrigin - g_FaceMargin;
-    float2 localMax     = faceUVOrigin + faceSize + g_FaceMargin;
+    // Position of the side in the packed rectangle
+    float3 cellOffset   = (g_BoxSize + 2.0 * g_SideMargin) * uvOffsetCoefficients[sideIndex];
+    float2 sideUVOrigin = float2(cellOffset.x + cellOffset.y, cellOffset.z) + g_SideMargin;
+    float2 localUV      = sideUVOrigin + sideUV;
+    float2 localMin     = sideUVOrigin - g_SideMargin;
+    float2 localMax     = sideUVOrigin + sideSize + g_SideMargin;
 
     // Packed rectangle to the ink map, where the rotated one maps (u, v) to (width - v, u)
     bool   isRotated = g_PackedRotatedWidth > 0.0;
     float2 packedUV  = isRotated ? float2(g_PackedRotatedWidth - localUV.y, localUV.x) : localUV;
     float2 packedMin = isRotated ? float2(g_PackedRotatedWidth - localMax.y, localMin.x) : localMin;
     float2 packedMax = isRotated ? float2(g_PackedRotatedWidth - localMin.y, localMax.x) : localMax;
-    float3 gradU     = isRotated ? -faceGradV : faceGradU;
-    float3 gradV     = isRotated ?  faceGradU : faceGradV;
+    float3 gradU     = isRotated ? -sideGradV : sideGradU;
+    float3 gradV     = isRotated ?  sideGradU : sideGradV;
 
     // U and V in the cache are V and U in the ink map, as PaintableSurface.Setup and the world ink mesh vertex shader do
     float uvPerHU  = rcp(g_InkMapHUPerUV);
@@ -188,13 +188,13 @@ PsVertexInfo DecomposeInput(const PS_INPUT i) {
     PsVertexInfo v;
     float3 worldPos    = i.worldPos_ClipW.xyz;
     float3 worldNormal = normalize(i.worldNormal_ClipZ.xyz);
-    v.screenUV = (i.screenPos.xy + float2(0.5, 0.5)) * g_FbSize;
+    v.screenUV = (i.screenPos.xy + float2(0.5, 0.5)) * g_RcpFbSize;
     v.worldPos = worldPos;
     v.clipZ    = i.worldNormal_ClipZ.w;
     v.clipW    = i.worldPos_ClipW.w;
     MapToInkMap(worldPos, worldNormal, v);
 
-    // Both faces read the same ink, as MapToInkMap selects the face of the bounding box by the mesh normal.
+    // Both faces read the same ink, as MapToInkMap selects the side of the bounding box by the mesh normal.
     // The back faces are shaded with the normal toward the viewer.
     worldNormal *= sign(i.face);
     v.inkTransform[2] = worldNormal;
@@ -206,7 +206,7 @@ PsVertexInfo DecomposeInput(const PS_INPUT i) {
     float3   gradU  = duvdx.x * dual[0] + duvdy.x * dual[1];
     float3   gradV  = duvdx.y * dual[0] + duvdy.y * dual[1];
     v.worldUV        = i.modelUV;
-    v.worldTransform = float3x3(gradU / g_UnderlayAlbedoSize.x, gradV / g_UnderlayAlbedoSize.y, worldNormal);
+    v.worldTransform = float3x3(gradU / g_RcpUnderlayAlbedoSize.x, gradV / g_RcpUnderlayAlbedoSize.y, worldNormal);
 
     v.lightAtten     = i.lightAtten;
     v.ambientCube[0] = i.ambientXPos;

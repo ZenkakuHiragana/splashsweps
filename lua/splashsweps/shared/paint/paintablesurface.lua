@@ -1,5 +1,5 @@
 
--- Paintable surfaces of the map: brush faces, displacements, and the faces of static prop bounding boxes.
+-- Paintable surfaces of the map: brush faces, displacements, and the sides of static prop bounding boxes.
 
 ---@class ss
 local ss = SplashSWEPs
@@ -33,7 +33,7 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field NormalY               number
 ---@field NormalZ               number
 ---@field Grid                  ss.PaintableGrid The paintable grid of this surface, which holds what ink is where.
----@field IsStaticPropFace      boolean?         True for a face of the bounding box of a static prop.
+---@field IsStaticPropSide      boolean?         True for a side of the bounding box of a static prop.
 ---@field TriangleHash          ss.MapCache.TriangleHash? Spatial hash to look up triangles of a displacement.
 ---@field Triangles             ss.PaintableSurface.DisplacementTriangle[]? Array of triangles of a displacement.
 ---@field PositionX             number[]? Positions of the vertices of a displacement, which its triangles refer to.
@@ -45,7 +45,7 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field ToGrid                number[] The transform of ss.GeometryModule to convert the coordinates of the surface into local coordinates of the paintable grid. This does not modify scales.
 ---The transform of ss.GeometryModule to convert the coordinates of the surface into local coordinates of the minimum bounding box,
 ---which is [0, MBBSizeX] x [0, MBBSizeY] x [0, MBBSizeZ] there.
----A flat surface shares ToGrid, and the faces of a static prop share the box of the prop.
+---A flat surface shares ToGrid, and the sides of a static prop share the box of the prop.
 ---@field ToMBB                 number[]
 ---@field MBBSizeX              number   The size of the minimum bounding box.
 ---@field MBBSizeY              number
@@ -82,8 +82,8 @@ local state = ss.state("splashsweps/shared/paint/paintablesurface", {
 })
 
 ---Paintable surfaces of the world and static props:
----the surfaces of the map cache in order, followed by the 6 faces of each static prop
----in the order of the faces of PaintableSurface.GetStaticPropBox.
+---the surfaces of the map cache in order, followed by the 6 sides of each static prop
+---in the order of the sides of PaintableSurface.GetStaticPropBox.
 PaintableSurface.Surfaces = state.Surfaces
 
 ---Paintable surfaces of brush entities, which are not registered to the spatial index of the world
@@ -228,19 +228,19 @@ function PaintableSurface.Setup(surfaces, numModels)
     end
 end
 
----A face of the bounding box of a static prop in the coordinates of the box,
+---A side of the bounding box of a static prop in the coordinates of the box,
 ---with the origin, the offset in the UV space, and the forward as described in PaintableSurface.GetStaticPropBox.
----@class ss.PaintableSurface.BoxFace
----@field NormalX   number The normal, which is the up of the face.
+---@class ss.PaintableSurface.BoxSideTemplate
+---@field NormalX   number The normal, which is the up of the side.
 ---@field NormalY   number
 ---@field NormalZ   number
----@field ForwardX  number The forward of the face.
+---@field ForwardX  number The forward of the side.
 ---@field ForwardY  number
 ---@field ForwardZ  number
----@field OriginX   number The origin of the face divided by the size of the box.
+---@field OriginX   number The origin of the side divided by the size of the box.
 ---@field OriginY   number
 ---@field OriginZ   number
----@field UVOffsetX number The offset of the face in the UV space, in the size of the box plus the margins.
+---@field UVOffsetX number The offset of the side in the UV space, in the size of the box plus the margins.
 ---@field UVOffsetY number
 ---@field UVOffsetZ number
 
@@ -248,8 +248,8 @@ end
 ---@param forward  number[]
 ---@param origin   number[]
 ---@param uvOffset number[]
----@return ss.PaintableSurface.BoxFace
-local function boxFace(normal, forward, origin, uvOffset)
+---@return ss.PaintableSurface.BoxSideTemplate
+local function boxSideTemplate(normal, forward, origin, uvOffset)
     return {
         NormalX   = normal[1],   NormalY   = normal[2],   NormalZ   = normal[3],
         ForwardX  = forward[1],  ForwardY  = forward[2],  ForwardZ  = forward[3],
@@ -258,14 +258,14 @@ local function boxFace(normal, forward, origin, uvOffset)
     }
 end
 
----The faces of the bounding box of a static prop, #1 to #6.
-local BOX_FACES = {
-    boxFace({  1,  0,  0 }, {  0, -1,  0 }, { 1, 1, 1 }, { 2, 1, 0 }),
-    boxFace({  0,  1,  0 }, {  1,  0,  0 }, { 0, 1, 1 }, { 1, 1, 0 }),
-    boxFace({  0,  0,  1 }, {  0, -1,  0 }, { 0, 1, 1 }, { 2, 1, 1 }),
-    boxFace({ -1,  0,  0 }, {  0,  1,  0 }, { 0, 0, 1 }, { 1, 0, 0 }),
-    boxFace({  0, -1,  0 }, { -1,  0,  0 }, { 1, 0, 1 }, { 0, 0, 0 }),
-    boxFace({  0,  0, -1 }, {  0,  1,  0 }, { 0, 0, 0 }, { 1, 0, 1 }),
+---The sides of the bounding box of a static prop, #1 to #6.
+local BOX_SIDES = {
+    boxSideTemplate({  1,  0,  0 }, {  0, -1,  0 }, { 1, 1, 1 }, { 2, 1, 0 }),
+    boxSideTemplate({  0,  1,  0 }, {  1,  0,  0 }, { 0, 1, 1 }, { 1, 1, 0 }),
+    boxSideTemplate({  0,  0,  1 }, {  0, -1,  0 }, { 0, 1, 1 }, { 2, 1, 1 }),
+    boxSideTemplate({ -1,  0,  0 }, {  0,  1,  0 }, { 0, 0, 1 }, { 1, 0, 0 }),
+    boxSideTemplate({  0, -1,  0 }, { -1,  0,  0 }, { 1, 0, 1 }, { 0, 0, 0 }),
+    boxSideTemplate({  0,  0, -1 }, {  0,  1,  0 }, { 0, 0, 0 }, { 1, 0, 1 }),
 }
 
 ---The rotation whose forward, left, and up are the Y, Z, and X axes, which swaps the axes of a box.
@@ -282,29 +282,29 @@ local AXES_ZXY = {
     1, 0, 0, 0,
 }
 
----A face of the bounding box of a static prop.
----@class ss.PaintableSurface.StaticPropFace
----@field BoxFace ss.PaintableSurface.BoxFace The orientation and the place in the UV space of the face.
----@field ToWorld number[] The transform from the face to the world, whose columns are the forward, the left, the normal, and the origin.
----@field SizeX   number   The size of the face along its forward.
----@field SizeY   number   The size of the face along its left.
+---A side of the bounding box of a static prop.
+---@class ss.PaintableSurface.StaticPropBoxSide
+---@field Template ss.PaintableSurface.BoxSideTemplate The orientation and the place in the UV space of the side.
+---@field ToWorld  number[] The transform from the side to the world, whose columns are the forward, the left, the normal, and the origin.
+---@field SizeX    number   The size of the side along its forward.
+---@field SizeY    number   The size of the side along its left.
 
----The bounding box of a static prop with its axes swapped so that its shortest side is X.
+---The bounding box of a static prop with its axes swapped so that its shortest edge is X.
 ---@class ss.PaintableSurface.StaticPropBox
 ---@field ToWorld number[] The transform from the box, whose origin is at the minimum of the bounds, to the world.
 ---@field SizeX   number
 ---@field SizeY   number
 ---@field SizeZ   number
----@field Faces   ss.PaintableSurface.StaticPropFace[] The faces #1 to #6.
+---@field Sides   ss.PaintableSurface.StaticPropBoxSide[] The sides #1 to #6.
 
----Returns the bounding box of a static prop and its faces,
+---Returns the bounding box of a static prop and its sides,
 ---which are paintable surfaces in the paintable grids and in the ink map.
 ---
 ---Each static prop has its own oriented bounding box (OBB).
----We project the vertices of the prop onto one of the surfaces of the OBB.
+---We project the vertices of the prop onto one of the sides of the OBB.
 ---Then, unwrap the OBB to the UV space.
 ---
----First, we set up a coordinate system on the surface
+---First, we set up a coordinate system on the side
 ---where its X axis will be the U coordinates in UV space
 ---and its Y axis will be the V coordinates.
 ---
@@ -324,7 +324,7 @@ local AXES_ZXY = {
 ---Let `X`, `Y`, and `Z` be the basis of the OBB
 ---and `S = (sx, sy, sz)` be the size of the OBB along each basis.
 ---
----- Orientation of the coordinate system for each surface (BOX_FACES):
+---- Orientation of the coordinate system for each side (BOX_SIDES):
 ---  - Normal = `{ X, Y, Z, -X, -Y, -Z }`
 ---  - Forward (Tangent) = the following replacement of the normal:
 ---    - `X` -> `-Y`
@@ -369,7 +369,7 @@ local AXES_ZXY = {
 ---```
 ---
 ---Unwrapped OBB in UV space is shown in this figure.
----+/- X,Y,Z indicates corresponding normal vectors of the OBB surfaces.
+---+/- X,Y,Z indicates corresponding normal vectors of the sides of the OBB.
 ---
 ---```text
 ---.      sz   sx
@@ -387,9 +387,9 @@ local AXES_ZXY = {
 ---.    u
 ---```
 ---
----Each cell above additionally has `m = ss.MARGIN_HAMMER_UNITS` on both sides like the other surfaces,
----so the cell of a face with `UVOffset = (a, b, c)` starts at
----`u = a * (sx + 2m) + b * (sy + 2m)` and `v = c * (sz + 2m)`, and its face starts at `m` inside the cell.
+---Each cell above additionally has `m = ss.MARGIN_HAMMER_UNITS` along each edge like the other surfaces,
+---so the cell of a side with `UVOffset = (a, b, c)` starts at
+---`u = a * (sx + 2m) + b * (sy + 2m)` and `v = c * (sz + 2m)`, and its side starts at `m` inside the cell.
 ---
 ---The area of total wasted space is `2 * sx * sx`, so if `sx` is not the shortest,
 ---We swap the basis of the OBB as follows:
@@ -415,28 +415,28 @@ function PaintableSurface.GetStaticPropBox(prop)
         sizeX, sizeY, sizeZ = sizeZ, sizeX, sizeY
     end
 
-    local faces = {} ---@type ss.PaintableSurface.StaticPropFace[]
-    for j, face in ipairs(BOX_FACES) do
-        local nx, ny, nz = face.NormalX, face.NormalY, face.NormalZ
-        local fx, fy, fz = face.ForwardX, face.ForwardY, face.ForwardZ
+    local sides = {} ---@type ss.PaintableSurface.StaticPropBoxSide[]
+    for j, template in ipairs(BOX_SIDES) do
+        local nx, ny, nz = template.NormalX, template.NormalY, template.NormalZ
+        local fx, fy, fz = template.ForwardX, template.ForwardY, template.ForwardZ
         local lx, ly, lz = Geometry.Cross(nx, ny, nz, fx, fy, fz)
-        local faceToBox = {
-            fx, lx, nx, face.OriginX * sizeX,
-            fy, ly, ny, face.OriginY * sizeY,
-            fz, lz, nz, face.OriginZ * sizeZ,
+        local sideToBox = {
+            fx, lx, nx, template.OriginX * sizeX,
+            fy, ly, ny, template.OriginY * sizeY,
+            fz, lz, nz, template.OriginZ * sizeZ,
         }
-        faces[j] = {
-            BoxFace = face,
-            ToWorld = Geometry.Multiply(boxToWorld, faceToBox),
-            SizeX   = math.abs(Geometry.Dot(sizeX, sizeY, sizeZ, fx, fy, fz)),
-            SizeY   = math.abs(Geometry.Dot(sizeX, sizeY, sizeZ, lx, ly, lz)),
+        sides[j] = {
+            Template = template,
+            ToWorld  = Geometry.Multiply(boxToWorld, sideToBox),
+            SizeX    = math.abs(Geometry.Dot(sizeX, sizeY, sizeZ, fx, fy, fz)),
+            SizeY    = math.abs(Geometry.Dot(sizeX, sizeY, sizeZ, lx, ly, lz)),
         }
     end
 
-    return { ToWorld = boxToWorld, SizeX = sizeX, SizeY = sizeY, SizeZ = sizeZ, Faces = faces }
+    return { ToWorld = boxToWorld, SizeX = sizeX, SizeY = sizeY, SizeZ = sizeZ, Sides = sides }
 end
 
----Creates the paintable surfaces of the faces of the bounding boxes of static props,
+---Creates the paintable surfaces of the sides of the bounding boxes of static props,
 ---after the surfaces PaintableSurface.Setup creates.
 ---@param staticPropInfo ss.MapCache.StaticProp[]?
 function PaintableSurface.SetupStaticProps(staticPropInfo)
@@ -446,17 +446,17 @@ function PaintableSurface.SetupStaticProps(staticPropInfo)
         local aabbMinX, aabbMinY, aabbMinZ, aabbMaxX, aabbMaxY, aabbMaxZ
             = Geometry.TransformAABB(box.ToWorld, 0, 0, 0, box.SizeX, box.SizeY, box.SizeZ)
         local worldToBox = Geometry.InvertRotationTranslation(box.ToWorld)
-        for _, face in ipairs(box.Faces) do
+        for _, side in ipairs(box.Sides) do
             index = index + 1
-            local faceToWorld = face.ToWorld
+            local sideToWorld = side.ToWorld
             local ps = newSurface(index,
-                math.ceil(face.SizeX / PaintableGrid.CELL_SIZE),
-                math.ceil(face.SizeY / PaintableGrid.CELL_SIZE),
-                Geometry.InvertRotationTranslation(faceToWorld))
+                math.ceil(side.SizeX / PaintableGrid.CELL_SIZE),
+                math.ceil(side.SizeY / PaintableGrid.CELL_SIZE),
+                Geometry.InvertRotationTranslation(sideToWorld))
             ps.AABBMinX, ps.AABBMinY, ps.AABBMinZ = aabbMinX, aabbMinY, aabbMinZ
             ps.AABBMaxX, ps.AABBMaxY, ps.AABBMaxZ = aabbMaxX, aabbMaxY, aabbMaxZ
-            ps.NormalX, ps.NormalY, ps.NormalZ = faceToWorld[3], faceToWorld[7], faceToWorld[11]
-            ps.IsStaticPropFace = true
+            ps.NormalX, ps.NormalY, ps.NormalZ = sideToWorld[3], sideToWorld[7], sideToWorld[11]
+            ps.IsStaticPropSide = true
             ps.ToMBB = worldToBox
             ps.MBBSizeX, ps.MBBSizeY, ps.MBBSizeZ = box.SizeX, box.SizeY, box.SizeZ
             state.Surfaces[index] = ps

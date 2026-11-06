@@ -5,7 +5,7 @@
 local ss = SplashSWEPs
 if not ss then return end
 
-local PredictedVars = ss.import "splashsweps/shared/touch/predictedvars"
+local PredictedVars = ss.import "splashsweps/shared/contact/predictedvars"
 
 -- This is called with shouldTransmit true when the client creates the entity,
 -- and after a full update, which unmarks the entity as predictable.

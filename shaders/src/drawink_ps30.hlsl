@@ -15,7 +15,7 @@ struct PS_INPUT {
     float4 surfaceClipRange     : TEXCOORD2;
     float4 typeRegionBandZScale : TEXCOORD3;
     float4 paintPlacement       : TEXCOORD4;
-    float2 shapeDistanceScale   : TEXCOORD5; // x: HU per shape mask alpha unit, y: Hammer units to UV
+    float2 shapeDistanceScale   : TEXCOORD5; // x: HU per shape texture alpha unit, y: Hammer units to UV
 };
 
 struct PS_OUTPUT {
@@ -40,11 +40,11 @@ struct InkMapDetailWrite {
     float  modeRotationUNorm;  // (5-bit paint angle * 8 + 3-bit mode) / 255.
 };
 
-// Shape mask contract:
-//   alpha = 0.5 + (signed distance to the edge in mask pixels, positive inside) / (mask width in pixels),
-// correct over the whole mask. Outside the shape, the mask keeps its own margin.
-// The server-side paint detection binarizes the masks at the same edge value.
-static const float SHAPE_MASK_EDGE = 0.5;
+// Shape texture contract:
+//   alpha = 0.5 + (signed distance to the edge in texture pixels, positive inside) / (texture width in pixels),
+// correct over the whole texture. Outside the shape, the texture keeps its own margin.
+// The server-side paint detection binarizes the same textures into ink shape masks at the same edge value.
+static const float SHAPE_TEXTURE_EDGE = 0.5;
 static const float eps = 5e-3;
 
 #define NODIG       (miscParam.w >= 0.5)              // w * 255 = 0bNHL0 0000
@@ -322,7 +322,7 @@ PS_OUTPUT main(const PS_INPUT raw) {
 
     // Signed distance to the shape edge, positive inside
     float shapeAlpha         = tex2D(TintTextureAtlas, i.i.shapeUVAndDetail.xy).a;
-    float edgeDistanceHU     = (shapeAlpha - SHAPE_MASK_EDGE) * i.i.shapeDistanceScale.x;
+    float edgeDistanceHU     = (shapeAlpha - SHAPE_TEXTURE_EDGE) * i.i.shapeDistanceScale.x;
     float edgeDistanceTexels = edgeDistanceHU * TEXELS_PER_HU;
     // The band quad keeps the texels outside the edge within one texel, and the others the inside.
     clip(isBand ? min(-edgeDistanceTexels, edgeDistanceTexels + 1.0) : edgeDistanceTexels);

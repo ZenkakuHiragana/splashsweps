@@ -20,7 +20,7 @@ local InkType = ss.module "splashsweps/shared/inktype"
 ---Called when this type of ink is about to be painted.
 ---Return true to suppress painting.
 ---@field OnPaint? fun(pos: Vector, normal: Vector, transform: VMatrix): boolean?
----Called for every command of each player, even if the player touches none of this ink.
+---Called for every command of each player, even if the player is in contact with none of this ink.
 ---Return true to suppress the engine movement.
 ---@field Move? fun(ply: Player, mv: CMoveData, contacts: ss.InkContact[], vars: table<string, any>?): boolean?
 ---Variables Move keeps across commands for each player, given as `vars`, by name and type of Entity:NetworkVar.
@@ -28,11 +28,11 @@ local InkType = ss.module "splashsweps/shared/inktype"
 ---Called in the PhysicsCollide callback of a physics object hitting this ink, with the contacts at the point,
 ---where the same limits as in the callback apply.
 ---@field PhysicsCollide? fun(ent: Entity, contacts: ss.InkContact[], data: Structure.CollisionData)
----Called when an entity starts touching this ink.
+---Called when an entity comes into contact with this ink.
 ---@field OnEnter? fun(ent: Entity, contacts: ss.InkContact[])
----Called at every check while an entity is touching this ink.
+---Called at every check while an entity is in contact with this ink.
 ---@field OnStay? fun(ent: Entity, contacts: ss.InkContact[], dt: number)
----Called once for each OnEnter while the entity is still valid, when it stops touching this ink.
+---Called once for each OnEnter while the entity is still valid, when it is no longer in contact with this ink.
 ---@field OnExit? fun(ent: Entity)
 
 ---A type of ink.

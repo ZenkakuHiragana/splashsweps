@@ -760,14 +760,14 @@ end
 ---            '''---> x   -v---+----+----+
 ---```
 ---
----Width and height of each surface:
+---Width and height of each side:
 ---
 ---* +z, -z: size.x, size.y
 ---* +x, -x: size.y, size.z
 ---* +y, -y: size.x, size.z
 ---
 ---There are three patterns of unpacking and the one with minimum wasted spaces is selected.
----Each face cell additionally has m = ss.MARGIN_HAMMER_UNITS on both sides.
+---Each side cell additionally has m = ss.MARGIN_HAMMER_UNITS along each edge.
 ---The figure below omits them, so the returned size has 8m in w (4 cells) and 4m in h (2 cells) in addition:
 ---
 ---```text
@@ -793,7 +793,7 @@ local function GetStaticPropUVSize(prop)
     local sx = prop.BoundsMaxX - prop.BoundsMinX
     local sy = prop.BoundsMaxY - prop.BoundsMinY
     local sz = prop.BoundsMaxZ - prop.BoundsMinZ
-    local margin = 2 * ss.MARGIN_HAMMER_UNITS -- Both sides of each face cell
+    local margin = 2 * ss.MARGIN_HAMMER_UNITS -- On both edges of each side cell
 
     -- Pattern 1
     local width1 = 2 * (sx + sy) + 4 * margin

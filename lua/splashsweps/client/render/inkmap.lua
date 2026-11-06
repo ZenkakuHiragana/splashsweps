@@ -118,8 +118,8 @@ local function AddQuad(q, region, band, quadIndex, numQuads, hammerUnitsToUV)
         mesh_TexCoord(2, unpack(q.Tint))
         mesh_TexCoord(3, unpack(q.Shape))
         mesh_TexCoord(4, unpack(placement.UVRange))
-        mesh_TexCoord(5, unpack(placement.WorldToUVRow1))
-        mesh_TexCoord(6, unpack(placement.WorldToUVRow2))
+        mesh_TexCoord(5, unpack(placement.SurfaceToUVRow1))
+        mesh_TexCoord(6, unpack(placement.SurfaceToUVRow2))
         mesh_AdvanceVertex()
     end
 

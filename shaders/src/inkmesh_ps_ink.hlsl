@@ -90,18 +90,18 @@ sampler UnderlayBumpmap : register(s4);
 // s5 and s6 are defined by the geometry part that uses them
 sampler Envmap          : register(s7);
 
-static const float   g_DetailGridColumns  = c1.x;   // Number of columns in the ink detail image grid
-static const float   g_InkMapHUPerUV      = c1.z;   // Packed-surface HU per ink UV: 2 / HammerUnitsToUV
-static const float3  g_Color              = c3.rgb;
-static const float2  g_RTSize             = s0Size; // One over ink map size
-static const float2  g_FbSize             = s2Size * float2(1.0, 2.0); // One over frame buffer size
-static const float2  g_UnderlayAlbedoSize = s3Size; // One over $basetexture size
-static const float3  BaseTransform[2]     = { c11.xyz, c12.xyz };
-static const float3  BumpTransform[2]     = { c13.xyz, c14.xyz };
-static const float   g_TonemapScale       = HDRParams.x;
-static const float   g_LightmapScale      = HDRParams.y;
-static const float   g_EnvmapScale        = HDRParams.z;
-static const float   g_GammaScale         = HDRParams.w; // = TonemapScale ^ (1 / 2.2)
+static const float   g_DetailGridColumns     = c1.x;   // Number of columns in the ink detail image grid
+static const float   g_InkMapHUPerUV         = c1.z;   // Packed-surface HU per ink UV: 2 / HammerUnitsToUV
+static const float3  g_Color                 = c3.rgb;
+static const float2  g_RcpRTSize             = s0RcpSize; // One over ink map size
+static const float2  g_RcpFbSize             = s2RcpSize * float2(1.0, 2.0); // One over frame buffer size
+static const float2  g_RcpUnderlayAlbedoSize = s3RcpSize; // One over $basetexture size
+static const float3  BaseTransform[2]        = { c11.xyz, c12.xyz };
+static const float3  BumpTransform[2]        = { c13.xyz, c14.xyz };
+static const float   g_TonemapScale          = HDRParams.x;
+static const float   g_LightmapScale         = HDRParams.y;
+static const float   g_EnvmapScale           = HDRParams.z;
+static const float   g_GammaScale            = HDRParams.w; // = TonemapScale ^ (1 / 2.2)
 
 // Blinn-Phong specular calculation
 float CalcBlinnPhongSpec(float3 normal, float3 lightDir, float3 viewDir, float exponent) {
@@ -132,7 +132,7 @@ float3 CalcThinFilmInterference(float3 normal, float3 viewDirection, float thick
 //     U(x, y) = (uvOverW + d(uvOverW)/dx * x + d(uvOverW)/dy * y)
 //             / (invW    + d(invW)   /dx * x + d(invW)   /dy * y)
 // Solving U(x, y) = targetUV gives a 2D linear system for x and y.
-// The returned offset is in screen pixels; callers multiply by g_FbSize
+// The returned offset is in screen pixels; callers multiply by g_RcpFbSize
 // to convert it to normalized framebuffer UVs.
 float2 ProjectiveUVToScreenOffset(float2 uv, float2 targetUV, float clipW) {
     float  invW      = rcp(max(clipW, 1.0e-12));
@@ -193,7 +193,7 @@ float3 FetchRegionColor(const InkRegionSelection s, float2 uv, float2 regionOffs
         color = tex2Dlod(InkMap, float4(uv + regionOffset, 0.0, 0.0)).rgb;
     }
     else {
-        float2 texelOffsets[4] = { float2(0.0, 0.0), float2(g_RTSize.x, 0.0), float2(0.0, g_RTSize.y), g_RTSize };
+        float2 texelOffsets[4] = { float2(0.0, 0.0), float2(g_RcpRTSize.x, 0.0), float2(0.0, g_RcpRTSize.y), g_RcpRTSize };
         [unroll]
         for (int k = 0; k < 4; k++) {
             float4 t = tex2Dlod(InkMap, float4(s.cornerUV + texelOffsets[k] + regionOffset, 0.0, 0.0));
@@ -231,7 +231,7 @@ void FetchInkMaterialParams(float3 IDs, inout MaterialParams params) {
 // on the flashlight light of the world ink meshes (lower half).
 // The frame buffer is read with bilinear filtering, so its v stops half a texel before the lower half.
 float4 SampleScene(float2 screenUV) {
-    return tex2Dlod(FrameBuffer, float4(screenUV.x, min(screenUV.y * 0.5, 0.5 - s2Size.y * 0.5), 0.0, 0.0));
+    return tex2Dlod(FrameBuffer, float4(screenUV.x, min(screenUV.y * 0.5, 0.5 - s2RcpSize.y * 0.5), 0.0, 0.0));
 }
 
 // Selects the region of the ink map at the sample point.
@@ -239,11 +239,11 @@ float4 SampleScene(float2 screenUV) {
 // for its own region, and the region with the most votes wins. Between two regions, this is the sign of
 // the interpolated signed distance, so the boundary passes between the texel centers.
 InkRegionSelection SelectInkRegion(float2 inkUV) {
-    float2 texelPos = inkUV / g_RTSize - 0.5;
+    float2 texelPos = inkUV / g_RcpRTSize - 0.5;
     float2 base     = floor(texelPos);
     float2 f        = texelPos - base;
-    float2 uv00     = (base + 0.5) * g_RTSize;
-    float2 tapUV[4] = { uv00, uv00 + float2(g_RTSize.x, 0.0), uv00 + float2(0.0, g_RTSize.y), uv00 + g_RTSize };
+    float2 uv00     = (base + 0.5) * g_RcpRTSize;
+    float2 tapUV[4] = { uv00, uv00 + float2(g_RcpRTSize.x, 0.0), uv00 + float2(0.0, g_RcpRTSize.y), uv00 + g_RcpRTSize };
     float4 weights  = float4((1.0 - f.x) * (1.0 - f.y), f.x * (1.0 - f.y), (1.0 - f.x) * f.y, f.x * f.y);
     float4 taps[4];
     float4 regions, votes;

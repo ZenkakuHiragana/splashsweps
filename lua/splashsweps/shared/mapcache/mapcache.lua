@@ -76,7 +76,7 @@ local function record(name, fields, defaults, R)
     return R
 end
 
----Placement of a rectangle in the ink map, which has a surface or the faces of a static prop.
+---Placement of a rectangle in the ink map, which has a surface or the sides of a static prop.
 ---Values are in hammer units, which ss.MapCache.HammerUnitsToUV converts into UV coordinates.
 ---```text
 ---. +-----------------------------> v
@@ -130,8 +130,8 @@ MapCache.InkMapRectangle = record("MapCache.InkMapRectangle", {
 ---@field PositionZ    number
 ---@field Scale        number  The model scale of this prop.
 ---@field Skin         integer The skin of this prop.
----@field ShortestAxis integer The axis of the shortest side of the bounding box, 1 to 3 for X, Y, and Z. See GetStaticPropUVSize.
----@field InkMapRectangle ss.MapCache.InkMapRectangle Where the unwrapped faces of the bounding box are in the ink map.
+---@field ShortestAxis integer The axis of the shortest edge of the bounding box, 1 to 3 for X, Y, and Z. See GetStaticPropUVSize.
+---@field InkMapRectangle ss.MapCache.InkMapRectangle Where the unwrapped sides of the bounding box are in the ink map.
 ---@field Envmap       string  The cubemap texture the engine uses for this prop, `maps/<map>/cX_Y_Z` without ".hdr", or "" if the map has no cubemaps.
 
 ---@type { new: fun(): ss.MapCache.StaticProp }

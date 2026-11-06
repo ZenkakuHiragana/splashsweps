@@ -267,7 +267,7 @@ local RESOURCE_ENTRY_SIZE = 3 + 1 + 4
 ---@field Buffer string
 
 ---Reads a pixel located at x, y for given mipmap level.
----@param vtf ss.VTF.ImageStack
+---@param vtf ss.VTF.MipmapChain
 ---@param x integer
 ---@param y integer
 ---@param mipmapLevel integer?
@@ -365,7 +365,7 @@ function VTF.ReadPixel(vtf, x, y, mipmapLevel)
 end
 
 ---Texture data that holds all mipmaps.
----@class ss.VTF.ImageStack
+---@class ss.VTF.MipmapChain
 ---@field ImageFormat string
 ---@field Images ss.VTF.Image[]
 
@@ -456,7 +456,7 @@ end
 
 ---Reads VTF file.
 ---@param path string The path to VTF relative to materials/ folder without extension.
----@return ss.VTF.ImageStack?
+---@return ss.VTF.MipmapChain?
 function VTF.Read(path)
     if not path:EndsWith ".vtf" then path = path .. ".vtf" end
     -- Reading values past the end of the data is an error,
@@ -486,12 +486,12 @@ function VTF.Read(path)
     local maxHeight = header.height
     local maxMipmapLevel = header.mipmapCount
     local mipmapOffset = 1
-    ---@type ss.VTF.ImageStack
-    local imageStack = { ImageFormat = IMAGE_FORMATS[format], Images = {} }
+    ---@type ss.VTF.MipmapChain
+    local mipmapChain = { ImageFormat = IMAGE_FORMATS[format], Images = {} }
     for mipmapLevel = maxMipmapLevel, 1, -1 do
         local width, height = getMipmapDimensions(maxWidth, maxHeight, mipmapLevel)
         local size = getImageSize(width, height, format)
-        imageStack.Images[mipmapLevel] = {
+        mipmapChain.Images[mipmapLevel] = {
             Width = width,
             Height = height,
             Buffer = buffer:sub(mipmapOffset, mipmapOffset + size - 1),
@@ -499,7 +499,7 @@ function VTF.Read(path)
         mipmapOffset = mipmapOffset + size
     end
 
-    return imageStack
+    return mipmapChain
 end
 
 return VTF

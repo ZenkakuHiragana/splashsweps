@@ -4,11 +4,6 @@
 ---@class ss
 local ss = SplashSWEPs
 if not ss then return end
-if not ss.Locals then
-    ---Various temporary tables used in limited files.
-    ---@class ss.Locals
-    ss.Locals = {}
-end
 
 ---Number of bits to transfer ink drop radius.
 ss.MAX_INK_RADIUS_BITS = 8
@@ -22,9 +17,6 @@ ss.RT_BILINEAR_GUARD_PIXELS = 1
 ---Version of generated map cache files.
 ss.CACHE_VERSION = 9
 
----Indicates if this game is a single player game.
-ss.sp = game.SinglePlayer()
-
 include "splashsweps/shared/import.lua"
-include "splashsweps/shared/touch/player.lua"
-include "splashsweps/shared/touch/entity.lua"
+include "splashsweps/shared/contact/player.lua"
+include "splashsweps/shared/contact/entity.lua"

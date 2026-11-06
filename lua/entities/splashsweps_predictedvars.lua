@@ -1,6 +1,6 @@
 
 -- The entity having the predicted variables of a group of ink feature modules for a player, its owner.
--- touch/predictedvars.lua decides the groups, and reads and writes the variables in the other slots.
+-- contact/predictedvars.lua decides the groups, and reads and writes the variables in the other slots.
 
 AddCSLuaFile()
 
@@ -8,9 +8,9 @@ AddCSLuaFile()
 local ss = SplashSWEPs
 if not ss then return end
 
-local PredictedVars = ss.import "splashsweps/shared/touch/predictedvars"
+local PredictedVars = ss.import "splashsweps/shared/contact/predictedvars"
 
----@class ss.PredictedVarsEntity : Structure.ENT, Entity
+---@class ss.PredictedVars.Entity : Structure.ENT, Entity
 ---@field GetGroup fun(self): integer
 ---@field SetGroup fun(self, group: integer)
 ---@diagnostic disable-next-line: deprecated

@@ -9,21 +9,20 @@
 local ss = SplashSWEPs
 if not ss then return end
 
-local locals = ss.Locals ---@class ss.Locals
-if not locals.Import then
+if not ss.Loader then
     ---State of the module loader, kept across hot reloads.
-    ---@class ss.Locals.Import
+    ---@class ss.Loader
     ---@field Exports table<string, table> Module name --> table the module file returned.
     ---@field Tables  table<string, table> Module name --> table given by ss.module, reused on hot reload.
     ---@field States  table<string, table> Module name --> table given by ss.state, reused on hot reload.
-    locals.Import = {
+    ss.Loader = {
         Exports = {},
         Tables = {},
         States = {},
     }
 end
 
-local Import = locals.Import
+local Loader = ss.Loader
 
 ---Loads a module and returns the table its file returned, which is `ss.module(name)`.
 ---The file `lua/<name>.lua` is executed only on the first import in this Lua state.
@@ -36,10 +35,10 @@ local Import = locals.Import
 ---@param name string Module name such as "splashsweps/shared/util".
 ---@return table
 function ss.import(name)
-    local exports = Import.Exports[name]
+    local exports = Loader.Exports[name]
     if exports == nil then
         exports = include(name .. ".lua")
-        Import.Exports[name] = exports
+        Loader.Exports[name] = exports
     end
 
     return exports
@@ -51,10 +50,10 @@ end
 ---@param name string Module name of the calling file, same as the one passed to ss.import.
 ---@return table
 function ss.module(name)
-    local t = Import.Tables[name]
+    local t = Loader.Tables[name]
     if not t then
         t = {}
-        Import.Tables[name] = t
+        Loader.Tables[name] = t
     end
 
     return t
@@ -72,10 +71,10 @@ end
 ---@param initial T The initial state.
 ---@return T
 function ss.state(name, initial)
-    local t = Import.States[name]
+    local t = Loader.States[name]
     if not t then
         t = initial
-        Import.States[name] = t
+        Loader.States[name] = t
     end
 
     return t

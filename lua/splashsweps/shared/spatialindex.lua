@@ -54,7 +54,7 @@ end
 ---@param s ss.PaintableSurface
 ---@return number minX, number minY, number minZ, number maxX, number maxY, number maxZ
 local function gridAABB(s)
-    local m = s.IsStaticPropFace and ss.MARGIN_HAMMER_UNITS or 0
+    local m = s.IsStaticPropSide and ss.MARGIN_HAMMER_UNITS or 0
     return s.AABBMinX - m, s.AABBMinY - m, s.AABBMinZ - m, s.AABBMaxX + m, s.AABBMaxY + m, s.AABBMaxZ + m
 end
 
@@ -105,8 +105,8 @@ end
 ---from PaintableSurface.Surfaces, which PaintableSurface.Setup and PaintableSurface.SetupStaticProps make first.
 ---
 ---The grid has levels whose cells are 128, 256, ..., 32768 hammer units long.
----A surface is in the cells of the level whose cells are at least half as long as the longest side of its AABB,
----so that it is in 27 cells at most. A static prop is in the grid once as the box of its 6 faces.
+---A surface is in the cells of the level whose cells are at least half as long as the longest edge of its AABB,
+---so that it is in 27 cells at most. A static prop is in the grid once as the box of its 6 sides.
 ---@param parameters ss.MapCache.HashParameters
 function SpatialIndex.Setup(parameters)
     state.Parameters = parameters
@@ -141,8 +141,8 @@ function SpatialIndex.Setup(parameters)
             end
         end
 
-        -- The 6 faces of a static prop are next to each other, and the grid has the first one.
-        i = i + (s.IsStaticPropFace and 6 or 1)
+        -- The 6 sides of a static prop are next to each other, and the grid has the first one.
+        i = i + (s.IsStaticPropSide and 6 or 1)
     end
 
     state.Levels = {}
@@ -236,8 +236,8 @@ function SpatialIndex.CollectSurfaces(minX, minY, minZ, maxX, maxY, maxZ, upX, u
     local cx, cy, cz, hx, hy, hz = queryBox(minX, minY, minZ, maxX, maxY, maxZ)
     for _, i in ipairs(surfacesNear(cx - hx, cy - hy, cz - hz, cx + hx, cy + hy, cz + hz)) do
         local s = surfaces[i]
-        if s.IsStaticPropFace then
-            -- The 6 faces of a static prop share the box.
+        if s.IsStaticPropSide then
+            -- The 6 sides of a static prop share the box.
             if isIntersecting(s, cx, cy, cz, hx, hy, hz) then
                 for k = i, i + 5 do
                     if isFacing(surfaces[k], upX, upY, upZ, minCos) then

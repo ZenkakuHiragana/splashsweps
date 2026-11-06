@@ -16,7 +16,7 @@ local ss = SplashSWEPs
 local InkType = ss.import "splashsweps/shared/inktype"
 
 ---@class ss.PredictedVarsModule
-local PredictedVars = ss.module "splashsweps/shared/touch/predictedvars"
+local PredictedVars = ss.module "splashsweps/shared/contact/predictedvars"
 
 ---The class of the entities, defined in lua/entities.
 PredictedVars.CLASS_NAME = "splashsweps_predictedvars"
@@ -51,9 +51,9 @@ local TYPES = {
 ---@class ss.PredictedVarsModule.State
 ---@field Layouts   table<ss.IInkFeature, ss.PredictedVars.Layout> Module --> where its variables are.
 ---@field NumGroups integer
----@field Entities  table<Player, table<integer, ss.PredictedVarsEntity>> Player --> group --> the entity.
+---@field Entities  table<Player, table<integer, ss.PredictedVars.Entity>> Player --> group --> the entity.
 ---@field Vars      table<Player, table<ss.IInkFeature, table<string, any>>> Player --> module --> the table given to it.
-local state = ss.state("splashsweps/shared/touch/predictedvars", {
+local state = ss.state("splashsweps/shared/contact/predictedvars", {
     Layouts = {},
     NumGroups = 0,
     Entities = {},
@@ -173,7 +173,7 @@ function PredictedVars.Get(ply, feature)
 end
 
 ---Starts using an entity for its owner. The entity calls this when it initializes.
----@param ent ss.PredictedVarsEntity
+---@param ent ss.PredictedVars.Entity
 function PredictedVars.Add(ent)
     local owner = ent:GetOwner() --[[@as Player]]
     state.Entities[owner] = state.Entities[owner] or {}
@@ -183,7 +183,7 @@ end
 
 ---Stops using an entity. The entity calls this when it is removed.
 ---The owner is found by the entity, as it can be invalid already when the player has left.
----@param ent ss.PredictedVarsEntity
+---@param ent ss.PredictedVars.Entity
 function PredictedVars.Remove(ent)
     local group = ent:GetGroup()
     for ply, entities in pairs(state.Entities) do

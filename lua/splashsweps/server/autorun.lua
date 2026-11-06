@@ -16,7 +16,7 @@ local InkShape         = ss.import "splashsweps/shared/inkshape"
 local InkType          = ss.import "splashsweps/shared/inktype"
 local Paint            = ss.import "splashsweps/shared/paint/paint"
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
-local PredictedVars    = ss.import "splashsweps/shared/touch/predictedvars"
+local PredictedVars    = ss.import "splashsweps/shared/contact/predictedvars"
 local SpatialIndex     = ss.import "splashsweps/shared/spatialindex"
 
 local function LoadCache()

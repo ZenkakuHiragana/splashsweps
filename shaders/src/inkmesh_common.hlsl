@@ -82,10 +82,10 @@ const float4 c0        : register(c0);
 const float4 c1        : register(c1);
 const float4 c2        : register(c2);
 const float4 c3        : register(c3);
-const float2 s0Size    : register(c4);
-const float2 s1Size    : register(c5);
-const float2 s2Size    : register(c6);
-const float2 s3Size    : register(c7);
+const float2 s0RcpSize : register(c4);
+const float2 s1RcpSize : register(c5);
+const float2 s2RcpSize : register(c6);
+const float2 s3RcpSize : register(c7);
 const float4 c8        : register(c8);
 const float4 c9        : register(c9);
 const float4 g_EyePos  : register(c10); // xyz: eye position
@@ -99,7 +99,7 @@ const float4 c17       : register(c17);
 const float4 c18       : register(c18);
 const float4 HDRParams : register(c30);
 
-static const float2 g_DataRTSize     = s1Size.xy;
+static const float2 g_RcpDataRTSize  = s1RcpSize.xy;
 static const float  g_InkDataOffsetV = c3.w;
 float4 FetchDataPixel(sampler s, int id, int index) {
     if (id == 0) {
@@ -107,8 +107,8 @@ float4 FetchDataPixel(sampler s, int id, int index) {
     }
     else {
         return tex2Dlod(s, float4(
-            (id    - 0.5) * g_DataRTSize.x,
-            (index + g_InkDataOffsetV + 0.5) * g_DataRTSize.y,
+            (id    - 0.5) * g_RcpDataRTSize.x,
+            (index + g_InkDataOffsetV + 0.5) * g_RcpDataRTSize.y,
             0.0,
             0.0));
     }

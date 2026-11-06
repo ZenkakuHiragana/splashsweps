@@ -5,11 +5,11 @@
 local ss = SplashSWEPs
 if not ss then return end
 
-local PredictedVars = ss.import "splashsweps/shared/touch/predictedvars"
+local PredictedVars = ss.import "splashsweps/shared/contact/predictedvars"
 
 hook.Add("SplashSWEPs: PlayerInitialSpawn", "SplashSWEPs: Create predicted variables", function(ply)
     for group = 1, PredictedVars.GetNumGroups() do
-        local ent = ents.Create(PredictedVars.CLASS_NAME) --[[@as ss.PredictedVarsEntity]]
+        local ent = ents.Create(PredictedVars.CLASS_NAME) --[[@as ss.PredictedVars.Entity]]
         ent:SetOwner(ply)
         ent:SetGroup(group)
         ent:Spawn()

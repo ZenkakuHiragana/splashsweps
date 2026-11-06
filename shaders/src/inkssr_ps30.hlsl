@@ -19,19 +19,19 @@ static const float RAY_SPAN_SCALE    = 0.25; // Scale factor for jumping depth b
 static const float ROUGHNESS_SCALE   = 4.0;  // Scale factor for roughness
 static const float REFLECTION_SPREAD = 0.25; // Tangent of the reflection cone half-angle at roughness = 100%
 
-static const float2 g_FbSize      = s0Size * float2(1.0, 2.0); // One over frame buffer size
-static const float2 g_RenderSize  = g_FbSize * 2.0;    // RT size = always 0.5x resolution of the frame buffer
-static const float2 g_RenderPx    = rcp(g_RenderSize); // Render target resolution in px
-static const float3 g_ViewRight   = c11.xyz;
-static const float3 g_ViewUp      = c12.xyz;
-static const float3 g_ViewForward = c13.xyz;
-static const float3 g_ViewOrigin  = c14.xyz;
+static const float2 g_RcpFbSize     = s0RcpSize * float2(1.0, 2.0); // One over frame buffer size
+static const float2 g_RcpRenderSize = g_RcpFbSize * 2.0;    // One over RT size (always 0.5x resolution of the frame buffer)
+static const float2 g_RenderPx      = rcp(g_RcpRenderSize); // Render target resolution in px
+static const float3 g_ViewRight     = c11.xyz;
+static const float3 g_ViewUp        = c12.xyz;
+static const float3 g_ViewForward   = c13.xyz;
+static const float3 g_ViewOrigin    = c14.xyz;
 
 // SceneAndFlashlight stacks the frame buffer copy with the view depth in alpha (upper half)
 // on the flashlight light of the ink meshes (lower half).
 // The frame buffer is read with bilinear filtering, so its v stops half a texel before the lower half.
 float4 SampleScene(float2 screenUV) {
-    return tex2Dlod(SceneAndFlashlight, float4(screenUV.x, min(screenUV.y * 0.5, 0.5 - s0Size.y * 0.5), 0.0, 0.0));
+    return tex2Dlod(SceneAndFlashlight, float4(screenUV.x, min(screenUV.y * 0.5, 0.5 - s0RcpSize.y * 0.5), 0.0, 0.0));
 }
 
 float3 ReconstructWorldPosition(float2 uv, float viewDepth) {
@@ -41,7 +41,7 @@ float3 ReconstructWorldPosition(float2 uv, float viewDepth) {
 
 // Height of one frame buffer pixel in Hammer units at the given view depth
 float PixelSizeHU(float depth) {
-    return 2.0 * depth * TAN_HALF_FOV * g_FbSize.y;
+    return 2.0 * depth * TAN_HALF_FOV * g_RcpFbSize.y;
 }
 
 float ComputeSSRThickness(float depth, float rayDepthSpan, float roughness) {
@@ -198,7 +198,7 @@ float4 SampleScreenSpaceReflection(
     float  tQ            = lerp((1.0e-6 - rayStartUVQ.z) * SAFERCP(rayDirectionUVQ.z), 1.0e20, qLimitInvalid);
     float  tExit         = min(min(tEdges.x, tEdges.y), tQ);
     float3 rayEndUVQ     = rayStartUVQ + rayDirectionUVQ * tExit;
-    float  rayLengthPx   = distance(rayStartUVQ.xy / g_FbSize, rayEndUVQ.xy / g_FbSize);
+    float  rayLengthPx   = distance(rayStartUVQ.xy / g_RcpFbSize, rayEndUVQ.xy / g_RcpFbSize);
     float  numSteps      = clamp(ceil(rayLengthPx * STEP_PIXEL_RCP), 1.0, MAX_STEPS);
 
     // March state. 'sceneSample' is always the scene sample at 'uvq'; every
@@ -274,7 +274,7 @@ float4 SampleScreenSpaceReflection(
 }
 
 float4 main(float4 i : VPOS) : COLOR0 {
-    float4 uv = { (i.xy + float2(0.5, 0.5)) * g_RenderSize, 0.0, 0.0 };
+    float4 uv = { (i.xy + float2(0.5, 0.5)) * g_RcpRenderSize, 0.0, 0.0 };
     float4 surface = tex2Dlod(GBufInkColor, uv);
     if (surface.a < 0.5) return 0.0;
 

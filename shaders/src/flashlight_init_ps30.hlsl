@@ -12,7 +12,7 @@ struct PS_OUTPUT {
 };
 
 PS_OUTPUT main(float2 uv : TEXCOORD0) {
-    uv += s0Size * 0.5;
+    uv += s0RcpSize * 0.5;
     float viewDepthHU = tex2D(DepthBuffer, uv).r * DEPTHWRITE_TO_HU;
 
     // Pushes the depth back by the tolerance the ink mesh pixel shaders use to compare with the scene depth,
