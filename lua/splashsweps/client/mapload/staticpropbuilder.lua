@@ -3,7 +3,9 @@
 
 ---@class ss
 local ss = SplashSWEPs
+local Geometry           = ss.import "splashsweps/shared/geometry"
 local InkDetailAtlas     = ss.import "splashsweps/client/ink/inkdetailatlas"
+local PaintableSurface   = ss.import "splashsweps/shared/paint/paintablesurface"
 local RenderTargets      = ss.import "splashsweps/client/render/rendertargets"
 local StaticPropRenderer = ss.import "splashsweps/client/render/staticproprenderer"
 local UnderlaySync       = ss.import "splashsweps/client/render/underlaysync"
@@ -69,6 +71,7 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, cubemaps)
     local identity = Matrix()
     local matKeyValues = templateMaterial:GetKeyValues() ---@type table<string, string|number>
     local transforms = Matrix()
+    local worldToBox = Matrix()
     matKeyValues["$flags"] = nil
     matKeyValues["$flags2"] = nil
     matKeyValues["$flags_defined"] = nil
@@ -80,17 +83,6 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, cubemaps)
     matKeyValues["$linearread_texture7"] = render.GetHDREnabled() and "1" or "0"
     matKeyValues["$c0_x"] = ss.RT_BILINEAR_GUARD_PIXELS
     matKeyValues["$c1_z"] = 2 / RenderTargets.GetHammerUnitsToUV() -- InkMap region UV -> packed-surface HU.
-
-    -- Matrix(X, Y, Z) * xyzTyzx = (Y, Z, X)
-    local xyzTyzx = Matrix {
-        { 0, 0, 1, 0 },
-        { 1, 0, 0, 0 },
-        { 0, 1, 0, 0 },
-        { 0, 0, 0, 1 },
-    }
-    -- xyzTzxy = xyzTyzx * xyzTyzx
-    -- xyzTzxy * Vector(X, Y, Z) = (Y, Z, X)
-    local xyzTzxy = xyzTyzx:GetTransposed()
     for i, prop in ipairs(staticPropInfo or {}) do
         local uv = prop.InkMapRectangle
         local modelName = modelNames[prop.ModelIndex]
@@ -110,28 +102,17 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, cubemaps)
                 local mins, maxs = mdl:GetModelBounds()
                 mdl.FadeMaxSqr = fadeMax and (fadeMax * fadeMax)
                 mdl.ModelLengthSqr = mins:DistToSqr(maxs)
-                local boundsMin = Vector(prop.BoundsMinX, prop.BoundsMinY, prop.BoundsMinZ)
-                local size = Vector(prop.BoundsMaxX, prop.BoundsMaxY, prop.BoundsMaxZ) - boundsMin
-                local localTworld = mdl:GetWorldTransformMatrix()
-                localTworld:SetTranslation(localTworld * boundsMin)
-                if prop.UnwrapIndex == 2 then
-                    -- (X, Y, Z) * xyzTyzx = (Y, Z, X)
-                    localTworld:Mul(xyzTyzx)
-                    size:Mul(xyzTzxy)
-                elseif prop.UnwrapIndex == 3 then
-                    -- (X, Y, Z) * xyzTzxy = (Z, X, Y)
-                    localTworld:Mul(xyzTzxy)
-                    size:Mul(xyzTyzx)
-                end
-                localTworld:InvertTR()
 
                 -- $invviewprojmat = c15..c18 of the static prop ink shader:
-                --   rows 1-3  world -> bounding box (origin at the minimum corner, axes permuted)
+                --   rows 1-3  world -> bounding box, the same box as the paintable surfaces and the ink map have
                 --   row 4     size.x  size.y  size.z  margin
-                localTworld:SetField(4, 1, size.x)
-                localTworld:SetField(4, 2, size.y)
-                localTworld:SetField(4, 3, size.z)
-                localTworld:SetField(4, 4, ss.MARGIN_HAMMER_UNITS)
+                local box = PaintableSurface.GetStaticPropBox(prop)
+                local m = Geometry.InvertRotationTranslation(box.ToWorld)
+                worldToBox:SetUnpacked(
+                    m[1], m[2], m[3], m[4],
+                    m[5], m[6], m[7], m[8],
+                    m[9], m[10], m[11], m[12],
+                    box.SizeX, box.SizeY, box.SizeZ, ss.MARGIN_HAMMER_UNITS)
 
                 -- The cache has the cubemap names without ".hdr"
                 local cubemap = cubemaps and cubemaps[prop.CubemapIndex]
@@ -189,7 +170,7 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames, cubemaps)
                         bumpTransform:GetField(2, 2),
                         bumpTransform:GetField(2, 4), 0)
                     mat:SetMatrix("$viewprojmat", transforms)
-                    mat:SetMatrix("$invviewprojmat", localTworld)
+                    mat:SetMatrix("$invviewprojmat", worldToBox)
                     mdl:SetSubMaterial(j - 1, "!" .. mat:GetName())
                     UnderlaySync.AddInkSprp(mat, mdlmat)
                 end

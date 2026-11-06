@@ -832,6 +832,82 @@ local function FindStaticPropCubemap(bsp, prop, illumposition)
     return nearestIndex
 end
 
+---Gets the dimension of the UV-unpacked rectangle for given AABB.
+---
+---```text
+---  z
+---  ^
+---. |     y     size = (maxs - mins)
+---. |    /        |
+---. |   /'''---___V            <--height->
+---. |  /         /|       -.---+----+----+
+---. | /    +z   / |        |   | -x |    |
+---. |/         /  |        |   +----+----+
+---. |'''---___/   |        |   | -z | -y |
+---. |         |+x /  ==> width +----+----+
+---. |   -y    |  /         |   | +x |    |
+---. |         | /          |   +----+----+
+---   '''---___|/           |   | +z | +y |
+---            '''---> x   -v---+----+----+
+---```
+---
+---Width and height of each surface:
+---
+---* +z, -z: size.x, size.y
+---* +x, -x: size.y, size.z
+---* +y, -y: size.x, size.z
+---
+---There are three patterns of unpacking and the one with minimum wasted spaces is selected.
+---Each face cell additionally has m = ss.MARGIN_HAMMER_UNITS on both sides.
+---The figure below omits them, so the returned size has 8m in w (4 cells) and 4m in h (2 cells) in addition:
+---
+---```text
+---.   (1)               (2)               (3)
+---. w = 2 (sx + sy)       2 (sy + sz)       2 (sx + sz)
+---. h =    sx + sz           sx + sy           sy + sz
+---.        sz   sx           sx   sy           sy   sz
+---.      +----+----+       +----+----+       +----+----+
+---.   sx | -y |    |    sy | -z |    |    sz | -x |    |
+---.      +----+----+       +----+----+       +----+----+
+---.   sy | -x | -z |    sz | -y | -x |    sx | -z | -y |
+---.      +----+----+       +----+----+       +----+----+
+---.   sx | +y |    |    sy | +z |    |    sz | +x |    |
+---.      +----+----+       +----+----+       +----+----+
+---.   sy | +x | +z |    sz | +y | +x |    sx | +z | +y |
+---.      +----+----+       +----+----+       +----+----+
+---```
+---@param prop ss.MapCache.StaticProp
+---@return number # w including the margins.
+---@return number # h including the margins.
+---@return integer # The selected pattern.
+local function GetStaticPropUVSize(prop)
+    local sx = prop.BoundsMaxX - prop.BoundsMinX
+    local sy = prop.BoundsMaxY - prop.BoundsMinY
+    local sz = prop.BoundsMaxZ - prop.BoundsMinZ
+    local margin = 2 * ss.MARGIN_HAMMER_UNITS -- Both sides of each face cell
+
+    -- Pattern 1
+    local width1 = 2 * (sx + sy) + 4 * margin
+    local height1 = sx + sz + 2 * margin
+
+    -- Pattern 2
+    local width2 = 2 * (sy + sz) + 4 * margin
+    local height2 = sx + sy + 2 * margin
+
+    -- Pattern 3
+    local width3 = 2 * (sx + sz) + 4 * margin
+    local height3 = sy + sz + 2 * margin
+
+    -- Find the pattern with the smallest area
+    if sx < sy and sx < sz then
+        return width1, height1, 1
+    elseif sy < sx and sy < sz then
+        return width2, height2, 2
+    else
+        return width3, height3, 3
+    end
+end
+
 ---Extracts surfaces from static props.
 ---@param bsp ss.BSP.Lumps
 ---@param cache ss.MapCache
@@ -850,6 +926,7 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
                 local scale = prop.uniformScale or 1
                 illumpositions[name] = illumpositions[name] or ReadIlluminationPosition(name)
                 local result = MapCache.StaticProp.new()
+                local r = result.InkMapRectangle
                 local maxX, maxY, maxZ = info.HullMax:Unpack()
                 local minX, minY, minZ = info.HullMin:Unpack()
                 result.Pitch, result.Yaw, result.Roll = prop.pitch, prop.yaw, prop.roll
@@ -863,6 +940,7 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
                 result.Skin = prop.skin
                 result.UnwrapIndex = 1
                 result.CubemapIndex = FindStaticPropCubemap(bsp, prop, illumpositions[name])
+                r.Width, r.Height, result.UnwrapIndex = GetStaticPropUVSize(result)
                 results[#results + 1] = result
             end
         end

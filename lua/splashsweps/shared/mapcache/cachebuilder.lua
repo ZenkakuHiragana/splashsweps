@@ -125,82 +125,6 @@ local function BuildMinimapBounds(bsp)
     return bounds
 end
 
----Gets the dimension of the UV-unpacked rectangle for given AABB.
----
----```text
----  z
----  ^
----. |     y     size = (maxs - mins)
----. |    /        |
----. |   /'''---___V            <--height->
----. |  /         /|       -.---+----+----+
----. | /    +z   / |        |   | -x |    |
----. |/         /  |        |   +----+----+
----. |'''---___/   |        |   | -z | -y |
----. |         |+x /  ==> width +----+----+
----. |   -y    |  /         |   | +x |    |
----. |         | /          |   +----+----+
----   '''---___|/           |   | +z | +y |
----            '''---> x   -v---+----+----+
----```
----
----Width and height of each surface:
----
----* +z, -z: size.x, size.y
----* +x, -x: size.y, size.z
----* +y, -y: size.x, size.z
----
----There are three patterns of unpacking and the one with minimum wasted spaces is selected.
----Each face cell additionally has m = ss.MARGIN_HAMMER_UNITS on both sides.
----The figure below omits them, so the returned size has 8m in w (4 cells) and 4m in h (2 cells) in addition:
----
----```text
----.   (1)               (2)               (3)
----. w = 2 (sx + sy)       2 (sy + sz)       2 (sx + sz)
----. h =    sx + sz           sx + sy           sy + sz
----.        sz   sx           sx   sy           sy   sz
----.      +----+----+       +----+----+       +----+----+
----.   sx | -y |    |    sy | -z |    |    sz | -x |    |
----.      +----+----+       +----+----+       +----+----+
----.   sy | -x | -z |    sz | -y | -x |    sx | -z | -y |
----.      +----+----+       +----+----+       +----+----+
----.   sx | +y |    |    sy | +z |    |    sz | +x |    |
----.      +----+----+       +----+----+       +----+----+
----.   sy | +x | +z |    sz | +y | +x |    sx | +z | +y |
----.      +----+----+       +----+----+       +----+----+
----```
----@param prop ss.MapCache.StaticProp
----@return number # w including the margins.
----@return number # h including the margins.
----@return integer # The selected pattern.
-local function GetStaticPropUVSize(prop)
-    local sx = prop.BoundsMaxX - prop.BoundsMinX
-    local sy = prop.BoundsMaxY - prop.BoundsMinY
-    local sz = prop.BoundsMaxZ - prop.BoundsMinZ
-    local margin = 2 * ss.MARGIN_HAMMER_UNITS -- Both sides of each face cell
-
-    -- Pattern 1
-    local width1 = 2 * (sx + sy) + 4 * margin
-    local height1 = sx + sz + 2 * margin
-
-    -- Pattern 2
-    local width2 = 2 * (sy + sz) + 4 * margin
-    local height2 = sx + sy + 2 * margin
-
-    -- Pattern 3
-    local width3 = 2 * (sx + sz) + 4 * margin
-    local height3 = sy + sz + 2 * margin
-
-    -- Find the pattern with the smallest area
-    if sx < sy and sx < sz then
-        return width1, height1, 1
-    elseif sy < sx and sy < sz then
-        return width2, height2, 2
-    else
-        return width3, height3, 3
-    end
-end
-
 ---Parses the BSP, collects valid brush surfaces, prepares paintable surfaces,
 ---and writes them to the temporary file without compression.
 ---@param path string Path of the temporary file in the data folder.
@@ -216,10 +140,6 @@ local function WriteCache(path)
     cache.NumModels        = #bsp.MODELS
     SurfaceBuilder.BuildStaticPropCache(bsp, cache)
     findLightEnvironment(bsp, cache)
-    for _, prop in ipairs(cache.StaticProps) do
-        local rectangle = prop.InkMapRectangle
-        rectangle.Width, rectangle.Height, prop.UnwrapIndex = GetStaticPropUVSize(prop)
-    end
 
     collectgarbage "collect"
     SurfaceBuilder.BuildSurfaceCache(bsp, cache)
