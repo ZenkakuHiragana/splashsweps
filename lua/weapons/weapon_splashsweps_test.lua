@@ -10,15 +10,7 @@ local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
 local SpatialIndex  = ss.import "splashsweps/shared/spatialindex"
 local Util          = ss.import "splashsweps/shared/util"
 
----@class SplatoonWeaponBase : Structure.SWEP, Structure.ENT, Weapon
----@field ViewModel0    string?
----@field ViewModel1    string?
----@field ViewModel2    string?
----@field Customized    boolean?
----@field SheldonsPicks boolean?
----@field SpecialWeapon string
----@field SubWeapon     string
----@field ClassID       integer
+---@class ss.TestWeapon : Structure.SWEP, Structure.ENT, Weapon
 ---@diagnostic disable-next-line: deprecated
 local SWEP = SWEP
 if CLIENT then
@@ -46,7 +38,6 @@ SWEP.Spawnable = true
 SWEP.HoldType = "crossbow"
 SWEP.Slot = 1
 SWEP.SlotPos = 2
-SWEP.IsSplatoonWeapon = true
 SWEP.m_WeaponDeploySpeed = 2
 
 SWEP.Secondary = SWEP.Secondary or {}
@@ -168,7 +159,7 @@ local function Probe(x, y, z, pitch, yaw, roll)
 end
 
 ---Checks if the ink is painted under the player and indicates it by a sound.
----@param self            SplatoonWeaponBase
+---@param self            ss.TestWeapon
 ---@param surfaces        ss.PaintableSurface[] Surfaces to check, filtered by their normals except displacements.
 ---@param probe           ss.Paint The pose to check in the surfaces' coordinate system.
 ---@param probeToSurfaces number[] The transform from the probe to the surfaces' coordinate system.
