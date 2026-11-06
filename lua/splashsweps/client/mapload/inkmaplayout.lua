@@ -114,20 +114,20 @@ function InkMapLayout.Setup(surfaces, staticProps)
             local localU = (box.SizeX + 2 * margin) * template.UVOffsetX
                          + (box.SizeY + 2 * margin) * template.UVOffsetY + margin
             local localV = (box.SizeZ + 2 * margin) * template.UVOffsetZ + margin
-            local grid   = PaintableSurface.Surfaces[index].ToGrid
+            local g      = PaintableSurface.Surfaces[index].ToGrid
             local sideSizeU, sideSizeV, sideUVOriginU, sideUVOriginV ---@type number, number, number, number
             local row1, row2 ---@type number[], number[]
             if isRotated then -- (u, v) = (-v', u') from the model local UV origin
                 sideSizeU, sideSizeV = side.SizeY, side.SizeX
                 sideUVOriginU, sideUVOriginV = modelUVOriginU - localV, modelUVOriginV + localU
-                row1 = { -grid[5], -grid[6], -grid[7], -grid[8] + sideUVOriginU }
-                row2 = {  grid[1],  grid[2],  grid[3],  grid[4] + sideUVOriginV }
+                row1 = { -g[5], -g[6], -g[7], -g[8] + sideUVOriginU }
+                row2 = {  g[1],  g[2],  g[3],  g[4] + sideUVOriginV }
                 sideUVOriginU = sideUVOriginU - sideSizeU
             else
                 sideSizeU, sideSizeV = side.SizeX, side.SizeY
                 sideUVOriginU, sideUVOriginV = modelUVOriginU + localU, modelUVOriginV + localV
-                row1 = { grid[1], grid[2], grid[3], grid[4] + sideUVOriginU }
-                row2 = { grid[5], grid[6], grid[7], grid[8] + sideUVOriginV }
+                row1 = { g[1], g[2], g[3], g[4] + sideUVOriginU }
+                row2 = { g[5], g[6], g[7], g[8] + sideUVOriginV }
             end
 
             place(index, row1, row2, sideUVOriginU - margin, sideUVOriginV - margin,

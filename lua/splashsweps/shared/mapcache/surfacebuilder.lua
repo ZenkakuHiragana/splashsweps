@@ -83,8 +83,7 @@ end
 ---@param mbrSizeX  number
 ---@param mbrSizeY  number
 local function SetTransformRelatedValues(surf, mbr, mbrSizeX, mbrSizeY)
-    local g, worldToLocal = surf.ToGrid, Geometry.InvertRotationTranslation(mbr)
-    for i = 1, 12 do g[i] = worldToLocal[i] end
+    table.Merge(surf.ToWorld, Geometry.InvertRotationTranslation(mbr))
     -- A size of exactly a multiple of the cell can be larger by rounding errors, which should not add a cell.
     surf.PaintableGridWidth  = ceil(mbrSizeX / PaintableGrid.CELL_SIZE - GRID_ROUNDING_TOLERANCE)
     surf.PaintableGridHeight = ceil(mbrSizeY / PaintableGrid.CELL_SIZE - GRID_ROUNDING_TOLERANCE)

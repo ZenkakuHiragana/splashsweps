@@ -95,11 +95,11 @@ end
 ---. u
 ---```
 ---@class ss.MapCache.InkMapRectangle
----@field OffsetU   number  Left position.
----@field OffsetV   number  Top position.
+---@field OffsetU   number  Minimum U.
+---@field OffsetV   number  Minimum V.
 ---@field IsRotated boolean True if the rectangle is rotated by 90 degrees in the ink map.
----@field Width     number  Width in the ink map, including the margins.
----@field Height    number  Height in the ink map, including the margins.
+---@field Width     number  Size along U, including the margins.
+---@field Height    number  Size along V, including the margins.
 
 ---@type { new: fun(): ss.MapCache.InkMapRectangle }
 MapCache.InkMapRectangle = record("MapCache.InkMapRectangle", {
