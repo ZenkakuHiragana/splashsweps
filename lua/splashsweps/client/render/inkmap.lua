@@ -107,7 +107,6 @@ local function AddQuad(q, region, bandFlag, quadIndex, numQuads, hammerUnitsToUV
         mesh_Begin(MATERIAL_QUADS, min(numQuads - quadIndex, MAX_QUADS))
     end
 
-    -- 0b0000RRCC, RR = Region, CC = Corner
     local p, placement = q.Paint, q.Placement
     for i = region * NUM_VERTEX * 16, (region * NUM_VERTEX + NUM_VERTEX - 1) * 16, 16 do
         mesh_Color(bandFlag, i, p.InkType, q.Detail)

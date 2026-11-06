@@ -31,8 +31,8 @@
 //   xyz : SurfaceToUV matrix rotation (second row)
 //   w   : SurfaceToUV matrix offset V
 // NORMAL0
-//   x : Width
-//   y : Height
+//   x : Half width
+//   y : Half height
 //   z : Depth scale
 // COLOR0
 //   r : x255 = 255 for the boundary band quad drawn before the paints, 0 otherwise

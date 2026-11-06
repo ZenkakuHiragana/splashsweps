@@ -43,7 +43,7 @@ struct InkMapDetailWrite {
 // Shape texture contract:
 //   alpha = 0.5 + (signed distance to the edge in texture pixels, positive inside) / (texture width in pixels),
 // correct over the whole texture. Outside the shape, the texture keeps its own margin.
-// The server-side paint detection binarizes the same textures into ink shape masks at the same edge value.
+// The ink shape masks binarize the same textures at the same edge value to paint the paintable grids.
 static const float SHAPE_TEXTURE_EDGE = 0.5;
 static const float eps = 5e-3;
 

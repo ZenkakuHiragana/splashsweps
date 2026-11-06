@@ -60,20 +60,20 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field NormalX          number  Normal vector of this triangle, (t2 - t3) x (t1 - t3) normalized for its vertices t1, t2, and t3.
 ---@field NormalY          number
 ---@field NormalZ          number
----@field BarycentricDot1X number  Parameter to calculate barycentric coordinates v.
+---@field BarycentricDot1X number  Parameter to calculate barycentric coordinates u.
 ---@field BarycentricDot1Y number
 ---@field BarycentricDot1Z number
----@field BarycentricDot2X number  Parameter to calculate barycentric coordinates w.
+---@field BarycentricDot2X number  Parameter to calculate barycentric coordinates v.
 ---@field BarycentricDot2Y number
 ---@field BarycentricDot2Z number
----@field BarycentricAdd1  number  Parameter to calculate barycentric coordinates v.
----@field BarycentricAdd2  number  Parameter to calculate barycentric coordinates w.
+---@field BarycentricAdd1  number  Parameter to calculate barycentric coordinates u.
+---@field BarycentricAdd2  number  Parameter to calculate barycentric coordinates v.
 ---The rotation of ss.GeometryModule from this triangle to its triangle of the flat positions,
 ---which maps the angles of a paint on this triangle onto the flat surface.
 ---@field ToFlatRotation   number[]
 
 ---@class ss.PaintableSurfaceModule.State
----@field Surfaces           ss.PaintableSurface[] Paintable surfaces of the world and static props.
+---@field Surfaces           ss.PaintableSurface[] Paintable surfaces of the worldspawn, brush models, and static props.
 ---@field BrushModelSurfaces table<integer, ss.PaintableSurface[]> Brush model index --> its paintable surfaces.
 ---@field ModelIndexBits     integer Required bits to transfer a brush model index as an unsigned integer.
 local state = ss.state("splashsweps/shared/paint/paintablesurface", {
@@ -81,9 +81,6 @@ local state = ss.state("splashsweps/shared/paint/paintablesurface", {
     BrushModelSurfaces = {},
 })
 
----Paintable surfaces of the world and static props:
----the surfaces of the map cache in order, followed by the 6 sides of each static prop
----in the order of the sides of PaintableSurface.GetStaticPropBox.
 PaintableSurface.Surfaces = state.Surfaces
 
 ---Paintable surfaces of brush entities, which are not registered to the spatial index of the world

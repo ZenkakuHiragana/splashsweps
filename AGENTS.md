@@ -33,9 +33,9 @@ Use these terms in names and comments.
 - ink mesh material: the material of the meshes that draw the paint on world geometry (`InkMeshMaterial`, `InkMesh`).
 - ink sprp material: the material that draws the paint on a static prop (`StaticPropBuilder`). "Sprp" and "StaticProp" both mean static prop.
 - underlay: the material under the paint that shows through it (`UnderlaySync`).
-- paintable grid: the grid-shaped data the server uses to detect paint (`PaintableGrid`).
-- ink shape texture: the channel of the texture of an ink shape VMT that draws the shape (`InkShape.Texture`, `InkShape.Channel`).
-- ink shape mask: the binarized ink shape texture the server uses to update paintable grids (`InkShape.Mask`).
+- paintable grid: the grid-shaped data the server and the clients use to detect paint (`PaintableGrid`).
+- ink shape texture: the texture of an ink shape VMT (`InkShape.Texture`), whose channel `InkShape.Channel` draws the shape.
+- ink shape mask: the binarized ink shape texture the server and the clients use to update paintable grids (`InkShape.Mask`).
 - ink map: the render target the paints are drawn into; `InkMapSnapshot` is its copy taken before drawing a batch.
 - paint atlas: the atlases of ink material textures and ink shape textures that the paint material (`drawink`) reads when drawing paints into the ink map (`PaintAtlas`).
 - ink detail atlas: the atlas of the detail images of ink materials (`InkDetailAtlas`), with the ink data below them.

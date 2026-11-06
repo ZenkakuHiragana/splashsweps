@@ -89,11 +89,11 @@ const float2 s3RcpSize : register(c7);
 const float4 c8        : register(c8);
 const float4 c9        : register(c9);
 const float4 g_EyePos  : register(c10); // xyz: eye position
-const float4 c11       : register(c11); // $viewprojmat
+const float4 c11       : register(c11); // $viewprojmat; each material puts its own constants into c11..c14
 const float4 c12       : register(c12);
 const float4 c13       : register(c13);
 const float4 c14       : register(c14);
-const float4 c15       : register(c15); // $invviewprojmat: blend transform or Lightmapped_4WayBlend parameters
+const float4 c15       : register(c15); // $invviewprojmat; each material puts its own constants into c15..c18
 const float4 c16       : register(c16);
 const float4 c17       : register(c17);
 const float4 c18       : register(c18);

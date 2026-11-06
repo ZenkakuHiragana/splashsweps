@@ -77,7 +77,7 @@ local RTFLAGS = {
 ---@field StaticPropFlashlight ITexture? Flashlight light on the static props. See StaticPropRenderer.DrawFlashlight.
 ---@field SSRResult            ITexture? Half-resolution (hit UV * confidence, blur width in pixels at roughness = 100% * confidence, confidence).
 ---@field InkColor             ITexture? Background or painted color without SSR; alpha is the painted-surface mask.
----@field InkColorBlur         ITexture? Quarter-resolution copy of InkColor for reflections on rough surfaces.
+---@field InkColorBlur         ITexture? Shrunk copy of InkColor for reflections on rough surfaces.
 ---@field InkNormals           ITexture? G-Buffer to store octahedral encoded ink normals.
 ---@field Reflection           ITexture? G-Buffer to store precomputed reflection weights and ink height.
 ---@field Envmap               ITexture? G-Buffer to store precomputed $envmap sample and ink roughness.

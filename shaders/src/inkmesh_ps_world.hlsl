@@ -74,7 +74,7 @@ static const float4 g_DetailTint        = { c11.w, c12.w, c13.w, 1.0 };
 static const float  g_DetailBlendFactor = c14.w;
 
 // Bit flags:
-//   0x01 .. has $bumpmap
+//   0x01 .. has bumped lightmaps
 //   0x08 .. has $blendmodulatetexture, read only for WorldVertexTransition
 //   0x10 .. is  simplified rendering for water reflection, read only for UNDERLAY_SINGLE
 static const bool g_HasBumpedLightmap = fmod(floor(g_MaterialFlags / 1),  2.0) > 0.5;

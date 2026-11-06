@@ -11,7 +11,6 @@ local Util = ss.import "splashsweps/shared/util"
 ---@class ss.InkShapeModule
 local InkShape = ss.module "splashsweps/shared/inkshape"
 
----Ink shape mask: the ink shape texture binarized for the server to update paintable grids.
 ---Access the mask value using `shape.Mask[y * shape.Mask.Width + x + 1]`: boolean.
 ---@class ss.InkShape.Mask
 ---@field [integer]     boolean   True for filled pixel, index = y * Width + x + 1
@@ -43,8 +42,6 @@ local state = ss.state("splashsweps/shared/inkshape", { Shapes = {}, IndicesByTa
 ---Defined ink shapes indexed by their internal index.
 InkShape.Shapes = state.Shapes
 
----Ink shape textures are signed distance fields where this value (0.5 in 0-255) is the edge.
----The paint shader clips the paint by the same value.
 local SHAPE_MASK_EDGE = 127.5
 
 ---Drawn instead of an ink shape the server has and the client does not.

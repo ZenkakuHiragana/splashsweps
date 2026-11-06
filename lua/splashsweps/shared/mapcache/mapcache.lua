@@ -165,10 +165,10 @@ MapCache.StaticProp = record("MapCache.StaticProp", {
 ---Info of a triangle in a displacement to paint it.
 ---Element j of the displacement triangles of a surface is the triangle j of its mesh.
 ---@class ss.MapCache.DisplacementTriangle
----@field BarycentricDot1X number Parameter to calculate barycentric coordinates v.
+---@field BarycentricDot1X number Parameter to calculate barycentric coordinates u.
 ---@field BarycentricDot1Y number
 ---@field BarycentricDot1Z number
----@field BarycentricDot2X number Parameter to calculate barycentric coordinates w.
+---@field BarycentricDot2X number Parameter to calculate barycentric coordinates v.
 ---@field BarycentricDot2Y number
 ---@field BarycentricDot2Z number
 ---3x3 rotation matrix in row-major order from the triangle to its triangle of the flat positions,
@@ -275,7 +275,6 @@ MapCache.TriangleHash = record("MapCache.TriangleHash", {
 ---@field NumDisplacementTriangles integer
 ---@field DisplacementTriangles    ss.MapCache.DisplacementTriangle[]? The triangles of a displacement, nil for the others.
 ---@field FaceLumpIndex integer? Index to face lump just used to calculate lightmap UV coordinates, not saved.
----@field MBRMatrix     VMatrix? Minimum bounding rectangle in the coordinates of the surface, used by UVBuilder while building the cache, not saved.
 
 ---@type { new: fun(): ss.MapCache.Surface }
 MapCache.Surface = record("MapCache.Surface", {

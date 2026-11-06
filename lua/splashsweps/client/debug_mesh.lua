@@ -278,7 +278,7 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     InkAtlases.Load()
 end)
 
--- Rebuild RTs from the loaded definitions; VMT enumeration and updater loading live in LoadInkTypes.
+-- Rebuilds the atlases of the loaded ink types and ink shapes; it does not load new ink types or ink shapes.
 concommand.Add("ss_reload_inktype", function() InkAtlases.Load() end)
 concommand.Add("ss_debug_mesh_probe_skin", function()
     showSkinned = not showSkinned

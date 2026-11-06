@@ -1,7 +1,7 @@
 #include "inkmesh_common.hlsl"
 
-// Initializes the lower half of SceneAndFlashlight: zero light in the color,
-// and the scene depth in the depth buffer so the flashlight pass of the ink meshes skips the parts the scene hides.
+// Initializes a render target of the flashlight light: zero light in the color,
+// and the scene depth in the depth buffer so the flashlight pass skips the parts the scene hides.
 sampler DepthBuffer : register(s0); // _rt_resolvedfullframedepth
 static const float g_DepthScale = c0.x; // zfar / (zfar - znear)
 static const float g_DepthBias  = c0.y; // -znear * zfar / (zfar - znear)

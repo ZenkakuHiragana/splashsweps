@@ -114,7 +114,7 @@ function SkylinePacker:GetMinimumDimensions()
     end
 
     -- In the source code, it seems to get aspect ratio from HardwareConfig()->MaxTextureAspectRatio()
-    -- but I will just hardcode it to 8 for now.
+    -- but I will just hardcode it for now.
     local MAX_ASPECT_RATIO = 16
 
     local width = ceilPow2(self.MaxWidth)

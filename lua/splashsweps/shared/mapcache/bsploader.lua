@@ -216,7 +216,7 @@ BinaryStruct.Define "BSP.dgamelump_t" {
 ---@field maxDXLevel        integer?   v6, v7, and v7*
 ---@field cpugpuLevels      integer[]? since v8
 ---@field diffuseModulation integer[]? since v7
----@field disableX360       boolean?   v9 and v10
+---@field disableX360       integer?   v9 and v10
 ---@field flagsEx           integer?   since v10
 ---@field uniformScale      number?    since v11
 
@@ -486,7 +486,7 @@ BinaryStruct.Define "BSP.EDGES" {
 ---@class ss.BinaryStruct.BSP.FACES
 ---@field planeNum                    integer
 ---@field side                        integer
----@field onNode                      integer
+---@field onNode                      boolean
 ---@field firstEdge                   integer
 ---@field numEdges                    integer
 ---@field texInfo                     integer
@@ -588,7 +588,7 @@ BinaryStruct.Define "BSP.NODES" {
 ---@field firstLeafFace    integer
 ---@field numLeafFaces     integer
 ---@field firstLeafBrush   integer
----@field numLeafBrush     integer
+---@field numLeafBrushes   integer
 ---@field leafWaterDataID  integer
 ---@field padding          integer
 BinaryStruct.Define "BSP.LEAFS" {
@@ -718,7 +718,7 @@ BinaryStruct.Define "BSP.MODELS" {
 ---@field mapFace           integer
 ---@field padding           integer
 ---@field lightmapAlphaTest integer
----@field lightmapSamplePositionStart integer
+---@field lightmapSamplesPositionStart integer
 ---@field edgeNeighbors     ss.BinaryStruct.BSP.CDispNeighbor[]
 ---@field cornerNeighbors   ss.BinaryStruct.BSP.CDispCornerNeighbors[]
 ---@field allowedVerts      integer[]

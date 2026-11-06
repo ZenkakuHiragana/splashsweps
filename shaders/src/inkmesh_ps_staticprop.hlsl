@@ -46,7 +46,7 @@ struct PsVertexInfo {
 // Rendering for the water reflection is not used for static props
 static const bool g_Simplified = false;
 
-// Light the flashlights cast on the static props, drawn with the depth buffer of the frame.
+// Light the flashlights cast on the static props.
 // See StaticPropRenderer.DrawFlashlight.
 sampler StaticPropFlashlight : register(s5);
 
@@ -57,7 +57,7 @@ static const float2 g_PackedOrigin       = c2.xy; // Origin of the packed rectan
 static const float3 g_BoxSize            = c18.xyz;
 static const float  g_SideMargin         = c18.w; // Margin of each side cell on each edge, in Hammer units
 
-// Inset of the clip range of each side in ink map UV, as PaintableSurface.SetupStaticProps and the world ink mesh vertex shader do
+// Inset of the clip range of each side in ink map UV, as InkMapLayout.Setup and the world ink mesh vertex shader do
 static const float RT_BILINEAR_GUARD_PIXELS = c0.x; // ss.RT_BILINEAR_GUARD_PIXELS
 static const float g_ClipGuard = 0.5 * RT_BILINEAR_GUARD_PIXELS * g_RcpRTSize.x;
 

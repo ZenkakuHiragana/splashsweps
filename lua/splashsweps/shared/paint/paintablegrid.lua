@@ -326,9 +326,9 @@ function PaintableGrid.Write(self, paint)
     return numPaintedCells
 end
 
----Reads a pixel from the grid using given position in world coordinates.
+---Reads a pixel from the grid using given position in the coordinates of the surface.
 ---@param self   ss.PaintableSurface
----@param queryX number Preprocessed query point in world coordinates.
+---@param queryX number Preprocessed query point in the coordinates of the surface.
 ---@param queryY number
 ---@param queryZ number
 ---@return ss.InkType? # The ink type painted at corresponding pixel.  nil if no ink was there.
