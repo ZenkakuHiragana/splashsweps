@@ -3,17 +3,14 @@
 ## Repo shape
 
 - This is a Garry's Mod addon, not a conventional app/library build. Runtime entrypoint is `lua/autorun/splashsweps_includes.lua`.
-- Module files are loaded by `ss.import "<path under lua/ without .lua>"` at the top of each file that uses them, not by `autorun.lua`. See `lua/splashsweps/shared/import.lua`. Other library files are still wired through `lua/splashsweps/shared/autorun.lua`, `lua/splashsweps/client/autorun.lua`, or `lua/splashsweps/server/autorun.lua`; do not add ad-hoc mid-file includes.
+- Module files are loaded by `ss.import "<path under lua/ without .lua>"` at the top of each file that uses them, not by `autorun.lua`. See `lua/splashsweps/shared/import.lua`.
 - `lua/autorun/splashsweps_includes.lua` sends every Lua file under `splashsweps/shared/` and `splashsweps/client/`, including subdirectories, to clients.
-- `SplashSWEPs` is the shared namespace. `lua/splashsweps/server/autorun.lua` and `lua/splashsweps/client/autorun.lua` establish different realm state before loading shared code.
 
 ## High-value paths
 
-- `lua/weapons/weapon_splashsweps_test.lua` is the fastest in-game smoke-test surface. It defines the spawnable `Inkling base` weapon mentioned in `README.md`.
+- `lua/weapons/weapon_splashsweps_test.lua` is the fastest in-game smoke-test surface. It defines the spawnable weapon `Inkling base`.
 - The server and each client read the map cache through `CacheBuilder.Load` (`lua/splashsweps/shared/mapcache/cachebuilder.lua`) from their `autorun.lua`, and each machine builds its own `data/splashsweps/<map>.dat` when it is missing or outdated; the server does not send it. Debug map-cache issues against that file.
-- The README's cache-file note is stale: current code writes one compressed binary cache named `<map>.dat`, not `<map>.txt`.
 - Ink types are loaded by `InkType.Load()` (`lua/splashsweps/shared/inktype.lua`) from ink materials, `materials/splashsweps/inks/**/*.vmt`, not from a separate JSON content directory. Ink shapes are loaded by `InkShape.Load()` from `materials/splashsweps/inkshapes/**/*.vmt`. Only the server enumerates those folders; it sends the list in `PlayerInitialSpawn` (`server/autorun.lua`), and each client loads the listed VMTs it has, defining the same ink types and ink shapes in the same order at `InitPostEntity` and drawing the ones it does not have as errors (`materials/splashsweps/inkerror.vmt`, the `error` texture).
-- Shader sources live in `shaders/src/*.hlsl`; compiled `.vcs` output lives under `shaders/fxc/splashsweps/`; the matching material stubs are in `materials/splashsweps/shaders/`.
 
 ## Runtime and debugging gotchas
 
@@ -25,8 +22,7 @@
 
 ## Runtime access via MCP bridge
 
-- A running Garry's Mod instance can be controlled and observed through the MCP bridge. `gmod_`-prefixed tools cover host launch and close, console execution, Lua execution, cvar state, screenshots, and debug hooks in both client and server realms.
-- MCP-driven sessions run with the game window unfocused. Frame-rate limiters that apply while unfocused (such as `fps_max_nofocus`) are readable through `gmod_cvar_state_cl`, but their values are environment-dependent. Do not assume or document a fixed value.
+- MCP-driven sessions run with the game window unfocused. Frame-rate limiters that apply while unfocused (such as `fps_max_nofocus`) are readable through the `cvar_state_cl` tool of the `gmod` MCP server, but their values are environment-dependent. Do not assume or document a fixed value.
 
 ## Terms
 
@@ -53,11 +49,10 @@ Use these terms in names and comments.
 - A module file starts with `local M = ss.module "<its import path>"` and ends with `return M`. Keep state that must survive hot reload in `ss.state("<its import path>", { ... })`, not `ss.Locals`. A class-like module is its own metatable (`M.__index = M`, constructor `M.new`, methods `function M:Method()`), as in `client/mapload/rbtree.lua`. Do not copy fields of an imported module into locals when the file is loaded; hot reload replaces them in the module table.
 - Map cache records are defined in `lua/splashsweps/shared/mapcache/mapcache.lua` as binary structures of `BinaryStruct.Define`, listing their fields in file order, created by `MapCache.<Record>.new()`, with the `---@type` of its `new` right above its definition. Every field is written, and the code building the cache sets the length field before each array. An array of no elements is read as nil. Cache files are written and read only through `MapCache.WriteFile`, `MapCache.CompressFile`, and `MapCache.ReadFile`.
 - A type is declared with LuaLS `---@class` and belongs to the file that creates it. A module table is `ss.<M>Module` and its state `ss.<M>Module.State`, where `<M>` is the name the module is imported as, except that the table of a class-like module is its class `ss.<M>` (e.g. `ss.RBTree`). The main type of a module (e.g. `ss.InkType`, `ss.Paint`) and an interface for other addons (`ss.I<Name>`) are `ss.<Name>`; the other types of a module are `ss.<M>.<Name>`. A type without methods is a table literal built in that file (exported as `M.new` only when another file creates it, like `PaintableGrid.new`). Only a type with methods becomes a class-like module. A module that owns state exposes its tables as module fields (e.g. `InkType.Types`) and scalars through getters (e.g. `InkType.GetNumBits()`).
-- LuaLS annotations are pervasive in `lua/splashsweps/**`. Mirror `---@class` and `---@type` usage, especially for structured tables and empty table initializers, to keep realm-specific diagnostics useful.
 - The `SplashSWEPs` table holds the module loader and the shared constants assigned in `shared/autorun.lua`. Do not add other state or functions to it.
 - Other addons extend ink types with modules, not with registration functions: an ink material names its ink feature modules (`ss.IInkFeature`) in `$features`, and its `InkDetailUpdate` proxy names its updater module (`ss.IInkDetailUpdater`) by the `updater` key.
 - Prefer designs where one file owns one responsibility. State belongs to the module that writes it, in its `ss.state`; other files read it through that module's fields or getters.
-- Files that only register hooks, net receivers, or console commands, such as `client/render/inkpass.lua` and `shared/touch/player.lua`, are included from `autorun.lua` instead of being modules.
+- Files that only register hooks, net receivers, or console commands, such as `client/render/inkpass.lua` and `shared/touch/player.lua`, are included from the `autorun.lua` of their realm instead of being modules. Do not include files from anywhere else.
 - `ss.state` and the bootstrap blocks of `autorun.lua` are the hot-reload boundary. Do not add per-field `or {}` reinitialization guards.
 
 ## Verification and tooling
@@ -68,28 +63,25 @@ Use these terms in names and comments.
 - Gate-style LuaLS commands: `lua-language-server --check=. --configpath=.luarc.client.json --checklevel=Error --check_format=pretty` and `lua-language-server --check=. --configpath=.luarc.server.json --checklevel=Error --check_format=pretty`.
 - For warning review, rerun the same realm command without narrowing to `--checklevel=Error`, then separate real code warnings from environment noise caused by missing generated type libraries.
 - `lua/types/` is gitignored/generated but referenced by both `.luarc.*.json` files as workspace library input. Diagnostics in a clean clone may differ until those types exist.
-- Do not assume `stylua .` will touch Lua files here: `.styluaignore` currently excludes `*.lua` and `**/*.lua`.
-- Do not "clean up" or revert build-script side effects just because they look like generated churn. First check this file, the build script behavior, and whether the change is required for the current runtime workflow.
-- Before reverting any modified file, distinguish repo-irrelevant accidental edits from user/runtime-required edits. If the reason to revert is not explicitly grounded in project rules or the user's request, leave it alone.
-- Treat edits to `lua/weapons/weapon_splashsweps_test.lua` as possible in-game smoke-test controls, not disposable noise. Preserve radius, ink type, or debug behavior tweaks unless the current task explicitly says to reset them.
+- Do not revert or normalize a modified file just because the change looks like generated churn or a temporary value. Revert it only when project rules or the user's request call for it; otherwise leave it alone. These look like churn but are intentional:
+  - The numbered shader names that `shaders/src/build.ps1` writes into `materials/splashsweps/shaders/*.vmt`, such as `splashsweps/2_inkmesh_ps30`, and the `.vcs` files it writes. They are hot-reload targets while GMOD is running.
+  - Sampler bindings in the shader material stubs, such as `$texture7 "shadertest/cubemap"`, which may be shader-input probes.
+  - Radius, ink type, or debug tweaks in `lua/weapons/weapon_splashsweps_test.lua`, which are in-game smoke-test controls.
 
 ## Exact commands worth knowing
 
-- Compile a shader with the repo's wrapper: `pwsh -ExecutionPolicy Bypass -File "shaders/src/build.ps1" "shaders/src/debug_vs30.hlsl"`
+- Compile shaders with the repo's wrapper from `shaders/src`, as it looks up the given files in the current directory: `pwsh -ExecutionPolicy Bypass -File build.ps1 debug_vs30.hlsl`
 - `shaders/src/build.ps1` compiles only the given shader files, in the given order
   (for example `build.ps1 inkmesh_vs30.hlsl inkmesh_ps30.hlsl`), rewrites every `materials/splashsweps/shaders/*.vmt`
   whose `$vertexshader` or `$pixshader` refers to a built shader, writes `shaders/fxc/splashsweps/*.vcs`,
   and bumps `.vscode/refresh_count_{vs,ps}.txt` for hot reload when GMOD is running.
   It does not build the other stage; build both when the data passed from the vertex shader to the pixel shader changes.
-- Do not revert the shader names that `shaders/src/build.ps1` writes into `materials/splashsweps/shaders/*.vmt`. Numbered names such as `splashsweps/2_inkmesh_ps30` are intentional hot-reload targets while GMOD is running, not accidental churn.
 - GMOD loads a shader file into memory only the first time that shader name is read.
   `build.ps1` hot reload works for material stubs because it writes new numbered shader names
   into every VMT that refers to the shader.
   Materials created through `CreateMaterial` do not get that VMT rewrite automatically;
   after compiling, update those live `IMaterial`s with `SetString("$vertexshader", "splashsweps/<numbered>_..._vs30")`,
   `SetString("$pixshader", "splashsweps/<numbered>_..._ps30")`, then `Recompute()`.
-- When validating shader changes, run the wrapper from `shaders/src` if the direct repo-root invocation cannot find sibling shader sources. Preserve the wrapper's resulting VMT shader names and `.vcs` outputs unless the user explicitly asks otherwise.
 - Do not run multiple `shaders/src/build.ps1` shader compiles in parallel;
   the wrapper uses shared intermediate/output paths and can race with itself.
   List several shader files in one invocation instead; it compiles them in order.
-- Do not normalize shader material stubs after debugging just because values look temporary. Sampler bindings such as `$texture7 "shadertest/cubemap"` may be intentional shader-input probes; keep them unless the current task or user says to restore defaults.

@@ -39,11 +39,9 @@ The aim of this rework is the following:
     You can still load them in 64-bit build so I recommend to switch to it.
 * You may experience major frame drops if your VRAM amount is not enough.
     Make sure to set the ink resolution option (found in where you change playermodel for the SWEPs) correctly.
-* If you see errors on map load and can't paint at all, try removing cache files.
-    * They are located in `garrysmod/data/splashsweps/<mapname>.txt` for singleplayer and listen server host.
-    * They are located in `garrysmod/download/data/splashsweps/<mapname>.txt` for multiplayer games.
-    * There are also `garrysmod/data/splashsweps/<mapname>_lightmap.png`.  
-      If you see strange shading for the ink, try removing them.
+* If you see errors on map load and can't paint at all, try removing the cache file.
+    * It is located in `garrysmod/data/splashsweps/<mapname>.dat`.
+      The server and each player build their own one, so remove it where you see the errors.
 * The ink surface doesn't support multiple light styles on a map.
 
 ***
