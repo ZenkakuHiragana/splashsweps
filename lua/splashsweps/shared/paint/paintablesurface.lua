@@ -33,7 +33,7 @@ local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
 ---@field NormalY               number
 ---@field NormalZ               number
 ---@field Grid                  ss.PaintableGrid The paintable grid of this surface, which holds what ink is where.
----@field StaticPropUnwrapIndex integer?         Determines how this static prop surfaces are unwrapped.
+---@field IsStaticPropFace      boolean?         True for a face of the bounding box of a static prop.
 ---@field TriangleHash          ss.MapCache.TriangleHash? Spatial hash to look up triangles of a displacement.
 ---@field Triangles             ss.PaintableSurface.DisplacementTriangle[]? Array of triangles of a displacement.
 ---@field PositionX             number[]? Positions of the vertices of a displacement, which its triangles refer to.
@@ -289,7 +289,7 @@ local AXES_ZXY = {
 ---@field SizeX   number   The size of the face along its forward.
 ---@field SizeY   number   The size of the face along its left.
 
----The bounding box of a static prop with its axes swapped by its unwrap index.
+---The bounding box of a static prop with its axes swapped so that its shortest side is X.
 ---@class ss.PaintableSurface.StaticPropBox
 ---@field ToWorld number[] The transform from the box, whose origin is at the minimum of the bounds, to the world.
 ---@field SizeX   number
@@ -407,10 +407,10 @@ function PaintableSurface.GetStaticPropBox(prop)
         prop.Pitch, prop.Yaw, prop.Roll, prop.PositionX, prop.PositionY, prop.PositionZ)
     boxToWorld[4], boxToWorld[8], boxToWorld[12] = Geometry.TransformPoint(
         boxToWorld, prop.BoundsMinX, prop.BoundsMinY, prop.BoundsMinZ)
-    if prop.UnwrapIndex == 2 then
+    if prop.ShortestAxis == 2 then
         boxToWorld = Geometry.Multiply(boxToWorld, AXES_YZX)
         sizeX, sizeY, sizeZ = sizeY, sizeZ, sizeX
-    elseif prop.UnwrapIndex == 3 then
+    elseif prop.ShortestAxis == 3 then
         boxToWorld = Geometry.Multiply(boxToWorld, AXES_ZXY)
         sizeX, sizeY, sizeZ = sizeZ, sizeX, sizeY
     end
@@ -456,7 +456,7 @@ function PaintableSurface.SetupStaticProps(staticPropInfo)
             ps.AABBMinX, ps.AABBMinY, ps.AABBMinZ = aabbMinX, aabbMinY, aabbMinZ
             ps.AABBMaxX, ps.AABBMaxY, ps.AABBMaxZ = aabbMaxX, aabbMaxY, aabbMaxZ
             ps.NormalX, ps.NormalY, ps.NormalZ = faceToWorld[3], faceToWorld[7], faceToWorld[11]
-            ps.StaticPropUnwrapIndex = prop.UnwrapIndex
+            ps.IsStaticPropFace = true
             ps.ToMBB = worldToBox
             ps.MBBSizeX, ps.MBBSizeY, ps.MBBSizeZ = box.SizeX, box.SizeY, box.SizeZ
             state.Surfaces[index] = ps

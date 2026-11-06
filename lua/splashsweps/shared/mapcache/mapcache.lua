@@ -156,7 +156,7 @@ MapCache.InkMapRectangle = record("MapCache.InkMapRectangle", {
 ---@field PositionZ    number
 ---@field Scale        number  The model scale of this prop.
 ---@field Skin         integer The skin of this prop.
----@field UnwrapIndex  integer Describes how the bounding box is unwrapped in UV space.  See GetStaticPropUVSize.
+---@field ShortestAxis integer The axis of the shortest side of the bounding box, 1 to 3 for X, Y, and Z. See GetStaticPropUVSize.
 ---@field InkMapRectangle ss.MapCache.InkMapRectangle Where the unwrapped faces of the bounding box are in the ink map.
 ---@field CubemapIndex integer Index to ss.MapCache.Cubemaps of the cubemap the engine uses, or 0 if none.
 
@@ -178,14 +178,14 @@ MapCache.StaticProp = record("MapCache.StaticProp", {
     "Float  PositionY",
     "Float  PositionZ",
     "Float  Scale",
-    "Byte   UnwrapIndex",  -- 1 to 3
+    "Byte   ShortestAxis", -- 1 to 3 for X, Y, and Z
     "Long   Skin",         -- m_Skin of StaticPropLump_t (int)
     "UShort CubemapIndex", -- MAX_MAP_CUBEMAPSAMPLES = 1024
     "MapCache.InkMapRectangle InkMapRectangle",
 }, {
     FadeMin     = -1,
     Scale       = 1,
-    UnwrapIndex = 1,
+    ShortestAxis = 1,
 })
 
 ---Info of a triangle in a displacement to paint it.

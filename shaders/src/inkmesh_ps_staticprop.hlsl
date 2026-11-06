@@ -61,7 +61,7 @@ static const float  g_FaceMargin         = c18.w; // Margin of each face cell pe
 static const float RT_BILINEAR_GUARD_PIXELS = c0.x; // ss.RT_BILINEAR_GUARD_PIXELS
 static const float g_ClipGuard = 0.5 * RT_BILINEAR_GUARD_PIXELS * g_RTSize.x;
 
-// World to the bounding box, whose origin is the minimum corner and whose axes are permuted for the unwrap pattern
+// World to the bounding box, whose origin is the minimum corner and whose axes are permuted to make the shortest side X
 static const float4 LocalTWorld[3] = { c15, c16, c17 };
 
 //  Leftover from VertexLitGeneric.

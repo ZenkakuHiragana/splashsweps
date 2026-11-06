@@ -879,7 +879,7 @@ end
 ---@param prop ss.MapCache.StaticProp
 ---@return number # w including the margins.
 ---@return number # h including the margins.
----@return integer # The selected pattern.
+---@return integer # The shortest axis, 1 to 3 for X, Y, and Z, which is the number of the selected pattern.
 local function GetStaticPropUVSize(prop)
     local sx = prop.BoundsMaxX - prop.BoundsMinX
     local sy = prop.BoundsMaxY - prop.BoundsMinY
@@ -899,7 +899,7 @@ local function GetStaticPropUVSize(prop)
     local height3 = sy + sz + 2 * margin
 
     -- Find the pattern with the smallest area
-    if sx < sy and sx < sz then
+    if sx <= sy and sx < sz then
         return width1, height1, 1
     elseif sy < sx and sy < sz then
         return width2, height2, 2
@@ -938,9 +938,8 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
                 result.PositionX, result.PositionY, result.PositionZ = prop.originX, prop.originY, prop.originZ
                 result.Scale = scale
                 result.Skin = prop.skin
-                result.UnwrapIndex = 1
                 result.CubemapIndex = FindStaticPropCubemap(bsp, prop, illumpositions[name])
-                r.Width, r.Height, result.UnwrapIndex = GetStaticPropUVSize(result)
+                r.Width, r.Height, result.ShortestAxis = GetStaticPropUVSize(result)
                 results[#results + 1] = result
             end
         end
