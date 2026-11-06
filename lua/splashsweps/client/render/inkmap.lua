@@ -29,7 +29,7 @@ local InkMap = ss.module "splashsweps/client/render/inkmap"
 local state = ss.state("splashsweps/client/render/inkmap", { Queue = {} })
 
 local NUM_REGION, NUM_VERTEX = 4, 4
-local INDICES_REGION = 2 -- Region of the ink type IDs, the only one the boundary band of a paint updates
+local INDICES_REGION = 2 -- The only region the boundary band of a paint updates
 local NUM_TEXCOORDS = 7
 local SIZEOF_POS_NORMAL_COLOR = 4 * (3 + 3 + 1) -- pos: float3, normal: float3, color: uint8 * 4
 local SIZEOF_TEXCOORDS = NUM_TEXCOORDS * 4 * 4  -- texcoord: float4
@@ -68,13 +68,13 @@ function InkMap.ClearAll()
     render.OverrideAlphaWriteEnable(true, true)
     render.ClearDepth()
     render.ClearStencil()
-    render.Clear(0, 0, 0, 0) -- Additive color
+    render.Clear(0, 0, 0, 0)
     render.SetViewPort(w, 0, w, h)
-    render.Clear(255, 255, 255, 0) -- Tint color
+    render.Clear(255, 255, 255, 0)
     render.SetViewPort(0, h, w, h)
-    render.Clear(0, 0, 0, 0) -- Ink type IDs, and $detailblendmode = 0 (disabled)
+    render.Clear(0, 0, 0, 0)
     render.SetViewPort(w, h, w, h)
-    render.Clear(128, 0, 0, 0) -- 16-bit height = 0 and 16-bit depth = 0
+    render.Clear(128, 0, 0, 0)
     render.OverrideAlphaWriteEnable(false)
     render.PopRenderTarget()
 end
@@ -96,10 +96,10 @@ local ipairs, pairs, unpack   = ipairs, pairs, unpack
 ---Adds a quad of a queued paint, starting a new dynamic mesh every MAX_QUADS quads.
 ---@param q         ss.InkMap.QueuedPaint
 ---@param region    integer Ink map region index
----@param bandFlag  integer 255 for the boundary band outside the shape edge, 0 for the paint itself
+---@param bandFlag  integer Whether the quad is the boundary band outside the shape edge.
 ---@param quadIndex integer Zero-based index of this quad among all quads of the batch
 ---@param numQuads  integer Number of quads in the batch
----@param hammerUnitsToUV number Conversion multiplier from hammer units to UV coordinates of the ink map
+---@param hammerUnitsToUV number
 ---@return integer nextQuadIndex
 local function AddQuad(q, region, bandFlag, quadIndex, numQuads, hammerUnitsToUV)
     if quadIndex % MAX_QUADS == 0 then

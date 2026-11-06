@@ -3,8 +3,8 @@
 
 sampler InkMap             : register(s0);
 sampler InkDataDetail      : register(s1);
-sampler BaseTextureAtlas   : register(s2);
-sampler TintTextureAtlas   : register(s3);
+sampler BaseTextureAtlas   : register(s2); // $basetexture in RGB, height in alpha
+sampler TintTextureAtlas   : register(s3); // $tinttexture in RGB, ink shape textures in alpha
 const float2 RcpRTSize     : register(c4); // One over render target size
 const float2 RcpDataRTSize : register(c5);
 
@@ -22,7 +22,7 @@ struct PS_OUTPUT {
     float4 color : COLOR0;
 };
 
-// Batch-start snapshot: the sampler reads InkMapSnapshot, copied once before the queue is drawn.
+// Batch-start snapshot: the sampler reads InkMapSnapshot.
 struct OldInk {
     float height; // ranging from -1 to +1
     float depth;  // ranging from 0 to 1
@@ -34,10 +34,9 @@ struct PsInputBundle {
     OldInk old;
 };
 
-// Values written to the alpha channels of the additive, multiplicative, and index regions.
 struct InkMapDetailWrite {
-    float2 phaseUV;            // Phase in periods; UNORM8 stores code / 255, with 0 and 1 coincident.
-    float  modeRotationUNorm;  // (5-bit paint angle * 8 + 3-bit mode) / 255.
+    float2 phaseUV;
+    float  modeRotationUNorm;
 };
 
 // Shape texture contract:
@@ -257,7 +256,7 @@ PS_OUTPUT HeightAndDepth(const PsInputBundle i, float edgeDistanceHU) {
 
 // Inside the shape, the paint writes the region it makes: its IDs, blend, and the distance to its edge.
 // In the band outside the edge, it keeps the IDs and only shortens the distance of other regions,
-// as its edge has become their boundary there. The band is drawn before every inside of the batch.
+// as its edge has become their boundary there.
 // Every quad of a batch reads the same snapshot, so where two bands of a batch overlap,
 // the later band's distance remains instead of the nearer one.
 PS_OUTPUT PaintIndices(const PsInputBundle i, float edgeDistanceHU, float edgeDistanceTexels) {

@@ -1,5 +1,5 @@
 
--- Atlases of the textures of ink types and the ink shape textures, which the paint shader reads.
+-- Atlases of the textures of ink types and the ink shape textures.
 
 ---@class ss
 local ss = SplashSWEPs
@@ -14,12 +14,11 @@ local VTF              = ss.import "splashsweps/shared/vtf/reader"
 local PaintAtlas = ss.module "splashsweps/client/ink/paintatlas"
 
 ---Range of an image in an atlas: (minU, minV, maxU, maxV).
----Min U is strictly positive due to the margin; its sign encodes transposition.
 ---@alias ss.PaintAtlas.Range [number, number, number, number]
 
 ---@class ss.PaintAtlasModule.State
 ---@field Albedo  ITexture?                           $basetexture and height maps of ink types.
----@field Tint    ITexture?                           $tinttexture of ink types in RGB and ink shape textures in alpha.
+---@field Tint    ITexture?                           $tinttexture of ink types and ink shape textures.
 ---@field BaseUV  table<integer, ss.PaintAtlas.Range> Ink type index --> range of its $basetexture.
 ---@field TintUV  table<integer, ss.PaintAtlas.Range> Ink type index --> range of its $tinttexture.
 ---@field ShapeUV table<integer, ss.PaintAtlas.Range> Ink shape index --> range of its ink shape texture.
@@ -29,13 +28,10 @@ local state = ss.state("splashsweps/client/ink/paintatlas", {
     ShapeUV = {},
 })
 
----Ink type index --> range of its $basetexture in the albedo atlas, for every ink type after PaintAtlas.Allocate.
 PaintAtlas.BaseUV = state.BaseUV
 
----Ink type index --> range of its $tinttexture in the tint atlas, for every ink type after PaintAtlas.Allocate.
 PaintAtlas.TintUV = state.TintUV
 
----Ink shape index --> range of its ink shape texture in the tint atlas, for every ink shape after PaintAtlas.Allocate.
 PaintAtlas.ShapeUV = state.ShapeUV
 
 local MARGIN = 2
@@ -85,7 +81,7 @@ end
 ---Copies a texture into the rectangle's one-pixel inset, transposing UVs if rect.rotated.
 ---The quad also covers the one-pixel margin, which the copy shader fills with the edge pixels,
 ---so that bilinear filtering up to the edge of the inset never reads the margin.
----Uses the current RT/2D context; the shared copy material's $c0_x selects the source alpha channel.
+---Uses the current RT/2D context.
 -- I couldn't make it work with surface.DrawTexturedRect for some reason;
 -- sometimes all TEXCOORD0 are (0.5, 0.5), so I use the mesh library instead.
 ---@param tex ITexture|string
@@ -106,7 +102,7 @@ local function CopyTextureToRect(tex, rect, drawcolor, drawalpha)
     -- The quad covers the whole rectangle, so its source coordinates go beyond [0, 1] by the margin.
     local s0, s1 = -HALF_MARGIN / (rect.width - MARGIN), 1 + HALF_MARGIN / (rect.width - MARGIN)
     local t0, t1 = -HALF_MARGIN / (rect.height - MARGIN), 1 + HALF_MARGIN / (rect.height - MARGIN)
-    -- Transpose source UVs with the packed cell; negative atlas min U tells drawink_vs30 to undo it.
+    -- Transpose source UVs with the packed cell.
     mesh.Begin(MATERIAL_QUADS, 1)
     AddCopyVertex(rect.left,  rect.bottom, s0, t0, rect.rotated)
     AddCopyVertex(rect.left,  rect.top,    s0, t1, rect.rotated)
@@ -171,8 +167,7 @@ local function ReadInkTypeSources()
         sources.HeightChannels[i]  = mat:GetString "$heightchannel" or "R"
         sources.BaseAlphaHeight[i] = basealphaheightmap > 0 and HasAlphaChannel(sources.BaseNames[i]) or nil
 
-        -- The height map is written to the alpha channel of the $basetexture cell,
-        -- so the cell is identified by both and takes the larger size of them.
+        -- The cell is identified by its $basetexture and height map, and takes the larger size of them.
         local heightSource, heightKey = nil, ""
         if height then
             heightSource = height
@@ -273,7 +268,6 @@ function PaintAtlas.Allocate(plan)
         local inktype = rect.tag ---@type ss.InkType
         state.TintUV[inktype.Index] = GetAtlasRange(rect, state.Tint, HALF_MARGIN + 0.5)
     end
-    -- The whole ink shape texture spans the paint quad, as PaintableGrid.Write does.
     for _, rect in ipairs(plan.ShapePacker.rects) do
         local shape = rect.tag ---@type ss.InkShape
         state.ShapeUV[shape.Index] = GetAtlasRange(rect, state.Tint, HALF_MARGIN)
@@ -302,7 +296,6 @@ function PaintAtlas.Draw(plan)
                 cp:SetInt("$c0_x", CHANNEL_INDEX[sources.HeightChannels[inktype.Index]] or 0)
                 CopyTextureToRect(sources.HeightNames[inktype.Index], rect, false, true)
             elseif not sources.BaseAlphaHeight[inktype.Index] then
-                -- The alpha channel is used as the height map
                 local tex = sources.TintNames[inktype.Index]
                 if not HasAlphaChannel(tex) then
                     tex = "grey" -- $tinttexture with no alpha channel
@@ -322,8 +315,6 @@ function PaintAtlas.Draw(plan)
             CopyTextureToRect(sources.TintNames[inktype.Index], rect, true, false)
         end
 
-        -- Write shape atlas to the alpha channel.
-        -- The margin repeats the edge pixels for bilinear filtering at the edge of the ink shape texture.
         for _, rect in ipairs(plan.ShapePacker.rects) do
             local shape = rect.tag ---@type ss.InkShape
             cp:SetInt("$c0_x", CHANNEL_INDEX[shape.Channel] or 3)

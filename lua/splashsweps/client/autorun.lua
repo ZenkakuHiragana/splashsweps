@@ -34,7 +34,7 @@ local function LoadCache()
     local cache = CacheBuilder.Load()
     if not cache then return end
 
-    -- The engine packs the HDR lightmaps if HDR is enabled, and the cache has them only if the faces match.
+    -- The engine packs the HDR lightmaps if HDR is enabled.
     local lightmaps = render.GetHDREnabled() and cache.LightmapsHDR or cache.LightmapsLDR or {}
     RenderTargets.Setup(cache.HammerUnitsToUV)
     InkShape.Load()

@@ -13,7 +13,7 @@ local InkShape = ss.module "splashsweps/shared/inkshape"
 
 ---Access the mask value using `shape.Mask[y * shape.Mask.Width + x + 1]`: boolean.
 ---@class ss.InkShape.Mask
----@field [integer]     boolean   True for filled pixel, index = y * Width + x + 1
+---@field [integer]     boolean   True for filled pixel.
 ---@field Width         integer   The width of the mask.
 ---@field Height        integer   The height of the mask.
 ---@field IntegralImage integer[] Integral image for faster filtering, index = y * Width + x + 1
@@ -39,7 +39,6 @@ local InkShape = ss.module "splashsweps/shared/inkshape"
 ---@field Received     ss.InkShape.Received[]?  Client only; ink shapes the server sent in the order of the indices.
 local state = ss.state("splashsweps/shared/inkshape", { Shapes = {}, IndicesByTag = {} })
 
----Defined ink shapes indexed by their internal index.
 InkShape.Shapes = state.Shapes
 
 local SHAPE_MASK_EDGE = 127.5
@@ -113,7 +112,6 @@ local function Define(index, identifier, tag, shape)
 end
 
 ---Defines the ink shapes.
----The server reads all vmt files, and the client follows the list the server sent by InkShape.Write.
 function InkShape.Load()
     local shapeCount = 0
     if SERVER then
@@ -158,8 +156,7 @@ function InkShape.Load()
     state.NumBits = math.max(select(2, math.frexp(shapeCount - 1)), 1)
 end
 
----Writes the identifiers and the tags of the ink shapes to the net message,
----for the client to define the same ink shapes.
+---Writes the identifiers and the tags of the ink shapes to the net message.
 function InkShape.Write()
     net.WriteUInt(#state.Shapes, 16)
     for _, shape in ipairs(state.Shapes) do
@@ -177,7 +174,6 @@ function InkShape.Read()
     state.Received = received
 end
 
----Returns the required bits to transfer an ink shape index as an unsigned integer.
 ---@return integer
 function InkShape.GetNumBits()
     return state.NumBits

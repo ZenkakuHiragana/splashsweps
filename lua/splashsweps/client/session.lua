@@ -1,6 +1,4 @@
 
--- Tells whether this is the first map loaded in this process of the game.
-
 ---@class ss
 local ss = SplashSWEPs
 
@@ -24,23 +22,15 @@ local START_TIME_TOLERANCE = 2
 -- This method is robust against all known edge cases, including crashes followed
 -- by long waits in the main menu.
 local function checkSessionState()
-    -- Calculate the approximate, absolute start time of the gmod.exe application.
     local currentStartTime = os.time() - os.clock()
 
-    -- Read the start time recorded from a previous map load.
     local storedStartTime = tonumber(file.Read(START_TIME_FILE_PATH, "DATA"))
 
     if not storedStartTime or math.abs(currentStartTime - storedStartTime) > START_TIME_TOLERANCE then
-        -- If there was no stored start time, or if the newly calculated start time
-        -- differs significantly from the stored one, it proves that this is a new
-        -- gmod.exe session. This is the definitive "First Run".
         state.IsFirstRun = true
 
-        -- Write the new, authoritative start time to the file for this session.
         file.Write(START_TIME_FILE_PATH, tostring(currentStartTime))
     else
-        -- The calculated start time is consistent with the stored one. We are in
-        -- the same gmod.exe session. This is not the first run.
         state.IsFirstRun = false
     end
 end

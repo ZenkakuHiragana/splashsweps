@@ -1,6 +1,4 @@
 
--- Packs the lightmaps of the map surfaces in the same layout as the engine does.
-
 ---@class ss
 local ss = SplashSWEPs
 local RBTree        = ss.import "splashsweps/client/mapload/rbtree"
@@ -35,8 +33,7 @@ local MAX_LIGHTMAP_HEIGHT = 256
 ---@field TriangleCount  integer   Total triangle count before splitting by MAX_TRIANGLES.
 
 ---A face to sort for lightmap packing.
----The engine sorts the faces by the enumeration ID of their materials in the material system,
----while MaterialIndex of the lightmap info is the index to the material names of the map.
+---The engine sorts the faces by the enumeration ID of their materials in the material system.
 ---@class ss.Lightmaps.SortableFace
 ---@field Lightmap      ss.MapCache.LightmapInfo
 ---@field EnumerationID integer The enumeration ID of the material of the face.
@@ -75,10 +72,9 @@ end
 
 ---Packs surface lightmaps into SortID groups that mirror Source lightmap allocation order.
 ---@param lightmaps    ss.MapCache.LightmapInfo[] Lightmap info of the faces the engine uses.
----@param materialInfo table<integer, ss.MapMaterials.MaterialInfo> Sparse enumeration-ID-indexed material metadata.
+---@param materialInfo table<integer, ss.MapMaterials.MaterialInfo>
 ---@return ss.Lightmaps.Layout lightmapLayout Packed lightmap pages and SortID groups.
 function Lightmaps.Pack(lightmaps, materialInfo)
-    ---SortID --> packed lightmap group
     ---@type ss.Lightmaps.Layout
     local lightmapLayout = {
         Groups = {},
@@ -194,8 +190,8 @@ end
 ---Retrieves the size of the lightmap page of a lightmap group in luxels.
 ---@param lightmapLayout ss.Lightmaps.Layout
 ---@param lightmapGroup  ss.Lightmaps.LightmapGroup
----@return integer pageWidth  The width of the page in luxels.
----@return integer pageHeight The height of the page in luxels.
+---@return integer pageWidth
+---@return integer pageHeight
 function Lightmaps.GetPageSize(lightmapLayout, lightmapGroup)
     local lastPageIndex    = lightmapLayout.LastPageIndex
     local lastPageWidth    = lightmapLayout.LastPageWidth

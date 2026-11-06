@@ -73,10 +73,10 @@ local RTFLAGS = {
 
 ---One-frame textures for forward MRT shading and SSR composition.
 ---@class ss.RenderTargets.FrameTextures
----@field SceneAndFlashlight   ITexture? Twice the screen height. Upper half: frame buffer copy + alpha channel as depth buffer. Lower half: flashlight light on the world ink meshes.
+---@field SceneAndFlashlight   ITexture? Twice the screen height. Frame buffer copy and flashlight light on the world ink meshes.
 ---@field StaticPropFlashlight ITexture? Flashlight light on the static props. See StaticPropRenderer.DrawFlashlight.
----@field SSRResult            ITexture? Half-resolution (hit UV * confidence, blur width in pixels at roughness = 100% * confidence, confidence).
----@field InkColor             ITexture? Background or painted color without SSR; alpha is the painted-surface mask.
+---@field SSRResult            ITexture? Half-resolution SSR result.
+---@field InkColor             ITexture? Background or painted color without SSR.
 ---@field InkColorBlur         ITexture? Shrunk copy of InkColor for reflections on rough surfaces.
 ---@field InkNormals           ITexture? G-Buffer to store octahedral encoded ink normals.
 ---@field Reflection           ITexture? G-Buffer to store precomputed reflection weights and ink height.
@@ -94,26 +94,22 @@ local state = ss.state("splashsweps/client/render/rendertargets", {
     StaticPropFlashlightSharesDepth = true,
 })
 
----Render targets of the ink map.
 RenderTargets.InkMaps = state.InkMaps
 
----One-frame textures for forward MRT shading and SSR composition.
 RenderTargets.Frame = state.Frame
 
----Returns the conversion multiplier from hammer units to UV coordinates of the ink map.
 ---@return number
 function RenderTargets.GetHammerUnitsToUV()
     return state.HammerUnitsToUV
 end
 
----Returns true if StaticPropFlashlight shares the depth buffer of the frame, false with MSAA.
 ---@return boolean
 function RenderTargets.IsStaticPropFlashlightSharingDepth()
     return state.StaticPropFlashlightSharesDepth
 end
 
 ---Reserves render targets.
----@param hammerUnitsToUV number Conversion multiplier from hammer units to UV coordinates of the ink map.
+---@param hammerUnitsToUV number
 function RenderTargets.Setup(hammerUnitsToUV)
     state.HammerUnitsToUV = hammerUnitsToUV
     local function GetGBuffer(name, depthMode, scale)

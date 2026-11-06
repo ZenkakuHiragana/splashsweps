@@ -4,7 +4,7 @@
 -- which the client predicting the player makes predictable, so that the engine restores and corrects them.
 --
 -- An entity has a limited number of slots for each type, so the modules are put into groups of slots.
--- Each module declaring variables goes into the first group with enough slots, in the order of InkType.Features,
+-- Each module declaring variables goes into the first group with enough slots,
 -- and a player has an entity for each group.
 -- So modules share an entity while it has slots, a module without variables makes no entity,
 -- and a module an entity cannot hold is left out without affecting the others.
@@ -60,7 +60,6 @@ local state = ss.state("splashsweps/shared/contact/predictedvars", {
     Vars = {},
 })
 
----Player --> group --> the entity having the variables of the group for the player.
 PredictedVars.Entities = state.Entities
 
 ---Returns the number of groups, which is the number of the entities for each player.

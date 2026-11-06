@@ -231,7 +231,7 @@ concommand.Add("ss_reload_shader", function(_, _, _)
     local latestShaderNames = {} ---@type table<string, string|false> Shader file name without number -> result
 
     ---Finds the latest build of the shader a material refers to, numbered by the shader build script or not.
-    ---Shaders are shared between materials, and inkmesh materials use the pixel shader for their underlay.
+    ---Inkmesh materials use the pixel shader for their underlay.
     ---Each shader is searched once, as hundreds of materials share a few shaders.
     ---@param shaderName string? Value of $vertexshader or $pixshader, e.g. "splashsweps/3_inkmesh_ps30"
     ---@return string? latestShaderName Shader name of the latest build, e.g. "splashsweps/4_inkmesh_ps30"

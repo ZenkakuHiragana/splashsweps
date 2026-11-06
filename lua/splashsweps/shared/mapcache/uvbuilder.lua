@@ -12,7 +12,7 @@ local UVBuilder = ss.module "splashsweps/shared/mapcache/uvbuilder"
 ---Places rectangles in the ink map.
 ---Each rectangle has its size before this, and gets its position and rotation, with its size swapped if rotated.
 ---@param rectangles ss.MapCache.InkMapRectangle[]
----@return number # Converts hammer units of the rectangles into UV coordinates of the ink map.
+---@return number
 function UVBuilder.Build(rectangles)
     print "Packing surfaces into the ink map..."
     local t0 = SysTime()

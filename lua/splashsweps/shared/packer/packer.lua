@@ -310,7 +310,7 @@ function RectanglePacker.new(rectangles)
     ---@return boolean
     ---@return boolean
     function t:findbestlocation()
-        local prefer_y = false -- Which axis do we prefer if both are considered as candidate?
+        local prefer_y = false
         while true do
             local x, is_y, alt = self:getlowest(prefer_y)
             local best, rotated = self:findrect(x.value.length, is_y)
@@ -567,7 +567,7 @@ function RectanglePacker.new(rectangles)
     ---@return ss.PackerStructures.LinkedListCell?
     ---@return boolean
     function t:findbaseline(ri)
-        local prefer_y = false -- Which axis do we prefer if both are considered as candidate?
+        local prefer_y = false
         local rect = self.rects[ri]
         while true do
             local x, is_y, alt = self:getlowest(prefer_y)

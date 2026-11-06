@@ -111,7 +111,7 @@ InkDetailEffect EvaluateInkDetail(const PsVertexInfo i, float3 IDs, int modeRota
     float  gridColumn             = gridIndex - gridRow * g_DetailGridColumns;
     float  cellSizePixels         = g_InkDataOffsetV / g_DetailGridColumns;
     settings.uvRotationCosSin     = encodedTransform.zw * (255.0 / 127.0) - 1.0; // 127 / 255 encodes zero
-    settings.repeatsPerHU         = exp2(encodedScaleRow.xy * (255.0 / 24.0) - 13.0); // 24 steps per octave
+    settings.repeatsPerHU         = exp2(encodedScaleRow.xy * (255.0 / 24.0) - 13.0);
     settings.translationUV        = encodedTransform.xy;
     settings.atlasOriginPixels    = float2(gridColumn, gridRow) * cellSizePixels + 1.0;
     settings.atlasInnerSizePixels = cellSizePixels - 2.0;
@@ -177,10 +177,9 @@ InkDetailEffect EvaluateInkDetail(const PsVertexInfo i, float3 IDs, int modeRota
     float heightSource           = floor(heightSourceInvertBits / 2.0);
     [branch]
     if (heightSource > 0.0) {
-        // Source 1 = thickness, 2 = height, 3 = ground depth; all in HEIGHT_TO_HU units.
+        // All in HEIGHT_TO_HU units.
         float heightBlendInput = heightSource < 1.5 ? height + depth
                                : heightSource < 2.5 ? height : depth;
-        // The stored limit is sqrt(maxHU / HEIGHT_TO_HU), quantized to a nonzero 5-bit level.
         float heightLimitSqrt = (heightLimitSqrtCode5 + 1.0) / 32.0;
         float heightWeight = saturate(heightBlendInput / (heightLimitSqrt * heightLimitSqrt));
         if (heightSourceInvertBits - heightSource * 2.0 > 0.5)
@@ -208,8 +207,7 @@ float3 ApplyParallaxInk(const PsVertexInfo i) {
     float3x3 tangentSpaceInk = i.inkTransform;
     tangentSpaceInk[2] /= HEIGHT_TO_HU;
 
-    // The ray ends at the bottom of the height range, even beyond the surface's range of the ink map,
-    // where it reads the ink at the edge of the range (ClampInkUV).
+    // The ray ends at the bottom of the height range, even beyond the surface's range of the ink map.
     float3 viewDir     = mul(tangentSpaceInk, g_EyePos.xyz - worldPos);
     float  viewDirInvZ = SAFERCP(viewDir.z);
     float  fractionEnd = min((-1.0 - 1e-5 - inkUV.z) * viewDirInvZ, -inkUV.z * viewDirInvZ);

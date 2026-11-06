@@ -16,15 +16,15 @@ local floor = math.floor
 ---One vertex worth of packed data passed to inkmesh_vs30, kept only for debug mesh inspection.
 ---@class ss.VertexBatches.MeshVertex
 ---@field Position           Vector   World-space position written with mesh.Position.
----@field Color              number[] xyz: blend toward $basetexture2, 3, and 4, w: unused.
----@field UVRange            number[] xy:  min ink-map UV,            zw: max ink-map UV for surface clipping.
----@field WorldTangent_U     number[] xyz: world tangent,              w: geometry texture U.
----@field WorldBinormal_V    number[] xyz: world binormal,             w: geometry texture V.
----@field WorldNormal_dU     number[] xyz: world normal,               w: bumped-lightmap U offset.
----@field InkTangent_U       number[] xyz: world-to-ink-UV first row,  w: ink U.
----@field InkBinormal_V      number[] xyz: world-to-ink-UV second row, w: ink V.
----@field LightmapTangent_U  number[] xyz: world lightmap tangent,     w: packed lightmap U.
----@field LightmapBinormal_V number[] xyz: world lightmap binormal,    w: packed lightmap V.
+---@field Color              number[]
+---@field UVRange            number[]
+---@field WorldTangent_U     number[]
+---@field WorldBinormal_V    number[]
+---@field WorldNormal_dU     number[]
+---@field InkTangent_U       number[]
+---@field InkBinormal_V      number[]
+---@field LightmapTangent_U  number[]
+---@field LightmapBinormal_V number[]
 ---@field SurfaceIndex       integer  Index to the surfaces of the map cache.
 
 ---A draw-sized range of the triangles of the surfaces that maps one-to-one to a part of the ink meshes of a model.

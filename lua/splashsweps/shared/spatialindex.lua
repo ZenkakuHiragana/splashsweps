@@ -106,7 +106,7 @@ end
 ---
 ---The grid has levels whose cells are 128, 256, ..., 32768 hammer units long.
 ---A surface is in the cells of the level whose cells are at least half as long as the longest edge of its AABB,
----so that it is in 27 cells at most. A static prop is in the grid once as the box of its 6 sides.
+---so that it is in 27 cells at most.
 ---@param parameters ss.MapCache.HashParameters
 function SpatialIndex.Setup(parameters)
     state.Parameters = parameters

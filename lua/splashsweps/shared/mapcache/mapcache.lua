@@ -1,5 +1,5 @@
 
--- Records of the map cache, saved by MapCache.WriteFile and loaded by MapCache.ReadFile.
+-- Records of the map cache.
 -- <map>.dat is MapCache itself.
 -- Each record is a binary structure of BinaryStruct.Define, which lists its fields in the order in the file.
 -- An array is preceded by the field of its length, which the code building the cache sets.
@@ -39,7 +39,6 @@ end
 
 ---Defines a record: registers its fields as a binary structure,
 ---and gives the record new() which creates an instance with every field set.
----Each field is `<type> <name> <array amount (optional)>` as BinaryStruct.Define takes.
 ---The default of a field is the default of its type: a new record, "", or 0.
 ---The default of an array of a fixed amount is that many defaults,
 ---and that of an array whose amount is a field is an empty table.
@@ -77,7 +76,7 @@ local function record(name, fields, defaults, R)
 end
 
 ---Placement of a rectangle in the ink map, which has a surface or the sides of a static prop.
----Values are in hammer units, which ss.MapCache.HammerUnitsToUV converts into UV coordinates.
+---Values are in hammer units.
 ---```text
 ---. +-----------------------------> v
 ---. |
@@ -152,7 +151,7 @@ MapCache.StaticProp = record("MapCache.StaticProp", {
     "Float  PositionY",
     "Float  PositionZ",
     "Float  Scale",
-    "Byte   ShortestAxis", -- 1 to 3 for X, Y, and Z
+    "Byte   ShortestAxis",
     "Long   Skin",         -- m_Skin of StaticPropLump_t (int)
     "String Envmap",
     "MapCache.InkMapRectangle InkMapRectangle",
@@ -384,8 +383,7 @@ MapCache.MinimapAreaBounds = record("MapCache.MinimapAreaBounds", {
     "Float MaxZ",
 })
 
----The root record of the map cache, the results of the BSP which MapCache.WriteFile saves to <map>.dat.
----An array of no elements is nil when it is read from the cache file.
+---The root record of the map cache, the results of the BSP.
 ---@class ss.MapCache
 ---@field NumMaterialNames integer
 ---@field MaterialNames    string[]? List of material names used in the map ordered by the same as TEXDATA_STRING_DATA lump.
@@ -411,7 +409,7 @@ MapCache.MinimapAreaBounds = record("MapCache.MinimapAreaBounds", {
 record("MapCache", {
     "ULong  NumMaterialNames",
     "String MaterialNames NumMaterialNames",
-    "UShort NumMinimapBounds", -- The area number is 9 bits
+    "UShort NumMinimapBounds",
     "MapCache.MinimapAreaBounds MinimapBounds NumMinimapBounds",
     "UShort NumModels", -- MAX_MAP_MODELS = 1024
     "MapCache.HashParameters HashParameters",

@@ -165,9 +165,9 @@ end
 ---@param bsp           ss.BSP.Lumps
 ---@param faces         ss.BinaryStruct.BSP.FACES[] LUMP_FACES, or LUMP_FACES_HDR which has the same faces.
 ---@param rawSamples    string                LUMP_LIGHTING for LUMP_FACES, or LUMP_LIGHTING_HDR for LUMP_FACES_HDR.
----@param surfaces      ss.MapCache.Surface[] Paintable surfaces built from LUMP_FACES.
----@param materialNames string[] Material names in the order of TEXDATA_STRING_DATA.
----@return ss.MapCache.LightmapInfo[] # Indexed by the face.
+---@param surfaces      ss.MapCache.Surface[]
+---@param materialNames string[]
+---@return ss.MapCache.LightmapInfo[]
 function LightmapBuilder.Build(bsp, faces, rawSamples, surfaces, materialNames)
     print "    Generating lightmap info..."
     local lightmaps    = {} ---@type ss.MapCache.LightmapInfo[]

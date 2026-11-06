@@ -1,6 +1,5 @@
 
--- Types of ink, each defined by an ink material: a vmt file under materials/splashsweps/inks.
--- The server defines them from its ink materials and sends the list to each client,
+-- The server defines the ink types from its ink materials and sends the list to each client,
 -- which defines the same ink types in the same order.
 
 ---@class ss
@@ -44,7 +43,7 @@ local InkType = ss.module "splashsweps/shared/inktype"
 
 ---@class ss.InkTypeModule.State
 ---@field Types             ss.InkType[]           Defined ink types indexed by their internal index.
----@field Features          ss.IInkFeature[]       Modules named by the ink types, each once.
+---@field Features          ss.IInkFeature[]       Modules named by the ink types, each once, in the order of the ink types and then of their `$features`.
 ---@field IdentifierToIndex table<string, integer> Conversion table from identifier string to internal index.
 ---@field NumBits           integer                Required bits to transfer an ink type index as an unsigned integer.
 ---@field Received          string[]?              Client only; identifiers the server sent in the order of the indices.
@@ -54,17 +53,12 @@ local state = ss.state("splashsweps/shared/inktype", {
     IdentifierToIndex = {},
 })
 
----Paintable grids and the ink map store the index in 8 bits, where 0 means no ink.
 local MAX_INK_TYPES = 255
 
----Drawn instead of an ink type the server has and the client does not.
 local ERROR_INK_MATERIAL = "splashsweps/inkerror"
 
----Defined ink types indexed by their internal index.
 InkType.Types = state.Types
 
----Modules named by the ink types, each once, in the order of the ink types and then of their `$features`.
----Both realms have the same order, as they define the same ink types in the same order.
 InkType.Features = state.Features
 
 ---Converts ink type identifier (string) into internal index.
@@ -101,7 +95,6 @@ local function ImportFeatures(mat)
 end
 
 ---Defines the ink types.
----The server reads all ink materials, and the client follows the list the server sent by InkType.Write.
 function InkType.Load()
     local inktypeCount = 0
     if SERVER then
@@ -145,7 +138,7 @@ function InkType.Load()
     end
 end
 
----Writes the identifiers of the ink types to the net message, for the client to define the same ink types.
+---Writes the identifiers of the ink types to the net message.
 function InkType.Write()
     net.WriteUInt(#state.Types, 8)
     for _, inktype in ipairs(state.Types) do
@@ -162,7 +155,6 @@ function InkType.Read()
     state.Received = identifiers
 end
 
----Returns the required bits to transfer an ink type index as an unsigned integer.
 ---@return integer
 function InkType.GetNumBits()
     return state.NumBits

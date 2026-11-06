@@ -1,6 +1,4 @@
 
--- Ink meshes of the worldspawn and brush entities, built from the map cache.
-
 ---@class ss
 local ss = SplashSWEPs
 local InkMeshMaterial    = ss.import "splashsweps/client/mapload/inkmeshmaterial"
@@ -26,16 +24,13 @@ local InkMesh = ss.module "splashsweps/client/render/inkmesh"
 
 ---@class ss.InkMeshModule.State
 ---@field ModelMeshes   ss.InkMesh.ModelMeshes[]        Ink meshes of each BSP model, indexed by 1-based model index.
----@field DebugMeshData ss.VertexBatches.MeshVertex[][] Vertices written into the meshes, kept for debug mesh inspection if InkMesh.Setup is asked to.
+---@field DebugMeshData ss.VertexBatches.MeshVertex[][] Vertices written into the meshes, kept for debug mesh inspection.
 local state = ss.state("splashsweps/client/render/inkmesh", {
     ModelMeshes = {},
     DebugMeshData = {},
 })
 
----Ink meshes of each BSP model, indexed by 1-based model index.
 InkMesh.ModelMeshes = state.ModelMeshes
-
----Vertices written into the meshes, kept for debug mesh inspection if InkMesh.Setup is asked to.
 InkMesh.DebugMeshData = state.DebugMeshData
 
 ---Reads through BSP models which includes the worldspawn and brush entities and constructs IMeshes from them.

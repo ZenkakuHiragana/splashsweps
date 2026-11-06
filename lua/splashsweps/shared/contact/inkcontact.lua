@@ -11,7 +11,6 @@ local SpatialIndex     = ss.import "splashsweps/shared/spatialindex"
 ---@class ss.InkContactModule
 local InkContact = ss.module "splashsweps/shared/contact/inkcontact"
 
----A painted surface an entity is in contact with.
 ---The point is where the perpendicular from the center of the searched box meets the surface.
 ---@class ss.InkContact
 ---@field InkType  ss.InkType The ink type painted at the point.
@@ -34,7 +33,7 @@ function InkContact.ShouldCheck(ent)
     return ent:GetSolid() ~= SOLID_NONE and bit.band(ent:GetSolidFlags(), FSOLID_NOT_SOLID) == 0
 end
 
----Returns the contact with a flat surface, if the center is in front of it and the foot of the perpendicular is painted.
+---Returns the contact with a flat surface, if the center is in front of it and the point is painted.
 ---@param surf    ss.PaintableSurface A flat surface in the coordinate system of the center.
 ---@param toWorld number[]? The transform from that coordinate system to the world, or nil if it is the world.
 ---@param cx      number The center of the searched box.
@@ -60,7 +59,7 @@ local function findFlatContact(surf, toWorld, cx, cy, cz)
 end
 
 ---Returns the contact with the nearest triangle of a displacement the center is in front of,
----if the foot of the perpendicular is painted.
+---if the point is painted.
 ---@param surf ss.PaintableSurface The displacement.
 ---@param minX number The searched box.
 ---@param minY number
@@ -99,8 +98,7 @@ local function findDisplacementContact(surf, minX, minY, minZ, maxX, maxY, maxZ,
 end
 
 ---Returns the contacts of an entity with ink, grouped by the modules named by `$features` of their ink types.
----The contacts are those with the surfaces near the box, collected as painting does,
----each read at the foot of the perpendicular from the center of the box.
+---The contacts are those with the surfaces near the box, collected as painting does.
 ---@param ent  Entity  The entity, whose own surfaces are excluded if it is a brush entity.
 ---@param mins Vector  The box in world coordinates, usually the AABB of the entity.
 ---@param maxs Vector

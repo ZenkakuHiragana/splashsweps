@@ -27,7 +27,7 @@ local BLACK = false
 ---@return boolean
 local function isRed(node)
     if not node then return false end
-    return node.color -- == RED == true
+    return node.color
 end
 
 ---Rotates a node to the left.

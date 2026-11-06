@@ -81,7 +81,7 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames)
     matKeyValues["$texture5"] = RenderTargets.Frame.StaticPropFlashlight:GetName()
     matKeyValues["$linearread_texture7"] = render.GetHDREnabled() and "1" or "0"
     matKeyValues["$c0_x"] = ss.RT_BILINEAR_GUARD_PIXELS
-    matKeyValues["$c1_z"] = 2 / RenderTargets.GetHammerUnitsToUV() -- InkMap region UV -> packed-surface HU.
+    matKeyValues["$c1_z"] = 2 / RenderTargets.GetHammerUnitsToUV()
     for i, prop in ipairs(staticPropInfo or {}) do
         local uv = prop.InkMapRectangle
         local modelName = modelNames[prop.ModelIndex]
@@ -102,9 +102,6 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames)
                 mdl.FadeMaxSqr = fadeMax and (fadeMax * fadeMax)
                 mdl.ModelLengthSqr = mins:DistToSqr(maxs)
 
-                -- $invviewprojmat = c15..c18 of the static prop ink shader:
-                --   rows 1-3  world -> bounding box, the same box as the paintable surfaces and the ink map have
-                --   row 4     size.x  size.y  size.z  margin
                 local box = PaintableSurface.GetStaticPropBox(prop)
                 local m = Geometry.InvertRotationTranslation(box.ToWorld)
                 worldToBox:SetUnpacked(
@@ -113,7 +110,6 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames)
                     m[9], m[10], m[11], m[12],
                     box.SizeX, box.SizeY, box.SizeZ, ss.MARGIN_HAMMER_UNITS)
 
-                -- The cache has the cubemap names without ".hdr"
                 local nearestEnvmap = prop.Envmap ~= "" and prop.Envmap .. (render.GetHDREnabled() and ".hdr" or "") or UnderlaySync.DEFAULT_ENVMAP
                 local params = table.Merge(matKeyValues, {
                     ["$c1_y"] = uv.IsRotated and uv.Width or 0,
@@ -134,11 +130,6 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames)
                                 * (mdlmat:GetVector "$color2" or Util.vector_one)
                     params["$texture3"] = mdlmat:GetString "$basetexture" or "white"
                     params["$texture4"] = mdlmat:GetString "$bumpmap" or "null-bumpmap"
-                    -- $envmap        $texture7
-                    -- -------------  ------------------------------
-                    -- a texture      the texture
-                    -- env_cubemap    the cubemap of the prop
-                    -- none           the cubemap of the prop
                     local envmap = mdlmat:GetString "$envmap"
                     params["$texture7"] = isEnvmapTexture(envmap) and envmap or nearestEnvmap
                     params["$c1_w"] = getAlphaTestReference(mdlmat)

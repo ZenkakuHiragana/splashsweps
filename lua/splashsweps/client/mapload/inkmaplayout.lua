@@ -1,6 +1,4 @@
 
--- Places the paintable surfaces in the ink map by their rectangles of the map cache.
-
 ---@class ss
 local ss = SplashSWEPs
 local PaintableSurface = ss.import "splashsweps/shared/paint/paintablesurface"
@@ -37,10 +35,9 @@ local InkMapLayout = ss.module "splashsweps/client/mapload/inkmaplayout"
 ---@field Placements ss.InkMapLayout.Placement[] Indexed by ss.PaintableSurface.Index.
 local state = ss.state("splashsweps/client/mapload/inkmaplayout", { Placements = {} })
 
----Where each paintable surface is in the ink map, indexed by ss.PaintableSurface.Index.
 InkMapLayout.Placements = state.Placements
 
----Places the paintable surfaces in the ink map,
+---Places the paintable surfaces in the ink map by their rectangles of the map cache,
 ---after PaintableSurface.Setup and PaintableSurface.SetupStaticProps create them.
 ---@param surfaces    ss.MapCache.Surface[]?    The surfaces given to PaintableSurface.Setup.
 ---@param staticProps ss.MapCache.StaticProp[]? The static props given to PaintableSurface.SetupStaticProps.

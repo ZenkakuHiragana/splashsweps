@@ -20,8 +20,6 @@ local function WriteString(binary, value, fixedLength)
 end
 
 ---Functions to write a value of the built-in types, looked up by the type name.
----Arrays write a value for each element, so BinaryWriter.Write looks up this table
----instead of joining "Write" and the type name every time, which LuaJIT 2.0 does not compile.
 ---@type table<string, fun(binary: File, value: any)>
 local WRITERS = {
     Bool   = File.WriteBool,
@@ -50,7 +48,6 @@ local function WriteField(binary, field, value, ...)
 end
 
 ---Writes a structure by the fields of its definition.
----The values of a field without a key are taken from the array indices of the value after the previous ones.
 ---@param binary     File
 ---@param definition ss.BinaryStruct.Definition
 ---@param value      table
@@ -88,21 +85,6 @@ local function WriteStructure(binary, definition, value, ...)
 end
 
 ---Write a value or structure to given binary file in the format BinaryReader.Read reads.
----The offset should correctly be set before call by binary:Seek().
----arg should be one of the following:
----  - Number of bytes to write a string using `File:Write(%s)`, or a string of the number like `4`
----  - String for one of these:
----    - Built-in types: `Bool`, `Byte`, `SByte` (signed byte), `Short`, `UShort`, `Long`, `ULong`, and `Float`
----    - `String` for null-terminated string
----    - `String%d` for a null-terminated string but padded to `%d` bytes.
----    - Structure name defined by BinaryStruct.Define "T"
----  - Table representing a structure
----    Table containing a sequence of strings formatted as
----    `<type> <fieldname> <array amount (optional)>`
----    e.g. `Float dist`, `Byte fourCC 4`
----    Array amount can be a field name previously defined in the same structure.
----    e.g. `{ "Long edgeCount", "UShort edgeIndices edgeCount" }`
----    The field name `nil` puts the value at the next array index of the structure.
 --- value should be corresponding table if arg is structure.
 --- Every field of a structure is written, so the value must have all of them,
 --- including the array amount that matches the length of the array.

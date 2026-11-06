@@ -719,7 +719,7 @@ end
 ---@param bsp           ss.BSP.Lumps
 ---@param prop          ss.BinaryStruct.BSP.StaticProp
 ---@param illumposition number[] illumposition of the model as x, y, and z.
----@return string # The name of the cubemap texture of the sample, `maps/<map>/cX_Y_Z` without ".hdr", or "" if the map has no cubemaps.
+---@return string
 local function FindStaticPropCubemap(bsp, prop, illumposition)
     local x, y, z = prop.lightingOriginX, prop.lightingOriginY, prop.lightingOriginZ
     if bit.band(prop.flags, STATIC_PROP_USE_LIGHTING_ORIGIN) == 0 then
@@ -788,7 +788,7 @@ end
 ---@param prop ss.MapCache.StaticProp
 ---@return number # w including the margins.
 ---@return number # h including the margins.
----@return integer # The shortest axis, 1 to 3 for X, Y, and Z, which is the number of the selected pattern.
+---@return integer # The number of the selected pattern.
 local function GetStaticPropUVSize(prop)
     local sx = prop.BoundsMaxX - prop.BoundsMinX
     local sy = prop.BoundsMaxY - prop.BoundsMinY

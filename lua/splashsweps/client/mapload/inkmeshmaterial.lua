@@ -1,5 +1,5 @@
 
--- Creates the ink mesh materials from their underlays, the materials of the world surfaces.
+-- Creates the ink mesh materials from their underlays.
 
 ---@class ss
 local ss = SplashSWEPs
@@ -45,13 +45,13 @@ local function buildBaseInkMeshMaterialParams()
         ["$tcsize5"]                = "4",
         ["$tcsize6"]                = "4",
         ["$tcsize7"]                = "4",
-        ["$c0_x"]                   = 0,     -- Sun direction x
-        ["$c0_y"]                   = 0.3,   -- Sun direction y
-        ["$c0_z"]                   = 0.954, -- Sun direction z
+        ["$c0_x"]                   = 0,
+        ["$c0_y"]                   = 0.3,
+        ["$c0_z"]                   = 0.954,
     }
 end
 
----Packs Lightmapped_4WayBlend parameters into the layout the world ink shaders read from $invviewprojmat.
+---Packs Lightmapped_4WayBlend parameters into $invviewprojmat.
 ---@param m   VMatrix   Destination matrix.
 ---@param mat IMaterial Lightmapped_4WayBlend material.
 local function set4WayBlendParams(m, mat)
@@ -111,7 +111,7 @@ function InkMeshMaterial.Create(lightmapLayout, sortID)
     materialParams["$texture6"] = lightmapTextureName
     materialParams["$texture7"] = materialInfo.Envmap or UnderlaySync.DEFAULT_ENVMAP
     materialParams["$c0_w"]     = detailBlendMode
-    materialParams["$c1_z"]     = 2 / RenderTargets.GetHammerUnitsToUV() -- InkMap region UV -> packed-surface HU.
+    materialParams["$c1_z"]     = 2 / RenderTargets.GetHammerUnitsToUV()
     materialParams["$c1_y"]     = (materialInfo.NeedsBumpedLightmaps and 1 or 0)
                                 + (bmtstr and 8 or 0)
     materialParams["$c2_x"]     = 1 / pageWidth

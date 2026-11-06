@@ -1,6 +1,5 @@
 
--- Calls Move of the ink feature modules for every command of each ready player,
--- on the server and on the client predicting the player.
+-- Calls Move of the ink feature modules for every command of each ready player.
 -- The server also finds here when players come into contact with ink, which can be shorter than the interval of the checks.
 
 ---@class ss

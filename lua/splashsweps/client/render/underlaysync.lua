@@ -1,6 +1,5 @@
 
--- Keeps ink mesh materials and ink sprp materials in sync with their underlays,
--- the materials under the paint that show through it.
+-- Keeps ink mesh materials and ink sprp materials in sync with their underlays.
 
 ---@class ss
 local ss = SplashSWEPs
@@ -31,12 +30,7 @@ local state = ss.state("splashsweps/client/render/underlaysync", {
 })
 
 -- Ink mesh materials and ink sprp materials are registered separately,
--- as the shader constants they share with their underlays differ:
---
---   kind               follows the underlay                                sun direction in $c0_xyz
---   -----------------  --------------------------------------------------  ------------------------
---   ink mesh material  transforms, $color, $color2, and $detail* to blend  yes
---   ink sprp material  transforms, $color, and $color2                     no, $c0_x has another use
+-- as the shader constants they share with their underlays differ.
 
 ---Registers an ink mesh material to keep it in sync with its underlay.
 ---@param mat IMaterial Ink mesh material

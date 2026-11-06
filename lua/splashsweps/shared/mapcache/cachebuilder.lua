@@ -88,7 +88,7 @@ local function BuildMinimapBounds(bsp)
 end
 
 ---Parses the BSP, collects valid brush surfaces, prepares paintable surfaces,
----and writes them to the temporary file without compression.
+---and writes them to the temporary file.
 ---@param path string Path of the temporary file in the data folder.
 ---@return boolean # false if the BSP cannot be loaded.
 local function WriteCache(path)
@@ -143,7 +143,7 @@ function CacheBuilder.Load()
     collectgarbage "collect"
     if not WriteCache(tempPath) then return end
 
-    -- WriteCache has returned, so the BSP and the cache are released before the compression, which needs memory.
+    -- WriteCache has returned, so the BSP and the cache are released.
     collectgarbage "collect"
     MapCache.CompressFile(tempPath, path)
     collectgarbage "collect"

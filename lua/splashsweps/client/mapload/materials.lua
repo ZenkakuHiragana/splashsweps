@@ -12,7 +12,7 @@ local MapMaterials = ss.module "splashsweps/client/mapload/materials"
 ---Material metadata needed to reproduce world surface shading in inkmesh.
 ---@class ss.MapMaterials.MaterialInfo
 ---@field Material             IMaterial The source material.
----Indices to material name array which is usually game.GetMap():GetMaterials(),
+---Indices to the material names of the map,
 ---of the materials of this enumeration ID. Several materials have the same one if they are missing.
 ---@field ArrayIndices         integer[]
 ---@field NeedsBumpedLightmaps boolean   Whether the material uses 3 directional lightmaps plus the base lightmap.
@@ -35,7 +35,7 @@ local MapMaterials = ss.module "splashsweps/client/mapload/materials"
 ---Assigns enumeration ID to materials in the map,
 ---considering the global string table in the engine.
 ---@param materialsInMap string[]
----@return table<integer, ss.MapMaterials.MaterialInfo> materialInfo Sparse enumeration-ID-indexed materials.
+---@return table<integer, ss.MapMaterials.MaterialInfo> materialInfo
 local function enumerateMaterials(materialsInMap)
     local materialNames = materialsInMap
     local enumerationIDToArrayIndex = {} ---@type integer[]
@@ -56,7 +56,6 @@ local function enumerateMaterials(materialsInMap)
         enumerationIDToArrayIndex[enumerationID] = materialsInMapFlip[str]
     end
 
-    ---Enumeration ID --> material information
     ---The engine replaces missing materials with the error material, which is made by CreateMaterial.
     ---The material dictionary sorts such materials before those from files (CMaterialDict::MaterialLessFunc),
     ---so the error material has the enumeration ID before all materials of the map.
@@ -103,7 +102,7 @@ local function enumerateMaterials(materialsInMap)
     return materialInfo
 end
 
----Assigns enumeration ID to materials in the map and reads what the ink meshes need from them.
+---Reads what the ink meshes need from the materials in the map.
 ---@param materialNames string[] Materials in the map, usually game.GetMap():GetMaterials() saved in the map cache.
 ---@return table<integer, ss.MapMaterials.MaterialInfo> materialInfo Sparse enumeration-ID-indexed materials.
 function MapMaterials.Enumerate(materialNames)

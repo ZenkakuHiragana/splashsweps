@@ -7,7 +7,7 @@ struct PS_INPUT {
 sampler BaseTexture : register(s0);
 const float2 c0 : register(c0);
 const float2 BaseTexturePixelSize : register(c4); // One over $basetexture size
-static const float Channel = c0.x;
+static const float Channel = c0.x; // Source channel written to alpha: 0 R, 1 G, 2 B, 3 A
 static const float VertexColor = c0.y;
 float4 main(const PS_INPUT i) : COLOR0 {
     if (step(0.5, VertexColor)) {

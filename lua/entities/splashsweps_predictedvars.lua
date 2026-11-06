@@ -1,6 +1,5 @@
 
 -- The entity having the predicted variables of a group of ink feature modules for a player, its owner.
--- contact/predictedvars.lua decides the groups, and reads and writes the variables in the other slots.
 
 AddCSLuaFile()
 

@@ -5,7 +5,7 @@
 //   xyz : Paint angles in degrees (pitch, yaw, roll), flattened for displacement surfaces
 //   w   : Hammer units to UV conversion constant
 // TEXCOORD1
-//   x : Ink $basetexture atlas min U (negative if transposed)
+//   x : Ink $basetexture atlas min U (negative if transposed; its magnitude is positive due to the margin)
 //   y : Ink $basetexture atlas min V
 //   z : Ink $basetexture atlas max U
 //   w : Ink $basetexture atlas max V
@@ -125,7 +125,6 @@ VS_OUTPUT main(const VS_INPUT v) {
     output.paintPlacement = float4(inkMapCenterHU, DecodeInkMapToPaintCosSin(paintRotationCode5));
     output.shapeDistanceScale = float2(ShapeTextureAlphaToHU(v.shapeTextureAtlasRange, v.size.xy), HammerUnitsToUV);
     // Fold region placement into clip space to avoid rounding the shifted UV before subtracting 1.
-    // Paints are drawn in queue order without depth, so later quads overwrite earlier ones.
     output.pos = float4(uvPos + (INKMAP_REGION_OFFSETS[regionIndex] * 2.0 - 1.0), 0.0, 1.0);
     output.pos.y *= -1.0;
     return output;

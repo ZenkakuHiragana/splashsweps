@@ -278,16 +278,15 @@ end
 
 ---Paints an ink with given information.
 ---@param pos     Vector  The origin.
----@param ang     Angle   The normal (the up) and rotation. The top of the shape image faces the forward.
----@param radius  Vector  The radii of the paint (x: image width / 2, y: image height / 2, z: search along the up),
----                       which are limited to 510 Hammer units because of network optimization.
+---@param ang     Angle   The normal (the up) and rotation.
+---@param radius  Vector  The radii of the paint: RadiusX, RadiusY, and RadiusZ in x, y, and z.
 ---@param shape   integer The internal index of shape to paint.
 ---@param inktype integer The internal index of ink type.
 function Paint.Paint(pos, ang, radius, shape, inktype)
     -- Parameter limit to reduce network traffic
     local radiusX = Round(min(radius.x, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
-    local radiusY = Round(min(radius.y, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
-    local radiusZ = Round(min(radius.z, MAX_RADIUS) * 0.5) -- 0 to MAX_RADIUS, 2 step, integer
+    local radiusY = Round(min(radius.y, MAX_RADIUS) * 0.5)
+    local radiusZ = Round(min(radius.z, MAX_RADIUS) * 0.5)
     local x, y, z, pitch, yaw, roll = EncodePose(pos.x, pos.y, pos.z, ang.pitch, ang.yaw, ang.roll)
     local paint = Decode(inktype, shape, x, y, z, pitch, yaw, roll, radiusX, radiusY, radiusZ)
     local inkToWorld = GetTransform(paint)

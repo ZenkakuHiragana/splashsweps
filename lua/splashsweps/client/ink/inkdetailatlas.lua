@@ -1,6 +1,4 @@
 
--- Ink detail atlas: the detail images of ink materials, and the ink data below them.
-
 ---@class ss
 local ss = SplashSWEPs
 local InkData        = ss.import "splashsweps/client/ink/inkdata"
@@ -22,7 +20,7 @@ local InkDetailAtlas = ss.module "splashsweps/client/ink/inkdetailatlas"
 ---@field LastInkData      table<integer, number[][]> Last encoded inputs sent to WriteInkData
 ---@field GeneratedCells   table<string, integer>     Material name --> grid cell drawn by its InkDetailUpdate
 ---@field RenderTarget     ITexture?                  The atlas
----@field ImageSize        number                     Side length of the square image area above the ink data
+---@field ImageSize        number                     Side length of the square image area
 ---@field GridColumns      number                     Number of columns in the detail image grid
 ---@field BlendModes       table<integer, integer>    $detailblendmode of each ink type, 0 if the detail is disabled
 -- Preparation replaces the contents, not the field names.
@@ -40,7 +38,6 @@ local state = ss.state("splashsweps/client/ink/inkdetailatlas", {
     BlendModes = {},
 })
 
----$detailblendmode of each ink type, 0 if the detail is disabled.
 InkDetailAtlas.BlendModes = state.BlendModes
 
 local CELL_BORDER_TOTAL_PX = 2
@@ -96,9 +93,8 @@ local function WriteDetailCells(textures, drawRequests)
     render.OverrideBlend(false)
 end
 
----Writes the ink data of ink types below the grid cells so that they can be read in the shader.
+---Writes the ink data of ink types.
 ---Automatic height baselines have already been resolved from the smallest stored mipmaps.
----The Details render target must be pushed and cam.Start2D() must be called beforehand.
 ---@param inkDataByType table<integer, number[][]> Ink type index --> ink data from InkData.Encode()
 local function WriteInkData(inkDataByType)
     if not next(inkDataByType) then return end

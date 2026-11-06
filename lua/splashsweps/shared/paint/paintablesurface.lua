@@ -85,12 +85,10 @@ PaintableSurface.Surfaces = state.Surfaces
 
 ---Paintable surfaces of brush entities, which are not registered to the spatial index of the world
 ---because they can move away from where the map compiler put them.
---- `= { [model index] = { surface, ... }, ... }`
----where the model index is 1-based index of the BSP model lump (`*N` model name refers to N + 1),
+---The model index is the 1-based index of the BSP model lump (`*N` model name refers to N + 1),
 ---and the surfaces are in the model's local coordinate system.
 PaintableSurface.BrushModelSurfaces = state.BrushModelSurfaces
 
----Returns the required bits to transfer a brush model index as an unsigned integer.
 ---@return integer
 function PaintableSurface.GetModelIndexBits()
     return state.ModelIndexBits
@@ -225,8 +223,7 @@ function PaintableSurface.Setup(surfaces, numModels)
     end
 end
 
----A side of the bounding box of a static prop in the coordinates of the box,
----with the origin, the offset in the UV space, and the forward as described in PaintableSurface.GetStaticPropBox.
+---A side in the coordinates of the box, with the origin, the offset in the UV space, and the forward.
 ---@class ss.PaintableSurface.BoxSideTemplate
 ---@field NormalX   number The normal, which is the up of the side.
 ---@field NormalY   number
@@ -255,7 +252,6 @@ local function boxSideTemplate(normal, forward, origin, uvOffset)
     }
 end
 
----The sides of the bounding box of a static prop, #1 to #6.
 local BOX_SIDES = {
     boxSideTemplate({  1,  0,  0 }, {  0, -1,  0 }, { 1, 1, 1 }, { 2, 1, 0 }),
     boxSideTemplate({  0,  1,  0 }, {  1,  0,  0 }, { 0, 1, 1 }, { 1, 1, 0 }),
@@ -279,7 +275,6 @@ local AXES_ZXY = {
     1, 0, 0, 0,
 }
 
----A side of the bounding box of a static prop.
 ---@class ss.PaintableSurface.StaticPropBoxSide
 ---@field Template ss.PaintableSurface.BoxSideTemplate The orientation and the place in the UV space of the side.
 ---@field ToWorld  number[] The transform from the side to the world, whose columns are the forward, the left, the normal, and the origin.
@@ -329,9 +324,6 @@ local AXES_ZXY = {
 ---    - `Z` -> `-Y`
 ---  - Left (Binormal) = Normal × Forward
 ---- Origin of the coordinate system = `S * Origin` (element-wise multiplication)
----- Offset in UV space: `mul = S * UVOffset` (element-wise multiplication)
----  - u = `mul.x + mul.y`
----  - v = `mul.z`
 ---
 ---The following figure visualizes how the corrdinate systems of the OBB surfaces are placed:
 ---

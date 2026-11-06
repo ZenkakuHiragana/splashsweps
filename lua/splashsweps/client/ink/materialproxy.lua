@@ -1,6 +1,4 @@
 
--- Reads the proxy block of a VMT file as Source does.
-
 ---@class ss
 local ss = SplashSWEPs
 

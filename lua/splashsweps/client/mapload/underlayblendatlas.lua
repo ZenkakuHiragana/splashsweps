@@ -1,6 +1,4 @@
 
--- Packs the textures under the blended layers of WorldVertexTransition and Lightmapped_4WayBlend materials.
-
 ---@class ss
 local ss = SplashSWEPs
 
@@ -8,7 +6,7 @@ local ss = SplashSWEPs
 local UnderlayBlendAtlas = ss.module "splashsweps/client/mapload/underlayblendatlas"
 
 ---Creates render targets and packs textures used in WorldVertexTransition and Lightmapped_4WayBlend materials.
----@param mats table<integer, ss.MapMaterials.MaterialInfo> Sparse enumeration-ID-indexed materials.
+---@param mats table<integer, ss.MapMaterials.MaterialInfo>
 function UnderlayBlendAtlas.Build(mats)
     local copy = Material "pp/copy"
     for _, m in pairs(mats) do

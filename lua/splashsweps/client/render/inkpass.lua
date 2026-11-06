@@ -99,8 +99,6 @@ function(bDrawingDepth, bDrawingSkybox)
     render.DrawQuad(ScreenQuadCorners[1], ScreenQuadCorners[2], ScreenQuadCorners[3], ScreenQuadCorners[4])
     render.PopRenderTarget()
 
-    -- Upper half of SceneAndFlashlight: frame buffer color and view depth.
-    -- Lower half: light the ink meshes receive from flashlights, behind the scene depth.
     local w, h = ScrW(), ScrH()
     render.PushRenderTarget(RenderTargets.Frame.SceneAndFlashlight, 0, 0, w, h)
     render.SetMaterial(SceneCopyMaterial)

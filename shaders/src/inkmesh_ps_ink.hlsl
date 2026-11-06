@@ -13,7 +13,7 @@
 #define g_RimEnabled
 
 struct PS_OUTPUT {
-    float4 finalColorWithoutSSR : COLOR0;
+    float4 finalColorWithoutSSR : COLOR0; // Alpha is the painted-surface mask.
     float4 encodedNormals       : COLOR1; // encoded normal vector of xy: painted ink, zw: the mesh
     float4 reflectionAndHeight  : COLOR2; // reflection weights and ink height
     float4 envmapAndRoughness   : COLOR3; // envmap sample and ink roughness

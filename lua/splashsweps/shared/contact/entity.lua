@@ -1,7 +1,5 @@
 
 -- Checks the contacts of the entities with ink periodically, on the server and on each client separately.
--- The server also calls PhysicsCollide of the modules for the collisions of physics objects with ink,
--- which start the contacts too.
 
 ---@class ss
 local ss = SplashSWEPs

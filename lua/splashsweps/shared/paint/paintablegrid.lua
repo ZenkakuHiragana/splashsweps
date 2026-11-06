@@ -24,7 +24,6 @@ local min    = math.min
 local max    = math.max
 local rshift = bit.rshift
 
----The paintable grid of a paintable surface, which holds the result of paintings.
 ---Each cell holds the internal index of the ink type painted on it, or 0 if no ink is there.
 ---
 ---The cells are numbered k = y * Width + x from 0, and every 4 cells in the order of k are packed into an element,
@@ -65,7 +64,6 @@ local rshift = bit.rshift
 ---@field Height    integer The total rows of the grid.
 
 ---Creates a grid with no element, whose cells are all empty.
----PaintableGrid.Clear fills its elements in advance so that painting does not allocate them.
 ---@param width  integer
 ---@param height integer
 ---@return ss.PaintableGrid
@@ -73,8 +71,7 @@ function PaintableGrid.new(width, height)
     return { Width = width, Height = height }
 end
 
----Returns the internal index of the ink type of a cell, or 0 if no ink is there,
----from the elements laid out as ss.PaintableGrid describes.
+---Returns the internal index of the ink type of a cell, or 0 if no ink is there.
 ---An element not filled yet is taken as 4 empty cells.
 ---@param grid ss.PaintableGrid
 ---@param k    integer The cell y * Width + x, counting from 0.
@@ -84,7 +81,6 @@ local function getCell(grid, k)
 end
 
 ---Sets the internal index of the ink type of a cell, keeping the other 3 cells of its element.
----An element not filled yet is taken as 4 empty cells.
 ---@param grid    ss.PaintableGrid
 ---@param k       integer The cell y * Width + x, counting from 0.
 ---@param inktype integer The internal index of the ink type from 0 to 255.
@@ -192,8 +188,7 @@ function PaintableGrid.Write(self, paint)
     local indexMaxY = min( ceil(y_max / cellSize), surfaceGridHeight - 1)
 
     -- Caches
-    -- The top of the shape mask faces the forward and its right faces the right (-left),
-    -- so the column (index X) comes from -y in the ink system and the row (index Y) from -x.
+    -- The column (index X) comes from -y in the ink system and the row (index Y) from -x.
     local shapeMask              = InkShape.Shapes[paint.Shape].Mask
     local shapeMaskWidth         = shapeMask.Width
     local shapeMaskHeight        = shapeMask.Height

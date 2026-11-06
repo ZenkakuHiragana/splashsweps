@@ -1,6 +1,4 @@
 
--- Draws the ink of the static props the engine draws in each view.
-
 ---@class ss
 local ss = SplashSWEPs
 local RenderTargets = ss.import "splashsweps/client/render/rendertargets"
@@ -80,7 +78,6 @@ end
 function StaticPropRenderer.DrawInk()
     state.IsDrawing = true
     for _, prop in ipairs(state.Queue) do
-        -- VertexLitGeneric leaves the lighting of the prop in the shader constants the ink sprp material reads.
         render.MaterialOverride(StaticPropLightMaterial)
         prop:DrawModel(prop.QueuedFlags)
         render.MaterialOverride()
@@ -95,7 +92,6 @@ function StaticPropRenderer.HasQueued()
     return #state.Queue > 0
 end
 
--- See StaticPropRenderer.Queue
 hook.Add("PreDrawOpaqueRenderables", "SplashSWEPs: Reset static prop queue", function()
     for k in pairs(state.Queue) do state.Queue[k] = nil end
 end)

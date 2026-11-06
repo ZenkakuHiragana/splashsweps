@@ -407,7 +407,6 @@ local function getMipmapSize(largestWidth, largestHeight, imageFormat, mipmapLev
 end
 
 ---Calculates total size of the high resolution images in bytes.
----Volumetric or animated textures are not compatible: assuming depth == 1 and frames == 1.
 ---@param header ss.BinaryStruct.VTF.Header
 ---@return integer
 local function getTotalImageSize(header)

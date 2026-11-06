@@ -1,6 +1,4 @@
 
--- InkDetailUpdate material proxy, which lets ink types draw their detail cells by updater modules.
-
 ---@class ss
 local ss = SplashSWEPs
 local Util = ss.import "splashsweps/shared/util"
@@ -28,7 +26,7 @@ local InkDetailProxy = ss.module "splashsweps/client/ink/inkdetailproxy"
 ---return Ripple
 ---```
 ---Annotate the module table as a class extending this one.
----Update records every drawing input in the state, which is kept per material,
+---Update records every drawing input in the state,
 ---and returns the function to draw the cell, or nil not to request drawing.
 ---The cell is drawn only if the state or Update differs from the ones it was last drawn with,
 ---so hot reloading the module redraws the cell.
@@ -53,7 +51,7 @@ local state = ss.state("splashsweps/client/ink/inkdetailproxy", {
     LastUpdates = {},
 })
 
----Compares all drawing inputs with the snapshot saved after the last successful cell draw.
+---Compares all drawing inputs with the saved snapshot.
 ---Vector, Angle, and VMatrix compare their components with ==,
 ---while material and texture handles are compared by their names
 ---as getting the same resource again gives another handle.
@@ -89,7 +87,6 @@ function InkDetailProxy.Reset(updaters)
     state.LastUpdates = {}
 end
 
----Consumes the bind-time request queue, returning only requests with changed drawing inputs.
 ---@return table<string, ss.InkDetailProxy.Instance> drawRequests Changed drawing requests by material name
 function InkDetailProxy.TakeChanged()
     local drawRequests = {} ---@type table<string, ss.InkDetailProxy.Instance>
@@ -102,7 +99,6 @@ function InkDetailProxy.TakeChanged()
     return drawRequests
 end
 
----Saves the drawing inputs of a request whose cell has been drawn.
 ---@param name string Material name
 ---@param proxy ss.InkDetailProxy.Instance
 function InkDetailProxy.MarkDrawn(name, proxy)

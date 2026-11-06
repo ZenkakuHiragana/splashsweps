@@ -1,6 +1,5 @@
 
--- Encodes the parameters of ink types into the ink data: texels of the ink detail atlas the shaders read,
--- one column per ink type and one texel per parameter slot.
+-- Encodes the parameters of ink types into the ink data.
 
 ---@class ss
 local ss = SplashSWEPs
@@ -84,7 +83,6 @@ function InkData.Encode(mat, detailCell, baseTextureName)
             mat:GetFloat "$viscosity" or 1,
         },
         {
-            -- 127 / 255 represents 1
             (detailblendscale[1] or 1) * 127 / 255,
             (detailblendscale[2] or 1) * 127 / 255,
             (detailblendscale[3] or 1) * 127 / 255,
@@ -92,17 +90,12 @@ function InkData.Encode(mat, detailCell, baseTextureName)
         }, {
             detailTranslationUV.x % 1,
             detailTranslationUV.y % 1,
-            -- 127 / 255 represents zero
             (detailRotationCosSin.x + 1) * 127 / 255,
             (detailRotationCosSin.y + 1) * 127 / 255,
         }, {
-            -- Image repeats per Hammer unit, log2 with 24 steps per octave from 2^-13
             (math.log(detailtransformscale.x / detailPeriodHU, 2) + 13) * 24 / 255,
             (math.log(detailtransformscale.y / detailPeriodHU, 2) + 13) * 24 / 255,
             ((detailCell or 1) - 1) / 255, -- Grid index of the detail image
-            -- bit 0: invert; bits 1..2: source (0 = off, 1 = thickness, 2 = height, 3 = depth).
-            -- bits 3..7: sqrt-encode the height limit to give small limits finer steps within five bits.
-            -- The 32 decoded levels stay above zero to avoid division by zero in the shader's height weight.
             (heightLimitSqrtCode5 * 8 + detailheightsource * 2 + detailheightinvert) / 255,
         },
     }

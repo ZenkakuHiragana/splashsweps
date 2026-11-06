@@ -34,7 +34,7 @@ local function findIncoming(contacts, velocity)
     return incoming, speed
 end
 
----Returns the velocity reflected on the surface of the contact, going away from it at least at the minimum speed.
+---Returns the velocity reflected on the surface of the contact.
 ---@param velocity Vector
 ---@param contact  ss.InkContact
 ---@param speed    number The speed into the surface, 0 or more.

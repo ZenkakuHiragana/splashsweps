@@ -9,9 +9,12 @@
 #define ID_MISC               3 // rgb: erase, flatten, bump blend height / HEIGHT_TO_HU; a: nodig (bit 7), heightonly (bit 6), detaillocal (bit 5)
 #define ID_MATERIAL_REFRACT   4
 #define ID_VISCOSITY          5 // rgb: unused, a: viscosity
-#define ID_DETAIL_BLEND_SCALE 6 // $detailblendscale xyzw
+#define ID_DETAIL_BLEND_SCALE 6 // $detailblendscale xyzw; 127 / 255 encodes 1
 #define ID_DETAIL_TRANSFORM   7 // xy: translation in periods; zw: (cos, sin), zero encoded as 127 / 255
-#define ID_DETAIL_SCALE       8 // xy: log2 repeats/HU; z: zero-based cell; w: height source/invert/sqrt-limit (3+5 bits)
+#define ID_DETAIL_SCALE       8 // xy: log2 repeats/HU in 24 steps per octave from 2^-13; z: zero-based cell;
+                                // w: bit 0 invert, bits 1..2 height source (0 off, 1 thickness, 2 height, 3 depth),
+                                //    bits 3..7 sqrt(maxHU / HEIGHT_TO_HU) in 32 nonzero levels, which give small limits
+                                //    finer steps and keep the height weight from dividing by zero
 
 // [0.0, 1.0] --> [-1.0, +1.0]
 #define TO_SIGNED(x) ((x) * 2.0 - 1.0)
@@ -35,7 +38,7 @@ static const int DETAIL_MODE_THINFILM = 5;
 //   indices         : r = lower ink type ID, g = upper ink type ID,
 //                     b = boundary distance (high 4 bits) + upper layer blend (low 4 bits), see below,
 //                     a = upper detail mode (low 3 bits) + rotation (high 5 bits)
-//   height and depth: rg = height, ba = ground depth, both in 16 bits (see EncodeUnorm16)
+//   height and depth: rg = height, ba = ground depth, both in 16 bits (see EncodeUnorm16); zero height is 128 in r and 0 in g
 static const float2 INKMAP_ADDITIVE       = { 0.0, 0.0 };
 static const float2 INKMAP_MULTIPLICATIVE = { 0.5, 0.0 };
 static const float2 INKMAP_INDICES        = { 0.0, 0.5 };
@@ -100,7 +103,7 @@ const float4 c18       : register(c18);
 const float4 HDRParams : register(c30);
 
 static const float2 g_RcpDataRTSize  = s1RcpSize.xy;
-static const float  g_InkDataOffsetV = c3.w;
+static const float  g_InkDataOffsetV = c3.w; // Side length of the square image area in pixels; the ink data starts below it
 float4 FetchDataPixel(sampler s, int id, int index) {
     if (id == 0) {
         return GROUND_PROPERTIES[index];
