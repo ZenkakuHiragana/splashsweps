@@ -824,6 +824,8 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
     print "Generating static prop surfaces..."
     local results        = {} ---@type ss.MapCache.StaticProp[]
     local illumpositions = {} ---@type table<string, number[]>
+    local envmaps        = {} ---@type string[]
+    local envmapIndices  = {} ---@type table<string, integer>
     for _, prop in ipairs(bsp.sprp.prop or {}) do
         if prop.solid > 0 then
             local modelIndex = prop.propType + 1
@@ -838,6 +840,11 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
                 local r = result.InkMapRectangle
                 local maxX, maxY, maxZ = info.HullMax:Unpack()
                 local minX, minY, minZ = info.HullMin:Unpack()
+                local envmap = FindStaticPropCubemap(bsp, prop, illumpositions[name])
+                if envmap ~= "" and not envmapIndices[envmap] then
+                    envmaps[#envmaps + 1] = envmap
+                    envmapIndices[envmap] = #envmaps
+                end
                 result.Pitch, result.Yaw, result.Roll = prop.pitch, prop.yaw, prop.roll
                 result.BoundsMaxX, result.BoundsMaxY, result.BoundsMaxZ = maxX * scale, maxY * scale, maxZ * scale
                 result.BoundsMinX, result.BoundsMinY, result.BoundsMinZ = minX * scale, minY * scale, minZ * scale
@@ -847,7 +854,7 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
                 result.PositionX, result.PositionY, result.PositionZ = prop.originX, prop.originY, prop.originZ
                 result.Scale = scale
                 result.Skin = prop.skin
-                result.Envmap = FindStaticPropCubemap(bsp, prop, illumpositions[name])
+                result.EnvmapIndex = envmapIndices[envmap] or 0
                 r.Width, r.Height, result.ShortestAxis = GetStaticPropUVSize(result)
                 results[#results + 1] = result
             end
@@ -858,6 +865,8 @@ function SurfaceBuilder.BuildStaticPropCache(bsp, cache)
     cache.NumStaticProps = #results
     cache.StaticPropMDL = bsp.sprp.name or {}
     cache.NumStaticPropMDL = #cache.StaticPropMDL
+    cache.StaticPropEnvmaps = envmaps
+    cache.NumStaticPropEnvmaps = #envmaps
     print("    Collected info for " .. #results .. " static props.")
 end
 

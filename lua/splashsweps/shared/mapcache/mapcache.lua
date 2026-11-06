@@ -131,7 +131,7 @@ MapCache.InkMapRectangle = record("MapCache.InkMapRectangle", {
 ---@field Skin         integer The skin of this prop.
 ---@field ShortestAxis integer The axis of the shortest edge of the bounding box, 1 to 3 for X, Y, and Z. See GetStaticPropUVSize.
 ---@field InkMapRectangle ss.MapCache.InkMapRectangle Where the unwrapped sides of the bounding box are in the ink map.
----@field Envmap       string  The cubemap texture the engine uses for this prop, `maps/<map>/cX_Y_Z` without ".hdr", or "" if the map has no cubemaps.
+---@field EnvmapIndex  integer Index to the cubemap texture the engine uses for this prop in StaticPropEnvmaps, or 0 if the map has no cubemaps.
 
 ---@type { new: fun(): ss.MapCache.StaticProp }
 MapCache.StaticProp = record("MapCache.StaticProp", {
@@ -153,7 +153,7 @@ MapCache.StaticProp = record("MapCache.StaticProp", {
     "Float  Scale",
     "Byte   ShortestAxis",
     "Long   Skin",         -- m_Skin of StaticPropLump_t (int)
-    "String Envmap",
+    "UShort EnvmapIndex",  -- MAX_MAP_CUBEMAPSAMPLES = 1024
     "MapCache.InkMapRectangle InkMapRectangle",
 }, {
     FadeMin     = -1,
@@ -395,6 +395,8 @@ MapCache.MinimapAreaBounds = record("MapCache.MinimapAreaBounds", {
 ---@field StaticProps      ss.MapCache.StaticProp[]?
 ---@field NumStaticPropMDL integer
 ---@field StaticPropMDL    string[]? List of paths to model of static props.
+---@field NumStaticPropEnvmaps integer
+---@field StaticPropEnvmaps    string[]? Cubemap textures the static props use, `maps/<map>/cX_Y_Z` without ".hdr".
 ---@field NumWaterSurfaces integer
 ---@field WaterSurfaces    ss.MapCache.Surface[]? Surfaces of water, which have no paintable grid or placement in the ink map.
 ---@field NumLightmapsLDR  integer
@@ -417,6 +419,8 @@ record("MapCache", {
     "MapCache.StaticProp StaticProps NumStaticProps",
     "ULong  NumStaticPropMDL",
     "String StaticPropMDL NumStaticPropMDL",
+    "UShort NumStaticPropEnvmaps",
+    "String StaticPropEnvmaps NumStaticPropEnvmaps",
     "ULong  NumWaterSurfaces",
     "MapCache.Surface WaterSurfaces NumWaterSurfaces",
     "ULong  NumLightmapsLDR",

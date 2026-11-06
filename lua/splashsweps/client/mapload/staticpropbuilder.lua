@@ -63,7 +63,8 @@ end
 ---Creates the models and the ink sprp materials of static props.
 ---@param staticPropInfo ss.MapCache.StaticProp[]
 ---@param modelNames     string[]
-function StaticPropBuilder.Setup(staticPropInfo, modelNames)
+---@param envmaps        string[]?
+function StaticPropBuilder.Setup(staticPropInfo, modelNames, envmaps)
     local templateMaterial = Material "splashsweps/shaders/staticprop"
     local materialCache = {} ---@type table<string, IMaterial>
     local watchedMaterials = {} ---@type { Material: IMaterial }[]
@@ -110,7 +111,8 @@ function StaticPropBuilder.Setup(staticPropInfo, modelNames)
                     m[9], m[10], m[11], m[12],
                     box.SizeX, box.SizeY, box.SizeZ, ss.MARGIN_HAMMER_UNITS)
 
-                local nearestEnvmap = prop.Envmap ~= "" and prop.Envmap .. (render.GetHDREnabled() and ".hdr" or "") or UnderlaySync.DEFAULT_ENVMAP
+                local envmapName = envmaps and envmaps[prop.EnvmapIndex]
+                local nearestEnvmap = envmapName and envmapName .. (render.GetHDREnabled() and ".hdr" or "") or UnderlaySync.DEFAULT_ENVMAP
                 local params = table.Merge(matKeyValues, {
                     ["$c1_y"] = uv.IsRotated and uv.Width or 0,
                     ["$c2_x"] = uv.OffsetU,
