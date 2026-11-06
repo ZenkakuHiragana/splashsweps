@@ -61,10 +61,10 @@ local function set4WayBlendParams(m, mat)
         return math.Round(math.Clamp(mat:GetFloat(name), 0, 1) * 255)
     end
 
-    ---@param format string Parameter name with %d for the layer number.
+    ---@param nameFormat string Parameter name with %d for the layer number.
     ---@return integer
-    local function packLayers(format)
-        return to8Bit(format:format(2)) + to8Bit(format:format(3)) * 256 + to8Bit(format:format(4)) * 65536
+    local function packLayers(nameFormat)
+        return to8Bit(nameFormat:format(2)) + to8Bit(nameFormat:format(3)) * 256 + to8Bit(nameFormat:format(4)) * 65536
     end
 
     -- $textureN_uvscale can be a float or a 2D vector; GetVector returns (v, v, v) for a float.

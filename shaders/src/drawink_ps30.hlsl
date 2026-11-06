@@ -296,20 +296,20 @@ PS_OUTPUT PaintIndices(const PsInputBundle i, float edgeDistanceHU, float edgeDi
     bool  isSameRegion = isOpaque ? oldLowerID == paintType && oldUpperID == 0.0 : oldUpperID == paintType;
     float oldBlendCode = round(oldBlend * INDICES_CODE_MAX);
     if (isBand) {
-        float distance = isSameRegion ? oldDistance : min(oldDistance, -edgeDistanceTexels);
-        output.color.b = EncodeIndicesDistanceBlend(distance, oldBlendCode);
+        float newDistance = isSameRegion ? oldDistance : min(oldDistance, -edgeDistanceTexels);
+        output.color.b = EncodeIndicesDistanceBlend(newDistance, oldBlendCode);
         return output;
     }
 
     // The union with the same region reaches its boundary no closer than either part does.
-    float distance = max(edgeDistanceTexels, isSameRegion ? oldDistance : 0.0);
+    float newDistance = max(edgeDistanceTexels, isSameRegion ? oldDistance : 0.0);
     // Floor the share left to the lower layer, so that every translucent layer advances the blend.
     float lowerShareCode = floor(translucency * (1.0 - oldBlend) * INDICES_CODE_MAX + 1.0e-3);
     float detailEncoded  = EncodeDetailPlacement(i, miscParam).modeRotationUNorm;
     output.color = float4(
         isOpaque ? paintType / 255.0 : old.r,
         isOpaque ? 0.0 : paintType / 255.0, // Opaque paint replaces the upper layer.
-        EncodeIndicesDistanceBlend(distance, isOpaque ? 0.0 : INDICES_CODE_MAX - lowerShareCode),
+        EncodeIndicesDistanceBlend(newDistance, isOpaque ? 0.0 : INDICES_CODE_MAX - lowerShareCode),
         detailEncoded); // Upper detail mode and quantized paint rotation
     return output;
 }

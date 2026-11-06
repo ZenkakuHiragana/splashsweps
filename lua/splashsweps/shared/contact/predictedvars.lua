@@ -134,17 +134,17 @@ end
 local function newVars(ent, vars)
     ---@param name string
     ---@return ss.PredictedVars.Var
-    local function find(name)
+    local function findVar(name)
         return vars[name] or error(string.format("SplashSWEPs: Undeclared predicted variable %q", name), 3)
     end
 
     return setmetatable({}, {
         __index = function(_, name)
-            local var = find(name)
+            local var = findVar(name)
             return var.Get(ent, var.Slot)
         end,
         __newindex = function(_, name, value)
-            local var = find(name)
+            local var = findVar(name)
             var.Set(ent, var.Slot, value)
         end,
     })

@@ -95,9 +95,9 @@ function MaterialProxy.Read(path)
                 end
             end
         end
-        local include = FindMaterialProxyKey(entries, "include")
-        if not include then return {} end
-        local includePath = include.Value ---@cast includePath string
+        local includeKey = FindMaterialProxyKey(entries, "include")
+        if not includeKey then return {} end
+        local includePath = includeKey.Value ---@cast includePath string
         path = includePath
     end
     return {}

@@ -38,12 +38,12 @@ function Propulsion.Move(ply, mv, contacts, vars)
     local limit = vars.SpeedLimit ---@type number
     if ply:OnGround() then
         local dt = engine.TickInterval()
-        local floor = findFloor(contacts)
-        if floor then
+        local floorMaterial = findFloor(contacts)
+        if floorMaterial then
             -- The limit rises from the current speed, so it keeps rising only while the player keeps running.
-            local acceleration = floor:GetFloat "$propulsion_acceleration" or DEFAULT_ACCELERATION
+            local acceleration = floorMaterial:GetFloat "$propulsion_acceleration" or DEFAULT_ACCELERATION
             limit = math.min(math.max(mv:GetVelocity():Length2D(), usual) + acceleration * dt,
-                floor:GetFloat "$propulsion_maxspeed" or DEFAULT_MAX_SPEED)
+                floorMaterial:GetFloat "$propulsion_maxspeed" or DEFAULT_MAX_SPEED)
             vars.Deceleration = acceleration
         else
             limit = limit - vars.Deceleration * dt

@@ -111,8 +111,8 @@ end
 function SpatialIndex.Setup(parameters)
     state.Parameters = parameters
     local isBrushModelSurface = {} ---@type table<ss.PaintableSurface, true>
-    for _, list in pairs(PaintableSurface.BrushModelSurfaces) do
-        for _, s in ipairs(list) do
+    for _, modelSurfaces in pairs(PaintableSurface.BrushModelSurfaces) do
+        for _, s in ipairs(modelSurfaces) do
             isBrushModelSurface[s] = true
         end
     end
@@ -133,9 +133,9 @@ function SpatialIndex.Setup(parameters)
                 for y = y0, y1 do
                     for x = x0, x1 do
                         local h = cellHash(level, x, y, z)
-                        local list = level.Cells[h] or {}
-                        level.Cells[h] = list
-                        list[#list + 1] = i
+                        local surfaceIndices = level.Cells[h] or {}
+                        level.Cells[h] = surfaceIndices
+                        surfaceIndices[#surfaceIndices + 1] = i
                     end
                 end
             end
@@ -168,9 +168,9 @@ local function surfacesNear(minX, minY, minZ, maxX, maxY, maxZ)
         for z = z0, z1 do
             for y = y0, y1 do
                 for x = x0, x1 do
-                    local list = level.Cells[cellHash(level, x, y, z)]
-                    if list then
-                        for _, i in ipairs(list) do
+                    local surfaceIndices = level.Cells[cellHash(level, x, y, z)]
+                    if surfaceIndices then
+                        for _, i in ipairs(surfaceIndices) do
                             if not hasSeenThisSurface[i] then
                                 hasSeenThisSurface[i] = true
                                 local aMinX, aMinY, aMinZ, aMaxX, aMaxY, aMaxZ = gridAABB(surfaces[i])

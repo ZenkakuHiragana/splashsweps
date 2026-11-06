@@ -96,12 +96,12 @@ local ipairs, pairs, unpack   = ipairs, pairs, unpack
 ---Adds a quad of a queued paint, starting a new dynamic mesh every MAX_QUADS quads.
 ---@param q         ss.InkMap.QueuedPaint
 ---@param region    integer Ink map region index
----@param band      integer 255 for the boundary band outside the shape edge, 0 for the paint itself
+---@param bandFlag  integer 255 for the boundary band outside the shape edge, 0 for the paint itself
 ---@param quadIndex integer Zero-based index of this quad among all quads of the batch
 ---@param numQuads  integer Number of quads in the batch
 ---@param hammerUnitsToUV number Conversion multiplier from hammer units to UV coordinates of the ink map
 ---@return integer nextQuadIndex
-local function AddQuad(q, region, band, quadIndex, numQuads, hammerUnitsToUV)
+local function AddQuad(q, region, bandFlag, quadIndex, numQuads, hammerUnitsToUV)
     if quadIndex % MAX_QUADS == 0 then
         if quadIndex > 0 then mesh_End() end
         mesh_Begin(MATERIAL_QUADS, min(numQuads - quadIndex, MAX_QUADS))
@@ -110,7 +110,7 @@ local function AddQuad(q, region, band, quadIndex, numQuads, hammerUnitsToUV)
     -- 0b0000RRCC, RR = Region, CC = Corner
     local p, placement = q.Paint, q.Placement
     for i = region * NUM_VERTEX * 16, (region * NUM_VERTEX + NUM_VERTEX - 1) * 16, 16 do
-        mesh_Color(band, i, p.InkType, q.Detail)
+        mesh_Color(bandFlag, i, p.InkType, q.Detail)
         mesh_Normal(p.RadiusX, p.RadiusY, p.RadiusZ)
         mesh_Position(p.X, p.Y, p.Z)
         mesh_TexCoord(0, p.Pitch, p.Yaw, p.Roll, hammerUnitsToUV)

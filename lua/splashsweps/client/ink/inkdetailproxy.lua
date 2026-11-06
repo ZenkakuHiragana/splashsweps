@@ -124,9 +124,9 @@ matproxy.Add {
         local updater = state.Updaters[name]
         if not updater then return end
         local update = updater.Update
-        local draw = update(self.State, material, self.Values)
-        if draw then
-            self.Draw = draw
+        local drawDetail = update(self.State, material, self.Values)
+        if drawDetail then
+            self.Draw = drawDetail
             self.Update = update
             state.Requests[name] = self
         end

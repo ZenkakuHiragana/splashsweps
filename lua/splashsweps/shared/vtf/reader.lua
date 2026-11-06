@@ -273,34 +273,34 @@ local RESOURCE_ENTRY_SIZE = 3 + 1 + 4
 ---@param mipmapLevel integer?
 ---@return Color
 function VTF.ReadPixel(vtf, x, y, mipmapLevel)
-    local format = vtf.ImageFormat
+    local imageFormat = vtf.ImageFormat
     local image = vtf.Images[mipmapLevel or 1]
     if not image then return color_transparent end
-    if UNCOMPRESSED_HANDLERS[format] then
-        local length = BYTES_PER_PIXEL[format]
+    if UNCOMPRESSED_HANDLERS[imageFormat] then
+        local length = BYTES_PER_PIXEL[imageFormat]
         local offset = (y * image.Width + x) * length + 1
         local pixelData = image.Buffer:sub(offset, offset + length - 1)
-        return UNCOMPRESSED_HANDLERS[format](pixelData)
-    elseif IS_DXT[format] then
+        return UNCOMPRESSED_HANDLERS[imageFormat](pixelData)
+    elseif IS_DXT[imageFormat] then
         local blockX = bit.rshift(x, 2)
         local blockY = bit.rshift(y, 2)
         local blockWidth = math.ceil(image.Width / 4)
         local blockIndex = blockY * blockWidth + blockX
-        local bytesPerBlock = DXT_BYTES_PER_BLOCK[format]
-        local blockOffset = blockIndex * bytesPerBlock + DXT_BLOCK_RGB_OFFSET[format]
+        local bytesPerBlock = DXT_BYTES_PER_BLOCK[imageFormat]
+        local blockOffset = blockIndex * bytesPerBlock + DXT_BLOCK_RGB_OFFSET[imageFormat]
         local blockData = image.Buffer:sub(blockOffset + 1, blockOffset + 8)
         local px, py = x % 4, y % 4
 
         local alpha = 255
-        if IS_DXT3_OR_DXT5[format] then
+        if IS_DXT3_OR_DXT5[imageFormat] then
             local alphaOffset = blockIndex * bytesPerBlock
             local alphaData = image.Buffer:sub(alphaOffset + 1, alphaOffset + 8)
-            if format == "IMAGE_FORMAT_DXT3" then
+            if imageFormat == "IMAGE_FORMAT_DXT3" then
                 -- Alpha: 8 bytes, 4 bits per pixel
                 local value = alphaData:byte(py * 2 + ((px / 2 < 1) and 1 or 2))
                 if px % 2 > 0 then value = bit.rshift(value, 4) end
                 alpha = math.Remap(bit.band(value, 0x0F), 0x00, 0x0F, 0, 255)
-            elseif format == "IMAGE_FORMAT_DXT5" then
+            elseif imageFormat == "IMAGE_FORMAT_DXT5" then
                 local offset = (py / 2 < 1) and 3 or 6
                 local alpha0, alpha1 = alphaData:byte(1, 2)
                 local c1, c2, c3 = alphaData:byte(offset, offset + 2)
@@ -330,13 +330,13 @@ function VTF.ReadPixel(vtf, x, y, mipmapLevel)
 
         local codeIndex = py * 4 + px
         local paletteIndex = bit.band(bit.rshift(codes, codeIndex * 2), 0x3) + 1
-        if format == "IMAGE_FORMAT_DXT1_ONEBITALPHA" and paletteIndex == 4 then
+        if imageFormat == "IMAGE_FORMAT_DXT1_ONEBITALPHA" and paletteIndex == 4 then
             return color_transparent
         end
 
         local r0, g0, b0 = decode565(color0)
         local r1, g1, b1 = decode565(color1)
-        if IS_DXT3_OR_DXT5[format] or color0 > color1 then
+        if IS_DXT3_OR_DXT5[imageFormat] or color0 > color1 then
             return ({
                 Color(r0, g0, b0, alpha),
                 Color(r1, g1, b1, alpha),
@@ -372,10 +372,10 @@ end
 ---Calculates image size in the given format in bytes.
 ---@param width integer
 ---@param height integer
----@param format integer
+---@param imageFormat integer
 ---@return integer
-local function getImageSize(width, height, format)
-    local f = IMAGE_FORMATS[format]
+local function getImageSize(width, height, imageFormat)
+    local f = IMAGE_FORMATS[imageFormat]
     if IS_DXT[f] then
         return math.ceil(width / 4) * math.ceil(height / 4) * DXT_BYTES_PER_BLOCK[f]
     else
@@ -398,12 +398,12 @@ end
 ---Returns the size of a single mipmap in bytes.
 ---@param largestWidth integer
 ---@param largestHeight integer
----@param format integer
+---@param imageFormat integer
 ---@param mipmapLevel integer
 ---@return integer size
-local function getMipmapSize(largestWidth, largestHeight, format, mipmapLevel)
+local function getMipmapSize(largestWidth, largestHeight, imageFormat, mipmapLevel)
     local width, height = getMipmapDimensions(largestWidth, largestHeight, mipmapLevel)
-    return getImageSize(width, height, format)
+    return getImageSize(width, height, imageFormat)
 end
 
 ---Calculates total size of the high resolution images in bytes.
@@ -414,10 +414,10 @@ local function getTotalImageSize(header)
     local width = header.width
     local height = header.height
     local mipmapCount = header.mipmapCount
-    local format = header.highResImageFormat
+    local imageFormat = header.highResImageFormat
     local total = 0
     for mipmapLevel = 1, mipmapCount do
-        total = total + getMipmapSize(width, height, format, mipmapLevel)
+        total = total + getMipmapSize(width, height, imageFormat, mipmapLevel)
     end
     return total
 end
@@ -445,9 +445,9 @@ end
 local function getHighResImageOffset73(header, vtf)
     for _ = 1, math.min(header.numResources, 32) do
         if vtf:Tell() + RESOURCE_ENTRY_SIZE > vtf:Size() then break end
-        local resource = BinaryReader.Read(vtf, "VTF.ResourceEntry")
-        if resource.tag == "\x30\x00\x00" then
-            return resource.offset
+        local resourceEntry = BinaryReader.Read(vtf, "VTF.ResourceEntry")
+        if resourceEntry.tag == "\x30\x00\x00" then
+            return resourceEntry.offset
         end
     end
 
@@ -481,16 +481,16 @@ function VTF.Read(path)
     if offset >= #data then return end
 
     local buffer = data:sub(offset + 1, offset + getTotalImageSize(header))
-    local format = header.highResImageFormat
+    local imageFormat = header.highResImageFormat
     local maxWidth = header.width
     local maxHeight = header.height
     local maxMipmapLevel = header.mipmapCount
     local mipmapOffset = 1
     ---@type ss.VTF.MipmapChain
-    local mipmapChain = { ImageFormat = IMAGE_FORMATS[format], Images = {} }
+    local mipmapChain = { ImageFormat = IMAGE_FORMATS[imageFormat], Images = {} }
     for mipmapLevel = maxMipmapLevel, 1, -1 do
         local width, height = getMipmapDimensions(maxWidth, maxHeight, mipmapLevel)
-        local size = getImageSize(width, height, format)
+        local size = getImageSize(width, height, imageFormat)
         mipmapChain.Images[mipmapLevel] = {
             Width = width,
             Height = height,

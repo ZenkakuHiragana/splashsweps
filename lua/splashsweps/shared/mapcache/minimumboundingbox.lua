@@ -213,9 +213,9 @@ function MinimumBoundingBox.FindMinimumOBB(xs, ys, zs)
             --           = [                   0   ssxx + 2csxy + ccyy   sxz + cyz ]
             --             [          cxz -  syz            sxz +  cyz          zz ]
             local tau = (syy - sxx) / (2 * sxy)
-            local tan = (tau < 0 and -1 or 1) / (abs(tau) + sqrt(1 + tau * tau))
-            local c = 1 / sqrt(1 + tan * tan)
-            local s = c * tan
+            local t = (tau < 0 and -1 or 1) / (abs(tau) + sqrt(1 + tau * tau))
+            local c = 1 / sqrt(1 + t * t)
+            local s = c * t
             local cc, ss2, cs2 = c * c, s * s, 2 * s * c * sxy
             sxx, syy = cc * sxx + ss2 * syy - cs2, ss2 * sxx + cc * syy + cs2
             sxy, syz, szx = 0, c * syz + s * szx, c * szx - s * syz
@@ -234,9 +234,9 @@ function MinimumBoundingBox.FindMinimumOBB(xs, ys, zs)
             --           = [ cxy - sxz   ccyy - 2csyz + sszz                     0 ]
             --             [ sxy + cxz                     0   ssyy + 2csyz + cczz ]
             local tau = (szz - syy) / (2 * syz)
-            local tan = (tau < 0 and -1 or 1) / (abs(tau) + sqrt(1 + tau * tau))
-            local c = 1 / sqrt(1 + tan * tan)
-            local s = c * tan
+            local t = (tau < 0 and -1 or 1) / (abs(tau) + sqrt(1 + tau * tau))
+            local c = 1 / sqrt(1 + t * t)
+            local s = c * t
             local cc, ss2, cs2 = c * c, s * s, 2 * s * c * syz
             syy, szz = cc * syy + ss2 * szz - cs2, ss2 * syy + cc * szz + cs2
             sxy, syz, szx = c * sxy - s * szx, 0, c * szx + s * sxy
@@ -255,9 +255,9 @@ function MinimumBoundingBox.FindMinimumOBB(xs, ys, zs)
             --           = [          cxy -  syz          yy            sxy +  cyz ]
             --             [                   0   sxy + cyz   ssxx + 2csxz + cczz ]
             local tau = (szz - sxx) / (2 * szx)
-            local tan = (tau < 0 and -1 or 1) / (abs(tau) + sqrt(1 + tau * tau))
-            local c = 1 / sqrt(1 + tan * tan)
-            local s = c * tan
+            local t = (tau < 0 and -1 or 1) / (abs(tau) + sqrt(1 + tau * tau))
+            local c = 1 / sqrt(1 + t * t)
+            local s = c * t
             local cc, ss2, cs2 = c * c, s * s, 2 * s * c * szx
             sxx, szz = cc * sxx + ss2 * szz - cs2, ss2 * sxx + cc * szz + cs2
             sxy, syz, szx = c * sxy - s * syz, c * syz + s * sxy, 0
