@@ -264,24 +264,9 @@ function PaintableGrid.Write(self, paint)
                         - shapeIntegralImage[shapeIndexMinY * shapeMaskWidth + shapeIndexMaxX + 1]
                         + shapeIntegralImage[shapeIndexMinY * shapeMaskWidth + shapeIndexMinX + 1]
 
-                    -- -- Lookup range for the mask
-                    -- debugoverlay.BoxAngles(worldpos,
-                    --     Vector(x_min, y_min, -1),
-                    --     Vector(x_max, y_max,  1),
-                    --     angle, 3, Color(0, 255, 255, 8))
                     if paintedCells >= totalCells * 0.5 then -- At least 50% of the cells should be filled.
                         setCell(surfaceGrid, iy * surfaceGridWidth + ix, inktype)
                         numPaintedCells = numPaintedCells + 1
-
-                        -- -- Painted cells
-                        -- local gridToWorld = Geometry.InvertRotationTranslation(self.ToGrid)
-                        -- debugoverlay.BoxAngles(
-                        --     Vector(Geometry.TransformPoint(gridToWorld,
-                        --         ix * cellSize + halfCellSize,
-                        --         iy * cellSize + halfCellSize, 0)),
-                        --     -Vector(halfCellSize, halfCellSize, 3),
-                        --     Vector(halfCellSize, halfCellSize, 3),
-                        --     Angle(Geometry.ToAngles(gridToWorld)), 3, Color(255, 128, 255, 16))
                     end
                 end
                 xInInkSystem = xInInkSystem + xInInkSystemStep
@@ -299,16 +284,6 @@ function PaintableGrid.Write(self, paint)
                 and 0 <= shapeIndexY and shapeIndexY < shapeMaskHeight
                 and shapeMask[shapeIndexY * shapeMaskWidth + shapeIndexX + 1] then
                     setCell(surfaceGrid, iy * surfaceGridWidth + ix, inktype)
-
-                    -- -- Painted cells
-                    -- local gridToWorld = Geometry.InvertRotationTranslation(self.ToGrid)
-                    -- debugoverlay.BoxAngles(
-                    --     Vector(Geometry.TransformPoint(gridToWorld,
-                    --         ix * cellSize + halfCellSize,
-                    --         iy * cellSize + halfCellSize, 0)),
-                    --     -Vector(halfCellSize, halfCellSize, 3),
-                    --     Vector(halfCellSize, halfCellSize, 3),
-                    --     Angle(Geometry.ToAngles(gridToWorld)), 3, Color(128, 128, 255, 16))
                 end
                 xInInkSystem = xInInkSystem + xInInkSystemStep
                 yInInkSystem = yInInkSystem + yInInkSystemStep
