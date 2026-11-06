@@ -153,7 +153,7 @@ function InkShape.Load()
         end
     end
 
-    state.NumBits = math.max(select(2, math.frexp(shapeCount - 1)), 1)
+    state.NumBits = Util.GetRequiredBits(shapeCount - 1)
 end
 
 ---Writes the identifiers and the tags of the ink shapes to the net message.

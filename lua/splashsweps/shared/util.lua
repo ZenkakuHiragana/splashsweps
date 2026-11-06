@@ -86,4 +86,11 @@ function Util.deepcopy(t, lookup)
     return copy
 end
 
+---Returns the required bits to transfer an unsigned integer up to maxValue, at least 1.
+---@param maxValue integer
+---@return integer
+function Util.GetRequiredBits(maxValue)
+    return math.max(select(2, math.frexp(maxValue)), 1)
+end
+
 return Util

@@ -126,7 +126,7 @@ function InkType.Load()
         end
     end
 
-    state.NumBits = math.max(select(2, math.frexp(inktypeCount - 1)), 1)
+    state.NumBits = Util.GetRequiredBits(inktypeCount - 1)
 
     table.Empty(state.Features)
     for _, inktype in ipairs(state.Types) do

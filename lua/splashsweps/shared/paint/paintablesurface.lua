@@ -5,6 +5,7 @@
 local ss = SplashSWEPs
 local Geometry      = ss.import "splashsweps/shared/geometry"
 local PaintableGrid = ss.import "splashsweps/shared/paint/paintablegrid"
+local Util          = ss.import "splashsweps/shared/util"
 
 ---@class ss.PaintableSurfaceModule
 local PaintableSurface = ss.module "splashsweps/shared/paint/paintablesurface"
@@ -163,7 +164,7 @@ end
 ---@param numModels integer Number of entries in the BSP model lump.
 function PaintableSurface.Setup(surfaces, numModels)
     if not surfaces then return end
-    state.ModelIndexBits = math.max(select(2, math.frexp(numModels - 1)), 1)
+    state.ModelIndexBits = Util.GetRequiredBits(numModels - 1)
     table.Empty(state.BrushModelSurfaces)
     for i, surf in ipairs(surfaces) do
         local g          = surf.ToGrid
